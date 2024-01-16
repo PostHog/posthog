@@ -457,6 +457,7 @@ mod tests {
     use super::*;
     use crate::config;
     use crate::kafka_producer::{create_kafka_producer, KafkaContext};
+    use hook_common::health::HealthRegistry;
     use hook_common::kafka_messages::app_metrics::{
         Error as WebhookError, ErrorDetails, ErrorType,
     };
@@ -476,6 +477,10 @@ mod tests {
         MockCluster<'static, DefaultProducerContext>,
         FutureProducer<KafkaContext>,
     ) {
+        let registry = HealthRegistry::new("liveness");
+        let handle = registry
+            .register("one".to_string(), time::Duration::seconds(30))
+            .await;
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
 
         let config = config::KafkaConfig {
@@ -491,7 +496,7 @@ mod tests {
 
         (
             cluster,
-            create_kafka_producer(&config)
+            create_kafka_producer(&config, handle)
                 .await
                 .expect("failed to create mocked kafka producer"),
         )

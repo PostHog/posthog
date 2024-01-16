@@ -2,6 +2,7 @@ use std::collections;
 use std::sync::Arc;
 use std::time;
 
+use hook_common::health::HealthHandle;
 use hook_common::{
     pgqueue::{Job, PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
     retry::RetryPolicy,
@@ -75,6 +76,8 @@ pub struct WebhookWorker<'p> {
     max_concurrent_jobs: usize,
     /// The retry policy used to calculate retry intervals when a job fails with a retryable error.
     retry_policy: RetryPolicy,
+    /// The liveness check handle, to call on a schedule to report healthy
+    liveness: HealthHandle,
 }
 
 impl<'p> WebhookWorker<'p> {
@@ -85,6 +88,7 @@ impl<'p> WebhookWorker<'p> {
         request_timeout: time::Duration,
         max_concurrent_jobs: usize,
         retry_policy: RetryPolicy,
+        liveness: HealthHandle,
     ) -> Self {
         let mut headers = header::HeaderMap::new();
         headers.insert(
@@ -106,6 +110,7 @@ impl<'p> WebhookWorker<'p> {
             client,
             max_concurrent_jobs,
             retry_policy,
+            liveness,
         }
     }
 
@@ -117,6 +122,7 @@ impl<'p> WebhookWorker<'p> {
 
         loop {
             interval.tick().await;
+            self.liveness.report_healthy().await;
 
             if let Some(job) = self.queue.dequeue(&self.name).await? {
                 return Ok(job);
@@ -132,6 +138,7 @@ impl<'p> WebhookWorker<'p> {
 
         loop {
             interval.tick().await;
+            self.liveness.report_healthy().await;
 
             if let Some(job) = self.queue.dequeue_tx(&self.name).await? {
                 return Ok(job);
@@ -157,7 +164,6 @@ impl<'p> WebhookWorker<'p> {
         } else {
             loop {
                 let webhook_job = self.wait_for_job().await?;
-
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
                     semaphore.clone(),
@@ -430,6 +436,8 @@ mod tests {
     // This is due to a long-standing cargo bug that reports imports and helper functions as unused.
     // See: https://github.com/rust-lang/rust/issues/46379.
     #[allow(unused_imports)]
+    use hook_common::health::HealthRegistry;
+    #[allow(unused_imports)]
     use hook_common::pgqueue::{JobStatus, NewJob};
     #[allow(unused_imports)]
     use sqlx::PgPool;
@@ -502,6 +510,10 @@ mod tests {
             plugin_id: 2,
             plugin_config_id: 3,
         };
+        let registry = HealthRegistry::new("liveness");
+        let liveness = registry
+            .register("worker".to_string(), ::time::Duration::seconds(30))
+            .await;
         // enqueue takes ownership of the job enqueued to avoid bugs that can cause duplicate jobs.
         // Normally, a separate application would be enqueueing jobs for us to consume, so no ownership
         // conflicts would arise. However, in this test we need to do the enqueueing ourselves.
@@ -521,6 +533,7 @@ mod tests {
             time::Duration::from_millis(5000),
             10,
             RetryPolicy::default(),
+            liveness,
         );
 
         let consumed_job = worker
@@ -543,6 +556,8 @@ mod tests {
             .complete()
             .await
             .expect("job not successfully completed");
+
+        assert!(registry.get_status().healthy)
     }
 
     #[sqlx::test(migrations = "../migrations")]

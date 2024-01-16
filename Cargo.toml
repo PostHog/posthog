@@ -29,6 +29,7 @@ sqlx = { version = "0.7", features = [
   "tls-native-tls",
   "uuid",
 ] }
+time = { version = "0.3.20" }
 thiserror = { version = "1.0" }
 tokio = { version = "1.34.0", features = ["full"] }
 tower = "0.4.13"

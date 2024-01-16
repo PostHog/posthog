@@ -1,7 +1,10 @@
 //! Consume `PgQueue` jobs to run webhook calls.
+use axum::routing::get;
 use axum::Router;
 use envconfig::Envconfig;
+use std::future::ready;
 
+use hook_common::health::HealthRegistry;
 use hook_common::{
     metrics::serve, metrics::setup_metrics_routes, pgqueue::PgQueue, retry::RetryPolicy,
 };
@@ -14,6 +17,11 @@ async fn main() -> Result<(), WorkerError> {
     tracing_subscriber::fmt::init();
 
     let config = Config::init_from_env().expect("Invalid configuration:");
+
+    let liveness = HealthRegistry::new("liveness");
+    let worker_liveness = liveness
+        .register("worker".to_string(), time::Duration::seconds(60)) // TODO: compute the value from worker params
+        .await;
 
     let retry_policy = RetryPolicy::build(
         config.retry_policy.backoff_coefficient,
@@ -33,11 +41,16 @@ async fn main() -> Result<(), WorkerError> {
         config.request_timeout.0,
         config.max_concurrent_jobs,
         retry_policy,
+        worker_liveness,
     );
 
+    let router = Router::new()
+        .route("/", get(index))
+        .route("/_readiness", get(index))
+        .route("/_liveness", get(move || ready(liveness.get_status())));
+    let router = setup_metrics_routes(router);
     let bind = config.bind();
     tokio::task::spawn(async move {
-        let router = setup_metrics_routes(Router::new());
         serve(router, &bind)
             .await
             .expect("failed to start serving metrics");
@@ -46,4 +59,8 @@ async fn main() -> Result<(), WorkerError> {
     worker.run(config.transactional).await?;
 
     Ok(())
+}
+
+pub async fn index() -> &'static str {
+    "rusty-hook worker"
 }

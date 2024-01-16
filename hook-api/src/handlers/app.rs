@@ -7,6 +7,8 @@ use super::webhook;
 pub fn add_routes(router: Router, pg_pool: PgQueue) -> Router {
     router
         .route("/", routing::get(index))
+        .route("/_readiness", routing::get(index))
+        .route("/_liveness", routing::get(index)) // No async loop for now, just check axum health
         .route("/webhook", routing::post(webhook::post).with_state(pg_pool))
 }
 

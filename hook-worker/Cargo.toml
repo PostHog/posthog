@@ -15,6 +15,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 sqlx = { workspace = true }
+time = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

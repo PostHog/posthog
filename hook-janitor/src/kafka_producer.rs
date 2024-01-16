@@ -1,17 +1,27 @@
 use crate::config::KafkaConfig;
 
+use hook_common::health::HealthHandle;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
 use tracing::debug;
 
-// TODO: Take stats recording pieces that we want from `capture-rs`.
-pub struct KafkaContext {}
+pub struct KafkaContext {
+    liveness: HealthHandle,
+}
 
-impl rdkafka::ClientContext for KafkaContext {}
+impl rdkafka::ClientContext for KafkaContext {
+    fn stats(&self, _: rdkafka::Statistics) {
+        // Signal liveness, as the main rdkafka loop is running and calling us
+        self.liveness.report_healthy_blocking();
+
+        // TODO: Take stats recording pieces that we want from `capture-rs`.
+    }
+}
 
 pub async fn create_kafka_producer(
     config: &KafkaConfig,
+    liveness: HealthHandle,
 ) -> Result<FutureProducer<KafkaContext>, KafkaError> {
     let mut client_config = ClientConfig::new();
     client_config
@@ -38,7 +48,10 @@ pub async fn create_kafka_producer(
     };
 
     debug!("rdkafka configuration: {:?}", client_config);
-    let api: FutureProducer<KafkaContext> = client_config.create_with_context(KafkaContext {})?;
+    let api: FutureProducer<KafkaContext> =
+        client_config.create_with_context(KafkaContext { liveness })?;
+
+    // TODO: ping the kafka brokers to confirm configuration is OK (copy capture)
 
     Ok(api)
 }

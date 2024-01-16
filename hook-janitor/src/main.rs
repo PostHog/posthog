@@ -4,6 +4,7 @@ use config::Config;
 use envconfig::Envconfig;
 use eyre::Result;
 use futures::future::{select, Either};
+use hook_common::health::{HealthHandle, HealthRegistry};
 use kafka_producer::create_kafka_producer;
 use std::{str::FromStr, time::Duration};
 use tokio::sync::Semaphore;
@@ -25,13 +26,14 @@ async fn listen(app: Router, bind: String) -> Result<()> {
     Ok(())
 }
 
-async fn cleanup_loop(cleaner: Box<dyn Cleaner>, interval_secs: u64) {
+async fn cleanup_loop(cleaner: Box<dyn Cleaner>, interval_secs: u64, liveness: HealthHandle) {
     let semaphore = Semaphore::new(1);
     let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
 
     loop {
         let _permit = semaphore.acquire().await;
         interval.tick().await;
+        liveness.report_healthy().await;
         cleaner.cleanup().await;
         drop(_permit);
     }
@@ -46,9 +48,14 @@ async fn main() {
     let mode_name = CleanerModeName::from_str(&config.mode)
         .unwrap_or_else(|_| panic!("invalid cleaner mode: {}", config.mode));
 
+    let liveness = HealthRegistry::new("liveness");
+
     let cleaner = match mode_name {
         CleanerModeName::Webhooks => {
-            let kafka_producer = create_kafka_producer(&config.kafka)
+            let kafka_liveness = liveness
+                .register("rdkafka".to_string(), time::Duration::seconds(30))
+                .await;
+            let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
                 .await
                 .expect("failed to create kafka producer");
 
@@ -64,9 +71,19 @@ async fn main() {
         }
     };
 
-    let cleanup_loop = Box::pin(cleanup_loop(cleaner, config.cleanup_interval_secs));
+    let cleanup_liveness = liveness
+        .register(
+            "cleanup_loop".to_string(),
+            time::Duration::seconds(config.cleanup_interval_secs as i64 * 2),
+        )
+        .await;
+    let cleanup_loop = Box::pin(cleanup_loop(
+        cleaner,
+        config.cleanup_interval_secs,
+        cleanup_liveness,
+    ));
 
-    let app = setup_metrics_routes(handlers::app());
+    let app = setup_metrics_routes(handlers::app(liveness));
     let http_server = Box::pin(listen(app, config.bind()));
 
     match select(http_server, cleanup_loop).await {
