@@ -3,6 +3,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -13,10 +14,10 @@ import { sidePanelStatusLogic, STATUS_PAGE_BASE } from './sidePanelStatusLogic'
 export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element => {
     const { status, statusPage } = useValues(sidePanelStatusLogic)
 
-    let title = statusPage?.status.description
-    if (statusPage?.status.description === 'All Systems Operational') {
-        title = 'All systems operational' // Sentence-case Statuspage.io default message, which can't be changed
-    }
+    /** Statuspage's hardcoded messages, e.g. "All Systems Operational". We convert this from title to sentence case. */
+    const title = statusPage?.status.description
+        ? capitalizeFirstLetter(statusPage.status.description.toLowerCase())
+        : null
 
     return (
         <Tooltip title={title} placement="left">
