@@ -3654,6 +3654,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Cannot change this flag to a group-based when linked to an Early Access Feature.",
+            },
+            response.json(),
+        )
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
