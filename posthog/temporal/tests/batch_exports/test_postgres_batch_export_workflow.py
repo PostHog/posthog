@@ -1,6 +1,5 @@
 import asyncio
 import datetime as dt
-import json
 from random import randint
 from uuid import uuid4
 
@@ -65,14 +64,14 @@ async def assert_events_in_postgres(connection, schema, table_name, events, excl
         elements_chain = event.get("elements_chain", None)
         expected_event = {
             "distinct_id": event.get("distinct_id"),
-            "elements": json.dumps(elements_chain),
+            "elements": elements_chain,
             "event": event.get("event"),
-            "ip": properties.get("$ip", "") if properties else "",
+            "ip": properties.get("$ip", None) if properties else None,
             "properties": event.get("properties"),
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
             # Kept for backwards compatibility, but not exported anymore.
-            "site_url": "",
+            "site_url": None,
             # For compatibility with CH which doesn't parse timezone component, so we add it here assuming UTC.
             "timestamp": dt.datetime.fromisoformat(event.get("timestamp") + "+00:00"),
             "team_id": event.get("team_id"),
