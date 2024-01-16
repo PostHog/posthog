@@ -39,6 +39,7 @@ from posthog.schema import (
     ChartDisplayType,
     EventsNode,
     HogQLQueryResponse,
+    InCohortVia,
     TrendsQuery,
     TrendsQueryResponse,
     HogQLQueryModifiers,
@@ -83,7 +84,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery]:
+    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:  # type: ignore
         queries = []
         with self.timings.measure("trends_query"):
             for series in self.series:
@@ -98,6 +99,7 @@ class TrendsQueryRunner(QueryRunner):
                     query_date_range=query_date_range,
                     series=series.series,
                     timings=self.timings,
+                    modifiers=self.modifiers,
                 )
                 queries.append(query_builder.build_query())
 
@@ -118,6 +120,7 @@ class TrendsQueryRunner(QueryRunner):
                     query_date_range=query_date_range,
                     series=series.series,
                     timings=self.timings,
+                    modifiers=self.modifiers,
                 )
                 queries.append(query_builder.build_persons_query())
 
@@ -341,17 +344,21 @@ class TrendsQueryRunner(QueryRunner):
             for series in self.query.series
         ]
 
-        if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
+        if (
+            self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            and self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+        ):
             updated_series = []
             if isinstance(self.query.breakdownFilter.breakdown, List):
                 cohort_ids = self.query.breakdownFilter.breakdown
             else:
-                cohort_ids = [self.query.breakdownFilter.breakdown]
+                cohort_ids = [self.query.breakdownFilter.breakdown]  # type: ignore
 
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
-                    copied_query.breakdownFilter.breakdown = cohort_id
+                    copied_query.breakdownFilter.breakdown = cohort_id  # type: ignore
 
                     updated_series.append(
                         SeriesWithExtras(

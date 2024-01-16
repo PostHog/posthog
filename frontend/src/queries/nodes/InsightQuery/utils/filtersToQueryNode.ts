@@ -126,6 +126,14 @@ const cleanProperties = (parentProperties: FilterType['properties']): InsightsQu
             }
         }
 
+        // Some saved insights have `"operator": null` defined in the properties, this
+        // breaks HogQL trends and Pydantic validation
+        if (filter.type === PropertyFilterType.Cohort) {
+            if ('operator' in filter) {
+                delete filter.operator
+            }
+        }
+
         return filter
     }
 
