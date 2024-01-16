@@ -542,6 +542,7 @@ export enum PipelineAppTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
+    History = 'history',
 }
 
 export enum ProgressStatus {
