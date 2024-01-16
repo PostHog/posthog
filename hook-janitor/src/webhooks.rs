@@ -412,15 +412,15 @@ impl WebhookCleaner {
 impl Cleaner for WebhookCleaner {
     async fn cleanup(&self) {
         let start_time = Instant::now();
+        metrics::counter!("webhook_cleanup_attempts",).increment(1);
 
         match self.cleanup_impl().await {
             Ok(stats) => {
-                metrics::counter!("webhook_cleanup_runs",).increment(1);
+                metrics::counter!("webhook_cleanup_success",).increment(1);
 
                 if stats.rows_processed > 0 {
                     let elapsed_time = start_time.elapsed().as_secs_f64();
                     metrics::histogram!("webhook_cleanup_duration").record(elapsed_time);
-
                     metrics::counter!("webhook_cleanup_rows_processed",)
                         .increment(stats.rows_processed);
                     metrics::counter!("webhook_cleanup_completed_row_count",)
