@@ -2,11 +2,11 @@ import asyncio
 import contextlib
 import datetime as dt
 import io
-import json
 import posixpath
 import typing
 from dataclasses import dataclass
 
+import orjson
 import aioboto3
 from django.conf import settings
 from temporalio import activity, workflow
@@ -21,8 +21,9 @@ from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
+    iter_records,
     get_rows_count,
+    default_fields,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -408,14 +409,19 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         # ClickHouse, write them to a local file, and then upload the file to S3
         # when it reaches 50MB in size.
 
-        results_iterator = get_results_iterator(
+        fields = default_fields()
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "elements_chain", "alias": "elements_chain"})
+        fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
+
+        records_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            include_person_properties=True,
+            fields=fields,
         )
 
         result = None
@@ -451,7 +457,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
-                for result in results_iterator:
+                for result, _ in records_iterator:
                     record = {
                         "created_at": result["created_at"],
                         "distinct_id": result["distinct_id"],
@@ -459,8 +465,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         "event": result["event"],
                         "inserted_at": result["inserted_at"],
                         "person_id": result["person_id"],
-                        "person_properties": result["person_properties"],
-                        "properties": result["properties"],
+                        "person_properties": orjson.loads(result["person_properties"].encode("utf-8"))
+                        if result["person_properties"] is not None
+                        else None,
+                        "properties": orjson.loads(result["properties"].encode("utf-8"))
+                        if result["properties"] is not None
+                        else None,
                         "timestamp": result["timestamp"],
                         "uuid": result["uuid"],
                     }
@@ -468,12 +478,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     local_results_file.write_records_to_jsonl([record])
 
                     if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                        last_uploaded_part_timestamp = result["inserted_at"]
+                        last_uploaded_part_timestamp = result["inserted_at"].isoformat()
                         await flush_to_s3(last_uploaded_part_timestamp)
                         local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
-                    last_uploaded_part_timestamp = result["inserted_at"]
+                    last_uploaded_part_timestamp = result["inserted_at"].isoformat()
                     await flush_to_s3(last_uploaded_part_timestamp, last=True)
 
             await s3_upload.complete()
@@ -491,7 +501,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> S3BatchExportInputs:
         """Parse inputs from the management command CLI."""
-        loaded = json.loads(inputs[0])
+        loaded = orjson.loads(inputs[0].encode("utf-8"))
         return S3BatchExportInputs(**loaded)
 
     @workflow.run

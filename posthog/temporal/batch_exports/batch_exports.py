@@ -3,12 +3,12 @@ import csv
 import dataclasses
 import datetime as dt
 import gzip
-import json
 import tempfile
 import typing
 import uuid
 from string import Template
 
+import orjson
 import brotli
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -130,7 +130,7 @@ def default_fields() -> list[Field]:
         Field(expression="toString(uuid)", alias="uuid"),
         Field(expression="team_id", alias="team_id"),
         Field(expression="timestamp", alias="timestamp"),
-        Field(expression="inserted_at", alias="inserted_at"),
+        Field(expression="COALESCE(inserted_at, _timestamp)", alias="inserted_at"),
         Field(expression="created_at", alias="created_at"),
         Field(expression="event", alias="event"),
         Field(expression="nullIf(properties, '')", alias="properties"),
@@ -225,46 +225,6 @@ def iter_records(
             yield (record, schema)
 
 
-def map_batch_record_to_default_schema(record) -> dict[str, typing.Any]:
-    """Iterate over records of a batch.
-
-    During iteration, we yield dictionaries with all fields used by PostHog BatchExports.
-
-    Args:
-        batch: A record batch of rows.
-    """
-    properties = record.get("properties")
-    person_properties = record.get("person_properties")
-    properties = json.loads(properties) if properties else None
-
-    # This is not backwards compatible, as elements should contain a parsed array.
-    # However, parsing elements_chain is a mess, so we json.dump to at least be compatible with
-    # schemas that use JSON-like types.
-    elements = json.dumps(record.get("elements_chain").decode())
-
-    record = {
-        "created_at": record.get("created_at").isoformat(),
-        "distinct_id": record.get("distinct_id").decode(),
-        "elements": elements,
-        "elements_chain": record.get("elements_chain").decode(),
-        "event": record.get("event").decode(),
-        "inserted_at": record.get("inserted_at").isoformat() if record.get("inserted_at") else None,
-        "ip": properties.get("$ip", None) if properties else None,
-        "person_id": record.get("person_id").decode(),
-        "person_properties": json.loads(person_properties) if person_properties else None,
-        "set": properties.get("$set", None) if properties else None,
-        "set_once": properties.get("$set_once", None) if properties else None,
-        "properties": properties,
-        # Kept for backwards compatibility, but not exported anymore.
-        "site_url": "",
-        "team_id": record.get("team_id"),
-        "timestamp": record.get("timestamp").isoformat(),
-        "uuid": record.get("uuid").decode(),
-    }
-
-    return record
-
-
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
     """Return the start and end of an export's data interval.
 
@@ -326,8 +286,8 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
     return (data_interval_start_dt, data_interval_end_dt)
 
 
-def json_dumps_bytes(d, encoding="utf-8") -> bytes:
-    return json.dumps(d).encode(encoding)
+def json_dumps_bytes(d) -> bytes:
+    return orjson.dumps(d)
 
 
 class BatchExportTemporaryFile:
