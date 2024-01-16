@@ -578,6 +578,53 @@ describe('filtersToQueryNode', () => {
             }
             expect(result).toEqual(query)
         })
+
+        it('converts properties with the correct cohort structure', () => {
+            const properties: any = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: 'id',
+                                type: PropertyFilterType.Cohort,
+                                value: 6,
+                                operator: null,
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            const filters: Partial<FilterType> = {
+                insight: InsightType.TRENDS,
+                properties,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.TrendsQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'id',
+                                    type: PropertyFilterType.Cohort,
+                                    value: 6,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
     })
 
     describe('example insights', () => {
