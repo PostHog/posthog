@@ -174,6 +174,18 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             team_id=inputs.team_id,
             endpoints=tuple(inputs.schemas),
         )
+    elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
+        from posthog.temporal.data_imports.pipelines.postgres import postgres_source
+
+        host = model.pipeline.job_inputs.get("host")
+        port = model.pipeline.job_inputs.get("port")
+        user = model.pipeline.job_inputs.get("user")
+        password = model.pipeline.job_inputs.get("password")
+        database = model.pipeline.job_inputs.get("database")
+        sslmode = model.pipeline.job_inputs.get("sslmode")
+
+        source = postgres_source(host=host, port=port, user=user, password=password, database=database, sslmode=sslmode)
+
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

@@ -133,6 +133,8 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_stripe_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.HUBSPOT:
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.POSTGRES:
+            new_source_model = self._handle_postgres_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -194,6 +196,39 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             job_inputs={
                 "hubspot_secret_key": access_token,
                 "hubspot_refresh_token": refresh_token,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_postgres_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        host = payload.get("host")
+        port = payload.get("port")
+        database = payload.get("database")
+
+        user = payload.get("user")
+        password = payload.get("password")
+        sslmode = payload.get("sslmode")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "host": host,
+                "port": port,
+                "database": database,
+                "user": user,
+                "password": password,
+                "sslmode": sslmode,
             },
             prefix=prefix,
         )
