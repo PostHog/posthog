@@ -149,7 +149,7 @@ export function ProjectVariables(): JSX.Element {
                     <h3 id="project-id" className="min-w-[25rem]">
                         Project Region
                     </h3>
-                    <p>This is the region where your PostHog data is currently hosted in.</p>
+                    <p>This is the region where your PostHog data is hosted.</p>
                     <CodeSnippet thing="project ID">
                         {preflightLogic.values.preflight?.site_url === 'https://eu.posthog.com'
                             ? 'EU Cloud'
