@@ -9,6 +9,8 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+import pyarrow as pa
+
 
 from posthog.batch_exports.service import BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
@@ -19,8 +21,9 @@ from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
+    iter_records,
     get_rows_count,
+    default_fields,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
@@ -62,6 +65,27 @@ async def create_table_in_bigquery(
     return table
 
 
+def get_bigquery_schema_from_record_schema(record_schema, fields) -> list[bigquery.SchemaField]:
+    bq_schema = []
+
+    for field in fields:
+        pa_field = record_schema.field(field)
+
+        match pa_field.type:
+            case pa.string():
+                bq_type = "STRING"
+
+            case pa.binary():
+                bq_type = "BYTES"
+
+            case _type:
+                raise TypeError(f"Unsupported type: {_type}")
+
+        bq_schema.append((field, bq_type))
+
+    return bq_schema
+
+
 @dataclasses.dataclass
 class BigQueryHeartbeatDetails(BatchExportHeartbeatDetails):
     """The BigQuery batch export details included in every heartbeat."""
@@ -86,6 +110,7 @@ class BigQueryInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     use_json_type: bool = False
+    fields: list[dict[str, str]] | None = None
 
 
 @contextlib.contextmanager
@@ -154,23 +179,30 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
-        results_iterator = get_results_iterator(
+        fields = default_fields()
+        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "elements_chain", "alias": "elements"})
+        fields.append({"expression": "''", "alias": "site_url"})
+
+        records_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            fields=fields,
         )
 
         if inputs.use_json_type is True:
             json_type = "JSON"
-            json_string_columns = ["elements"]
+            json_columns = ["properties", "set", "set_once"]
         else:
             json_type = "STRING"
-            json_string_columns = ["properties", "elements", "set", "set_once"]
+            json_columns = []
 
-        table_schema = [
+        default_table_schema = [
             bigquery.SchemaField("uuid", "STRING"),
             bigquery.SchemaField("event", "STRING"),
             bigquery.SchemaField("properties", json_type),
@@ -185,8 +217,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
         ]
 
-        result = None
-
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
             await activity.wait_for_worker_shutdown()
@@ -197,16 +227,19 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                 # Just start from the beginning again.
                 return
 
-            activity.heartbeat(last_inserted_at)
+            activity.heartbeat(str(last_inserted_at))
 
         asyncio.create_task(worker_shutdown_handler())
+
+        bigquery_table = None
+        inserted_at = None
 
         with bigquery_client(inputs) as bq_client:
             bigquery_table = await create_table_in_bigquery(
                 inputs.project_id,
                 inputs.dataset_id,
                 inputs.table_id,
-                table_schema,
+                default_table_schema,
                 bq_client,
             )
 
@@ -214,7 +247,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                 rows_exported = get_rows_exported_metric()
                 bytes_exported = get_bytes_exported_metric()
 
-                async def flush_to_bigquery():
+                async def flush_to_bigquery(bigquery_table, table_schema):
                     logger.debug(
                         "Loading %s records of size %s bytes",
                         jsonl_file.records_since_last_reset,
@@ -225,30 +258,33 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     rows_exported.add(jsonl_file.records_since_last_reset)
                     bytes_exported.add(jsonl_file.bytes_since_last_reset)
 
-                for result in results_iterator:
+                for record, _ in records_iterator:
+                    inserted_at = record["inserted_at"]
+
                     row = {
-                        field.name: json.dumps(result[field.name])
-                        if field.name in json_string_columns
-                        else result[field.name]
-                        for field in table_schema
+                        field.name: json.loads(record[field.name])
+                        if field.name in json_columns and record[field.name] is not None
+                        else record[field.name]
+                        for field in default_table_schema
                         if field.name != "bq_ingested_timestamp"
                     }
-                    row["bq_ingested_timestamp"] = str(dt.datetime.now(dt.timezone.utc))
+                    row["bq_ingested_timestamp"] = dt.datetime.now(dt.timezone.utc)
+                    row["elements"] = json.dumps(row["elements"])
 
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        await flush_to_bigquery()
+                        await flush_to_bigquery(bigquery_table, default_table_schema)
 
-                        last_inserted_at = result["inserted_at"]
+                        last_inserted_at = inserted_at.isoformat()
                         activity.heartbeat(last_inserted_at)
 
                         jsonl_file.reset()
 
-                if jsonl_file.tell() > 0 and result is not None:
-                    await flush_to_bigquery()
+                if jsonl_file.tell() > 0 and inserted_at is not None:
+                    await flush_to_bigquery(bigquery_table, default_table_schema)
 
-                    last_inserted_at = result["inserted_at"]
+                    last_inserted_at = inserted_at.isoformat()
                     activity.heartbeat(last_inserted_at)
 
                     jsonl_file.reset()
