@@ -4,6 +4,7 @@ from random import randint
 from uuid import uuid4
 
 import psycopg
+import pyarrow as pa
 import pytest
 import pytest_asyncio
 from django.conf import settings
@@ -17,12 +18,14 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
+    iter_records,
     update_export_run_status,
 )
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
     PostgresInsertInputs,
+    get_postgres_fields_from_record_schema,
     insert_into_postgres_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -205,7 +208,9 @@ def table_name(ateam, interval):
 
 
 @pytest_asyncio.fixture
-async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
+async def postgres_batch_export(
+    ateam, table_name, postgres_config, interval, exclude_events, temporal_client, batch_export_schema
+):
     destination_data = {
         "type": "Postgres",
         "config": {**postgres_config, "table_name": table_name, "exclude_events": exclude_events},
@@ -214,6 +219,7 @@ async def postgres_batch_export(ateam, table_name, postgres_config, interval, ex
         "name": "my-production-postgres-export",
         "destination": destination_data,
         "interval": interval,
+        "batch_export_schema": batch_export_schema,
     }
 
     batch_export = await acreate_batch_export(
@@ -221,6 +227,7 @@ async def postgres_batch_export(ateam, table_name, postgres_config, interval, ex
         name=batch_export_data["name"],
         destination_data=batch_export_data["destination"],
         interval=batch_export_data["interval"],
+        schema=batch_export_data["batch_export_schema"],
     )
 
     yield batch_export
@@ -280,6 +287,7 @@ async def test_postgres_export_workflow(
         batch_export_id=str(postgres_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        batch_export_schema=postgres_batch_export.schema,
         **postgres_batch_export.destination.config,
     )
 
@@ -310,6 +318,17 @@ async def test_postgres_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
+
+    if postgres_batch_export.schema is not None:
+        events = iter_records(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            interval_start=data_interval_start,
+            interval_end=data_interval_end.isoformat(),
+            exclude_events=exclude_events,
+            fields=postgres_batch_export.schema["fields"],
+            extra_query_parameters=postgres_batch_export.schema["values"],
+        )
 
     await assert_events_in_postgres(
         postgres_connection,
@@ -416,3 +435,162 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
     run = runs[0]
     assert run.status == "Cancelled"
     assert run.latest_error == "Cancelled"
+
+
+@pytest.mark.parametrize(
+    "pyrecords,expected_schema",
+    [
+        ([{"test": 1}], [("test", "BIGINT")]),  # Python only has long, i.e. BIGINT
+        ([{"test": "a string"}], [("test", "TEXT")]),
+        ([{"test": 6.9}], [("test", "DOUBLE PRECISION")]),
+        ([{"test": True}], [("test", "BOOLEAN")]),
+        ([{"test": dt.datetime.now()}], [("test", "TIMESTAMP")]),
+        ([{"test": dt.datetime.now(tz=dt.timezone.utc)}], [("test", "TIMESTAMPTZ")]),
+        (
+            [
+                {
+                    "test_int": 1,
+                    "test_str": "a string",
+                    "test_float": 6.9,
+                    "test_bool": False,
+                    "test_timestamp": dt.datetime.now(),
+                    "test_timestamptz": dt.datetime.now(tz=dt.timezone.utc),
+                }
+            ],
+            [
+                ("test_int", "BIGINT"),
+                ("test_str", "TEXT"),
+                ("test_float", "DOUBLE PRECISION"),
+                ("test_bool", "BOOLEAN"),
+                ("test_timestamp", "TIMESTAMP"),
+                ("test_timestamptz", "TIMESTAMPTZ"),
+            ],
+        ),
+    ],
+)
+def test_get_postgres_fields_from_record_schema(pyrecords, expected_schema):
+    record_batch = pa.RecordBatch.from_pylist(pyrecords)
+    schema = get_postgres_fields_from_record_schema(record_batch.schema)
+
+    assert schema == expected_schema
+
+
+TEST_SCHEMAS = [
+    {
+        "fields": [
+            {"expression": "event", "alias": "my_event_name"},
+            {"expression": "nullIf(JSONExtractRaw(properties, '$browser'), '')", "alias": "browser"},
+        ],
+        "values": {},
+    },
+]
+
+
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("batch_export_schema", TEST_SCHEMAS, indirect=True)
+async def test_postgres_export_workflow_with_schema(
+    clickhouse_client,
+    postgres_config,
+    postgres_connection,
+    postgres_batch_export,
+    interval,
+    exclude_events,
+    ateam,
+    table_name,
+):
+    """Test Postgres Export Workflow end-to-end by using a local PG database.
+
+    This test function accepts a custom batch export schema and does a simpler assertion
+    to check whether data was corretly exported.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - postgres_batch_export.interval_time_delta
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
+
+    workflow_id = str(uuid4())
+    inputs = PostgresBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_schema=postgres_batch_export.schema,
+        **postgres_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                create_export_run,
+                insert_into_postgres_activity,
+                update_export_run_status,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+
+    expected_records = [
+        record
+        for record, _ in iter_records(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            interval_start=data_interval_start.isoformat(),
+            interval_end=data_interval_end.isoformat(),
+            exclude_events=exclude_events,
+            fields=postgres_batch_export.schema["fields"],
+            extra_query_parameters=postgres_batch_export.schema["values"],
+        )
+    ]
+
+    inserted_records = []
+    async with postgres_connection.cursor() as cursor:
+        await cursor.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(postgres_config["schema"], table_name)))
+        columns = [column.name for column in cursor.description]
+
+        for row in await cursor.fetchall():
+            event = dict(zip(columns, row))
+            inserted_records.append(event)
+
+    assert expected_records == inserted_records

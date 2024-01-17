@@ -1,12 +1,13 @@
 import collections.abc
 import contextlib
+import csv
 import datetime as dt
 import json
 import typing
 from dataclasses import dataclass
-import csv
 
 import psycopg
+import pyarrow as pa
 from django.conf import settings
 from psycopg import sql
 from temporalio import activity, workflow
@@ -15,22 +16,23 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import PostgresBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportSchema,
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    iter_records,
-    default_fields,
     get_rows_count,
+    iter_records,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
 @contextlib.asynccontextmanager
@@ -94,12 +96,58 @@ async def copy_tsv_to_postgres(
                 await copy.write(data)
 
 
-Field = tuple[str, str]
-Fields = collections.abc.Iterable[Field]
+PostgreSQLField = tuple[str, str]
+PostgreSQLFields = collections.abc.Iterable[PostgreSQLField]
+
+
+def get_postgres_fields_from_record_schema(record_schema: pa.Schema) -> list[PostgreSQLField]:
+    """Generate a list of supported PostgreSQL fields from PyArrow schema.
+
+    This function is used to map custom schemas to PostgreSQL-supported types. Some loss of precision is
+    expected.
+    """
+    pg_schema: list[PostgreSQLField] = []
+
+    for name in record_schema.names:
+        pa_field = record_schema.field(name)
+
+        if pa.types.is_string(pa_field.type):
+            pg_type = "TEXT"
+
+        elif pa.types.is_signed_integer(pa_field.type):
+            if pa.types.is_int64(pa_field.type):
+                pg_type = "BIGINT"
+            else:
+                pg_type = "INTEGER"
+
+        elif pa.types.is_floating(pa_field.type):
+            if pa.types.is_float64(pa_field.type):
+                pg_type = "DOUBLE PRECISION"
+            else:
+                pg_type = "REAL"
+
+        elif pa.types.is_boolean(pa_field.type):
+            pg_type = "BOOLEAN"
+
+        elif pa.types.is_timestamp(pa_field.type):
+            if pa_field.type.tz is not None:
+                pg_type = "TIMESTAMPTZ"
+            else:
+                pg_type = "TIMESTAMP"
+
+        else:
+            raise TypeError(f"Unsupported type: {pa_field.type}")
+
+        pg_schema.append((name, pg_type))
+
+    return pg_schema
 
 
 async def create_table_in_postgres(
-    postgres_connection: psycopg.AsyncConnection, schema: str | None, table_name: str, fields: Fields
+    postgres_connection: psycopg.AsyncConnection,
+    schema: str | None,
+    table_name: str,
+    fields: PostgreSQLFields,
 ) -> None:
     """Create a table in a Postgres database if it doesn't exist already.
 
@@ -155,6 +203,7 @@ class PostgresInsertInputs:
     port: int = 5432
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @activity.defn
@@ -190,11 +239,37 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
-        fields = default_fields()
-        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
-        # Fields kept for backwards compatibility with legacy apps schema.
-        fields.append({"expression": "elements_chain", "alias": "elements"})
-        fields.append({"expression": "''", "alias": "site_url"})
+        if inputs.batch_export_schema is None:
+            batch_export_fields = default_fields()
+            batch_export_fields.append(
+                {
+                    "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+                    "alias": "ip",
+                }
+            )
+            # Fields kept for backwards compatibility with legacy apps schema.
+            batch_export_fields.append({"expression": "elements_chain", "alias": "elements"})
+            batch_export_fields.append({"expression": "''", "alias": "site_url"})
+            extra_query_parameters = {}
+
+            schema_columns = [
+                "uuid",
+                "event",
+                "properties",
+                "elements",
+                "set",
+                "set_once",
+                "distinct_id",
+                "team_id",
+                "ip",
+                "site_url",
+                "timestamp",
+            ]
+
+        else:
+            batch_export_fields = inputs.batch_export_schema["fields"]
+            extra_query_parameters = inputs.batch_export_schema["values"]
+            schema_columns = [field["alias"] for field in inputs.batch_export_schema["fields"]]
 
         records_iterator = iter_records(
             client=client,
@@ -203,41 +278,9 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            fields=fields,
+            fields=batch_export_fields,
+            extra_query_parameters=extra_query_parameters,
         )
-        async with postgres_connection(inputs) as connection:
-            await create_table_in_postgres(
-                connection,
-                schema=inputs.schema,
-                table_name=inputs.table_name,
-                fields=[
-                    ("uuid", "VARCHAR(200)"),
-                    ("event", "VARCHAR(200)"),
-                    ("properties", "JSONB"),
-                    ("elements", "JSONB"),
-                    ("set", "JSONB"),
-                    ("set_once", "JSONB"),
-                    ("distinct_id", "VARCHAR(200)"),
-                    ("team_id", "INTEGER"),
-                    ("ip", "VARCHAR(200)"),
-                    ("site_url", "VARCHAR(200)"),
-                    ("timestamp", "TIMESTAMP WITH TIME ZONE"),
-                ],
-            )
-
-        schema_columns = [
-            "uuid",
-            "event",
-            "properties",
-            "elements",
-            "set",
-            "set_once",
-            "distinct_id",
-            "team_id",
-            "ip",
-            "site_url",
-            "timestamp",
-        ]
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
@@ -261,11 +304,45 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     rows_exported.add(pg_file.records_since_last_reset)
                     bytes_exported.add(pg_file.bytes_since_last_reset)
 
-                for record, _ in records_iterator:
+                is_table_created = False
+
+                for record, schema in records_iterator:
+                    if not is_table_created:
+                        if inputs.batch_export_schema is None:
+                            fields = [
+                                ("uuid", "VARCHAR(200)"),
+                                ("event", "VARCHAR(200)"),
+                                ("properties", "JSONB"),
+                                ("elements", "JSONB"),
+                                ("set", "JSONB"),
+                                ("set_once", "JSONB"),
+                                ("distinct_id", "VARCHAR(200)"),
+                                ("team_id", "INTEGER"),
+                                ("ip", "VARCHAR(200)"),
+                                ("site_url", "VARCHAR(200)"),
+                                ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+                            ]
+                        else:
+                            fields = get_postgres_fields_from_record_schema(schema)
+
+                        await create_table_in_postgres(
+                            connection,
+                            schema=inputs.schema,
+                            table_name=inputs.table_name,
+                            fields=fields,
+                        )
+                        is_table_created = True
+
                     row = record
-                    row["elements"] = json.dumps(row["elements"])
+
+                    if row.get("elements", None) is not None and inputs.batch_export_schema is None:
+                        row["elements"] = json.dumps(row["elements"])
+
                     pg_file.write_records_to_tsv(
-                        [row], fieldnames=schema_columns, quoting=csv.QUOTE_MINIMAL, escapechar=None
+                        [row],
+                        fieldnames=schema_columns,
+                        quoting=csv.QUOTE_MINIMAL,
+                        escapechar=None,
                     )
 
                     if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
@@ -335,6 +412,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(
