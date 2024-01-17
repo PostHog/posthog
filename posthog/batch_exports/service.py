@@ -148,7 +148,7 @@ class NoOpInputs:
     team_id: int
     interval: str = "hour"
     arg: str = ""
-    hogql_query: str | None = None
+    batch_export_schema: dict[str, str] | None = None
 
 
 DESTINATION_WORKFLOWS = {

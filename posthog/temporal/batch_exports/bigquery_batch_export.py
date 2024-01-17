@@ -80,7 +80,7 @@ def get_bigquery_schema_from_record_schema(record_schema, fields) -> list[bigque
             case _type:
                 raise TypeError(f"Unsupported type: {_type}")
 
-        bq_schema.append((field, bq_type))
+        bq_schema.append(bigquery.SchemaField(field, bq_type))
 
     return bq_schema
 
@@ -179,7 +179,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         logger.info("BatchExporting %s rows", count)
 
         fields = default_fields()
-        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
+        fields.append(
+            {
+                "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+                "alias": "ip",
+            }
+        )
         # Fields kept for backwards compatibility with legacy apps schema.
         fields.append({"expression": "elements_chain", "alias": "elements"})
         fields.append({"expression": "''", "alias": "site_url"})
