@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from django.conf import settings
 import structlog
 from prometheus_client import Counter
 from sentry_sdk import capture_exception, capture_message
@@ -147,8 +146,6 @@ def schedule_all_subscriptions() -> None:
 
 @app.task()
 def deliver_subscription_report(subscription_id: int) -> None:
-    if not settings.TEST:
-        return
     return _deliver_subscription_report(subscription_id)
 
 
