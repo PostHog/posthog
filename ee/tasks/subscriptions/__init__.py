@@ -144,12 +144,12 @@ def schedule_all_subscriptions() -> None:
         deliver_subscription_report.delay(subscription.id)
 
 
-@app.task()
+@app.task(soft_time_limit=30, time_limit=40)
 def deliver_subscription_report(subscription_id: int) -> None:
     return _deliver_subscription_report(subscription_id)
 
 
-@app.task()
+@app.task(soft_time_limit=30, time_limit=40)
 def handle_subscription_value_change(
     subscription_id: int, previous_value: str, invite_message: Optional[str] = None
 ) -> None:
