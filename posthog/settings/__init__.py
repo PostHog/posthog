@@ -110,6 +110,8 @@ CONTAINER_HOSTNAME = os.getenv("HOSTNAME", "unknown")
 
 PROM_PUSHGATEWAY_ADDRESS = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
+IN_UNIT_TESTING = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
+
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
