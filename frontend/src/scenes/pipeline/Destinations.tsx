@@ -1,7 +1,6 @@
 import {
     LemonButton,
     LemonDivider,
-    LemonSkeleton,
     LemonTable,
     LemonTableColumn,
     LemonTag,
@@ -218,16 +217,13 @@ function DestinationSparkLine({ destination }: { destination: DestinationType })
         const logic = pipelineAppMetricsLogic({ pluginConfigId: destination.id })
         const { appMetricsResponse } = useValues(logic)
 
-        if (appMetricsResponse === null) {
-            return <LemonSkeleton className="w-full h-9" />
-        }
-
         return (
             <Sparkline
-                labels={appMetricsResponse.metrics.dates}
+                loading={appMetricsResponse === null}
+                labels={appMetricsResponse? appMetricsResponse.metrics.dates : []}
                 data={[
-                    { color: 'danger', name: 'failures', values: appMetricsResponse.metrics.failures },
-                    { color: 'success', name: 'sucesses', values: appMetricsResponse.metrics.successes },
+                    { color: 'success', name: 'Events sent', values: appMetricsResponse ? appMetricsResponse.metrics.successes : [] },
+                    { color: 'danger', name: 'Events dropped', values: appMetricsResponse ? appMetricsResponse.metrics.failures : [] },
                 ]}
             />
         )

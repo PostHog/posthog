@@ -43,6 +43,8 @@ export interface PopoverProps {
     sameWidth?: boolean
     maxContentWidth?: boolean
     className?: string
+    /** Whether default box padding should be applies. @default true */
+    padded?: boolean
     middleware?: Middleware[]
     /** Any other refs that needs to be taken into account for handling outside clicks e.g. other nested popovers.
      * Works also with strings, matching classnames or ids, for antd legacy components that don't support refs
@@ -84,6 +86,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement = 'bottom-start',
         fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
         className,
+        padded = true,
         actionable = false,
         middleware,
         sameWidth = false,
@@ -249,7 +252,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             onMouseLeave={onMouseLeaveInside}
                             aria-level={currentPopoverLevel}
                         >
-                            <div className="Popover__box">
+                            <div className={clsx( "Popover__box", !padded && 'p-0')}>
                                 {showArrow && isAttached && (
                                     // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
                                     <div
@@ -267,6 +270,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     </PopoverOverlayContext.Provider>
                 </CSSTransition>
             </FloatingPortal>
-        </>
+        </> 
     )
 })

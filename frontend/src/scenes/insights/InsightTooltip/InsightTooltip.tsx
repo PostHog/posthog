@@ -20,6 +20,7 @@ import {
     ROW_CUTOFF,
     SeriesDatum,
 } from './insightTooltipUtils'
+import clsx from 'clsx'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -78,6 +79,7 @@ export function InsightTooltip({
     altRightTitle,
     renderSeries,
     renderCount,
+    embedded = false,
     hideColorCol = false,
     hideInspectActorsSection = false,
     entitiesAsColumnsOverride,
@@ -171,7 +173,7 @@ export function InsightTooltip({
         }
 
         return (
-            <div className="InsightTooltip">
+            <div className={clsx("InsightTooltip", embedded && "InsightTooltip--embedded")}>
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -232,7 +234,7 @@ export function InsightTooltip({
     })
 
     return (
-        <div className="InsightTooltip">
+        <div className={clsx("InsightTooltip", embedded && "InsightTooltip--embedded")}>
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}
