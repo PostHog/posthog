@@ -195,9 +195,9 @@ impl WebhookCleaner {
         let base_query = r#"
         SELECT
             COALESCE(MIN(CASE WHEN attempt = 0 THEN created_at END), now()) AS oldest_created_at_untried,
-            SUM(CASE WHEN attempt = 0 THEN 1 ELSE 0 END) AS count_untried,
+            COALESCE(SUM(CASE WHEN attempt = 0 THEN 1 ELSE 0 END), 0) AS count_untried,
             COALESCE(MIN(CASE WHEN attempt > 0 THEN created_at END), now()) AS oldest_created_at_retries,
-            SUM(CASE WHEN attempt > 0 THEN 1 ELSE 0 END) AS count_retries
+            COALESCE(SUM(CASE WHEN attempt > 0 THEN 1 ELSE 0 END), 0) AS count_retries
         FROM job_queue
         WHERE status = 'available'
           AND queue = $1;
@@ -513,6 +513,7 @@ mod tests {
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::{DefaultProducerContext, FutureProducer};
+    use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
     use rdkafka::{ClientConfig, Message};
     use sqlx::{PgPool, Row};
     use std::collections::HashMap;
@@ -752,6 +753,47 @@ mod tests {
         ];
 
         check_app_metric_vector_equality(&expected_app_metrics, &received_app_metrics);
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_cleanup_impl_empty_queue(db: PgPool) {
+        let (mock_cluster, mock_producer) = create_mock_kafka().await;
+        mock_cluster
+            .create_topic(APP_METRICS_TOPIC, 1, 1)
+            .expect("failed to create mock app_metrics topic");
+
+        // No payload should be produced to kafka as the queue is empty.
+        // Set a non-retriable produce error that would bubble-up when cleanup_impl is called.
+        let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
+        mock_cluster.request_errors(RDKafkaApiKey::Produce, &err);
+
+        let consumer: StreamConsumer = ClientConfig::new()
+            .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+            .set("group.id", "mock")
+            .set("auto.offset.reset", "earliest")
+            .create()
+            .expect("failed to create mock consumer");
+        consumer.subscribe(&[APP_METRICS_TOPIC]).unwrap();
+
+        let webhook_cleaner = WebhookCleaner::new_from_pool(
+            &"webhooks",
+            db,
+            mock_producer,
+            APP_METRICS_TOPIC.to_owned(),
+        )
+        .expect("unable to create webhook cleaner");
+
+        let cleanup_stats = webhook_cleaner
+            .cleanup_impl()
+            .await
+            .expect("webbook cleanup_impl failed");
+
+        // Reported metrics are all zeroes
+        assert_eq!(cleanup_stats.rows_processed, 0);
+        assert_eq!(cleanup_stats.completed_row_count, 0);
+        assert_eq!(cleanup_stats.completed_agg_row_count, 0);
+        assert_eq!(cleanup_stats.failed_row_count, 0);
+        assert_eq!(cleanup_stats.failed_agg_row_count, 0);
     }
 
     #[sqlx::test(migrations = "../migrations", fixtures("webhook_cleanup"))]
