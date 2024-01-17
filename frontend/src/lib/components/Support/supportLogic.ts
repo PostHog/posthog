@@ -55,6 +55,7 @@ export const TARGET_AREA_TO_NAME = {
     apps: 'Apps',
     login: 'Authentication (Login / Sign-up / Invites)',
     billing: 'Billing',
+    onboarding: 'Onboarding',
     cohorts: 'Cohorts',
     data_integrity: 'Data Integrity',
     data_management: 'Data Management',

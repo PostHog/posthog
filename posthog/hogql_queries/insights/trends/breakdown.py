@@ -17,7 +17,7 @@ from posthog.hogql_queries.insights.trends.utils import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
 class Breakdown:
@@ -26,6 +26,7 @@ class Breakdown:
     series: EventsNode | ActionsNode
     query_date_range: QueryDateRange
     timings: HogQLTimings
+    modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
 
     def __init__(
@@ -35,6 +36,7 @@ class Breakdown:
         series: EventsNode | ActionsNode,
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
+        modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
     ):
         self.team = team
@@ -42,6 +44,7 @@ class Breakdown:
         self.series = series
         self.query_date_range = query_date_range
         self.timings = timings
+        self.modifiers = modifiers
         self.events_filter = events_filter
 
     @cached_property
@@ -70,8 +73,14 @@ class Breakdown:
                 expr=parse_expr(self.query.breakdownFilter.breakdown),
             )
         elif self.query.breakdownFilter.breakdown_type == "cohort":
+            if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+                return ast.Alias(
+                    alias="breakdown_value",
+                    expr=ast.Field(chain=["__in_cohort", "cohort_id"]),
+                )
+
             cohort_breakdown = (
-                0 if self.query.breakdownFilter.breakdown == "all" else int(self.query.breakdownFilter.breakdown)
+                0 if self.query.breakdownFilter.breakdown == "all" else int(self.query.breakdownFilter.breakdown)  # type: ignore
             )
             return ast.Alias(
                 alias="breakdown_value",
@@ -91,17 +100,44 @@ class Breakdown:
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_transform_func)
 
     def events_where_filter(self) -> ast.Expr | None:
-        if self.query.breakdownFilter.breakdown_type == "cohort":
+        if (
+            self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+        ):
             if self.query.breakdownFilter.breakdown == "all":
                 return None
+
+            if isinstance(self.query.breakdownFilter.breakdown, List):
+                or_clause = ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["person", "id"]),
+                            op=ast.CompareOperationOp.InCohort,
+                            right=ast.Constant(value=breakdown),
+                        )
+                        for breakdown in self.query.breakdownFilter.breakdown
+                    ]
+                )
+                if len(self.query.breakdownFilter.breakdown) > 1:
+                    return or_clause
+                elif len(self.query.breakdownFilter.breakdown) == 1:
+                    return or_clause.exprs[0]
+                else:
+                    return ast.Constant(value=True)
 
             return ast.CompareOperation(
                 left=ast.Field(chain=["person", "id"]),
                 op=ast.CompareOperationOp.InCohort,
-                right=ast.Constant(value=int(self.query.breakdownFilter.breakdown)),
+                right=ast.Constant(value=self.query.breakdownFilter.breakdown),
             )
 
-        if self.query.breakdownFilter.breakdown_type == "hogql":
+        if (
+            self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown is not None
+            and self.query.breakdownFilter.breakdown_type == "hogql"
+            and isinstance(self.query.breakdownFilter.breakdown, str)
+        ):
             left = parse_expr(self.query.breakdownFilter.breakdown)
         else:
             left = ast.Field(chain=self._properties_chain)
@@ -176,8 +212,8 @@ class Breakdown:
         with self.timings.measure("breakdown_values_query"):
             breakdown = BreakdownValues(
                 team=self.team,
-                event_name=series_event_name(self.series),
-                breakdown_field=self.query.breakdownFilter.breakdown,
+                event_name=series_event_name(self.series) or "",
+                breakdown_field=self.query.breakdownFilter.breakdown,  # type: ignore
                 breakdown_type=self.query.breakdownFilter.breakdown_type,
                 query_date_range=self.query_date_range,
                 events_filter=self.events_filter,
