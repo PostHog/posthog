@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PhonePairHogs } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { urls } from 'scenes/urls'
@@ -15,6 +16,7 @@ export const OnboardingStep = ({
     subtitle,
     children,
     showSkip = false,
+    showHelpButton = false,
     onSkip,
     continueAction,
     continueOverride,
@@ -26,6 +28,7 @@ export const OnboardingStep = ({
     subtitle?: string
     children: React.ReactNode
     showSkip?: boolean
+    showHelpButton?: boolean
     onSkip?: () => void
     continueAction?: () => void
     continueOverride?: JSX.Element
@@ -34,6 +37,7 @@ export const OnboardingStep = ({
 }): JSX.Element => {
     const { hasNextStep, hasPreviousStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const hedgehogToRender = React.cloneElement(hedgehog || <PhonePairHogs />, {
         className: 'h-full w-full',
@@ -73,6 +77,14 @@ export const OnboardingStep = ({
                 <p>{subtitle}</p>
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
+                    {showHelpButton && (
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => openSupportForm({ kind: 'support', target_area: 'onboarding' })}
+                        >
+                            Need help?
+                        </LemonButton>
+                    )}
                     {showSkip && (
                         <LemonButton
                             onClick={() => {
