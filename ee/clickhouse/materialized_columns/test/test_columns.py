@@ -66,7 +66,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
-            self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), [("$zeta", "properties")])
+            self.assertCountEqual(
+                get_materialized_columns("person", use_cache=True).keys(),
+                [("$zeta", "properties")],
+            )
 
             materialize("events", "abc", create_minmax_index=True)
 
@@ -98,14 +101,21 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             get_materialized_columns("events"),
         )
 
-        self.assertEqual(get_materialized_columns("person"), {("SoMePrOp", "properties"): "pmat_SoMePrOp"})
+        self.assertEqual(
+            get_materialized_columns("person"),
+            {("SoMePrOp", "properties"): "pmat_SoMePrOp"},
+        )
 
     def test_backfilling_data(self):
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_prop")
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_another")
 
         _create_event(
-            event="some_event", distinct_id="1", team=self.team, timestamp="2020-01-01 00:00:00", properties={"prop": 1}
+            event="some_event",
+            distinct_id="1",
+            team=self.team,
+            timestamp="2020-01-01 00:00:00",
+            properties={"prop": 1},
         )
         _create_event(
             event="some_event",
@@ -115,9 +125,18 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             properties={"prop": 2, "another": 5},
         )
         _create_event(
-            event="some_event", distinct_id="1", team=self.team, timestamp="2021-05-03 00:00:00", properties={"prop": 3}
+            event="some_event",
+            distinct_id="1",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"prop": 3},
         )
-        _create_event(event="another_event", distinct_id="1", team=self.team, timestamp="2021-05-04 00:00:00")
+        _create_event(
+            event="another_event",
+            distinct_id="1",
+            team=self.team,
+            timestamp="2021-05-04 00:00:00",
+        )
         _create_event(
             event="third_event",
             distinct_id="1",
@@ -165,7 +184,15 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(
             sync_execute("SELECT mat_prop, mat_another FROM events ORDER BY timestamp"),
-            [("1", ""), ("2", "5"), ("3", ""), ("", ""), ("4", ""), ("", "6"), ("", "7")],
+            [
+                ("1", ""),
+                ("2", "5"),
+                ("3", ""),
+                ("", ""),
+                ("4", ""),
+                ("", "6"),
+                ("", "7"),
+            ],
         )
 
     def test_column_types(self):
@@ -194,7 +221,11 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
               AND table = %(table)s
               AND column = %(column)s
         """,
-            {"database": CLICKHOUSE_DATABASE, "table": EVENTS_DATA_TABLE(), "column": column},
+            {
+                "database": CLICKHOUSE_DATABASE,
+                "table": EVENTS_DATA_TABLE(),
+                "column": column,
+            },
         )[0][0]
 
     def _get_count_of_mutations_running(self) -> int:
@@ -213,5 +244,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             FROM system.columns
             WHERE database = %(database)s AND table = %(table)s AND name = %(column)s
             """,
-            {"database": CLICKHOUSE_DATABASE, "table": EVENTS_DATA_TABLE(), "column": column},
+            {
+                "database": CLICKHOUSE_DATABASE,
+                "table": EVENTS_DATA_TABLE(),
+                "column": column,
+            },
         )[0]

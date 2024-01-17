@@ -1,6 +1,8 @@
-import { LogicWrapper } from 'kea'
-import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 import Fuse from 'fuse.js'
+import { LogicWrapper } from 'kea'
+
+import { AnyDataNode } from '~/queries/schema'
+import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 
 export interface SimpleOption {
     name: string
@@ -21,6 +23,8 @@ export interface TaxonomicFilterProps {
     selectFirstItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties
+    metadataSource?: AnyDataNode
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
@@ -56,6 +60,9 @@ export interface TaxonomicFilterGroup {
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
     excludedProperties?: string[]
+    propertyAllowList?: string[]
+    /** Passed to the component specified via the `render` key */
+    componentProps?: Record<string, any>
 }
 
 export enum TaxonomicFilterGroupType {
@@ -83,6 +90,7 @@ export enum TaxonomicFilterGroupType {
     GroupNamesPrefix = 'name_groups',
     Sessions = 'sessions',
     HogQLExpression = 'hogql_expression',
+    Notebooks = 'notebooks',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

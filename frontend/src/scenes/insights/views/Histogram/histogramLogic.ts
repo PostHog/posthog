@@ -1,19 +1,20 @@
-import { kea } from 'kea'
-import { getConfig, HistogramConfig } from 'scenes/insights/views/Histogram/histogramUtils'
-import type { histogramLogicType } from './histogramLogicType'
+import { actions, kea, path, reducers } from 'kea'
 import { FunnelLayout } from 'lib/constants'
+import { getConfig, HistogramConfig } from 'scenes/insights/views/Histogram/histogramUtils'
 
-export const histogramLogic = kea<histogramLogicType>({
-    path: ['scenes', 'insights', 'Histogram', 'histogramLogic'],
-    actions: {
+import type { histogramLogicType } from './histogramLogicType'
+
+export const histogramLogic = kea<histogramLogicType>([
+    path(['scenes', 'insights', 'Histogram', 'histogramLogic']),
+    actions({
         setConfig: (config: HistogramConfig) => ({ config }),
-    },
-    reducers: {
+    }),
+    reducers({
         config: [
             getConfig(FunnelLayout.vertical),
             {
                 setConfig: (state, { config }) => ({ ...state, ...config }),
             },
         ],
-    },
-})
+    }),
+])

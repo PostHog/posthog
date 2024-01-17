@@ -1,12 +1,13 @@
+import { IconPerson } from '@posthog/icons'
 import { useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { ActorType } from '~/types'
-import { groupsModel } from '~/models/groupsModel'
-import UserOutlined from '@ant-design/icons/lib/icons/UserOutlined'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+
+import { groupsModel } from '~/models/groupsModel'
+import { ActorType } from '~/types'
 
 interface Props {
     groupTypeIndex: number | null
@@ -27,7 +28,7 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
                 } else {
                     return (
                         <>
-                            <UserOutlined /> Person
+                            <IconPerson /> Person
                         </>
                     )
                 }

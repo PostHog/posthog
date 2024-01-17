@@ -59,12 +59,37 @@ describe('Storage', () => {
             expect(storage.buckets.get(key)![0]).toEqual(10)
             expect(storage.buckets.get(key)![1]).toEqual(now.valueOf())
 
+            // get two tokens to be replenished
+            storage.consume(key, 2)
+            expect(storage.buckets.get(key)![0]).toEqual(8)
+
             // 20 seconds would exceed capacity of 10 tokens at 1 token/sec.
             storage.replenish(key, now.valueOf() + 20000)
 
             expect(storage.buckets.has(key)).toEqual(true)
             expect(storage.buckets.get(key)![0]).toEqual(10)
             expect(storage.buckets.get(key)![1]).toEqual(now.valueOf() + 20000)
+        })
+
+        it('does not add if now is in the past', () => {
+            const key = 'test'
+            const storage = new Storage(10, 1)
+            const now = new Date('2023-02-08T08:00:00')
+
+            storage.replenish(key, now.valueOf())
+            expect(storage.buckets.get(key)![0]).toEqual(10)
+            expect(storage.buckets.get(key)![1]).toEqual(now.valueOf())
+
+            // get two tokens to be replenished
+            storage.consume(key, 2)
+            expect(storage.buckets.get(key)![0]).toEqual(8)
+
+            // Will be a no-op due to a lower now value
+            storage.replenish(key, now.valueOf() - 20000)
+
+            expect(storage.buckets.has(key)).toEqual(true)
+            expect(storage.buckets.get(key)![0]).toEqual(8)
+            expect(storage.buckets.get(key)![1]).toEqual(now.valueOf())
         })
     })
 

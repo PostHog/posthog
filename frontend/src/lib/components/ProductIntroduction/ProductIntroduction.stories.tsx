@@ -1,11 +1,14 @@
-import { ComponentMeta } from '@storybook/react'
-import { ProductIntroduction } from './ProductIntroduction'
+import { Meta } from '@storybook/react'
+
 import { ProductKey } from '~/types'
 
-export default {
+import { ProductIntroduction } from './ProductIntroduction'
+
+const meta: Meta<typeof ProductIntroduction> = {
     title: 'Components/Product Empty State',
     component: ProductIntroduction,
-} as ComponentMeta<typeof ProductIntroduction>
+}
+export default meta
 
 export function ProductIntroduction_(): JSX.Element {
     return (
@@ -40,7 +43,7 @@ export function emptyNoAction(): JSX.Element {
         <ProductIntroduction
             productName="Feature Flags"
             productKey={ProductKey.FEATURE_FLAGS}
-            thingName={'history record'}
+            thingName="history record"
             description={`History shows any feature flag changes that have been made. After making changes you'll see them logged here.`}
         />
     )

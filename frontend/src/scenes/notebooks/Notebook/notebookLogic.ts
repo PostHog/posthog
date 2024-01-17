@@ -1,52 +1,153 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
-import type { notebookLogicType } from './notebookLogicType'
-import { loaders } from 'kea-loaders'
-import { openNotebook, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
-import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
-
-// NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
-import { JSONContent, NotebookEditor } from './utils'
-import api from 'lib/api'
-import posthog from 'posthog-js'
-import { downloadFile, slugify } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
+import { actions, beforeUnmount, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
+import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
+import posthog from 'posthog-js'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
+import {
+    buildTimestampCommentContent,
+    NotebookNodeReplayTimestampAttrs,
+} from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
+import { urls } from 'scenes/urls'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
+import {
+    ActivityScope,
+    CommentType,
+    NotebookNodeType,
+    NotebookSyncStatus,
+    NotebookTarget,
+    NotebookType,
+    SidePanelTab,
+} from '~/types'
+
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
+import type { notebookLogicType } from './notebookLogicType'
+// NOTE: Annoyingly, if we import this then kea logic type-gen generates
+// two imports and fails so, we reimport it from a utils file
+import { EditorRange, JSONContent, NotebookEditor } from './utils'
 
 const SYNC_DELAY = 1000
+const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
+
+export type NotebookLogicMode = 'notebook' | 'canvas'
 
 export type NotebookLogicProps = {
     shortId: string
+    mode?: NotebookLogicMode
+    target?: NotebookTarget
+}
+
+async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
+    // TRICKY: external code doesn't know how to wait for the editor to be ready
+    // so, we have to poll until it is, then run the function
+    // the use-case is that we have opened a notebook, mounted this logic,
+    // and then want to run commands against the editor
+    // but, we are racing against it being ready
+
+    // throw an error after 2 seconds
+    const timeout = setTimeout(() => {
+        throw new Error('Notebook editor not ready')
+    }, 2000)
+
+    while (!waitForEditor()) {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    clearTimeout(timeout)
+
+    return fn()
 }
 
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ shortId }) => shortId),
-    connect({
-        values: [notebooksListLogic, ['scratchpadNotebook', 'notebookTemplates']],
-        actions: [notebooksListLogic, ['receiveNotebookUpdate']],
-    }),
+    key(({ shortId, mode }) => `${shortId}-${mode}`),
+    connect((props: NotebookLogicProps) => ({
+        values: [
+            notebooksModel,
+            ['scratchpadNotebook', 'notebookTemplates'],
+            commentsLogic({
+                scope: ActivityScope.NOTEBOOK,
+                item_id: props.shortId,
+            }),
+            ['comments', 'itemContext'],
+        ],
+        actions: [
+            notebooksModel,
+            ['receiveNotebookUpdate'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            commentsLogic({
+                scope: ActivityScope.NOTEBOOK,
+                item_id: props.shortId,
+            }),
+            ['setItemContext', 'maybeLoadComments'],
+        ],
+    })),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
+        editorIsReady: true,
         onEditorUpdate: true,
-        setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
+        onEditorSelectionUpdate: true,
+        setLocalContent: (jsonContent: JSONContent, updateEditor = false) => ({ jsonContent, updateEditor }),
         clearLocalContent: true,
-        setReady: true,
+        setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
+        clearPreviewContent: true,
         loadNotebook: true,
+        scheduleNotebookRefresh: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        renameNotebook: (title: string) => ({ title }),
+        setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
         exportJSON: true,
         showConflictWarning: true,
-        registerNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
-        unregisterNodeLogic: (nodeLogic: notebookNodeLogicType) => ({ nodeLogic }),
+        onUpdateEditor: true,
+        registerNodeLogic: (nodeId: string, nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeId, nodeLogic }),
+        unregisterNodeLogic: (nodeId: string) => ({ nodeId }),
         setEditable: (editable: boolean) => ({ editable }),
+        scrollToSelection: true,
+        pasteAfterLastNode: (content: string) => ({
+            content,
+        }),
+        insertAfterLastNode: (content: JSONContent) => ({
+            content,
+        }),
+
+        insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
+            content,
+            nodeType,
+            knownStartingPosition,
+        }),
+        insertReplayCommentByTimestamp: (options: {
+            timestamp: number
+            sessionRecordingId: string
+            knownStartingPosition?: number
+            nodeId?: string
+        }) => options,
+        setShowHistory: (showHistory: boolean) => ({ showHistory }),
+        setTextSelection: (selection: number | EditorRange) => ({ selection }),
+        setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
+        insertComment: (context: Record<string, any>) => ({ context }),
+        selectComment: (itemContextId: string) => ({ itemContextId }),
     }),
-    reducers({
+    reducers(({ props }) => ({
         localContent: [
             null as JSONContent | null,
-            { persist: true },
+            { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
+            },
+        ],
+        previewContent: [
+            null as JSONContent | null,
+            {
+                setPreviewContent: (_, { jsonContent }) => jsonContent,
+                clearPreviewContent: () => null,
             },
         ],
         editor: [
@@ -68,60 +169,102 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-
-        nodeLogics: [
-            {} as Record<string, notebookNodeLogicType>,
+        editingNodeId: [
+            null as string | null,
             {
-                registerNodeLogic: (state, { nodeLogic }) => ({
-                    ...state,
-                    [nodeLogic.props.nodeId]: nodeLogic,
-                }),
-                unregisterNodeLogic: (state, { nodeLogic }) => {
+                setEditingNodeId: (_, { editingNodeId }) => editingNodeId,
+            },
+        ],
+        nodeLogics: [
+            {} as Record<string, BuiltLogic<notebookNodeLogicType>>,
+            {
+                registerNodeLogic: (state, { nodeId, nodeLogic }) => {
+                    if (nodeId === null) {
+                        return state
+                    } else {
+                        return {
+                            ...state,
+                            [nodeId]: nodeLogic,
+                        }
+                    }
+                },
+                unregisterNodeLogic: (state, { nodeId }) => {
                     const newState = { ...state }
-                    delete newState[nodeLogic.props.nodeId]
+                    if (nodeId !== null) {
+                        delete newState[nodeId]
+                    }
                     return newState
                 },
             },
         ],
-
-        isEditable: [
+        shouldBeEditable: [
             false,
             {
                 setEditable: (_, { editable }) => editable,
             },
         ],
-    }),
+        showHistory: [
+            false,
+            {
+                setShowHistory: (_, { showHistory }) => showHistory,
+            },
+        ],
+        containerSize: [
+            'small' as 'small' | 'medium',
+            {
+                setContainerSize: (_, { containerSize }) => containerSize,
+            },
+        ],
+    })),
     loaders(({ values, props, actions }) => ({
         notebook: [
             null as NotebookType | null,
             {
                 loadNotebook: async () => {
-                    // NOTE: This is all hacky and temporary until we have a backend
-                    let response: NotebookType | null
+                    let response: NotebookType | null = null
+
+                    if (values.mode !== 'notebook') {
+                        return null
+                    }
 
                     if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
                         response = {
                             ...values.scratchpadNotebook,
-                            content: {},
+                            content: null,
+                            text_content: null,
                             version: 0,
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response =
                             values.notebookTemplates.find((template) => template.short_id === props.shortId) || null
+                        if (!response) {
+                            return null
+                        }
                     } else {
-                        response = await api.notebooks.get(props.shortId)
+                        try {
+                            response = await api.notebooks.get(props.shortId, undefined, {
+                                'If-None-Match': values.notebook?.version,
+                            })
+                        } catch (e: any) {
+                            if (e.status === 304) {
+                                // Indicates nothing has changed
+                                return values.notebook
+                            }
+                            if (e.status === 404) {
+                                return null
+                            }
+                            throw e
+                        }
                     }
 
-                    if (!response) {
-                        throw new Error('Notebook not found')
-                    }
+                    const notebook = migrate(response)
 
-                    if (!values.notebook) {
+                    if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
                         // If this is the first load we need to override the content fully
-                        values.editor?.setContent(response.content)
+                        values.editor?.setContent(notebook.content)
                     }
 
-                    return response
+                    return notebook
                 },
 
                 saveNotebook: async ({ notebook }) => {
@@ -133,6 +276,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
                             content: notebook.content,
+                            text_content: values.editor?.getText() || '',
                             title: notebook.title,
                         })
 
@@ -151,6 +295,13 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
                 },
+                renameNotebook: async ({ title }) => {
+                    if (!values.notebook) {
+                        return values.notebook
+                    }
+                    const response = await api.notebooks.update(values.notebook.short_id, { title })
+                    return response
+                },
             },
         ],
 
@@ -158,29 +309,35 @@ export const notebookLogic = kea<notebookLogicType>([
             null as NotebookType | null,
             {
                 duplicateNotebook: async () => {
-                    if (!values.notebook) {
+                    if (!values.content) {
                         return null
                     }
 
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
                     const response = await api.notebooks.create({
-                        content: values.content || values.notebook.content,
-                        title: values.title || values.notebook.title,
+                        content: values.content,
+                        text_content: values.editor?.getText() || '',
+                        title: values.title,
                     })
 
                     posthog.capture(`notebook duplicated`, {
                         short_id: response.short_id,
                     })
 
-                    const source = values.notebook.short_id === 'scratchpad' ? 'Scratchpad' : 'Template'
+                    const source =
+                        values.mode === 'canvas'
+                            ? 'Canvas'
+                            : values.notebook?.short_id === 'scratchpad'
+                            ? 'Scratchpad'
+                            : 'Template'
                     lemonToast.success(`Notebook created from ${source}!`)
 
-                    if (values.notebook.short_id === 'scratchpad') {
+                    if (values.notebook?.short_id === 'scratchpad') {
                         // If duplicating the scratchpad, we assume they don't want the scratchpad content anymore
                         actions.clearLocalContent()
                     }
 
-                    openNotebook(response.short_id, NotebookTarget.Auto)
+                    await openNotebook(response.short_id, props.target ?? NotebookTarget.Scene)
 
                     return response
                 },
@@ -189,12 +346,25 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
     selectors({
         shortId: [() => [(_, props) => props], (props): string => props.shortId],
-        isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
+        mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
+        isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
+        isLocalOnly: [
+            () => [(_, props) => props],
+            (props): boolean => {
+                return props.shortId === 'scratchpad' || props.mode === 'canvas'
+            },
+        ],
+        notebookMissing: [
+            (s) => [s.notebook, s.notebookLoading, s.mode],
+            (notebook, notebookLoading, mode): boolean => {
+                return (['notebook', 'template'].includes(mode) && !notebook && !notebookLoading) ?? false
+            },
+        ],
         content: [
-            (s) => [s.notebook, s.localContent],
-            (notebook, localContent): JSONContent => {
+            (s) => [s.notebook, s.localContent, s.previewContent],
+            (notebook, localContent, previewContent): JSONContent => {
                 // We use the local content is set otherwise the notebook content
-                return localContent || notebook?.content || []
+                return previewContent || localContent || notebook?.content || []
             },
         ],
         title: [
@@ -204,16 +374,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 return contentTitle || notebook?.title || 'Untitled'
             },
         ],
-        isEmpty: [
-            (s) => [s.editor, s.content],
-            (editor: NotebookEditor): boolean => {
-                return editor?.isEmpty() || false
-            },
-        ],
         syncStatus: [
-            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
-            (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus => {
-                if (notebook?.is_template) {
+            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly, s.previewContent],
+            (notebook, notebookLoading, localContent, isLocalOnly, previewContent): NotebookSyncStatus => {
+                if (previewContent || notebook?.is_template) {
                     return 'synced'
                 }
 
@@ -231,7 +395,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 return 'unsaved'
             },
         ],
-
+        editingNodeLogic: [
+            (s) => [s.editingNodeId, s.nodeLogics],
+            (editingNodeId, nodeLogics) =>
+                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.values.nodeId === editingNodeId),
+        ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
             (nodeLogics) => {
@@ -242,7 +410,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             return (
                                 nodeLogic.props.nodeType === type &&
                                 attrEntries.every(
-                                    ([attr, value]: [string, any]) => nodeLogic.props.node.attrs?.[attr] === value
+                                    ([attr, value]: [string, any]) => nodeLogic.props.attributes?.[attr] === value
                                 )
                             )
                         }) ?? null
@@ -250,18 +418,129 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             },
         ],
+        findNodeLogicById: [
+            (s) => [s.nodeLogics],
+            (nodeLogics) => {
+                return (id: string) => {
+                    return Object.values(nodeLogics).find((nodeLogic) => nodeLogic.values.nodeId === id) ?? null
+                }
+            },
+        ],
+
+        nodeLogicsWithChildren: [
+            (s) => [s.nodeLogics, s.content],
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            (nodeLogics, _content) => {
+                // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
+                return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
+            },
+        ],
+
+        isShowingLeftColumn: [
+            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
+            (editingNodeId, showHistory, containerSize) => {
+                return showHistory || (!!editingNodeId && containerSize !== 'small')
+            },
+        ],
+
+        isEditable: [
+            (s) => [s.shouldBeEditable, s.previewContent],
+            (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
+        ],
     }),
-    sharedListeners(({ values, actions }) => ({
-        onNotebookChange: () => {
-            // Keep the list logic up to date with any changes
-            if (values.notebook && values.notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
-                actions.receiveNotebookUpdate(values.notebook)
-            }
+    listeners(({ values, actions, cache }) => ({
+        insertAfterLastNode: async ({ content }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    let insertionPosition = 0
+                    let nextNode = values.editor?.nextNode(insertionPosition)
+                    while (nextNode) {
+                        insertionPosition = nextNode.position
+                        nextNode = values.editor?.nextNode(insertionPosition)
+                    }
+
+                    values.editor?.insertContentAfterNode(insertionPosition, content)
+                }
+            )
         },
-    })),
-    listeners(({ values, actions, sharedListeners }) => ({
-        setLocalContent: async (_, breakpoint) => {
+        pasteAfterLastNode: async ({ content }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    const endPosition = values.editor?.getEndPosition() || 0
+                    values.editor?.pasteContent(endPosition, content)
+                }
+            )
+        },
+        insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    let insertionPosition = knownStartingPosition
+                    let nextNode = values.editor?.nextNode(insertionPosition)
+                    while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
+                        insertionPosition = nextNode.position
+                        nextNode = values.editor?.nextNode(insertionPosition)
+                    }
+
+                    values.editor?.insertContentAfterNode(insertionPosition, content)
+                }
+            )
+        },
+        insertReplayCommentByTimestamp: async ({ timestamp, sessionRecordingId, knownStartingPosition, nodeId }) => {
+            await runWhenEditorIsReady(
+                () => !!values.editor,
+                () => {
+                    let insertionPosition =
+                        knownStartingPosition || values.editor?.findNodePositionByAttrs({ id: sessionRecordingId })
+                    let nextNode = values.editor?.nextNode(insertionPosition)
+                    while (nextNode && values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.ReplayTimestamp)) {
+                        const candidateTimestampAttributes = nextNode.node.content.firstChild
+                            ?.attrs as NotebookNodeReplayTimestampAttrs
+                        const nextNodePlaybackTime = candidateTimestampAttributes.playbackTime || -1
+                        if (nextNodePlaybackTime <= timestamp) {
+                            insertionPosition = nextNode.position
+                            nextNode = values.editor?.nextNode(insertionPosition)
+                        } else {
+                            nextNode = null
+                        }
+                    }
+
+                    values.editor?.insertContentAfterNode(
+                        insertionPosition,
+                        buildTimestampCommentContent({
+                            playbackTime: timestamp,
+                            sessionRecordingId,
+                            sourceNodeId: nodeId,
+                        })
+                    )
+                }
+            )
+        },
+        setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
+            if (values.previewContent) {
+                // We don't want to modify the content if we are viewing a preview
+                return
+            }
+            if (updateEditor) {
+                values.editor?.setContent(jsonContent)
+            }
+
             await breakpoint(SYNC_DELAY)
+
+            if (values.mode === 'canvas') {
+                // TODO: We probably want this to be configurable
+                cache.lastState = base64Encode(JSON.stringify(jsonContent))
+                router.actions.replace(
+                    router.values.currentLocation.pathname,
+                    router.values.currentLocation.searchParams,
+                    {
+                        ...router.values.currentLocation.hashParams,
+                        '🦔': cache.lastState,
+                    }
+                )
+            }
 
             posthog.capture('notebook content changed', {
                 short_id: values.notebook?.short_id,
@@ -275,32 +554,149 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
 
+        setPreviewContent: async () => {
+            values.editor?.setContent(values.content)
+        },
+        clearPreviewContent: async () => {
+            values.editor?.setContent(values.content)
+        },
+        setShowHistory: async ({ showHistory }) => {
+            if (!showHistory) {
+                actions.clearPreviewContent()
+            }
+        },
+
         onEditorUpdate: () => {
-            if (!values.editor || !values.notebook) {
+            if (!values.editor) {
                 return
             }
             const jsonContent = values.editor.getJSON()
+
             actions.setLocalContent(jsonContent)
+            actions.onUpdateEditor()
+        },
+        setEditor: () => {
+            values.editor?.setContent(values.content)
         },
 
-        setEditable: ({ editable }) => {
-            values.editor?.setEditable(editable)
+        saveNotebookSuccess: actions.scheduleNotebookRefresh,
+        loadNotebookSuccess: () => {
+            actions.scheduleNotebookRefresh()
+            actions.maybeLoadComments()
         },
-        setEditor: ({ editor }) => {
-            editor?.setEditable(values.isEditable)
-        },
-
-        saveNotebookSuccess: sharedListeners.onNotebookChange,
-        loadNotebookSuccess: sharedListeners.onNotebookChange,
 
         exportJSON: () => {
             const file = new File(
-                [JSON.stringify(values.editor?.getJSON())],
+                [JSON.stringify(values.editor?.getJSON(), null, 2)],
                 `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
                 { type: 'application/json' }
             )
 
             downloadFile(file)
         },
+
+        onEditorSelectionUpdate: () => {
+            if (values.editor) {
+                actions.onUpdateEditor()
+            }
+        },
+        scrollToSelection: () => {
+            if (values.editor) {
+                values.editor.scrollToSelection()
+            }
+        },
+        setEditingNodeId: () => {
+            values.editingNodeLogic?.actions.selectNode()
+        },
+
+        setTextSelection: ({ selection }) => {
+            queueMicrotask(() => {
+                values.editor?.setTextSelection(selection)
+            })
+        },
+
+        scheduleNotebookRefresh: () => {
+            if (values.mode !== 'notebook') {
+                return
+            }
+            clearTimeout(cache.refreshTimeout)
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadNotebook()
+            }, NOTEBOOK_REFRESH_MS)
+        },
+
+        // Comments
+        insertComment: ({ context }) => {
+            actions.openSidePanel(SidePanelTab.Discussion)
+
+            actions.setItemContext(context, (result) => {
+                if (!result.sent && values.editor) {
+                    const pos = values.editor.findCommentPosition(context.id)
+                    if (pos) {
+                        values.editor.removeComment(pos)
+                    }
+                }
+            })
+            if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {
+                router.actions.push(urls.notebook(values.shortId))
+            }
+        },
+        selectComment: ({ itemContextId }) => {
+            const commentId = values.comments?.find((x) => x.item_context?.id === itemContextId)?.id
+
+            actions.openSidePanel(SidePanelTab.Discussion, commentId)
+
+            if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {
+                router.actions.push(urls.notebook(values.shortId))
+            }
+        },
     })),
+
+    subscriptions(({ values, actions }) => ({
+        notebook: (notebook?: NotebookType) => {
+            // Keep the list logic up to date with any changes
+            if (notebook && notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
+                actions.receiveNotebookUpdate(notebook)
+            }
+            // If the notebook ever changes, we want to reset the scheduled refresh
+            actions.scheduleNotebookRefresh()
+        },
+        comments: (comments: CommentType[] | undefined | null) => {
+            if (comments && values.editor) {
+                const { editor } = values
+                const commentMarkIds = comments
+                    .filter((comment) => comment.item_context?.type === 'mark')
+                    .map((comment) => comment.item_context?.id)
+
+                editor.getMarks('comment').forEach((mark) => {
+                    if (!commentMarkIds.includes(mark.id) && values.itemContext?.context?.id !== mark.id) {
+                        editor.removeComment(mark.pos)
+                    }
+                })
+            }
+        },
+    })),
+
+    urlToAction(({ values, actions, cache }) => ({
+        '*': (_, _search, hashParams) => {
+            if (values.mode === 'canvas' && hashParams?.['🦔']) {
+                if (cache.lastState === hashParams['🦔']) {
+                    return
+                }
+
+                actions.setLocalContent(JSON.parse(base64Decode(hashParams['🦔'])))
+            }
+        },
+    })),
+
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.refreshTimeout)
+        const hashParams = router.values.currentLocation.hashParams
+        delete hashParams['🦔']
+        router.actions.replace(
+            router.values.currentLocation.pathname,
+            router.values.currentLocation.searchParams,
+            hashParams
+        )
+    }),
 ])

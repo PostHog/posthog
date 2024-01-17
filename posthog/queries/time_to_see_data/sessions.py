@@ -68,7 +68,10 @@ def get_session_events(query: SessionEventsQuerySerializer) -> Optional[Dict]:
     events = query_with_columns(GET_SESSION_EVENTS, params)
     queries = query_with_columns(GET_SESSION_QUERIES, params)
     session_query = SessionsQuerySerializer(
-        data={"team_id": query.validated_data["team_id"], "session_id": query.validated_data["session_id"]}
+        data={
+            "team_id": query.validated_data["team_id"],
+            "session_id": query.validated_data["session_id"],
+        }
     )
     session_query.is_valid(raise_exception=True)
     sessions = get_sessions(session_query).data

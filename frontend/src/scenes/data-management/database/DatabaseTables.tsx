@@ -1,29 +1,57 @@
+import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { useValues } from 'kea'
-import { databaseSceneLogic, DatabaseSceneRow } from 'scenes/data-management/database/databaseSceneLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Link } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
+
 import { DataTableNode, NodeKind } from '~/queries/schema'
+
 import { DatabaseTable } from './DatabaseTable'
 
 export function DatabaseTablesContainer(): JSX.Element {
-    const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
+    const { filteredTables, databaseLoading } = useValues(databaseTableListLogic)
+    const { toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
-        <DatabaseTables
-            tables={filteredTables}
-            loading={databaseLoading}
-            renderRow={(row: DatabaseSceneRow) => {
-                return (
-                    <div className="px-4 py-3">
-                        <div className="mt-2">
-                            <span className="card-secondary">Columns</span>
-                            <DatabaseTable table={row.name} tables={filteredTables} />
+        <>
+            <DatabaseTables
+                tables={filteredTables}
+                loading={databaseLoading}
+                renderRow={(row: DatabaseTableListRow) => {
+                    return (
+                        <div className="px-4 py-3">
+                            <div className="mt-2">
+                                <span className="card-secondary">Columns</span>
+                                <DatabaseTable table={row.name} tables={filteredTables} />
+                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                                    <div className="w-full flex justify-end">
+                                        <LemonButton
+                                            className="mt-2"
+                                            type="primary"
+                                            onClick={() => {
+                                                selectTableName(row.name)
+                                                toggleFieldModal()
+                                            }}
+                                        >
+                                            Add link to view
+                                        </LemonButton>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                )
-            }}
-        />
+                    )
+                }}
+            />
+            <ViewLinkModal tableSelectable={false} />
+        </>
     )
 }
 
@@ -35,7 +63,7 @@ interface DatabaseTablesProps<T extends Record<string, any>> {
     extraColumns?: LemonTableColumns<T>
 }
 
-export function DatabaseTables<T extends DatabaseSceneRow>({
+export function DatabaseTables<T extends DatabaseTableListRow>({
     tables,
     loading,
     renderRow,
@@ -64,7 +92,9 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
                                               // TODO: Use `hogql` tag?
                                               query: `SELECT ${obj.columns
                                                   .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                                  .map(({ key }) => key)} FROM ${table} LIMIT 100`,
+                                                  .map(({ key }) => key)} FROM ${
+                                                  table === 'numbers' ? 'numbers(0, 10)' : table
+                                              } LIMIT 100`,
                                           },
                                       }
                                       return (
@@ -80,11 +110,34 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
                                   title: 'Type',
                                   key: 'type',
                                   dataIndex: 'name',
-                                  render: function RenderType() {
+                                  render: function RenderType(_, obj: T) {
                                       return (
-                                          <LemonTag type="default" className="uppercase">
-                                              PostHog
-                                          </LemonTag>
+                                          <LemonDropdown
+                                              placement="top"
+                                              showArrow
+                                              trigger="hover"
+                                              overlay={
+                                                  <span>
+                                                      Last synced:{' '}
+                                                      {obj.external_schema?.last_synced_at
+                                                          ? humanFriendlyDetailedTime(
+                                                                obj.external_schema?.last_synced_at
+                                                            )
+                                                          : 'Pending'}
+                                                  </span>
+                                              }
+                                          >
+                                              <span>
+                                                  <LemonTag
+                                                      type={obj.external_schema?.should_sync ? 'primary' : 'default'}
+                                                      className="uppercase"
+                                                  >
+                                                      {obj.external_data_source
+                                                          ? obj.external_data_source.source_type
+                                                          : 'PostHog'}
+                                                  </LemonTag>
+                                              </span>
+                                          </LemonDropdown>
                                       )
                                   },
                               },

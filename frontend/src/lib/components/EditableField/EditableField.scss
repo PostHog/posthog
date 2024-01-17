@@ -2,68 +2,101 @@
     display: flex;
     align-items: center;
     max-width: 100%;
+
     &:not(.EditableField--multiline) {
-        line-height: 2rem;
+        line-height: 1.15em;
     }
+
     i {
         color: var(--muted);
     }
+
     .EditableField__notice {
+        margin-left: 0.5rem;
         font-size: 1.5rem;
         color: var(--muted);
-        margin-left: 0.5rem;
     }
-    .EditableField--highlight {
+
+    .EditableField__highlight {
         display: flex;
         flex-direction: row;
         align-items: center;
         width: fit-content;
         max-width: calc(100% + 0.5rem);
-        min-height: 2rem;
         padding: 0.25rem; // Some padding to give the focus outline more breathing space
         margin: -0.25rem;
-        white-space: pre-wrap;
         overflow: auto;
     }
-    &--editing .EditableField--highlight {
+
+    .EditableField__display {
+        overflow: hidden;
+        white-space: pre-wrap;
+    }
+
+    &.EditableField--editing .EditableField__highlight {
         flex-grow: 1;
         align-items: flex-end;
         width: auto;
         max-width: calc(100% + 0.5rem);
-        outline: 1px solid var(--border);
         border-radius: var(--radius);
+        outline: 1px solid var(--border);
     }
+
+    &.EditableField--underlined {
+        .EditableField__highlight {
+            padding-top: 0;
+            padding-bottom: 0;
+            margin-top: 0;
+            margin-bottom: 0;
+        }
+
+        &.EditableField--editing .EditableField__highlight {
+            outline: none;
+
+            input {
+                margin-bottom: -1px;
+                border-bottom: 1px dashed var(--muted);
+            }
+        }
+    }
+
     .EditableField__autosize {
         align-self: center;
         min-width: 0;
+        padding: 1px 0;
     }
+
     .EditableField__autosize__sizer {
         position: absolute;
         top: 0;
         left: 0;
-        visibility: hidden;
         height: 0;
         overflow: scroll;
         white-space: pre;
+        visibility: hidden;
     }
+
+    .EditableField__actions {
+        display: flex;
+        flex-shrink: 0;
+        gap: 0.5rem;
+        align-items: center;
+        margin-left: 0.5rem;
+    }
+
     input,
     textarea {
         max-width: 100%;
-        border: none;
-        background: transparent;
+        padding: 0;
         font: inherit;
         color: var(--default);
+        background: transparent;
+        border: none;
         outline: none;
-        padding: 0;
     }
+
     textarea {
         align-self: center;
         width: 100%;
-    }
-    button {
-        &:first-of-type {
-            margin-left: 0.75rem;
-        }
-        margin-left: 0.5rem;
     }
 }

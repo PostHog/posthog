@@ -4,10 +4,9 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0033_auto_20200316_1655"),
     ]
 
     # We used to install TrigramExtension and BtreeGinExtension, but realised that made things slower rather than faster
-    operations = []  # type: ignore
+    operations = []

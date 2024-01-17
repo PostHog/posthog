@@ -21,7 +21,10 @@ class IngestionWarningsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
               AND timestamp > %(start_date)s
             ORDER BY timestamp DESC
         """,
-            {"team_id": self.team_id, "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S")},
+            {
+                "team_id": self.team_id,
+                "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S"),
+            },
         )
 
         return Response({"results": _calculate_summaries(warning_events)})
@@ -32,7 +35,12 @@ def _calculate_summaries(warning_events):
     for warning_type, timestamp, details in warning_events:
         details = json.loads(details)
         if warning_type not in summaries:
-            summaries[warning_type] = {"type": warning_type, "lastSeen": timestamp, "warnings": [], "count": 0}
+            summaries[warning_type] = {
+                "type": warning_type,
+                "lastSeen": timestamp,
+                "warnings": [],
+                "count": 0,
+            }
 
         summaries[warning_type]["warnings"].append({"type": warning_type, "timestamp": timestamp, "details": details})
         summaries[warning_type]["count"] += 1

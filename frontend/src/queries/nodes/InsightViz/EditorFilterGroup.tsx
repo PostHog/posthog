@@ -1,28 +1,23 @@
-import { useState } from 'react'
-import type { InsightLogicProps, InsightModel, InsightEditorFilterGroup } from '~/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { slugify } from 'lib/utils'
-import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
-import { PureField } from 'lib/forms/Field'
-import { InsightQueryNode } from '~/queries/schema'
-
 import './EditorFilterGroup.scss'
+
+import { PureField } from 'lib/forms/Field'
+import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { slugify } from 'lib/utils'
+import { Fragment, useState } from 'react'
+
+import { InsightQueryNode } from '~/queries/schema'
+import type { InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
 
 export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
     insight: Partial<InsightModel>
     insightProps: InsightLogicProps
     query: InsightQueryNode
-    setQuery: (node: InsightQueryNode) => void
 }
 
-export function EditorFilterGroup({
-    query,
-    setQuery,
-    insightProps,
-    editorFilterGroup,
-}: EditorFilterGroupProps): JSX.Element {
+export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
     const { title, count, defaultExpanded = true, editorFilters } = editorFilterGroup
     const [isRowExpanded, setIsRowExpanded] = useState(defaultExpanded)
 
@@ -31,7 +26,6 @@ export function EditorFilterGroup({
             {title && (
                 <div className="EditorFilterGroup__title">
                     <LemonButton
-                        status="stealth"
                         fullWidth
                         onClick={() => setIsRowExpanded(!isRowExpanded)}
                         sideIcon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
@@ -54,23 +48,15 @@ export function EditorFilterGroup({
                             )
                         }
                         return (
-                            <div key={key}>
+                            <Fragment key={key}>
                                 <PureField
-                                    label={
-                                        typeof Label === 'function' ? (
-                                            <Label query={query} setQuery={setQuery} insightProps={insightProps} />
-                                        ) : (
-                                            Label
-                                        )
-                                    }
+                                    label={typeof Label === 'function' ? <Label insightProps={insightProps} /> : Label}
                                     info={tooltip}
                                     showOptional={showOptional}
                                 >
-                                    {Component ? (
-                                        <Component query={query} setQuery={setQuery} insightProps={insightProps} />
-                                    ) : null}
+                                    {Component ? <Component insightProps={insightProps} /> : null}
                                 </PureField>
-                            </div>
+                            </Fragment>
                         )
                     })}
                 </div>

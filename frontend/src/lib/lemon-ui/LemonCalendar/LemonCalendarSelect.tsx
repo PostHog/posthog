@@ -1,8 +1,10 @@
+import { dayjs } from 'lib/dayjs'
+import { IconClose } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useState } from 'react'
-import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconClose } from 'lib/lemon-ui/icons'
+
+import { Popover } from '../Popover'
 
 export interface LemonCalendarSelectProps {
     value?: dayjs.Dayjs | null
@@ -19,14 +21,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
             <div className="flex justify-between border-b p-2 pb-4">
                 <h3 className="text-base mb-0">Select a date</h3>
                 {onClose && (
-                    <LemonButton
-                        icon={<IconClose />}
-                        size="small"
-                        status="stealth"
-                        onClick={onClose}
-                        aria-label="close"
-                        noPadding
-                    />
+                    <LemonButton icon={<IconClose />} size="small" onClick={onClose} aria-label="close" noPadding />
                 )}
             </div>
             <div className="p-2">
@@ -36,7 +31,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
                     months={months}
                     getLemonButtonProps={({ date, props }) => {
                         if (date.isSame(selectValue, 'd')) {
-                            return { ...props, status: 'primary', type: 'primary' }
+                            return { ...props, status: 'default', type: 'primary' }
                         }
                         return props
                     }}
@@ -56,5 +51,57 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
                 </LemonButton>
             </div>
         </div>
+    )
+}
+
+export function LemonCalendarSelectInput(
+    props: LemonCalendarSelectProps & {
+        onChange: (date: dayjs.Dayjs | null) => void
+        buttonProps?: LemonButtonWithSideActionProps
+        placeholder?: string
+        clearable?: boolean
+    }
+): JSX.Element {
+    const { buttonProps, placeholder, clearable, ...calendarProps } = props
+    const [visible, setVisible] = useState(false)
+
+    const showClear = props.value && clearable
+
+    return (
+        <Popover
+            actionable
+            onClickOutside={() => setVisible(false)}
+            visible={visible}
+            overlay={
+                <LemonCalendarSelect
+                    {...calendarProps}
+                    onChange={(value) => {
+                        props.onChange(value)
+                        setVisible(false)
+                    }}
+                    onClose={() => {
+                        setVisible(false)
+                        props.onClose?.()
+                    }}
+                />
+            }
+        >
+            <LemonButton
+                onClick={() => setVisible(true)}
+                type="secondary"
+                fullWidth
+                sideAction={
+                    showClear
+                        ? {
+                              icon: <IconClose />,
+                              onClick: () => props.onChange(null),
+                          }
+                        : (undefined as unknown as SideAction) // We know it will be a normal button if not clearable
+                }
+                {...props.buttonProps}
+            >
+                {props.value?.format('MMMM D, YYYY') ?? placeholder ?? 'Select date'}
+            </LemonButton>
+        </Popover>
     )
 }

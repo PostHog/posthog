@@ -1,16 +1,17 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
+
 import { Splotch, SplotchColor, SplotchProps } from './Splotch'
 
-export default {
+const meta: Meta<typeof Splotch> = {
     title: 'Lemon UI/Splotch',
     component: Splotch,
-    argTypes: {
-        color: {
-            defaultValue: SplotchColor.Purple,
-        },
+    args: {
+        color: SplotchColor.Purple,
     },
-} as ComponentMeta<typeof Splotch>
+    tags: ['autodocs'],
+}
+export default meta
 
-export const _Splotch: ComponentStory<typeof Splotch> = (props: SplotchProps) => {
+export const _Splotch: StoryFn<typeof Splotch> = (props: SplotchProps) => {
     return <Splotch {...props} />
 }

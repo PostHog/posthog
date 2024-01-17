@@ -41,6 +41,11 @@ CONSTANCE_CONFIG = {
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
+    "HOGQL_INSIGHTS_OVERRIDE": (
+        get_from_env("HOGQL_INSIGHTS_OVERRIDE", False, type_cast=str_to_bool),
+        "Whether to use insight queries converted to use hogql internally or the old queries",
+        bool,
+    ),
     "GROUPS_ON_EVENTS_ENABLED": (
         get_from_env("GROUPS_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using group_properties on events or the old query",
@@ -183,6 +188,11 @@ CONSTANCE_CONFIG = {
         "The number of rows that the heatmap query tries to sample.",
         int,
     ),
+    "REDIRECT_APP_TO_US": (
+        get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
+        "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -207,6 +217,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
+    "HOGQL_INSIGHTS_OVERRIDE",
     "GROUPS_ON_EVENTS_ENABLED",
     "STRICT_CACHING_TEAMS",
     "SLACK_APP_CLIENT_ID",
@@ -219,8 +230,14 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SENTRY_AUTH_TOKEN",
     "SENTRY_ORGANIZATION",
     "HEATMAP_SAMPLE_N",
+    "REDIRECT_APP_TO_US",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
 # On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET", "SENTRY_AUTH_TOKEN"]
+SECRET_SETTINGS = [
+    "EMAIL_HOST_PASSWORD",
+    "SLACK_APP_CLIENT_SECRET",
+    "SLACK_APP_SIGNING_SECRET",
+    "SENTRY_AUTH_TOKEN",
+]

@@ -1,12 +1,15 @@
-import { useValues, useActions } from 'kea'
-import { compareFilterLogic } from './compareFilterLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonCheckbox } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function CompareFilter(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { compare, disabled } = useValues(compareFilterLogic(insightProps))
-    const { setCompare } = useActions(compareFilterLogic(insightProps))
+    const { insightProps, canEditInsight } = useValues(insightLogic)
+
+    const { compare, supportsCompare } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+
+    const disabled: boolean = !canEditInsight || !supportsCompare
 
     // Hide compare filter control when disabled to avoid states where control is "disabled but checked"
     if (disabled) {
@@ -15,10 +18,11 @@ export function CompareFilter(): JSX.Element | null {
 
     return (
         <LemonCheckbox
-            onChange={setCompare}
+            onChange={(compare: boolean) => {
+                updateInsightFilter({ compare })
+            }}
             checked={!!compare}
-            disabled={disabled}
-            label={<span className="font-normal">Compare to previous time period</span>}
+            label={<span className="font-normal">Compare to previous period</span>}
             bordered
             size="small"
         />

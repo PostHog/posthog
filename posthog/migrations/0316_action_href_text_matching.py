@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0315_notebook"),
     ]
@@ -15,7 +14,11 @@ class Migration(migrations.Migration):
             name="href_matching",
             field=models.CharField(
                 blank=True,
-                choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
+                choices=[
+                    ("contains", "contains"),
+                    ("regex", "regex"),
+                    ("exact", "exact"),
+                ],
                 max_length=400,
                 null=True,
             ),
@@ -25,7 +28,11 @@ class Migration(migrations.Migration):
             name="text_matching",
             field=models.CharField(
                 blank=True,
-                choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
+                choices=[
+                    ("contains", "contains"),
+                    ("regex", "regex"),
+                    ("exact", "exact"),
+                ],
                 max_length=400,
                 null=True,
             ),

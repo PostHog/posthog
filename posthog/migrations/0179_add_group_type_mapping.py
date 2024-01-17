@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0178_rename_dashboard_item_to_insight"),
     ]
@@ -14,10 +13,21 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="GroupTypeMapping",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("group_type", models.CharField(max_length=400)),
                 ("group_type_index", models.IntegerField()),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddConstraint(
@@ -27,13 +37,15 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="grouptypemapping",
             constraint=models.UniqueConstraint(
-                fields=("team", "group_type_index"), name="unique event column indexes for team"
+                fields=("team", "group_type_index"),
+                name="unique event column indexes for team",
             ),
         ),
         migrations.AddConstraint(
             model_name="grouptypemapping",
             constraint=models.CheckConstraint(
-                check=models.Q(("group_type_index__lte", 5)), name="group_type_index is less than or equal 5"
+                check=models.Q(("group_type_index__lte", 5)),
+                name="group_type_index is less than or equal 5",
             ),
         ),
     ]

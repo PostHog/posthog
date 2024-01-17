@@ -10,7 +10,14 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.storage.object_storage import health_check, read, write, get_presigned_url, list_objects
+from posthog.storage.object_storage import (
+    health_check,
+    read,
+    write,
+    get_presigned_url,
+    list_objects,
+    copy_objects,
+)
 from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_storage_bucket"
@@ -103,3 +110,50 @@ class TestStorage(APIBaseTest):
             listing = list_objects(prefix=shared_prefix)
 
             assert listing is None
+
+    def test_can_copy_objects_between_prefixes(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            shared_prefix = "a_shared_prefix"
+
+            for file in ["a", "b", "c"]:
+                file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
+                write(file_name, "my content".encode("utf-8"))
+
+            copied_count = copy_objects(
+                source_prefix=f"{TEST_BUCKET}/{shared_prefix}",
+                target_prefix=f"{TEST_BUCKET}/the_destination/folder",
+            )
+            assert copied_count == 3
+
+            listing = list_objects(prefix=f"{TEST_BUCKET}")
+
+            assert listing == [
+                "test_storage_bucket/a_shared_prefix/a",
+                "test_storage_bucket/a_shared_prefix/b",
+                "test_storage_bucket/a_shared_prefix/c",
+                "test_storage_bucket/the_destination/folder/a",
+                "test_storage_bucket/the_destination/folder/b",
+                "test_storage_bucket/the_destination/folder/c",
+            ]
+
+    def test_can_safely_copy_objects_from_unknown_prefix(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            shared_prefix = "a_shared_prefix"
+
+            for file in ["a", "b", "c"]:
+                file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
+                write(file_name, "my content".encode("utf-8"))
+
+            copied_count = copy_objects(
+                source_prefix=f"nothing_here",
+                target_prefix=f"{TEST_BUCKET}/the_destination/folder",
+            )
+            assert copied_count == 0
+
+            listing = list_objects(prefix=f"{TEST_BUCKET}")
+
+            assert listing == [
+                "test_storage_bucket/a_shared_prefix/a",
+                "test_storage_bucket/a_shared_prefix/b",
+                "test_storage_bucket/a_shared_prefix/c",
+            ]

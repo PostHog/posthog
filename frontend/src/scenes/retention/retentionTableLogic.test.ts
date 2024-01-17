@@ -1,9 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightShortId, InsightType, RetentionFilterType } from '~/types'
+import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
+
 import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { InsightShortId, InsightType, RetentionFilterType } from '~/types'
 
 const Insight123 = '123' as InsightShortId
 const result = [

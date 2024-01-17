@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
+import { Summary } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
 import {
@@ -13,6 +13,7 @@ import {
     TeamId,
 } from '../../types'
 import { DB } from '../../utils/db/db'
+import { PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
@@ -36,6 +37,12 @@ const NOT_SYNCED_PROPERTIES = new Set([
     '$groups',
 ])
 
+const updateEventNamesAndPropertiesMsSummary = new Summary({
+    name: 'update_event_names_and_properties_ms',
+    help: 'Duration spent in updateEventNamesAndProperties',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
 type PartialPropertyDefinition = {
     key: string
     type: PropertyDefinitionTypeEnum
@@ -51,18 +58,15 @@ export class PropertyDefinitionsManager {
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
     propertyDefinitionsCache: PropertyDefinitionsCache
-    statsd?: StatsD
     private readonly lruCacheSize: number
 
     constructor(
         teamManager: TeamManager,
         groupTypeManager: GroupTypeManager,
         db: DB,
-        serverConfig: PluginsServerConfig,
-        statsd?: StatsD
+        serverConfig: PluginsServerConfig
     ) {
         this.db = db
-        this.statsd = statsd
         this.teamManager = teamManager
         this.groupTypeManager = groupTypeManager
         this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
@@ -82,7 +86,7 @@ export class PropertyDefinitionsManager {
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
-        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
+        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig)
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
@@ -110,7 +114,7 @@ export class PropertyDefinitionsManager {
             ])
         } finally {
             clearTimeout(timeout)
-            this.statsd?.timing('updateEventNamesAndProperties', timer)
+            updateEventNamesAndPropertiesMsSummary.observe(Date.now() - timer.valueOf())
         }
     }
 
@@ -121,7 +125,8 @@ export class PropertyDefinitionsManager {
         if (!this.eventDefinitionsCache.get(team.id)?.has(event)) {
             status.info('Inserting new event definition with last_seen_at')
             this.eventLastSeenCache.set(cacheKey, cacheTime)
-            await this.db.postgresQuery(
+            await this.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
 VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
 ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET last_seen_at=$4`,
@@ -132,7 +137,8 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
         } else {
             if ((this.eventLastSeenCache.get(cacheKey) ?? 0) < cacheTime) {
                 this.eventLastSeenCache.set(cacheKey, cacheTime)
-                await this.db.postgresQuery(
+                await this.db.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     `UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3`,
                     [DateTime.now(), team.id, event],
                     'updateEventLastSeenAt'
@@ -157,7 +163,8 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             }
         }
 
-        await this.db.postgresBulkInsert(
+        await this.db.postgres.bulkInsert(
+            PostgresUse.COMMON_WRITE,
             `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES {VALUES} ON CONFLICT DO NOTHING`,
             toInsert,
             'insertEventProperty'
@@ -192,7 +199,8 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             }
         }
 
-        await this.db.postgresBulkInsert(
+        await this.db.postgres.bulkInsert(
+            PostgresUse.COMMON_WRITE,
             `
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
             VALUES {VALUES}
@@ -207,7 +215,8 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
     public async cacheEventNamesAndProperties(teamId: number, event: string): Promise<void> {
         let eventDefinitionsCache = this.eventDefinitionsCache.get(teamId)
         if (!eventDefinitionsCache) {
-            const eventNames = await this.db.postgresQuery(
+            const eventNames = await this.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 'SELECT name FROM posthog_eventdefinition WHERE team_id = $1',
                 [teamId],
                 'fetchEventDefinitions'
@@ -233,7 +242,8 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             // continue until either 1) the inserts will fill up the cache, or 2) the query below returns.
             // All-in-all, not the end of the world, but a slight nuisance.
 
-            const eventProperties = await this.db.postgresQuery(
+            const eventProperties = await this.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 'SELECT property FROM posthog_eventproperty WHERE team_id = $1 AND event = $2',
                 [teamId, event],
                 'fetchEventProperties'

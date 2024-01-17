@@ -5,7 +5,11 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES, PropertyOperatorType
 from posthog.models.filters.mixins.base import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags
+from posthog.models.filters.mixins.utils import (
+    cached_property,
+    include_dict,
+    include_query_tags,
+)
 from posthog.models.property import Property, PropertyGroup
 
 
@@ -82,7 +86,10 @@ class PropertyMixin(BaseParamMixin):
             key_split = key.split("__")
             ret.append(
                 Property(
-                    key=key_split[0], value=value, operator=key_split[1] if len(key_split) > 1 else None, type="event"
+                    key=key_split[0],
+                    value=value,
+                    operator=key_split[1] if len(key_split) > 1 else None,
+                    type="event",
                 )
             )
         return ret
@@ -90,7 +97,8 @@ class PropertyMixin(BaseParamMixin):
     def _parse_property_group(self, group: Optional[Dict]) -> PropertyGroup:
         if group and "type" in group and "values" in group:
             return PropertyGroup(
-                PropertyOperatorType(group["type"].upper()), self._parse_property_group_list(group["values"])
+                PropertyOperatorType(group["type"].upper()),
+                self._parse_property_group_list(group["values"]),
             )
 
         return PropertyGroup(PropertyOperatorType.AND, cast(List[Property], []))

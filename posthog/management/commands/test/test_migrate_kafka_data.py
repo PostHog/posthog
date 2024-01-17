@@ -34,7 +34,12 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     _create_topic(new_events_topic)
 
     # Put some data to the old topic
-    _send_message(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
+    _send_message(
+        old_events_topic,
+        b'{ "event": "test" }',
+        key=message_key.encode("utf-8"),
+        headers=[("foo", b"bar")],
+    )
 
     migrate_kafka_data(
         "--from-topic",
@@ -95,7 +100,12 @@ def test_we_do_not_migrate_when_dry_run_is_set():
     _create_topic(new_events_topic)
 
     # Put some data to the old topic
-    _send_message(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
+    _send_message(
+        old_events_topic,
+        b'{ "event": "test" }',
+        key=message_key.encode("utf-8"),
+        headers=[("foo", b"bar")],
+    )
 
     migrate_kafka_data(
         "--from-topic",
@@ -128,7 +138,12 @@ def test_cannot_send_data_back_into_same_topic_on_same_cluster():
     _commit_offsets_for_topic(topic, consumer_group_id)
 
     # Put some data to the topic
-    _send_message(topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
+    _send_message(
+        topic,
+        b'{ "event": "test" }',
+        key=message_key.encode("utf-8"),
+        headers=[("foo", b"bar")],
+    )
 
     try:
         migrate_kafka_data(
@@ -161,7 +176,12 @@ def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist()
     _create_topic(new_topic)
 
     # Put some data to the topic
-    _send_message(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
+    _send_message(
+        old_topic,
+        b'{ "event": "test" }',
+        key=message_key.encode("utf-8"),
+        headers=[("foo", b"bar")],
+    )
 
     try:
         migrate_kafka_data(
@@ -195,7 +215,12 @@ def test_that_we_error_if_the_target_topic_doesnt_exist():
     _commit_offsets_for_topic(old_topic, consumer_group_id)
 
     # Put some data to the topic
-    _send_message(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
+    _send_message(
+        old_topic,
+        b'{ "event": "test" }',
+        key=message_key.encode("utf-8"),
+        headers=[("foo", b"bar")],
+    )
 
     try:
         migrate_kafka_data(
@@ -231,7 +256,12 @@ def test_we_fail_on_send_errors_to_new_topic():
     _commit_offsets_for_topic(old_topic, consumer_group_id)
 
     # Put some data to the topic
-    _send_message(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
+    _send_message(
+        old_topic,
+        b'{ "event": "test" }',
+        key=message_key.encode("utf-8"),
+        headers=[("foo", b"bar")],
+    )
 
     with mock.patch("kafka.KafkaProducer.send") as mock_send:
         produce_future = FutureProduceResult(topic_partition=TopicPartition(new_topic, 1))

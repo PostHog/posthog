@@ -1,10 +1,15 @@
-import { ActivityLogItem, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import {
+    ActivityLogItem,
+    defaultDescriber,
+    HumanizedChange,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function personActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Person') {
         console.error('person describer received a non-person activity')
         return { description: null }
@@ -14,7 +19,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted the person: {logItem.detail.name}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted the person: {logItem.detail.name}
                 </>
             ),
         }
@@ -28,7 +33,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> edited this person's properties
+                    <strong>{userNameForLogItem(logItem)}</strong> edited this person's properties
                 </>
             ),
         }
@@ -40,11 +45,11 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                     <SentenceList
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong> merged
+                                <strong>{userNameForLogItem(logItem)}</strong> merged
                             </>
                         }
                         listParts={logItem.detail.merge.source.flatMap((di) => (
-                            <span className={'highlighted-activity'}>
+                            <span className="highlighted-activity">
                                 <PersonDisplay person={di} />
                             </span>
                         ))}
@@ -63,12 +68,12 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                     <SentenceList
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong> split this person into
+                                <strong>{userNameForLogItem(logItem)}</strong> split this person into
                             </>
                         }
                         listParts={distinctIds.map((di) => (
                             <span key={di} className="highlighted-activity">
-                                <Link to={urls.person(di)}>{di}</Link>
+                                <Link to={urls.personByDistinctId(di)}>{di}</Link>
                             </span>
                         ))}
                     />
@@ -77,5 +82,5 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification)
 }

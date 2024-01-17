@@ -136,7 +136,9 @@ class MarkInactiveExportsAsFinished(TestCase):
             },
         )
         PluginStorage.objects.create(
-            plugin_config_id=self.plugin_configs[4].pk, key="EXPORT_PARAMETERS", value=json.dumps({"id": "5"})
+            plugin_config_id=self.plugin_configs[4].pk,
+            key="EXPORT_PARAMETERS",
+            value=json.dumps({"id": "5"}),
         )
 
         # Case 6: Started export with storage containing another that's running
@@ -153,7 +155,9 @@ class MarkInactiveExportsAsFinished(TestCase):
             },
         )
         PluginStorage.objects.create(
-            plugin_config_id=self.plugin_configs[5].pk, key="EXPORT_PARAMETERS", value=json.dumps({"id": "7"})
+            plugin_config_id=self.plugin_configs[5].pk,
+            key="EXPORT_PARAMETERS",
+            value=json.dumps({"id": "7"}),
         )
 
         migration = importlib.import_module("posthog.migrations.0273_mark_inactive_exports_as_finished")

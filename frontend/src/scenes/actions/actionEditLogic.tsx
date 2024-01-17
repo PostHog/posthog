@@ -1,17 +1,23 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import api from 'lib/api'
-import { deleteWithUndo, uuid } from 'lib/utils'
-import { actionsModel } from '~/models/actionsModel'
-import type { actionEditLogicType } from './actionEditLogicType'
-import { ActionStepType, ActionType } from '~/types'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
+import { uuid } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
+import { ActionStepType, ActionType } from '~/types'
+
+import type { actionEditLogicType } from './actionEditLogicType'
+import { actionLogic } from './actionLogic'
 
 export type NewActionType = Partial<ActionType> &
     Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
@@ -24,15 +30,13 @@ export interface SetActionProps {
 export interface ActionEditLogicProps {
     id?: number
     action: ActionEditType
-    temporaryToken?: string
-    onSave: (action: ActionType) => void
 }
 
 export const actionEditLogic = kea<actionEditLogicType>([
     path(['scenes', 'actions', 'actionEditLogic']),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
-    connect({ actions: [tagsModel, ['loadTags']] }),
+    connect({ actions: [tagsModel, ['loadTags']], values: [sceneLogic, ['activeScene']] }),
     actions({
         setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
             action,
@@ -65,9 +69,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
     forms(({ actions, props }) => ({
         action: {
             defaults: { ...props.action } as ActionEditType,
-            errors: ({ name }) => ({
-                name: !name ? 'You need to set a name' : null,
-            }),
             submit: (action) => {
                 actions.saveAction(action)
             },
@@ -86,13 +87,13 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionEditType,
                 saveAction: async (updatedAction: ActionEditType, breakpoint) => {
-                    let action = { ...updatedAction }
+                    let action: ActionType
 
                     try {
-                        if (action.id) {
-                            action = await api.actions.update(action.id, action, props.temporaryToken)
+                        if (updatedAction.id) {
+                            action = await api.actions.update(updatedAction.id, updatedAction)
                         } else {
-                            action = await api.actions.create(action, props.temporaryToken)
+                            action = await api.actions.create(updatedAction)
                         }
                         breakpoint()
                     } catch (response: any) {
@@ -108,15 +109,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
                                 </>
                             )
 
-                            return action
+                            return { ...updatedAction }
                         }
                         throw response
                     }
 
                     lemonToast.success(`Action saved`)
-                    props.onSave(action as ActionType)
+                    if (!props.id) {
+                        router.actions.push(urls.action(action.id))
+                    }
+                    actionLogic.actions.loadActionSuccess(action)
                     // reload actions so they are immediately available throughout the app
-                    actions.loadEventDefinitions(null)
+                    actions.loadEventDefinitions()
                     actions.loadActions()
                     actions.loadActionCount()
                     actions.loadTags() // reload tags in case new tags are being saved
@@ -127,8 +131,8 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     listeners(({ values, actions }) => ({
-        deleteAction: () => {
-            deleteWithUndo({
+        deleteAction: async () => {
+            await deleteWithUndo({
                 endpoint: api.actions.determineDeleteEndpoint(),
                 object: values.action,
                 callback: () => {
@@ -178,7 +182,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     beforeUnload(({ values }) => ({
-        enabled: () => values.actionChanged && !values.wasDeleted,
+        enabled: () => values.activeScene !== Scene.Action && values.actionChanged && !values.wasDeleted,
         message: `Leave action?\nChanges you made will be discarded.`,
     })),
 ])

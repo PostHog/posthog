@@ -36,7 +36,10 @@ GROUPS_TABLE_SQL = lambda: (
 )
 
 KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + GROUPS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_GROUPS), extra_fields=""
+    table_name="kafka_" + GROUPS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_GROUPS),
+    extra_fields="",
 )
 
 # You must include the database here because of a bug in clickhouse

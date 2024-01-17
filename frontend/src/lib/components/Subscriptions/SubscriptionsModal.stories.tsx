@@ -1,24 +1,26 @@
-import { useRef, useState } from 'react'
-import { ComponentMeta } from '@storybook/react'
-import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
-import { AvailableFeature, InsightShortId, Realm } from '~/types'
-import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { useAvailableFeatures } from '~/mocks/features'
-import { uuid } from 'lib/utils'
-import { useStorybookMocks } from '~/mocks/browser'
+import { Meta } from '@storybook/react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
+import { uuid } from 'lib/utils'
+import { useRef, useState } from 'react'
 
-export default {
+import { useStorybookMocks } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
+import { AvailableFeature, InsightShortId, Realm } from '~/types'
+
+import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
+
+const meta: Meta<typeof SubscriptionsModal> = {
     title: 'Components/Subscriptions',
     component: SubscriptionsModal,
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-01-31 12:00:00',
     },
-} as ComponentMeta<typeof SubscriptionsModal>
+}
+export default meta
 
 const Template = (
     args: Partial<SubscriptionsModalProps> & { noIntegrations?: boolean; featureAvailable?: boolean }
@@ -105,11 +107,11 @@ export const SubscriptionsEmpty = (): JSX.Element => {
 }
 
 export const SubscriptionsNew = (): JSX.Element => {
-    return <Template subscriptionId={'new'} />
+    return <Template subscriptionId="new" />
 }
 
 export const SubscriptionNoIntegrations = (): JSX.Element => {
-    return <Template subscriptionId={'new'} noIntegrations={true} />
+    return <Template subscriptionId="new" noIntegrations={true} />
 }
 
 export const SubscriptionsEdit = (): JSX.Element => {

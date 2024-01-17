@@ -1,24 +1,24 @@
 .ErrorBoundary {
-    background: var(--danger-highlight);
-    border-radius: var(--radius);
-    margin: 1.5rem;
-    padding: 0.75rem 1rem 1rem;
     min-width: 0;
     height: fit-content;
-    .main-app-content > & {
-        margin: 1.5rem 0;
-    }
+    padding: 0.75rem 1rem 1rem;
+    margin: 1.5rem;
+    background: var(--danger-highlight);
+    border-radius: var(--radius);
+
     h2 {
         margin-bottom: 0.75rem;
-        color: var(--danger);
         font-weight: 600;
+        color: var(--danger);
     }
+
     pre {
+        padding: 0.75rem 1rem;
         margin-bottom: 0.75rem;
         background: var(--border-light);
         border-radius: var(--radius);
-        padding: 0.75rem 1rem;
     }
+
     .help-button {
         margin-top: 0.75rem;
     }

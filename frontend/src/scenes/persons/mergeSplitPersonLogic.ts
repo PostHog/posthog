@@ -1,9 +1,12 @@
-import { kea } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { PersonType } from '~/types'
+
 import type { mergeSplitPersonLogicType } from './mergeSplitPersonLogicType'
 import { personsLogic } from './personsLogic'
 
@@ -13,41 +16,22 @@ export interface SplitPersonLogicProps {
 
 export type PersonUuids = NonNullable<PersonType['uuid']>[]
 
-export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
-    props: {} as SplitPersonLogicProps,
-    key: (props) => props.person.id ?? 'new',
-    path: (key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key],
-    connect: () => ({
+export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
+    props({} as SplitPersonLogicProps),
+    key((props) => props.person.id ?? 'new'),
+    path((key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key]),
+    connect(() => ({
         actions: [
             personsLogic({ syncWithUrl: true }),
             ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown'],
         ],
         values: [personsLogic({ syncWithUrl: true }), ['persons']],
-    }),
-    actions: {
+    })),
+    actions({
         setSelectedPersonToAssignSplit: (id: string) => ({ id }),
         cancel: true,
-    },
-    reducers: ({ props }) => ({
-        person: [props.person, {}],
-        selectedPersonsToAssignSplit: [
-            null as null | string,
-            {
-                setSelectedPersonToAssignSplit: (_, { id }) => id,
-            },
-        ],
     }),
-    listeners: ({ actions, values }) => ({
-        setListFilters: () => {
-            actions.loadPersons()
-        },
-        cancel: () => {
-            if (!values.executedLoading) {
-                actions.setSplitMergeModalShown(false)
-            }
-        },
-    }),
-    loaders: ({ values, actions }) => ({
+    loaders(({ values, actions }) => ({
         executed: [
             false,
             {
@@ -70,8 +54,27 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
                 },
             },
         ],
-    }),
-    events: ({ actions }) => ({
+    })),
+    reducers(({ props }) => ({
+        person: [props.person, {}],
+        selectedPersonsToAssignSplit: [
+            null as null | string,
+            {
+                setSelectedPersonToAssignSplit: (_, { id }) => id,
+            },
+        ],
+    })),
+    listeners(({ actions, values }) => ({
+        setListFilters: () => {
+            actions.loadPersons()
+        },
+        cancel: () => {
+            if (!values.executedLoading) {
+                actions.setSplitMergeModalShown(false)
+            }
+        },
+    })),
+    events(({ actions }) => ({
         afterMount: [actions.loadPersons],
-    }),
-})
+    })),
+])

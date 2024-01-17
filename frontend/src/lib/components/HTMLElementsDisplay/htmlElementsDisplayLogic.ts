@@ -1,14 +1,15 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
-
-import type { htmlElementsDisplayLogicType } from './htmlElementsDisplayLogicType'
-import { ElementType } from '~/types'
-import { objectsEqual } from 'lib/utils'
+import { subscriptions } from 'kea-subscriptions'
 import {
     ParsedCSSSelector,
     parsedSelectorToSelectorString,
     preselect,
 } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { subscriptions } from 'kea-subscriptions'
+import { objectsEqual } from 'lib/utils'
+
+import { ElementType } from '~/types'
+
+import type { htmlElementsDisplayLogicType } from './htmlElementsDisplayLogicType'
 
 export interface HtmlElementDisplayLogicProps {
     checkUniqueness: boolean
@@ -20,7 +21,7 @@ export interface HtmlElementDisplayLogicProps {
 
 export const elementsChain = (providedElements: ElementType[] | undefined): ElementType[] => {
     const safeElements = [...(providedElements || [])]
-    return safeElements.reverse().slice(Math.max(safeElements.length - 10, 1))
+    return safeElements.reverse()
 }
 
 export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
@@ -30,6 +31,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     actions({
         setParsedSelectors: (selectors: Record<number, ParsedCSSSelector>) => ({ selectors }),
         setElements: (providedElements: ElementType[]) => ({ providedElements }),
+        showAdditionalElements: true,
     }),
     reducers(({ props }) => ({
         elements: [
@@ -38,10 +40,9 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
         ],
         parsedSelectorsRaw: [
             {} as Record<number, ParsedCSSSelector>,
-            {
-                setParsedSelectors: (_, { selectors }) => selectors,
-            },
+            { setParsedSelectors: (_, { selectors }) => selectors },
         ],
+        visibleElements: [10, { showAdditionalElements: (state) => state + 3 }],
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.providedElements && !objectsEqual(props.providedElements, oldProps.providedElements)) {
@@ -57,6 +58,18 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                     ? preselect(providedElements, startingSelector)
                     : parsedSelectorsRaw,
         ],
+        parsedElements: [
+            (s) => [s.elements, s.visibleElements],
+            (elements, visibleElements) => {
+                return elements.slice(Math.max(elements.length - visibleElements, 0))
+            },
+        ],
+        elementsToShowDepth: [
+            (s) => [s.elements, s.visibleElements],
+            (elements: ElementType[], visibleElements: number) => {
+                return Math.max(elements.length - visibleElements, 0)
+            },
+        ],
         // contains the selector string built from the parsed selectors
         chosenSelector: [
             (s) => [s.parsedSelectors],
@@ -68,10 +81,10 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                     .map((k) => Number.parseInt(k))
                     .sort()
                     .forEach((key) => {
-                        const selector = !!parsedSelectors[key]
+                        const selector = parsedSelectors[key]
                             ? parsedSelectorToSelectorString(parsedSelectors[key])
                             : ''
-                        if (!!selector.trim().length) {
+                        if (selector.trim().length) {
                             if (lastKey === key - 1 && !!builtSelector.trim().length) {
                                 builtSelector += ` > ${selector}`
                             } else {
@@ -81,7 +94,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                         lastKey = key
                     })
 
-                builtSelector = !!builtSelector.trim().length ? builtSelector.trim() : 'no selectors chosen'
+                builtSelector = builtSelector.trim().length ? builtSelector.trim() : 'no selectors chosen'
 
                 return builtSelector
             },

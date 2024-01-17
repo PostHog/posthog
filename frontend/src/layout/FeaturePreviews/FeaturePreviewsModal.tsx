@@ -1,21 +1,27 @@
 import { LemonButton, LemonDivider, LemonModal, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { useActions, useValues, useAsyncActions } from 'kea'
+import clsx from 'clsx'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
+
+import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
-import clsx from 'clsx'
 
 export function FeaturePreviewsModal({
     inline,
 }: {
     /** @deprecated This is only for Storybook. */
     inline?: boolean
-}): JSX.Element {
-    const { featurePreviewsModalVisible, earlyAccessFeatures, rawEarlyAccessFeaturesLoading } =
-        useValues(featurePreviewsLogic)
+}): JSX.Element | null {
+    const { featurePreviewsModalVisible } = useValues(featurePreviewsLogic)
     const { hideFeaturePreviewsModal, loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
+    const { sidePanelAvailable } = useValues(sidePanelStateLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [])
+
+    if (sidePanelAvailable) {
+        return null
+    }
 
     return (
         <LemonModal
@@ -26,34 +32,45 @@ export function FeaturePreviewsModal({
             width={528}
             inline={inline}
         >
-            <div
-                className={clsx(
-                    'flex flex-col relative min-h-24',
-                    earlyAccessFeatures.length === 0 && 'items-center justify-center'
-                )}
-            >
-                {earlyAccessFeatures.map((feature, i) => {
-                    if (!feature.flagKey) {
-                        return false
-                    }
-                    return (
-                        <>
-                            {i > 0 && <LemonDivider className="my-4" />}
-                            <FeaturePreview key={feature.flagKey} feature={feature} />
-                        </>
-                    )
-                })}
-                {rawEarlyAccessFeaturesLoading ? (
-                    <SpinnerOverlay />
-                ) : earlyAccessFeatures.length === 0 ? (
-                    <i className="text-center">
-                        No feature previews currently available.
-                        <br />
-                        Check back later!
-                    </i>
-                ) : null}
-            </div>
+            <FeaturePreviews />
         </LemonModal>
+    )
+}
+
+export function FeaturePreviews(): JSX.Element {
+    const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
+    const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
+
+    useLayoutEffect(() => loadEarlyAccessFeatures(), [])
+
+    return (
+        <div
+            className={clsx(
+                'flex flex-col relative min-h-24',
+                earlyAccessFeatures.length === 0 && 'items-center justify-center'
+            )}
+        >
+            {earlyAccessFeatures.map((feature, i) => {
+                if (!feature.flagKey) {
+                    return false
+                }
+                return (
+                    <div key={feature.flagKey}>
+                        {i > 0 && <LemonDivider className="my-4" />}
+                        <FeaturePreview key={feature.flagKey} feature={feature} />
+                    </div>
+                )
+            })}
+            {rawEarlyAccessFeaturesLoading ? (
+                <SpinnerOverlay />
+            ) : earlyAccessFeatures.length === 0 ? (
+                <i className="text-center">
+                    No feature previews currently available.
+                    <br />
+                    Check back later!
+                </i>
+            ) : null}
+        </div>
     )
 }
 
@@ -79,18 +96,9 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
             </div>
             <p className="my-2">{description || <i>No description.</i>}</p>
             <div>
-                <Link
-                    onClick={() => {
-                        if (!isFeedbackActive) {
-                            beginEarlyAccessFeatureFeedback(flagKey)
-                        } else {
-                            cancelEarlyAccessFeatureFeedback()
-                            setFeedback('')
-                        }
-                    }}
-                >
-                    {!isFeedbackActive ? 'Give' : 'Cancel'} feedback
-                </Link>
+                {!isFeedbackActive ? (
+                    <Link onClick={() => beginEarlyAccessFeatureFeedback(flagKey)}>Give feedback</Link>
+                ) : null}
                 {documentationUrl && (
                     <>
                         {' • '}
@@ -118,18 +126,31 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                             }
                         }}
                     />
-                    <LemonButton
-                        type="primary"
-                        onClick={async () => {
-                            await submitEarlyAccessFeatureFeedback(feedback)
-                            setFeedback('')
-                        }}
-                        loading={activeFeedbackFlagKeyLoading}
-                        fullWidth
-                        center
-                    >
-                        Submit feedback
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                cancelEarlyAccessFeatureFeedback()
+                                setFeedback('')
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
+
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                void submitEarlyAccessFeatureFeedback(feedback).then(() => {
+                                    setFeedback('')
+                                })
+                            }}
+                            loading={activeFeedbackFlagKeyLoading}
+                            className="flex-1"
+                            center
+                        >
+                            Submit feedback
+                        </LemonButton>
+                    </div>
                 </div>
             )}
         </div>

@@ -1,20 +1,23 @@
-import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils'
+import { useState } from 'react'
 
-export default {
+type Story = StoryObj<typeof LemonCalendarSelect>
+const meta: Meta<typeof LemonCalendarSelect> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select',
     component: LemonCalendarSelect,
     parameters: {
         mockDate: '2023-01-26',
     },
-} as ComponentMeta<typeof LemonCalendarSelect>
+    tags: ['autodocs'],
+}
+export default meta
 
-const BasicTemplate: ComponentStory<typeof LemonCalendarSelect> = (props: LemonCalendarSelectProps) => {
+const BasicTemplate: StoryFn<typeof LemonCalendarSelect> = (props: LemonCalendarSelectProps) => {
     const [value, setValue] = useState(dayjs().subtract(10, 'day'))
     const [visible, setVisible] = useState(true)
 
@@ -45,5 +48,5 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarSelect> = (props: LemonC
     )
 }
 
-export const LemonCalendarSelect_ = BasicTemplate.bind({})
+export const LemonCalendarSelect_: Story = BasicTemplate.bind({})
 LemonCalendarSelect_.args = {}

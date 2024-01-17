@@ -1,16 +1,19 @@
-import { kea } from 'kea'
-import type { groupPropertiesModelType } from './groupPropertiesModelType'
+import { connect, events, kea, path, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { GroupTypeProperties, PersonProperty } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-export const groupPropertiesModel = kea<groupPropertiesModelType>({
-    path: ['models', 'groupPropertiesModel'],
-    connect: {
+import { GroupTypeProperties, PersonProperty } from '~/types'
+
+import type { groupPropertiesModelType } from './groupPropertiesModelType'
+
+export const groupPropertiesModel = kea<groupPropertiesModelType>([
+    path(['models', 'groupPropertiesModel']),
+    connect({
         values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled']],
-    },
-    loaders: ({ values }) => ({
+    }),
+    loaders(({ values }) => ({
         allGroupProperties: [
             {} as GroupTypeProperties,
             {
@@ -22,8 +25,8 @@ export const groupPropertiesModel = kea<groupPropertiesModelType>({
                 },
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         groupProperties: [
             (s) => [s.allGroupProperties],
             (groupProperties: GroupTypeProperties) =>
@@ -35,8 +38,8 @@ export const groupPropertiesModel = kea<groupPropertiesModelType>({
         groupProperties_2: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['2']],
         groupProperties_3: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['3']],
         groupProperties_4: [(s) => [s.allGroupProperties], (groupProperties) => groupProperties['4']],
-    },
-    events: ({ actions }) => ({
-        afterMount: actions.loadAllGroupProperties,
     }),
-})
+    events(({ actions }) => ({
+        afterMount: actions.loadAllGroupProperties,
+    })),
+])

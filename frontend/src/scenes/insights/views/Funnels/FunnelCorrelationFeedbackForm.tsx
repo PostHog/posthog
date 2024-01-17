@@ -1,12 +1,9 @@
-import { useRef } from 'react'
-import { useActions, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelCorrelationFeedbackLogic } from 'scenes/funnels/funnelCorrelationFeedbackLogic'
-
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
-import { IconClose } from 'lib/lemon-ui/icons'
-import { CommentOutlined } from '@ant-design/icons'
+import { useActions, useValues } from 'kea'
+import { IconClose, IconComment } from 'lib/lemon-ui/icons'
+import { useRef } from 'react'
+import { funnelCorrelationFeedbackLogic } from 'scenes/funnels/funnelCorrelationFeedbackLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
@@ -30,7 +27,7 @@ export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
         <div className="border rounded p-4 space-y-2 mt-4">
             <div className="flex items-center justify-between">
                 <h4 className="text-muted-alt">
-                    <CommentOutlined style={{ marginRight: 4 }} />
+                    <IconComment style={{ marginRight: 4 }} />
                     Was this correlation analysis report useful?
                 </h4>
                 <div className="flex items-center gap-2">
@@ -59,7 +56,7 @@ export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
                             {content[1]}
                         </LemonButton>
                     ))}
-                    <LemonButton icon={<IconClose />} onClick={hideCorrelationAnalysisFeedback} status="stealth" />
+                    <LemonButton icon={<IconClose />} onClick={hideCorrelationAnalysisFeedback} />
                 </div>
             </div>
             {correlationDetailedFeedbackVisible ? (

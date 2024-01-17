@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 def set_created_at(apps, schema_editor):
-
     try:
         from posthog.client import sync_execute
     except ImportError:
@@ -32,7 +31,6 @@ def set_created_at(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0186_insight_refresh_attempt"),
     ]

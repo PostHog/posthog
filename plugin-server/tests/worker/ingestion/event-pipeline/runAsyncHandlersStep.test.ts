@@ -12,7 +12,6 @@ const testElements: any = ['element1', 'element2']
 const ingestionEvent: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
-    ip: '127.0.0.1',
     teamId: 2,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
@@ -44,7 +43,7 @@ describe('runAsyncHandlersStep()', () => {
     })
 
     it('stops processing', async () => {
-        const response = await processOnEventStep(runner, ingestionEvent)
+        const response = await processOnEventStep(runner.hub, ingestionEvent)
 
         expect(response).toEqual(null)
     })
@@ -57,7 +56,7 @@ describe('runAsyncHandlersStep()', () => {
     })
 
     it('calls onEvent plugin methods', async () => {
-        await processOnEventStep(runner, ingestionEvent)
+        await processOnEventStep(runner.hub, ingestionEvent)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
     })

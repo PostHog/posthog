@@ -1,12 +1,16 @@
 import json
 import re
+import socket
+import urllib.parse
 from enum import Enum, auto
+from ipaddress import ip_address
 from typing import List, Literal, Optional, Union, Tuple
 from uuid import UUID
 
 import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
+from prometheus_client import Counter
 from rest_framework import request, status
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
@@ -17,7 +21,8 @@ from posthog.models import Entity, EventDefinition
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.utils import cors_response, load_data_from_request
+from posthog.utils import load_data_from_request
+from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
 
@@ -226,11 +231,17 @@ def check_definition_ids_inclusion_field_sql(
 
 SURROGATE_REGEX = re.compile("([\ud800-\udfff])")
 
+SURROGATES_SUBSTITUTED_COUNTER = Counter(
+    "surrogates_substituted_total",
+    "Stray UTF16 surrogates detected and removed from user input.",
+)
+
 
 # keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
 def safe_clickhouse_string(s: str) -> str:
     matches = SURROGATE_REGEX.findall(s or "")
     for match in matches:
+        SURROGATES_SUBSTITUTED_COUNTER.inc()
         s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
     return s
 
@@ -246,12 +257,12 @@ def create_event_definitions_sql(
 
         ee_model = EnterpriseEventDefinition
     else:
-        ee_model = EventDefinition  # type: ignore
+        ee_model = EventDefinition
 
     event_definition_fields = {
-        f'"{f.column}"'  # type: ignore
+        f'"{f.column}"'
         for f in ee_model._meta.get_fields()
-        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
     }
 
     enterprise_join = (
@@ -285,7 +296,7 @@ def create_event_definitions_sql(
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
-        UUID(key)  # type: ignore
+        UUID(key)
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
@@ -295,3 +306,23 @@ def parse_bool(value: Union[str, List[str]]) -> bool:
     if value == "true":
         return True
     return False
+
+
+def raise_if_user_provided_url_unsafe(url: str):
+    """Raise if the provided URL seems unsafe, otherwise do nothing.
+
+    Equivalent of plugin server raiseIfUserProvidedUrlUnsafe.
+    """
+    parsed_url: urllib.parse.ParseResult = urllib.parse.urlparse(url)  # urlparse never raises errors
+    if not parsed_url.hostname:
+        raise ValueError("No hostname")
+    if parsed_url.scheme not in ("http", "https"):
+        raise ValueError("Scheme must be either HTTP or HTTPS")
+    # Disallow if hostname resolves to a private (internal) IP address
+    try:
+        addrinfo = socket.getaddrinfo(parsed_url.hostname, None)
+    except socket.gaierror:
+        raise ValueError("Invalid hostname")
+    for _, _, _, _, sockaddr in addrinfo:
+        if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
+            raise ValueError("Internal hostname")

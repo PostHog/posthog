@@ -1,10 +1,10 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-
-import posthog from 'posthog-js'
-import { featureFlagLogic } from '../featureFlagLogic'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
 
+import { featureFlagLogic } from '../featureFlagLogic'
 import type { promptLogicType } from './promptLogicType'
 
 const PROMPT_PREFIX = 'prompt'

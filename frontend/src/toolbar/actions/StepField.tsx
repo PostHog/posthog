@@ -1,56 +1,106 @@
-import { Checkbox, Form, Input } from 'antd'
-import { SelectorCount } from '~/toolbar/actions/SelectorCount'
+import clsx from 'clsx'
+import { Field } from 'kea-forms'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { cssEscape } from 'lib/utils/cssEscape'
-import { StringMatchingToggle } from '~/toolbar/actions/StringMatchingToggle'
-import { ActionStepForm } from '~/toolbar/types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+
+import { SelectorCount } from '~/toolbar/actions/SelectorCount'
+import { ActionStepForm } from '~/toolbar/types'
+import { StringMatching } from '~/types'
 
 interface StepFieldProps {
     item: 'href' | 'text' | 'selector' | 'url'
     step: ActionStepForm
     label: string | JSX.Element
     caption?: string | JSX.Element
-    field: { name: number; fieldKey: number; key: number }
 }
 
-export function StepField({ field, step, item, label, caption }: StepFieldProps): JSX.Element {
-    const selected = step && ((step as any)[`${item}_selected`] as boolean)
-    const fieldStyle = selected ? {} : { opacity: 0.5 }
+function hrefSelector(step: ActionStepForm): string | null {
+    if (!step.href) {
+        return null
+    }
+    // see https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#links
+    const matchOperator = {
+        // Link whose value is exactly step.href.
+        [StringMatching.Exact]: '=',
+        // Links with step.href anywhere in the URL
+        [StringMatching.Contains]: '*=',
+        // CSS selector can't match on regex
+        [StringMatching.Regex]: null,
+    }[step.href_matching || StringMatching.Exact]
+
+    if (!matchOperator) {
+        return null
+    }
+
+    return `a[href${matchOperator}"${cssEscape(step.href)}"]`
+}
+
+export function StepField({ step, item, label, caption }: StepFieldProps): JSX.Element {
+    const selected = step && step[`${item}_selected`]
 
     return (
-        <div className={selected ? 'action-field action-field-selected' : 'action-field'}>
-            <Form.Item style={{ margin: 0 }}>
-                {item === 'href' && step?.href && <SelectorCount selector={`a[href="${cssEscape(step.href)}"]`} />}
-                {item === 'selector' && step?.selector && <SelectorCount selector={step.selector} />}
+        <>
+            <div className={clsx('action-field my-1', selected && 'action-field-selected')}>
+                <div>
+                    {item === 'href' && step?.href && <SelectorCount selector={hrefSelector(step)} />}
+                    {item === 'selector' && step?.selector && <SelectorCount selector={step.selector} />}
+                    <Field name={`${item}_selected`} noStyle>
+                        {({ onChange, value }) => <LemonCheckbox label={label} onChange={onChange} checked={value} />}
+                    </Field>
+                    {caption && <div className="action-field-caption">{caption}</div>}
+                </div>
+                {['url', 'href', 'text'].includes(item) ? (
+                    <Field name={`${item}_matching`}>
+                        {({ value, onChange }) => {
+                            // match defaults in the data management section
+                            if (value === undefined || value === null) {
+                                item === 'url' ? (value = StringMatching.Contains) : (value = StringMatching.Exact)
+                            }
 
-                <Form.Item
-                    name={[field.name, `${item}_selected`]}
-                    fieldKey={[field.fieldKey, `${item}_selected`] as unknown as number}
-                    valuePropName="checked"
-                    noStyle
-                >
-                    <Checkbox>{label}</Checkbox>
-                </Form.Item>
-                {caption && <div className="action-field-caption">{caption}</div>}
-            </Form.Item>
-            {['url', 'href', 'text'].includes(item) ? (
-                <Form.Item
-                    name={[field.name, `${item}_matching`]}
-                    fieldKey={[field.fieldKey, `${item}_matching`] as unknown as number}
-                >
-                    <StringMatchingToggle style={fieldStyle} />
-                </Form.Item>
-            ) : null}
-            <Form.Item name={[field.name, item]} fieldKey={[field.fieldKey, item] as unknown as number}>
-                {item === 'selector' ? (
-                    <Input.TextArea onChange={(e) => e.stopPropagation()} autoSize style={fieldStyle} />
-                ) : (
-                    <Input onChange={(e) => e.stopPropagation()} style={fieldStyle} />
-                )}
-            </Form.Item>
-            {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (
-                <div className="action-field-hint">{URL_MATCHING_HINTS[step.url_matching]}</div>
-            ) : null}
-        </div>
+                            return (
+                                <LemonSegmentedButton
+                                    fullWidth
+                                    className={clsx('mb-1', !selected && 'opacity-50')}
+                                    size="small"
+                                    options={[
+                                        { value: StringMatching.Exact, label: 'Exact' },
+                                        { value: StringMatching.Regex, label: 'Regex' },
+                                        { value: StringMatching.Contains, label: 'Contains' },
+                                    ]}
+                                    value={value}
+                                    onChange={onChange}
+                                />
+                            )
+                        }}
+                    </Field>
+                ) : null}
+                <Field name={item}>
+                    {({ value, onChange }) => {
+                        return item === 'selector' ? (
+                            <LemonTextArea
+                                className={clsx(!selected && 'opacity-50')}
+                                onChange={onChange}
+                                value={value ?? ''}
+                                stopPropagation={true}
+                            />
+                        ) : (
+                            <LemonInput
+                                className={clsx(!selected && 'opacity-50')}
+                                onChange={onChange}
+                                value={value ?? ''}
+                                stopPropagation={true}
+                            />
+                        )
+                    }}
+                </Field>
+                {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (
+                    <div className="action-field-hint">{URL_MATCHING_HINTS[step.url_matching]}</div>
+                ) : null}
+            </div>
+        </>
     )
 }

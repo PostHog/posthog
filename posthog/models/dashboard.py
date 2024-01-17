@@ -18,14 +18,23 @@ class Dashboard(models.Model):
 
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
-        TEMPLATE = "template", "Template"  # dashboard was created from a predefined template
-        DUPLICATE = "duplicate", "Duplicate"  # dashboard was duplicated from another dashboard
+        TEMPLATE = (
+            "template",
+            "Template",
+        )  # dashboard was created from a predefined template
+        DUPLICATE = (
+            "duplicate",
+            "Duplicate",
+        )  # dashboard was duplicated from another dashboard
 
     class RestrictionLevel(models.IntegerChoices):
         """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
 
         EVERYONE_IN_PROJECT_CAN_EDIT = 21, "Everyone in the project can edit"
-        ONLY_COLLABORATORS_CAN_EDIT = 37, "Only those invited to this dashboard can edit"
+        ONLY_COLLABORATORS_CAN_EDIT = (
+            37,
+            "Only those invited to this dashboard can edit",
+        )
 
     class PrivilegeLevel(models.IntegerChoices):
         """Collaboration privilege level (which is a user property). Sync with RestrictionLevel."""
@@ -44,14 +53,24 @@ class Dashboard(models.Model):
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
     restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices
+        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
+        choices=RestrictionLevel.choices,
     )
-    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
+    insights = models.ManyToManyField(
+        "posthog.Insight",
+        related_name="dashboards",
+        through="DashboardTile",
+        blank=True,
+    )
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
     deprecated_tags_v2: ArrayField = ArrayField(
-        models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
+        models.CharField(max_length=32),
+        null=True,
+        blank=True,
+        default=None,
+        db_column="tags",
     )
 
     # DEPRECATED: using the new "sharing" relation instead

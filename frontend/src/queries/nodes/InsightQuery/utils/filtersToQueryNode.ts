@@ -1,33 +1,43 @@
-import {
-    InsightQueryNode,
-    EventsNode,
-    ActionsNode,
-    NodeKind,
-    InsightNodeKind,
-    InsightsQueryBase,
-} from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter } from '~/types'
-import {
-    isTrendsQuery,
-    isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
-    isInsightQueryWithBreakdown,
-    isInsightQueryWithSeries,
-} from '~/queries/utils'
-import {
-    isTrendsFilter,
-    isFunnelsFilter,
-    isRetentionFilter,
-    isPathsFilter,
-    isStickinessFilter,
-    isLifecycleFilter,
-} from 'scenes/insights/sharedUtils'
+import * as Sentry from '@sentry/react'
 import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
-import * as Sentry from '@sentry/react'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
+
+import {
+    ActionsNode,
+    EventsNode,
+    InsightNodeKind,
+    InsightQueryNode,
+    InsightsQueryBase,
+    NodeKind,
+} from '~/queries/schema'
+import {
+    isFunnelsQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
+import {
+    ActionFilter,
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    FilterType,
+    InsightType,
+    PropertyFilterType,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+} from '~/types'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
@@ -51,7 +61,7 @@ export const actionsAndEventsToSeries = ({
             const shared = objectCleanWithEmpty({
                 name: f.name || undefined,
                 custom_name: f.custom_name,
-                properties: f.properties,
+                properties: cleanProperties(f.properties),
                 math: f.math || 'total',
                 math_property: f.math_property,
                 math_hogql: f.math_hogql,
@@ -63,7 +73,7 @@ export const actionsAndEventsToSeries = ({
                     id: f.id,
                     ...shared,
                 }
-            } else if (f.type === 'events') {
+            } else {
                 return {
                     kind: NodeKind.EventsNode,
                     event: f.id,
@@ -95,6 +105,82 @@ export const cleanHiddenLegendSeries = (
         : undefined
 }
 
+const cleanProperties = (parentProperties: FilterType['properties']): InsightsQueryBase['properties'] => {
+    if (!parentProperties || !parentProperties.values) {
+        return parentProperties
+    }
+
+    const processAnyPropertyFilter = (filter: AnyPropertyFilter): AnyPropertyFilter => {
+        if (
+            filter.type === PropertyFilterType.Event ||
+            filter.type === PropertyFilterType.Person ||
+            filter.type === PropertyFilterType.Element ||
+            filter.type === PropertyFilterType.Session ||
+            filter.type === PropertyFilterType.Group ||
+            filter.type === PropertyFilterType.Feature ||
+            filter.type === PropertyFilterType.Recording
+        ) {
+            return {
+                ...filter,
+                operator: filter.operator ?? PropertyOperator.Exact,
+            }
+        }
+
+        // Some saved insights have `"operator": null` defined in the properties, this
+        // breaks HogQL trends and Pydantic validation
+        if (filter.type === PropertyFilterType.Cohort) {
+            if ('operator' in filter) {
+                delete filter.operator
+            }
+        }
+
+        return filter
+    }
+
+    const processPropertyGroupFilterValue = (
+        propertyGroupFilterValue: PropertyGroupFilterValue
+    ): PropertyGroupFilterValue => {
+        if (propertyGroupFilterValue.values?.length === 0 || !propertyGroupFilterValue.values) {
+            return propertyGroupFilterValue
+        }
+
+        // Check whether the first values type is an AND or OR
+        const firstValueType = propertyGroupFilterValue.values[0].type
+
+        if (firstValueType === FilterLogicalOperator.And || firstValueType === FilterLogicalOperator.Or) {
+            // propertyGroupFilterValue.values is PropertyGroupFilterValue[]
+            const values = (propertyGroupFilterValue.values as PropertyGroupFilterValue[]).map(
+                processPropertyGroupFilterValue
+            )
+
+            return {
+                ...propertyGroupFilterValue,
+                values,
+            }
+        }
+
+        // propertyGroupFilterValue.values is AnyPropertyFilter[]
+        const values = (propertyGroupFilterValue.values as AnyPropertyFilter[]).map(processAnyPropertyFilter)
+
+        return {
+            ...propertyGroupFilterValue,
+            values,
+        }
+    }
+
+    if (Array.isArray(parentProperties)) {
+        // parentProperties is AnyPropertyFilter[]
+        return parentProperties.map(processAnyPropertyFilter)
+    }
+
+    // parentProperties is PropertyGroupFilter
+    const values = parentProperties.values.map(processPropertyGroupFilterValue)
+    return {
+        ...parentProperties,
+        values,
+    }
+}
+
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
     const captureException = (message: string): void => {
         Sentry.captureException(new Error(message), {
@@ -109,7 +195,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     const query: InsightsQueryBase = {
         kind: reverseInsightMap[filters.insight],
-        properties: filters.properties,
+        properties: cleanProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
         samplingFactor: filters.sampling_factor,
     }
@@ -149,14 +235,17 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             filters.breakdown_type = 'event'
         }
 
-        query.breakdown = objectCleanWithEmpty({
+        query.breakdownFilter = objectCleanWithEmpty({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
             breakdown_normalize_url: filters.breakdown_normalize_url,
             breakdowns: filters.breakdowns,
             breakdown_group_type_index: filters.breakdown_group_type_index,
             ...(isTrendsFilter(filters)
-                ? { breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count }
+                ? {
+                      breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
+                      breakdown_hide_other_aggregation: filters.breakdown_hide_other_aggregation,
+                  }
                 : {}),
         })
     }
@@ -169,18 +258,19 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // trends filter
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
         query.trendsFilter = objectCleanWithEmpty({
-            smoothing_intervals: filters.smoothing_intervals,
+            smoothingIntervals: filters.smoothing_intervals,
             show_legend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             compare: filters.compare,
-            aggregation_axis_format: filters.aggregation_axis_format,
-            aggregation_axis_prefix: filters.aggregation_axis_prefix,
-            aggregation_axis_postfix: filters.aggregation_axis_postfix,
+            aggregationAxisFormat: filters.aggregation_axis_format,
+            aggregationAxisPrefix: filters.aggregation_axis_prefix,
+            aggregationAxisPostfix: filters.aggregation_axis_postfix,
+            decimalPlaces: filters.decimal_places,
             formula: filters.formula,
-            shown_as: filters.shown_as,
             display: filters.display,
             show_values_on_series: filters.show_values_on_series,
-            show_percent_stack_view: filters.show_percent_stack_view,
+            showPercentStackView: filters.show_percent_stack_view,
+            showLabelsOnSeries: filters.show_labels_on_series,
         })
     }
 
@@ -191,7 +281,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             funnel_from_step: filters.funnel_from_step,
             funnel_to_step: filters.funnel_to_step,
             funnel_step_reference: filters.funnel_step_reference,
-            funnel_step_breakdown: filters.funnel_step_breakdown,
             breakdown_attribution_type: filters.breakdown_attribution_type,
             breakdown_attribution_value: filters.breakdown_attribution_value,
             bin_count: filters.bin_count,
@@ -199,14 +288,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             funnel_window_interval: filters.funnel_window_interval,
             funnel_order_type: filters.funnel_order_type,
             exclusions: filters.exclusions,
-            funnel_correlation_person_entity: filters.funnel_correlation_person_entity,
-            funnel_correlation_person_converted: filters.funnel_correlation_person_converted,
-            funnel_custom_steps: filters.funnel_custom_steps,
-            funnel_advanced: filters.funnel_advanced,
             layout: filters.layout,
-            funnel_step: filters.funnel_step,
-            entrance_period_start: filters.entrance_period_start,
-            drop_off: filters.drop_off,
             hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
             funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql,
         })
@@ -238,9 +320,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             funnel_filter: filters.funnel_filter,
             exclude_events: filters.exclude_events,
             step_limit: filters.step_limit,
-            path_start_key: filters.path_start_key,
-            path_end_key: filters.path_end_key,
-            path_dropoff_key: filters.path_dropoff_key,
             path_replacements: filters.path_replacements,
             local_path_cleaning_filters: filters.local_path_cleaning_filters,
             edge_limit: filters.edge_limit,
@@ -256,8 +335,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             compare: filters.compare,
             show_legend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-            stickiness_days: filters.stickiness_days,
-            shown_as: filters.shown_as,
             show_values_on_series: filters.show_values_on_series,
         })
     }
@@ -265,12 +342,11 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // lifecycle filter
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
         query.lifecycleFilter = objectCleanWithEmpty({
-            shown_as: filters.shown_as,
             toggledLifecycles: filters.toggledLifecycles,
             show_values_on_series: filters.show_values_on_series,
         })
     }
 
     // remove undefined and empty array/objects and return
-    return objectCleanWithEmpty(query as Record<string, any>) as InsightQueryNode
+    return objectCleanWithEmpty(query as Record<string, any>, ['series']) as InsightQueryNode
 }

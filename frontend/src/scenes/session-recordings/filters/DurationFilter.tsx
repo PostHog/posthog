@@ -1,10 +1,11 @@
-import { DurationType, PropertyOperator, RecordingDurationFilter } from '~/types'
+import { LemonButton } from '@posthog/lemon-ui'
+import { convertSecondsToDuration, DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { DurationPicker, convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useMemo, useState } from 'react'
 import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
+
+import { DurationType, PropertyOperator, RecordingDurationFilter } from '~/types'
 
 interface Props {
     recordingDurationFilter: RecordingDurationFilter
@@ -40,7 +41,7 @@ export function DurationFilter({ recordingDurationFilter, durationTypeFilter, on
     return (
         <Popover
             visible={isOpen}
-            placement={'bottom-start'}
+            placement="bottom-start"
             fallbackPlacements={['bottom-end']}
             onClickOutside={() => setIsOpen(false)}
             overlay={
@@ -69,7 +70,6 @@ export function DurationFilter({ recordingDurationFilter, durationTypeFilter, on
         >
             <LemonButton
                 type="secondary"
-                status="stealth"
                 size="small"
                 onClick={() => {
                     setIsOpen(true)

@@ -1,7 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { initKeaTests } from '~/test/init'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ActionType } from '~/types'
 
 const unsortedActions: ActionType[] = [
@@ -23,7 +24,7 @@ describe('toolbar actionsLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        toolbarLogic({ apiURL: 'http://localhost' }).mount()
+        toolbarConfigLogic({ apiURL: 'http://localhost' }).mount()
         logic = actionsLogic()
         logic.mount()
     })

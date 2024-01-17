@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import jwt
 import pytest
-import pytz
+from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
@@ -33,7 +33,7 @@ class TestSubscription(BaseTest):
             target_value="tests@posthog.com",
             frequency="weekly",
             interval=2,
-            start_date=datetime(2022, 1, 1, 0, 0, 0, 0).replace(tzinfo=pytz.UTC),
+            start_date=datetime(2022, 1, 1, 0, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
         )
         params.update(**kwargs)
 
@@ -44,8 +44,8 @@ class TestSubscription(BaseTest):
         subscription.save()
 
         assert subscription.title == "My Subscription"
-        subscription.set_next_delivery_date(datetime(2022, 1, 2, 0, 0, 0).replace(tzinfo=pytz.UTC))
-        assert subscription.next_delivery_date == datetime(2022, 1, 15, 0, 0).replace(tzinfo=pytz.UTC)
+        subscription.set_next_delivery_date(datetime(2022, 1, 2, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")))
+        assert subscription.next_delivery_date == datetime(2022, 1, 15, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
     def test_update_next_delivery_date_on_save(self):
         subscription = self._create_insight_subscription()
@@ -60,7 +60,7 @@ class TestSubscription(BaseTest):
         old_date = subscription.next_delivery_date
 
         # Change a property that does affect it
-        subscription.start_date = datetime(2023, 1, 1, 0, 0, 0, 0).replace(tzinfo=pytz.UTC)
+        subscription.start_date = datetime(2023, 1, 1, 0, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         subscription.save()
         assert old_date != subscription.next_delivery_date
         old_date = subscription.next_delivery_date
@@ -72,7 +72,6 @@ class TestSubscription(BaseTest):
         assert old_date == subscription.next_delivery_date
 
     def test_generating_token(self):
-
         subscription = self._create_insight_subscription(
             target_value="test1@posthog.com,test2@posthog.com,test3@posthog.com"
         )
@@ -81,7 +80,12 @@ class TestSubscription(BaseTest):
         token = get_unsubscribe_token(subscription, "test2@posthog.com")
         assert token.startswith("ey")
 
-        info = jwt.decode(token, "not-so-secret", audience=PosthogJwtAudience.UNSUBSCRIBE.value, algorithms=["HS256"])
+        info = jwt.decode(
+            token,
+            "not-so-secret",
+            audience=PosthogJwtAudience.UNSUBSCRIBE.value,
+            algorithms=["HS256"],
+        )
 
         assert info["id"] == subscription.id
         assert info["email"] == "test2@posthog.com"
@@ -138,18 +142,21 @@ class TestSubscription(BaseTest):
     def test_complex_rrule_configuration(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(
-            interval=2, frequency="monthly", bysetpos=-1, byweekday=["wednesday", "friday"]
+            interval=2,
+            frequency="monthly",
+            bysetpos=-1,
+            byweekday=["wednesday", "friday"],
         )
 
         # Last wed or fri of 01.22 is Wed 28th
         subscription.save()
-        assert subscription.next_delivery_date == datetime(2022, 1, 28, 0, 0).replace(tzinfo=pytz.UTC)
+        assert subscription.next_delivery_date == datetime(2022, 1, 28, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         # Last wed or fri of 01.22 is Wed 30th
         subscription.set_next_delivery_date(subscription.next_delivery_date)
-        assert subscription.next_delivery_date == datetime(2022, 3, 30, 0, 0).replace(tzinfo=pytz.UTC)
+        assert subscription.next_delivery_date == datetime(2022, 3, 30, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         # Last wed or fri of 01.22 is Fri 27th
         subscription.set_next_delivery_date(subscription.next_delivery_date)
-        assert subscription.next_delivery_date == datetime(2022, 5, 27, 0, 0).replace(tzinfo=pytz.UTC)
+        assert subscription.next_delivery_date == datetime(2022, 5, 27, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
     def test_should_work_for_nth_days(self):
         # Equivalent to last monday and wednesday of every other month
@@ -157,18 +164,26 @@ class TestSubscription(BaseTest):
             interval=1,
             frequency="monthly",
             bysetpos=3,
-            byweekday=["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+            byweekday=[
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ],
         )
         subscription.save()
-        assert subscription.next_delivery_date == datetime(2022, 1, 3, 0, 0).replace(tzinfo=pytz.UTC)
+        assert subscription.next_delivery_date == datetime(2022, 1, 3, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         subscription.set_next_delivery_date(subscription.next_delivery_date)
-        assert subscription.next_delivery_date == datetime(2022, 2, 3, 0, 0).replace(tzinfo=pytz.UTC)
+        assert subscription.next_delivery_date == datetime(2022, 2, 3, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
     def test_should_ignore_bysetpos_if_missing_weeekday(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(interval=1, frequency="monthly", bysetpos=3)
         subscription.save()
-        assert subscription.next_delivery_date == datetime(2022, 2, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        assert subscription.next_delivery_date == datetime(2022, 2, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
     def test_subscription_summary(self):
         subscription = self._create_insight_subscription(interval=1, frequency="monthly", bysetpos=None)
@@ -186,7 +201,15 @@ class TestSubscription(BaseTest):
         subscription = self._create_insight_subscription(
             interval=1,
             frequency="monthly",
-            byweekday=["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+            byweekday=[
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ],
             bysetpos=3,
         )
         assert subscription.summary == "sent every month on the third day"

@@ -15,6 +15,10 @@ def cohort_subquery(cohort_id, is_static) -> ast.Expr:
     return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)}, start=None)  # clear the source start position
 
 
+def cohort_query_node(node: ast.Expr, context: HogQLContext) -> ast.Expr:
+    return cohort(node, [node], context)
+
+
 def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.Expr:
     arg = args[0]
     if not isinstance(arg, ast.Constant):
@@ -22,8 +26,10 @@ def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.E
 
     from posthog.models import Cohort
 
-    if isinstance(arg.value, int) and not isinstance(arg.value, bool):
-        cohorts = Cohort.objects.filter(id=arg.value, team_id=context.team_id).values_list("id", "is_static", "name")
+    if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
+        cohorts = Cohort.objects.filter(id=int(arg.value), team_id=context.team_id).values_list(
+            "id", "is_static", "name"
+        )
         if len(cohorts) == 1:
             context.add_notice(
                 start=arg.start,

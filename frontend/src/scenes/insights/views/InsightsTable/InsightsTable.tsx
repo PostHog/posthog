@@ -1,27 +1,29 @@
-import { useActions, useValues } from 'kea'
-import { cohortsModel } from '~/models/cohortsModel'
-import { ChartDisplayType, ItemMode } from '~/types'
-import { CalcColumnState } from './insightsTableLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
+
+import { useActions, useValues } from 'kea'
+import { getSeriesColor } from 'lib/colors'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { countryCodeToName } from '../WorldMap'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
-
-import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesCheckColumn'
-import { SeriesColumnItem } from './columns/SeriesColumn'
-import { BreakdownColumnTitle, BreakdownColumnItem } from './columns/BreakdownColumn'
-import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColumn'
-import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
-import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
-import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { getSeriesColor } from 'lib/colors'
+import { IndexedTrendResult } from 'scenes/trends/types'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { ChartDisplayType, ItemMode } from '~/types'
+
+import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
+import { countryCodeToName } from '../WorldMap'
+import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
+import { BreakdownColumnItem, BreakdownColumnTitle } from './columns/BreakdownColumn'
+import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
+import { SeriesColumnItem } from './columns/SeriesColumn'
+import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
+import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
+import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { CalcColumnState } from './insightsTableLogic'
 
 export interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -56,7 +58,7 @@ export function InsightsTable({
         isTrends,
         display,
         interval,
-        breakdown,
+        breakdownFilter,
         trendsFilter,
         isSingleSeries,
     } = useValues(trendsDataLogic(insightProps))
@@ -127,7 +129,7 @@ export function InsightsTable({
         },
     })
 
-    if (breakdown?.breakdown) {
+    if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
             formatBreakdownLabel(
                 cohorts,
@@ -139,7 +141,7 @@ export function InsightsTable({
             )
 
         columns.push({
-            title: <BreakdownColumnTitle breakdownFilter={breakdown} />,
+            title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
             render: (_, item) => (
                 <BreakdownColumnItem
                     item={item}
@@ -151,6 +153,9 @@ export function InsightsTable({
             ),
             key: 'breakdown',
             sorter: (a, b) => {
+                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                    return a.breakdown_value - b.breakdown_value
+                }
                 const labelA = formatItemBreakdownLabel(a)
                 const labelB = formatItemBreakdownLabel(b)
                 return labelA.localeCompare(labelB)
@@ -226,11 +231,9 @@ export function InsightsTable({
             embedded={embedded}
             columns={columns}
             rowKey="id"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
             loading={insightDataLoading}
             emptyState="No insight results"
             data-attr="insights-table-graph"
-            className="insights-table"
             useURLForSorting={insightMode !== ItemMode.Edit}
             rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, compare || false) : undefined}
             firstColumnSticky

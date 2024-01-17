@@ -1,33 +1,20 @@
 @import '../../../../styles/mixins';
 
 .dashboard-wrapper {
-    width: 95%;
-    height: 90%;
-    margin: auto;
+    width: 100%;
+    height: calc(100% - 2rem);
 }
 
 .histogram-container {
     display: flex;
-    width: 100%;
 
     svg {
-        margin: 1rem;
+        margin-right: 1rem;
+        margin-left: 1rem;
 
-        g#bars {
-            fill: var(--funnel-default);
-        }
-
-        g#y-gridlines {
-            g.tick:not(:first-child) {
-                color: var(--funnel-axis);
-            }
-
-            .domain,
-            g.tick:nth-of-type(1) {
-                display: none; // hide axis line
-            }
-        }
-
+        /*
+         * Axis
+         */
         g#y-axis {
             .domain {
                 stroke: var(--funnel-axis);
@@ -36,29 +23,58 @@
 
         g#x-axis {
             .domain {
-                stroke: var(--funnel-axis-zero);
+                stroke: var(--funnel-axis);
+            }
+
+            .tick {
+                color: var(--funnel-axis);
             }
         }
 
         g#x-axis,
         g#y-axis {
             text {
-                font-size: 11px;
-                fill: var(--funnel-axis-zero);
-
-                @include screen($md) {
-                    font-size: 13px;
-                }
+                font-family: var(--font-sans);
+                font-size: 0.75rem;
+                font-weight: 500;
+                fill: var(--default);
             }
+        }
+
+        /*
+         * Grid
+         */
+        g#y-gridlines {
+            stroke-dasharray: 4, 2;
+
+            g.tick:not(:first-child) {
+                color: var(--funnel-grid);
+            }
+
+            .domain,
+            g.tick:nth-of-type(1) {
+                display: none; // hide axis line
+            }
+        }
+
+        /*
+         * Bars
+         */
+        g#bars {
+            fill: var(--primary-3000);
         }
 
         g#labels {
             text.bar-label {
-                font-size: 14px;
-                font-weight: 500;
+                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+                // same as chart-js
+                font-size: 12px;
+                font-weight: normal;
                 fill: var(--white);
+
                 &.outside {
-                    fill: var(--funnel-default);
+                    fill: #0f0f0f;
                 }
             }
         }

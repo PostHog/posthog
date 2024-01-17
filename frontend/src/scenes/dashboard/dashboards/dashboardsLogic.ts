@@ -1,16 +1,17 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import Fuse from 'fuse.js'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import type { dashboardsLogicType } from './dashboardsLogicType'
-import { userLogic } from 'scenes/userLogic'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
+import { userLogic } from 'scenes/userLogic'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType } from '~/types'
+
+import type { dashboardsLogicType } from './dashboardsLogicType'
 
 export enum DashboardsTab {
     Dashboards = 'dashboards',
-    Notebooks = 'notebooks',
     Templates = 'templates',
 }
 
@@ -48,7 +49,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         ],
 
         filters: [
-            DEFAULT_FILTERS as DashboardsFilters,
+            DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) =>
                     objectClean({

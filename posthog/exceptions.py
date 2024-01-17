@@ -75,6 +75,7 @@ def generate_exception_response(
     from statshog.defaults.django import statsd
 
     statsd.incr(
-        f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr}
+        f"posthog_cloud_raw_endpoint_exception",
+        tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr},
     )
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)

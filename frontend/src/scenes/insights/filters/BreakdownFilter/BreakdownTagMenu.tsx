@@ -1,25 +1,31 @@
-import { useActions, useValues } from 'kea'
+import './BreakdownTagMenu.scss'
 
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 export const BreakdownTagMenu = (): JSX.Element => {
+    const { insightProps } = useValues(insightLogic)
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)
+    const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateBreakdownFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const { histogramBinCount, histogramBinsUsed, breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
-    const { setHistogramBinCount, setHistogramBinsUsed, setNormalizeBreakdownURL } =
+    const { histogramBinCount, breakdownLimit, histogramBinsUsed } = useValues(taxonomicBreakdownFilterLogic)
+    const { setHistogramBinCount, setBreakdownLimit, setHistogramBinsUsed, setNormalizeBreakdownURL } =
         useActions(taxonomicBreakdownFilterLogic)
 
     return (
         <>
             {isNormalizeable && (
                 <LemonSwitch
-                    checked={!!breakdownFilter.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
+                    checked={!!breakdownFilter?.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
                     fullWidth={true}
                     onChange={(checked) => setNormalizeBreakdownURL(checked)}
                     className="min-h-10 px-2"
@@ -49,13 +55,12 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     }
                 />
             )}
-            {isHistogramable && (
+            {isHistogramable ? (
                 <>
                     <LemonButton
                         onClick={() => {
                             setHistogramBinsUsed(true)
                         }}
-                        status="stealth"
                         active={histogramBinsUsed}
                         fullWidth
                     >
@@ -76,13 +81,63 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         onClick={() => {
                             setHistogramBinsUsed(false)
                         }}
-                        status="stealth"
                         active={!histogramBinsUsed}
                         className="mt-2"
                         fullWidth
                     >
                         Do not bin numeric values
                     </LemonButton>
+                </>
+            ) : (
+                <>
+                    <LemonSwitch
+                        fullWidth
+                        className="min-h-10 px-2"
+                        checked={!breakdownFilter?.breakdown_hide_other_aggregation}
+                        onChange={() =>
+                            updateBreakdownFilter({
+                                ...breakdownFilter,
+                                breakdown_hide_other_aggregation: !breakdownFilter?.breakdown_hide_other_aggregation,
+                            })
+                        }
+                        label={
+                            <div className="flex gap-1">
+                                <span>Group remaining values under "Other"</span>
+                                <Tooltip
+                                    title={
+                                        <>
+                                            If you have over {breakdownFilter?.breakdown_limit ?? 25} breakdown options,
+                                            the smallest ones are aggregated under the label "Other". Use this toggle to
+                                            show/hide the "Other" option.
+                                        </>
+                                    }
+                                >
+                                    <IconInfo className="text-muted text-xl shrink-0" />
+                                </Tooltip>
+                            </div>
+                        }
+                    />
+                    <div>
+                        <LemonButton
+                            onClick={() => {
+                                updateBreakdownFilter({ breakdown_limit: breakdownLimit })
+                            }}
+                            active={histogramBinsUsed}
+                            fullWidth
+                        >
+                            Breakdown limit:{' '}
+                            <LemonInput
+                                min={1}
+                                value={breakdownLimit}
+                                onChange={(newValue) => {
+                                    setBreakdownLimit(newValue ?? 25)
+                                }}
+                                fullWidth={false}
+                                className="w-20 ml-2"
+                                type="number"
+                            />
+                        </LemonButton>
+                    </div>
                 </>
             )}
             <LemonDivider />

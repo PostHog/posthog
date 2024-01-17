@@ -35,6 +35,7 @@ runs:
           shell: bash
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
+              export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
               docker compose -f docker-compose.dev.yml down
               docker compose -f docker-compose.dev.yml up -d
 
@@ -43,31 +44,80 @@ runs:
           run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
         - name: Set up Python
-          uses: actions/setup-python@v4
+          uses: actions/setup-python@v5
           with:
               python-version: ${{ inputs.python-version }}
+              cache: pip
+              cache-dependency-path: '**/requirements*.txt'
               token: ${{ inputs.token }}
+
+        - name: Determine if hogql-parser has changed compared to master
+          shell: bash
+          id: hogql-parser-diff
+          run: |
+              git fetch --no-tags --prune --depth=1 origin
+              changed=$(git diff --quiet HEAD origin/master -- hogql_parser/ && echo "false" || echo "true")
+              echo "changed=$changed" >> $GITHUB_OUTPUT
 
         - name: Install SAML (python3-saml) dependencies
           shell: bash
           run: |
-              sudo apt-get update
-              sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+        - name: Install pnpm
+          uses: pnpm/action-setup@v2
+          with:
+              version: 8.x.x
+
+        - name: Set up Node.js
+          uses: actions/setup-node@v3
+          with:
+              node-version: 18.12.1
+              cache: pnpm
+
+        - name: Install plugin-transpiler
+          shell: bash
+          run: |
+              cd plugin-transpiler
+              pnpm install
+              pnpm run build
 
         - uses: syphar/restore-virtualenv@v1
           id: cache-backend-tests
           with:
-              custom_cache_key_element: v1
+              custom_cache_key_element: v2
 
-        - uses: syphar/restore-pip-download-cache@v1
-          if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-
-        - name: Install python dependencies
+        - name: Install Python dependencies
           if: steps.cache-backend-tests.outputs.cache-hit != 'true'
           shell: bash
           run: |
-              python -m pip install -r requirements-dev.txt
-              python -m pip install -r requirements.txt
+              pip install -r requirements.txt -r requirements-dev.txt
+
+        - name: Install the working version of hogql-parser
+          if: steps.hogql-parser-diff.outputs.changed == 'true'
+          shell: bash
+          # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+          # changed (requirements.txt has the already-published version)
+          run: |
+              sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+              curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+              # Check that the downloaded archive is the expected runtime - a security measure
+              anltr_known_md5sum="c875c148991aacd043f733827644a76f"
+              antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
+              if [[ "$anltr_known_md5sum" != "$antlr_found_ms5sum" ]]; then
+                  echo "Unexpected MD5 sum of antlr4-source.zip!"
+                  echo "Known: $anltr_known_md5sum"
+                  echo "Found: $antlr_found_ms5sum"
+                  exit 64
+              fi
+              unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
+              cmake .
+              DESTDIR=out make install
+              sudo cp -r out/usr/local/include/antlr4-runtime /usr/include/
+              sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
+              sudo ldconfig
+              cd ..
+              pip install ./hogql_parser
 
         - name: Set up needed files
           shell: bash
@@ -102,13 +152,29 @@ runs:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
-          run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest hogvm posthog -m "not async_migrations" \
+          run: | # async_migrations covered in ci-async-migrations.yml
+              pytest ${{
+                  inputs.person-on-events == 'true'
+                  && './posthog/clickhouse/ ./posthog/hogql/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
+                  || 'hogvm posthog'
+              }} -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
+                  --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
-        - name: Run Decide read replica tests
+        - name: Run EE tests
+          if: ${{ inputs.segment == 'EE' }}
+          env:
+              PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
+              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
+          shell: bash
+          run: | # async_migrations covered in ci-async-migrations.yml
+              pytest ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
+                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
+                  --durations=100 --durations-min=1.0 \
+                  $PYTEST_ARGS
+
+        - name: Run /decide read replica tests
           if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
           env:
               POSTHOG_DB_NAME: posthog
@@ -121,24 +187,3 @@ runs:
               pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                   --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
-
-        - name: Run EE tests
-          if: ${{ inputs.segment == 'EE' }}
-          env:
-              PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
-              GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
-          shell: bash
-          run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest ee -m "not async_migrations" \
-                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
-                  --durations=100 --durations-min=1.0 --store-durations \
-                  $PYTEST_ARGS
-
-        # Post-tests
-
-        - name: Upload updated timing data as artifacts
-          uses: actions/upload-artifact@v2
-          if: ${{ inputs.segment == 'EE' && inputs.person-on-events != 'true'}}
-          with:
-              name: timing_data-${{ inputs.group }}
-              path: .test_durations

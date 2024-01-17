@@ -2,6 +2,10 @@
 
 set -e
 
+export DEBIAN_FRONTEND=noninteractive
+# Automatically restart without asking.
+# this gets around needrestart command halting for user input
+export RESTART_MODE=l
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 
@@ -86,6 +90,10 @@ elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then
     echo "Pulling latest from current branch: $(git branch --show-current)"
     git pull
+elif [[ "$POSTHOG_APP_TAG" =~ ^[0-9a-f]{40}$ ]]
+then
+    echo "Checking out specific commit hash: $POSTHOG_APP_TAG"
+    git checkout $POSTHOG_APP_TAG
 else
     releaseTag="${POSTHOG_APP_TAG/release-/""}"
     git fetch --tags
@@ -100,13 +108,18 @@ then
 export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
 fi
 
+if [ "$REGISTRY_URL" == "" ]
+then
+export REGISTRY_URL="posthog/posthog"
+fi
+
 # rewrite caddyfile
 rm -f Caddyfile
 envsubst > Caddyfile <<EOF
 {
 $TLS_BLOCK
 }
-$DOMAIN, :80, :443 {
+$DOMAIN, http://, https:// {
 reverse_proxy http://web:8000
 }
 EOF
@@ -162,14 +175,21 @@ EOF
 chmod +x compose/wait
 
 # setup docker
-echo "Setting up Docker"
-sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo -E apt-key add -
-sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
-sudo apt update
-sudo apt-cache policy docker-ce
-sudo apt install -y docker-ce
+# setup docker
+# Check if Docker is already installed
+if ! command -v docker &> /dev/null; then
+    echo "Docker is not installed. Setting up Docker."
 
+    # Setup Docker
+    sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo -E apt-key add -
+    sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+    sudo apt update
+    sudo apt-cache policy docker-ce
+    sudo apt install -y docker-ce
+else
+    echo "Docker is already installed. Skipping installation."
+fi
 
 # setup docker-compose
 echo "Setting up Docker Compose"
@@ -186,7 +206,7 @@ cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
-echo "Starting the stack!"
+echo "Starting the stack!" 
 sudo -E docker-compose -f docker-compose.yml up -d
 
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"

@@ -4,10 +4,9 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0040_remove_event_ip"),
         ("posthog", "0039_user_email_opt_in"),
     ]
 
-    operations = []  # type: ignore
+    operations = []

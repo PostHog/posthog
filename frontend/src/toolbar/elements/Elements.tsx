@@ -1,15 +1,16 @@
 import './Elements.scss'
 
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { compactNumber } from 'lib/utils'
+import React from 'react'
+
+import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
-import { InfoWindow } from '~/toolbar/elements/InfoWindow'
 import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
 import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
-import { compactNumber } from 'lib/utils'
 
 export function Elements(): JSX.Element {
     const {
@@ -30,28 +31,21 @@ export function Elements(): JSX.Element {
         <>
             <div
                 id="posthog-infowindow-container"
+                className="w-full h-full absolute top-0 left-0 pointer-events-none"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    width: '100%',
-                    height: '100%',
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
                     zIndex: 2147483021,
-                    pointerEvents: 'none',
                 }}
             >
-                <InfoWindow />
+                <ElementInfoWindow />
             </div>
             <div
                 id="posthog-toolbar-elements"
+                className="w-full h-full absolute top-0 pointer-events-none"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    width: '100%',
-                    height: '100%',
-                    position: 'absolute',
                     top: relativePositionCompensation,
-                    left: 0,
                     zIndex: 2147483010,
-                    pointerEvents: 'none',
                 }}
             >
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
@@ -153,7 +147,7 @@ export function Elements(): JSX.Element {
                                             highestClickCount
                                         )}, 100%, 32%, 1) 0px 1px 5px 1px`,
                                     }}
-                                    align={'left'}
+                                    align="left"
                                     onClick={() => selectElement(element)}
                                     onMouseOver={() => selectedElement === null && setHoverElement(element)}
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}

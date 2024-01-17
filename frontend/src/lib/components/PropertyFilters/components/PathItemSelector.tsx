@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { SimpleOption, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useState } from 'react'
 
 interface PathItemSelectorProps {
     pathItem: TaxonomicFilterValue | undefined
@@ -25,7 +25,7 @@ export function PathItemSelector({
     return (
         <Popover
             visible={visible}
-            placement={'bottom-end'}
+            placement="bottom-end"
             onClickOutside={() => setVisible(false)}
             overlay={
                 <TaxonomicFilter

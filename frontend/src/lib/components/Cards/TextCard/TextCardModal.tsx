@@ -1,12 +1,13 @@
-import { AvailableFeature, DashboardType } from '~/types'
-import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { useActions, useValues } from 'kea'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field, Form } from 'kea-forms'
-import { LemonTextMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, DashboardType } from '~/types'
 
 export function TextCardModal({
     isOpen,
@@ -34,7 +35,7 @@ export function TextCardModal({
         <LemonModal
             closable={true}
             isOpen={isOpen}
-            title={''}
+            title=""
             onClose={handleClose}
             footer={
                 <>
@@ -64,14 +65,14 @@ export function TextCardModal({
             <Form
                 logic={textCardModalLogic}
                 props={{ dashboard, textTileId }}
-                formKey={'textTile'}
+                formKey="textTile"
                 id="text-tile-form"
                 className=""
                 enableFormOnSubmit
             >
                 <PayGateMini feature={AvailableFeature.DASHBOARD_COLLABORATION}>
                     <Field name="body" label="">
-                        <LemonTextMarkdown data-attr={'text-card-edit-area'} />
+                        <LemonTextAreaMarkdown data-attr="text-card-edit-area" />
                     </Field>
                 </PayGateMini>
             </Form>

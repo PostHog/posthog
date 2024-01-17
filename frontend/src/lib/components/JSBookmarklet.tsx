@@ -1,7 +1,9 @@
-import { TeamBasicType } from '~/types'
 import { useActions } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useEffect, useRef } from 'react'
+
+import { TeamBasicType } from '~/types'
 
 export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
     const initCall = `posthog.init('${team?.api_token}',{api_host:'${location.origin}', loaded: () => alert('PostHog is now tracking events!')})`
@@ -10,11 +12,18 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
     )}%7D%7D)()`
 
     const { reportBookmarkletDragged } = useActions(eventUsageLogic)
+    const ref = useRef<HTMLAnchorElement>(null)
+
+    useEffect(() => {
+        // React cleverly stops js links from working, so we need to set the href manually
+        ref.current?.setAttribute('href', href)
+    }, [ref.current, href])
 
     return (
         <>
+            {/* eslint-disable-next-line react/forbid-elements */}
             <a
-                href={href}
+                ref={ref}
                 className="w-full text-primary-alt bg-primary-alt-highlight rounded-lg justify-center p-4 flex font-bold gap-2 items-center"
                 onDragStart={reportBookmarkletDragged}
             >

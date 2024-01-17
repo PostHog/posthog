@@ -1,4 +1,5 @@
 import { RGBColor } from 'd3'
+
 import { FunnelPathType, PathsFilterType } from '~/types'
 
 export interface PathTargetLink {

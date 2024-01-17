@@ -1,4 +1,16 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { eventWithTime } from '@rrweb/types'
+import FuseClass from 'fuse.js'
+import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { getKeyMapping } from 'lib/taxonomy'
+import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -7,20 +19,13 @@ import {
     RRWebRecordingConsoleLogPayload,
     SessionRecordingPlayerTab,
 } from '~/types'
-import type { playerInspectorLogicType } from './playerInspectorLogicType'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { SessionRecordingLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import FuseClass from 'fuse.js'
-import { Dayjs, dayjs } from 'lib/dayjs'
-import { getKeyMapping } from 'lib/taxonomy'
-import { eventToDescription } from 'lib/utils'
-import { eventWithTime } from '@rrweb/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import type { playerInspectorLogicType } from './playerInspectorLogicType'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
-const NETWORK_PLUGIN_NAME = 'posthog/network@1'
+
 const MAX_SEEKBAR_ITEMS = 100
 
 export const IMAGE_WEB_EXTENSIONS = [
@@ -38,60 +43,7 @@ export const IMAGE_WEB_EXTENSIONS = [
     'cur',
 ]
 
-export const PerformanceEventReverseMapping: { [key: number]: keyof PerformanceEvent } = {
-    // BASE_PERFORMANCE_EVENT_COLUMNS
-    0: 'entry_type',
-    1: 'time_origin',
-    2: 'name',
-
-    // RESOURCE_EVENT_COLUMNS
-    3: 'start_time',
-    4: 'redirect_start',
-    5: 'redirect_end',
-    6: 'worker_start',
-    7: 'fetch_start',
-    8: 'domain_lookup_start',
-    9: 'domain_lookup_end',
-    10: 'connect_start',
-    11: 'secure_connection_start',
-    12: 'connect_end',
-    13: 'request_start',
-    14: 'response_start',
-    15: 'response_end',
-    16: 'decoded_body_size',
-    17: 'encoded_body_size',
-    18: 'initiator_type',
-    19: 'next_hop_protocol',
-    20: 'render_blocking_status',
-    21: 'response_status',
-    22: 'transfer_size',
-
-    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
-    23: 'largest_contentful_paint_element',
-    24: 'largest_contentful_paint_render_time',
-    25: 'largest_contentful_paint_load_time',
-    26: 'largest_contentful_paint_size',
-    27: 'largest_contentful_paint_id',
-    28: 'largest_contentful_paint_url',
-
-    // NAVIGATION_EVENT_COLUMNS
-    29: 'dom_complete',
-    30: 'dom_content_loaded_event',
-    31: 'dom_interactive',
-    32: 'load_event_end',
-    33: 'load_event_start',
-    34: 'redirect_count',
-    35: 'navigation_type',
-    36: 'unload_event_end',
-    37: 'unload_event_start',
-
-    // Added after v1
-    39: 'duration',
-    40: 'timestamp',
-}
-
 // Helping kea-typegen navigate the exported default class for Fuse
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<InspectorListItem> {}
 
 type InspectorListItemBase = {
@@ -119,8 +71,21 @@ export type InspectorListItemPerformance = InspectorListItemBase & {
 
 export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsole | InspectorListItemPerformance
 
-export interface PlayerInspectorLogicProps extends SessionRecordingLogicProps {
+export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
+}
+
+const PostHogMobileEvents = [
+    'Deep Link Opened',
+    'Application Opened',
+    'Application Backgrounded',
+    'Application Updated',
+    'Application Installed',
+    'Application Became Active',
+]
+
+function isPostHogEvent(item: InspectorListItemEvent): boolean {
+    return item.data.event.startsWith('$') || PostHogMobileEvents.includes(item.data.event)
 }
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
@@ -138,7 +103,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             playerSettingsLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
+            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
             sessionRecordingDataLogic(props),
             [
                 'sessionPlayerData',
@@ -157,17 +122,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     })),
     actions(() => ({
         setWindowIdFilter: (windowId: string | null) => ({ windowId }),
-        setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
-    reducers(({}) => ({
-        searchQuery: [
-            '',
-            {
-                setSearchQuery: (_, { search }) => search || '',
-            },
-        ],
+    reducers(() => ({
         windowIdFilter: [
             null as string | null,
             {
@@ -196,23 +154,40 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    selectors(({ props }) => ({
-        matchingEvents: [
-            () => [(_, props) => props.matching],
-            (matchingEvents): MatchedRecordingEvent[] => {
-                // matching events were a dictionary in v1 and v2, but we only used the UUID
-                // so in v3 we just return the UUIDs
-                return matchingEvents?.map((x: any) => (typeof x === 'string' ? { uuid: x } : x.events)).flat() ?? []
+    loaders(({ props }) => ({
+        matchingEventUUIDs: [
+            [] as MatchedRecordingEvent[] | null,
+            {
+                loadMatchingEvents: async () => {
+                    const matchingEventsMatchType = props.matchingEventsMatchType
+                    const matchType = matchingEventsMatchType?.matchType
+                    if (!matchingEventsMatchType || matchType === 'none' || matchType === 'name') {
+                        return null
+                    }
+
+                    if (matchType === 'uuid') {
+                        if (!matchingEventsMatchType?.eventUUIDs) {
+                            console.error('UUID matching events type must include its event ids')
+                        }
+                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                    }
+
+                    const filters = matchingEventsMatchType?.filters
+                    if (!filters) {
+                        throw new Error('Backend matching events type must include its filters')
+                    }
+                    const params = toParams({ ...filters, session_ids: [props.sessionRecordingId] })
+                    const response = await api.recordings.getMatchingEvents(params)
+                    return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                },
             },
         ],
-
+    })),
+    selectors(({ props }) => ({
         showMatchingEventsFilter: [
-            (s) => [s.matchingEvents, s.tab],
-            (matchingEvents, tab): boolean => {
-                return (
-                    tab === SessionRecordingPlayerTab.EVENTS &&
-                    (matchingEvents.length > 0 || props.matchingEventsMatchType?.matchType === 'simple')
-                )
+            (s) => [s.tab],
+            (tab): boolean => {
+                return tab === SessionRecordingPlayerTab.EVENTS && props.matchingEventsMatchType?.matchType !== 'none'
             },
         ],
 
@@ -239,8 +214,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             }
                             seenCache.add(cacheKey)
 
-                            if (logs[logs.length - 1]?.content === content) {
-                                logs[logs.length - 1].count += 1
+                            const lastLogLine = logs[logs.length - 1]
+                            if (lastLogLine?.content === content) {
+                                if (lastLogLine.count === undefined) {
+                                    lastLogLine.count = 1
+                                } else {
+                                    lastLogLine.count += 1
+                                }
                                 return
                             }
 
@@ -266,43 +246,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (sessionPlayerData): PerformanceEvent[] => {
                 // performanceEvents used to come from the API,
                 // but we decided to instead store them in the recording data
-                const events: PerformanceEvent[] = []
+                // we gather more info than rrweb, so we mix the two back together here
 
-                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
-                    snapshots.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === NETWORK_PLUGIN_NAME
-                        ) {
-                            const properties = snapshot.data.payload as any
-
-                            const data: Partial<PerformanceEvent> = {
-                                timestamp: snapshot.timestamp,
-                                window_id: windowId,
-                            }
-
-                            Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
-                                if (key in properties) {
-                                    data[value] = properties[key]
-                                }
-                            })
-
-                            events.push(data as PerformanceEvent)
-                        }
-                    })
-                })
-
-                return events
+                return matchNetworkEvents(sessionPlayerData.snapshotsByWindowId)
             },
         ],
 
         allItems: [
-            (s) => [s.start, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
-            (start, performanceEvents, consoleLogs, eventsData, matchingEvents): InspectorListItem[] => {
+            (s) => [s.start, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEventUUIDs],
+            (start, performanceEvents, consoleLogs, eventsData, matchingEventUUIDs): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
+                // WARNING: Be careful of dayjs functions - they can be slow due to the size of the loop.
                 const items: InspectorListItem[] = []
+
+                const startMs = start?.valueOf() ?? 0
 
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
@@ -332,7 +291,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.NETWORK,
                         timestamp,
-                        timeInRecording: timestamp.diff(start, 'ms'),
+                        timeInRecording: timestamp.valueOf() - startMs,
                         search: event.name || '',
                         data: event,
                         highlightColor: responseStatus >= 400 ? 'danger' : undefined,
@@ -346,7 +305,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.CONSOLE,
                         timestamp,
-                        timeInRecording: timestamp.diff(start, 'ms'),
+                        timeInRecording: timestamp.valueOf() - startMs,
                         search: event.content,
                         data: event,
                         highlightColor:
@@ -358,9 +317,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 for (const event of eventsData || []) {
                     let isMatchingEvent = false
 
-                    if (!!matchingEvents.length) {
-                        isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
-                    } else if (props.matchingEventsMatchType?.matchType === 'simple') {
+                    if (matchingEventUUIDs?.length) {
+                        isMatchingEvent = !!matchingEventUUIDs.find((x) => x.uuid === String(event.id))
+                    } else if (props.matchingEventsMatchType?.matchType === 'name') {
                         isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
                     }
 
@@ -372,7 +331,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.EVENTS,
                         timestamp,
-                        timeInRecording: timestamp.diff(start, 'ms'),
+                        timeInRecording: timestamp.valueOf() - startMs,
                         search: search,
                         data: event,
                         highlightColor: isMatchingEvent
@@ -385,7 +344,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
-                items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
+                items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
 
                 return items
             },
@@ -422,20 +381,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
                             include = true
                         }
-                        if (miniFiltersByKey['events-posthog']?.enabled && item.data.event.startsWith('$')) {
+                        if (miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) {
                             include = true
                         }
                         if (
                             (miniFiltersByKey['events-custom']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            !item.data.event.startsWith('$')
+                            !isPostHogEvent(item)
                         ) {
                             include = true
                         }
                         if (
                             (miniFiltersByKey['events-pageview']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['$pageview', 'screen'].includes(item.data.event)
+                            ['$pageview', '$screen'].includes(item.data.event)
                         ) {
                             include = true
                         }
@@ -702,6 +661,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     findAllMatches: true,
                     ignoreLocation: true,
                     shouldSort: false,
+                    useExtendedSearch: true,
                 }),
         ],
 
@@ -728,4 +688,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             }
         },
     })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadMatchingEvents()
+        },
+    })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!objectsEqual(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
+            actions.loadMatchingEvents()
+        }
+    }),
 ])

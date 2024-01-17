@@ -1,18 +1,19 @@
 import { Meta, Story } from '@storybook/react'
-import { App } from 'scenes/App'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { mswDecorator } from '~/mocks/browser'
-import { AppMetricsResponse } from './appMetricsSceneLogic'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { AvailableFeature } from '~/types'
-import { useAvailableFeatures } from '~/mocks/features'
 
-export default {
+import { mswDecorator } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
+import { AvailableFeature } from '~/types'
+
+import { AppMetricsResponse } from './appMetricsSceneLogic'
+
+const meta: Meta = {
     title: 'Scenes-App/Apps/App Metrics',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -81,8 +82,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const AppMetrics: Story = () => {
     useAvailableFeatures([AvailableFeature.APP_METRICS])
     useEffect(() => {

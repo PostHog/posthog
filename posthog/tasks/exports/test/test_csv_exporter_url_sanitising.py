@@ -16,10 +16,26 @@ class TestCSVExporterURLSanitization(APIBaseTest):
             assert sanitised == "https://localhost:8000/some/location"
 
     error_test_cases = [
-        ("changing scheme", "https://localhost:8000", "http://localhost:8000/some/location"),
-        ("changing port", "https://localhost:8000", "https://localhost:8123/some/location"),
-        ("changing port and url", "https://something.posthog.com:8000", "https://localhost:8123/some/location"),
-        ("changing domain", "https://app.posthog.com", "https://google.com/some/location"),
+        (
+            "changing scheme",
+            "https://localhost:8000",
+            "http://localhost:8000/some/location",
+        ),
+        (
+            "changing port",
+            "https://localhost:8000",
+            "https://localhost:8123/some/location",
+        ),
+        (
+            "changing port and url",
+            "https://something.posthog.com:8000",
+            "https://localhost:8123/some/location",
+        ),
+        (
+            "changing domain",
+            "https://app.posthog.com",
+            "https://google.com/some/location",
+        ),
     ]
 
     @parameterized.expand(error_test_cases)

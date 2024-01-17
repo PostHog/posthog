@@ -20,7 +20,11 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
         raise Exception("Audience must be in the list of PostHog-supported audiences")
 
     encoded_jwt = jwt.encode(
-        {**payload, "exp": datetime.now(tz=timezone.utc) + expiry_delta, "aud": audience.value},
+        {
+            **payload,
+            "exp": datetime.now(tz=timezone.utc) + expiry_delta,
+            "aud": audience.value,
+        },
         settings.SECRET_KEY,
         algorithm="HS256",
     )

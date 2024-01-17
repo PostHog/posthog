@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestClickhouseFunnelCorrelation.test_action_events_are_excluded_from_correlations
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -61,7 +62,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -91,10 +93,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -154,7 +156,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -170,7 +173,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -179,10 +182,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -242,7 +245,7 @@
                               AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -254,7 +257,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -263,10 +267,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -326,7 +330,7 @@
                               AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -338,7 +342,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -347,10 +352,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -410,7 +415,7 @@
                               AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -422,7 +427,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -431,10 +437,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -494,7 +500,7 @@
                               AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -506,7 +512,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -515,10 +522,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -578,7 +585,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -594,7 +602,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -603,10 +611,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -666,7 +674,7 @@
                               AND (has(['Positive'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Positive'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
+                       AND (has(['Positive'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -678,7 +686,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -687,10 +696,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -750,7 +759,7 @@
                               AND (has(['Positive'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Positive'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
+                       AND (has(['Positive'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -762,7 +771,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -771,10 +781,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -834,7 +844,7 @@
                               AND (has(['Negative'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Negative'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
+                       AND (has(['Negative'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -846,7 +856,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -855,10 +866,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -918,7 +929,7 @@
                               AND (has(['Negative'], "pmat_$browser")) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['Negative'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
+                       AND (has(['Negative'], argMax(person."pmat_$browser", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -930,7 +941,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -939,10 +951,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -994,7 +1006,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1024,10 +1037,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1079,7 +1092,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1109,10 +1123,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1164,7 +1178,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1187,10 +1202,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.1
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1242,7 +1257,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1262,10 +1278,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1317,7 +1333,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1337,10 +1354,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.3
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1392,7 +1409,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1412,10 +1430,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.4
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1467,7 +1485,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1487,10 +1506,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1550,7 +1569,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1573,10 +1593,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.6
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1636,7 +1656,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1656,10 +1677,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.7
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1719,7 +1740,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1739,10 +1761,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1802,7 +1824,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1825,10 +1848,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.1
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1888,7 +1911,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1908,10 +1932,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1971,7 +1995,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1991,10 +2016,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.3
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2054,7 +2079,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2074,10 +2100,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.4
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2137,7 +2163,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2157,10 +2184,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2228,7 +2255,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2251,10 +2279,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.6
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2322,7 +2350,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2342,10 +2371,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.7
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2413,7 +2442,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2433,10 +2463,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2488,7 +2518,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2513,10 +2544,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2576,7 +2607,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2585,10 +2617,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2648,7 +2680,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2657,10 +2690,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2720,7 +2753,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2729,10 +2763,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2792,7 +2826,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2801,10 +2836,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2856,7 +2891,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2881,10 +2917,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2936,7 +2972,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2961,10 +2998,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3024,7 +3061,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3033,10 +3071,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3096,7 +3134,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3105,10 +3144,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3168,7 +3207,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3177,10 +3217,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3240,7 +3280,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3249,10 +3290,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3304,7 +3345,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3329,10 +3371,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3386,7 +3428,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3411,10 +3454,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3476,7 +3519,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3485,10 +3529,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3550,7 +3594,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3559,10 +3604,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3624,7 +3669,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3633,10 +3679,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3698,7 +3744,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3707,10 +3754,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3764,7 +3811,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3789,10 +3837,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3846,7 +3894,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3871,10 +3920,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3936,7 +3985,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3945,10 +3995,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4010,7 +4060,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4019,10 +4070,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4084,7 +4135,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4093,10 +4145,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4158,7 +4210,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4167,10 +4220,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4224,7 +4277,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -4249,10 +4303,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4312,7 +4366,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -4337,10 +4392,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4408,7 +4463,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4417,10 +4473,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4488,7 +4544,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4497,10 +4554,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4568,7 +4625,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4577,10 +4635,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4648,7 +4706,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4657,10 +4716,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4720,7 +4779,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -4745,5 +4805,5 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---

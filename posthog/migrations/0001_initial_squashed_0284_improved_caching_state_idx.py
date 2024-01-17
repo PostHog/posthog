@@ -324,11 +324,28 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="User",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("password", models.CharField(max_length=128, verbose_name="password")),
-                ("last_login", models.DateTimeField(blank=True, null=True, verbose_name="last login")),
-                ("first_name", models.CharField(blank=True, max_length=150, verbose_name="first name")),
-                ("last_name", models.CharField(blank=True, max_length=150, verbose_name="last name")),
+                (
+                    "last_login",
+                    models.DateTimeField(blank=True, null=True, verbose_name="last login"),
+                ),
+                (
+                    "first_name",
+                    models.CharField(blank=True, max_length=150, verbose_name="first name"),
+                ),
+                (
+                    "last_name",
+                    models.CharField(blank=True, max_length=150, verbose_name="last name"),
+                ),
                 (
                     "is_staff",
                     models.BooleanField(
@@ -345,7 +362,10 @@ class Migration(migrations.Migration):
                         verbose_name="active",
                     ),
                 ),
-                ("date_joined", models.DateTimeField(default=django.utils.timezone.now, verbose_name="date joined")),
+                (
+                    "date_joined",
+                    models.DateTimeField(default=django.utils.timezone.now, verbose_name="date joined"),
+                ),
                 # NOTE: to achieve parity with the constraint names from the
                 # unsquashed migration, we need to apply uniqueness separately
                 # as Django appears to have different behaviour in these cases.
@@ -362,10 +382,22 @@ class Migration(migrations.Migration):
                     "temporary_token",
                     models.CharField(blank=True, max_length=200, null=True),
                 ),  # NOTE: we make this unique later
-                ("distinct_id", models.CharField(blank=True, max_length=200)),  # NOTE: we make this unique later
-                ("email_opt_in", models.BooleanField(blank=True, default=False, null=True)),
-                ("partial_notification_settings", models.JSONField(blank=True, null=True)),
-                ("anonymize_data", models.BooleanField(blank=True, default=False, null=True)),
+                (
+                    "distinct_id",
+                    models.CharField(blank=True, max_length=200),
+                ),  # NOTE: we make this unique later
+                (
+                    "email_opt_in",
+                    models.BooleanField(blank=True, default=False, null=True),
+                ),
+                (
+                    "partial_notification_settings",
+                    models.JSONField(blank=True, null=True),
+                ),
+                (
+                    "anonymize_data",
+                    models.BooleanField(blank=True, default=False, null=True),
+                ),
                 (
                     "toolbar_mode",
                     models.CharField(
@@ -376,7 +408,10 @@ class Migration(migrations.Migration):
                         null=True,
                     ),
                 ),
-                ("events_column_config", models.JSONField(default=posthog.models.user.events_column_config_default)),
+                (
+                    "events_column_config",
+                    models.JSONField(default=posthog.models.user.events_column_config_default),
+                ),
             ],
             options={
                 "verbose_name": "user",
@@ -414,22 +449,44 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Action",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("name", models.CharField(blank=True, max_length=400, null=True)),
                 ("description", models.TextField(blank=True, default="")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("deleted", models.BooleanField(default=False)),
                 ("post_to_slack", models.BooleanField(default=False)),
-                ("slack_message_format", models.CharField(blank=True, default="", max_length=600)),
+                (
+                    "slack_message_format",
+                    models.CharField(blank=True, default="", max_length=600),
+                ),
                 ("is_calculating", models.BooleanField(default=False)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                ("last_calculated_at", models.DateTimeField(blank=True, default=django.utils.timezone.now)),
+                (
+                    "last_calculated_at",
+                    models.DateTimeField(blank=True, default=django.utils.timezone.now),
+                ),
             ],
         ),
         migrations.CreateModel(
             name="ActionStep",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("tag_name", models.CharField(blank=True, max_length=400, null=True)),
                 ("text", models.CharField(blank=True, max_length=400, null=True)),
                 ("href", models.CharField(blank=True, max_length=65535, null=True)),
@@ -439,7 +496,11 @@ class Migration(migrations.Migration):
                     "url_matching",
                     models.CharField(
                         blank=True,
-                        choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
+                        choices=[
+                            ("contains", "contains"),
+                            ("regex", "regex"),
+                            ("exact", "exact"),
+                        ],
                         default="contains",
                         max_length=400,
                         null=True,
@@ -456,7 +517,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("team_id", models.PositiveIntegerField(null=True)),
@@ -468,7 +532,8 @@ class Migration(migrations.Migration):
                 (
                     "detail",
                     models.JSONField(
-                        encoder=posthog.models.activity_logging.activity_log.ActivityDetailEncoder, null=True
+                        encoder=posthog.models.activity_logging.activity_log.ActivityDetailEncoder,
+                        null=True,
                     ),
                 ),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
@@ -477,9 +542,20 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Annotation",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("content", models.CharField(blank=True, max_length=400, null=True)),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now, null=True)),
+                (
+                    "created_at",
+                    models.DateTimeField(default=django.utils.timezone.now, null=True),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "scope",
@@ -495,7 +571,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "creation_type",
-                    models.CharField(choices=[("USR", "user"), ("GIT", "GitHub")], default="USR", max_length=3),
+                    models.CharField(
+                        choices=[("USR", "user"), ("GIT", "GitHub")],
+                        default="USR",
+                        max_length=3,
+                    ),
                 ),
                 ("date_marker", models.DateTimeField(blank=True, null=True)),
                 ("deleted", models.BooleanField(default=False)),
@@ -523,16 +603,28 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.BigAutoField(primary_key=True, serialize=False)),
                 ("name", models.CharField(max_length=50)),
-                ("description", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "description",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
                 ("progress", models.PositiveSmallIntegerField(default=0)),
                 ("status", models.PositiveSmallIntegerField(default=0)),
-                ("current_operation_index", models.PositiveSmallIntegerField(default=0)),
+                (
+                    "current_operation_index",
+                    models.PositiveSmallIntegerField(default=0),
+                ),
                 ("current_query_id", models.CharField(default="", max_length=100)),
                 ("celery_task_id", models.CharField(default="", max_length=100)),
                 ("started_at", models.DateTimeField(blank=True, null=True)),
                 ("finished_at", models.DateTimeField(blank=True, null=True)),
-                ("posthog_min_version", models.CharField(blank=True, max_length=20, null=True)),
-                ("posthog_max_version", models.CharField(blank=True, max_length=20, null=True)),
+                (
+                    "posthog_min_version",
+                    models.CharField(blank=True, max_length=20, null=True),
+                ),
+                (
+                    "posthog_max_version",
+                    models.CharField(blank=True, max_length=20, null=True),
+                ),
                 ("parameters", models.JSONField(default=dict)),
             ],
         ),
@@ -555,7 +647,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Cohort",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("name", models.CharField(blank=True, max_length=400, null=True)),
                 ("description", models.CharField(blank=True, max_length=1000)),
                 ("deleted", models.BooleanField(default=False)),
@@ -563,7 +663,10 @@ class Migration(migrations.Migration):
                 ("version", models.IntegerField(blank=True, null=True)),
                 ("pending_version", models.IntegerField(blank=True, null=True)),
                 ("count", models.IntegerField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(blank=True, default=django.utils.timezone.now, null=True)),
+                (
+                    "created_at",
+                    models.DateTimeField(blank=True, default=django.utils.timezone.now, null=True),
+                ),
                 ("is_calculating", models.BooleanField(default=False)),
                 ("last_calculation", models.DateTimeField(blank=True, null=True)),
                 ("errors_calculating", models.IntegerField(default=0)),
@@ -581,7 +684,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Dashboard",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("name", models.CharField(blank=True, max_length=400, null=True)),
                 ("description", models.TextField(blank=True)),
                 ("pinned", models.BooleanField(default=False)),
@@ -592,7 +703,11 @@ class Migration(migrations.Migration):
                 (
                     "creation_mode",
                     models.CharField(
-                        choices=[("default", "Default"), ("template", "Template"), ("duplicate", "Duplicate")],
+                        choices=[
+                            ("default", "Default"),
+                            ("template", "Template"),
+                            ("duplicate", "Duplicate"),
+                        ],
                         default="default",
                         max_length=16,
                     ),
@@ -610,7 +725,11 @@ class Migration(migrations.Migration):
                 (
                     "deprecated_tags",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
+                        base_field=models.CharField(max_length=32),
+                        blank=True,
+                        default=list,
+                        null=True,
+                        size=None,
                     ),
                 ),
                 (
@@ -624,17 +743,31 @@ class Migration(migrations.Migration):
                         size=None,
                     ),
                 ),
-                ("share_token", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "share_token",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
                 ("is_shared", models.BooleanField(default=False)),
             ],
         ),
         migrations.CreateModel(
             name="DashboardTile",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("layouts", models.JSONField(default=dict)),
                 ("color", models.CharField(blank=True, max_length=400, null=True)),
-                ("filters_hash", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "filters_hash",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
                 ("last_refresh", models.DateTimeField(blank=True, null=True)),
                 ("refreshing", models.BooleanField(null=True)),
                 ("refresh_attempt", models.IntegerField(blank=True, null=True)),
@@ -644,7 +777,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Element",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("text", models.CharField(blank=True, max_length=10000, null=True)),
                 ("tag_name", models.CharField(blank=True, max_length=1000, null=True)),
                 ("href", models.CharField(blank=True, max_length=10000, null=True)),
@@ -652,7 +793,10 @@ class Migration(migrations.Migration):
                 (
                     "attr_class",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(blank=True, max_length=200), blank=True, null=True, size=None
+                        base_field=models.CharField(blank=True, max_length=200),
+                        blank=True,
+                        null=True,
+                        size=None,
                     ),
                 ),
                 ("nth_child", models.IntegerField(blank=True, null=True)),
@@ -664,20 +808,42 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="ElementGroup",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("hash", models.CharField(blank=True, max_length=400, null=True)),
             ],
         ),
         migrations.CreateModel(
             name="Event",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
                 ("event", models.CharField(blank=True, max_length=200, null=True)),
                 ("distinct_id", models.CharField(max_length=200)),
                 ("properties", models.JSONField(default=dict)),
-                ("timestamp", models.DateTimeField(blank=True, default=django.utils.timezone.now)),
-                ("elements_hash", models.CharField(blank=True, max_length=200, null=True)),
+                (
+                    "timestamp",
+                    models.DateTimeField(blank=True, default=django.utils.timezone.now),
+                ),
+                (
+                    "elements_hash",
+                    models.CharField(blank=True, max_length=200, null=True),
+                ),
                 ("site_url", models.CharField(blank=True, max_length=200, null=True)),
                 ("elements", models.JSONField(blank=True, default=list, null=True)),
             ],
@@ -685,7 +851,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="EventBuffer",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("event", models.JSONField(blank=True, null=True)),
                 ("process_at", models.DateTimeField()),
                 ("locked", models.BooleanField()),
@@ -697,11 +871,17 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("name", models.CharField(max_length=400)),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now, null=True)),
+                (
+                    "created_at",
+                    models.DateTimeField(default=django.utils.timezone.now, null=True),
+                ),
                 ("last_seen_at", models.DateTimeField(default=None, null=True)),
                 ("volume_30_day", models.IntegerField(default=None, null=True)),
                 ("query_usage_30_day", models.IntegerField(default=None, null=True)),
@@ -710,7 +890,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="EventProperty",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("event", models.CharField(max_length=400)),
                 ("property", models.CharField(max_length=400)),
             ],
@@ -718,9 +906,20 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Experiment",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("name", models.CharField(max_length=400)),
-                ("description", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "description",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
                 ("filters", models.JSONField(default=dict)),
                 ("parameters", models.JSONField(default=dict, null=True)),
                 ("secondary_metrics", models.JSONField(default=list, null=True)),
@@ -734,7 +933,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="ExportedAsset",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 (
                     "export_format",
                     models.CharField(
@@ -749,7 +956,10 @@ class Migration(migrations.Migration):
                 ("content", models.BinaryField(null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("export_context", models.JSONField(blank=True, null=True)),
-                ("content_location", models.TextField(blank=True, max_length=1000, null=True)),
+                (
+                    "content_location",
+                    models.TextField(blank=True, max_length=1000, null=True),
+                ),
                 (
                     "access_token",
                     models.CharField(
@@ -764,7 +974,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="FeatureFlag",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("key", models.CharField(max_length=400)),
                 ("name", models.TextField(blank=True)),
                 ("filters", models.JSONField(default=dict)),
@@ -774,13 +992,24 @@ class Migration(migrations.Migration):
                 ("active", models.BooleanField(default=True)),
                 ("rollback_conditions", models.JSONField(blank=True, null=True)),
                 ("performed_rollback", models.BooleanField(blank=True, null=True)),
-                ("ensure_experience_continuity", models.BooleanField(blank=True, default=False, null=True)),
+                (
+                    "ensure_experience_continuity",
+                    models.BooleanField(blank=True, default=False, null=True),
+                ),
             ],
         ),
         migrations.CreateModel(
             name="FeatureFlagHashKeyOverride",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("feature_flag_key", models.CharField(max_length=400)),
                 ("hash_key", models.CharField(max_length=400)),
             ],
@@ -788,14 +1017,30 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="FeatureFlagOverride",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("override_value", models.JSONField()),
             ],
         ),
         migrations.CreateModel(
             name="Group",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("group_key", models.CharField(max_length=400)),
                 ("group_type_index", models.IntegerField()),
                 ("group_properties", models.JSONField(default=dict)),
@@ -808,22 +1053,53 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="GroupTypeMapping",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("group_type", models.CharField(max_length=400)),
                 ("group_type_index", models.IntegerField()),
-                ("name_singular", models.CharField(blank=True, max_length=400, null=True)),
-                ("name_plural", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "name_singular",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
+                (
+                    "name_plural",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
             ],
         ),
         migrations.CreateModel(
             name="Insight",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("name", models.CharField(blank=True, max_length=400, null=True)),
-                ("derived_name", models.CharField(blank=True, max_length=400, null=True)),
-                ("description", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "derived_name",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
+                (
+                    "description",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
                 ("filters", models.JSONField(default=dict)),
-                ("filters_hash", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "filters_hash",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
                 ("order", models.IntegerField(blank=True, null=True)),
                 ("deleted", models.BooleanField(default=False)),
                 ("saved", models.BooleanField(default=False)),
@@ -831,10 +1107,20 @@ class Migration(migrations.Migration):
                 ("last_refresh", models.DateTimeField(blank=True, null=True)),
                 ("refreshing", models.BooleanField(default=False)),
                 ("is_sample", models.BooleanField(default=False)),
-                ("short_id", models.CharField(blank=True, default=posthog.utils.generate_short_id, max_length=12)),
+                (
+                    "short_id",
+                    models.CharField(
+                        blank=True,
+                        default=posthog.utils.generate_short_id,
+                        max_length=12,
+                    ),
+                ),
                 ("favorited", models.BooleanField(default=False)),
                 ("refresh_attempt", models.IntegerField(blank=True, null=True)),
-                ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "last_modified_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("layouts", models.JSONField(default=dict)),
                 ("color", models.CharField(blank=True, max_length=400, null=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
@@ -843,7 +1129,11 @@ class Migration(migrations.Migration):
                 (
                     "deprecated_tags",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
+                        base_field=models.CharField(max_length=32),
+                        blank=True,
+                        default=list,
+                        null=True,
+                        size=None,
                     ),
                 ),
                 (
@@ -868,7 +1158,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("cache_key", models.CharField(max_length=400)),
@@ -883,14 +1176,30 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="InsightViewed",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("last_viewed_at", models.DateTimeField()),
             ],
         ),
         migrations.CreateModel(
             name="InstanceSetting",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("key", models.CharField(max_length=128)),
                 ("raw_value", models.CharField(blank=True, max_length=1024)),
             ],
@@ -901,26 +1210,44 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("name", models.CharField(max_length=64)),
-                ("slug", posthog.models.utils.LowercaseSlugField(max_length=48, unique=True)),
+                (
+                    "slug",
+                    posthog.models.utils.LowercaseSlugField(max_length=48, unique=True),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "plugins_access_level",
                     models.PositiveSmallIntegerField(
-                        choices=[(0, "none"), (3, "config"), (6, "install"), (9, "root")], default=3
+                        choices=[
+                            (0, "none"),
+                            (3, "config"),
+                            (6, "install"),
+                            (9, "root"),
+                        ],
+                        default=3,
                     ),
                 ),
                 ("for_internal_metrics", models.BooleanField(default=False)),
                 ("is_member_join_email_enabled", models.BooleanField(default=True)),
-                ("customer_id", models.CharField(blank=True, max_length=200, null=True)),
+                (
+                    "customer_id",
+                    models.CharField(blank=True, max_length=200, null=True),
+                ),
                 (
                     "available_features",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=64), blank=True, default=list, size=None
+                        base_field=models.CharField(max_length=64),
+                        blank=True,
+                        default=list,
+                        size=None,
                     ),
                 ),
                 ("usage", models.JSONField(blank=True, null=True)),
@@ -929,7 +1256,10 @@ class Migration(migrations.Migration):
                 (
                     "domain_whitelist",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=256), blank=True, default=list, size=None
+                        base_field=models.CharField(max_length=256),
+                        blank=True,
+                        default=list,
+                        size=None,
                     ),
                 ),
             ],
@@ -937,18 +1267,39 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Person",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("properties_last_updated_at", models.JSONField(blank=True, default=dict, null=True)),
+                (
+                    "properties_last_updated_at",
+                    models.JSONField(blank=True, default=dict, null=True),
+                ),
                 ("properties_last_operation", models.JSONField(blank=True, null=True)),
                 ("properties", models.JSONField(default=dict)),
                 ("is_identified", models.BooleanField(default=False)),
-                ("uuid", models.UUIDField(db_index=True, default=posthog.models.utils.UUIDT, editable=False)),
+                (
+                    "uuid",
+                    models.UUIDField(
+                        db_index=True,
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                    ),
+                ),
                 ("version", models.BigIntegerField(blank=True, null=True)),
                 (
                     "is_user",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
             ],
@@ -956,7 +1307,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Plugin",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 (
                     "plugin_type",
                     models.CharField(
@@ -974,7 +1333,10 @@ class Migration(migrations.Migration):
                 ),
                 ("is_global", models.BooleanField(default=False)),
                 ("is_preinstalled", models.BooleanField(default=False)),
-                ("is_stateless", models.BooleanField(blank=True, default=False, null=True)),
+                (
+                    "is_stateless",
+                    models.BooleanField(blank=True, default=False, null=True),
+                ),
                 ("name", models.CharField(blank=True, max_length=200, null=True)),
                 ("description", models.TextField(blank=True, null=True)),
                 ("url", models.CharField(blank=True, max_length=800, null=True)),
@@ -1008,7 +1370,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="PluginConfig",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("enabled", models.BooleanField(default=False)),
                 ("order", models.IntegerField()),
                 ("config", models.JSONField(default=dict)),
@@ -1016,27 +1386,49 @@ class Migration(migrations.Migration):
                 ("web_token", models.CharField(default=None, max_length=64, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin")),
+                (
+                    "plugin",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin"),
+                ),
             ],
         ),
         migrations.CreateModel(
             name="Prompt",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("step", models.IntegerField()),
                 ("type", models.CharField(max_length=200)),
                 ("title", models.CharField(max_length=200)),
                 ("text", models.CharField(max_length=1000)),
                 ("placement", models.CharField(default="top", max_length=200)),
                 ("buttons", models.JSONField()),
-                ("reference", models.CharField(default=None, max_length=200, null=True)),
+                (
+                    "reference",
+                    models.CharField(default=None, max_length=200, null=True),
+                ),
                 ("icon", models.CharField(max_length=200)),
             ],
         ),
         migrations.CreateModel(
             name="PromptSequence",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("key", models.CharField(max_length=200)),
                 ("type", models.CharField(max_length=200)),
                 (
@@ -1050,7 +1442,10 @@ class Migration(migrations.Migration):
                 ("status", models.CharField(max_length=200)),
                 ("requires_opt_in", models.BooleanField(default=False)),
                 ("autorun", models.BooleanField(default=True)),
-                ("must_have_completed", models.ManyToManyField(blank=True, to="posthog.PromptSequence")),
+                (
+                    "must_have_completed",
+                    models.ManyToManyField(blank=True, to="posthog.PromptSequence"),
+                ),
                 ("prompts", models.ManyToManyField(to="posthog.Prompt")),
             ],
         ),
@@ -1060,7 +1455,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("name", models.CharField(max_length=400)),
@@ -1086,7 +1484,10 @@ class Migration(migrations.Migration):
                         blank=True,
                         choices=[
                             ("unix_timestamp", "Unix Timestamp in seconds"),
-                            ("unix_timestamp_milliseconds", "Unix Timestamp in milliseconds"),
+                            (
+                                "unix_timestamp_milliseconds",
+                                "Unix Timestamp in milliseconds",
+                            ),
                             ("YYYY-MM-DDThh:mm:ssZ", "YYYY-MM-DDThh:mm:ssZ"),
                             ("YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD hh:mm:ss"),
                             ("DD-MM-YYYY hh:mm:ss", "DD-MM-YYYY hh:mm:ss"),
@@ -1105,21 +1506,45 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="SessionRecordingPlaylist",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("short_id", models.CharField(blank=True, default=posthog.utils.generate_short_id, max_length=12)),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "short_id",
+                    models.CharField(
+                        blank=True,
+                        default=posthog.utils.generate_short_id,
+                        max_length=12,
+                    ),
+                ),
                 ("name", models.CharField(blank=True, max_length=400, null=True)),
-                ("derived_name", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "derived_name",
+                    models.CharField(blank=True, max_length=400, null=True),
+                ),
                 ("description", models.TextField(blank=True)),
                 ("pinned", models.BooleanField(default=False)),
                 ("deleted", models.BooleanField(default=False)),
                 ("filters", models.JSONField(default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "last_modified_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("is_static", models.BooleanField(default=False)),
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
@@ -1140,7 +1565,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("name", models.CharField(max_length=255)),
@@ -1149,7 +1577,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Team",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 (
                     "uuid",
                     models.UUIDField(default=posthog.models.utils.UUIDT, editable=False),
@@ -1161,7 +1597,8 @@ class Migration(migrations.Migration):
                         max_length=200,
                         validators=[
                             django.core.validators.MinLengthValidator(
-                                10, "Project's API token must be at least 10 characters long!"
+                                10,
+                                "Project's API token must be at least 10 characters long!",
                             )
                         ],
                     ),
@@ -1169,7 +1606,10 @@ class Migration(migrations.Migration):
                 (
                     "app_urls",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=200, null=True), blank=True, default=list, size=None
+                        base_field=models.CharField(max_length=200, null=True),
+                        blank=True,
+                        default=list,
+                        size=None,
                     ),
                 ),
                 (
@@ -1180,21 +1620,36 @@ class Migration(migrations.Migration):
                         validators=[django.core.validators.MinLengthValidator(1, "Project must have a name!")],
                     ),
                 ),
-                ("slack_incoming_webhook", models.CharField(blank=True, max_length=500, null=True)),
+                (
+                    "slack_incoming_webhook",
+                    models.CharField(blank=True, max_length=500, null=True),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("anonymize_ips", models.BooleanField(default=False)),
                 ("completed_snippet_onboarding", models.BooleanField(default=False)),
                 ("ingested_event", models.BooleanField(default=False)),
                 ("session_recording_opt_in", models.BooleanField(default=False)),
-                ("capture_console_log_opt_in", models.BooleanField(blank=True, null=True)),
-                ("signup_token", models.CharField(blank=True, max_length=200, null=True)),
+                (
+                    "capture_console_log_opt_in",
+                    models.BooleanField(blank=True, null=True),
+                ),
+                (
+                    "signup_token",
+                    models.CharField(blank=True, max_length=200, null=True),
+                ),
                 ("is_demo", models.BooleanField(default=False)),
                 ("access_control", models.BooleanField(default=False)),
                 ("inject_web_apps", models.BooleanField(null=True)),
                 ("test_account_filters", models.JSONField(default=list)),
-                ("test_account_filters_default_checked", models.BooleanField(blank=True, null=True)),
-                ("path_cleaning_filters", models.JSONField(blank=True, default=list, null=True)),
+                (
+                    "test_account_filters_default_checked",
+                    models.BooleanField(blank=True, null=True),
+                ),
+                (
+                    "path_cleaning_filters",
+                    models.JSONField(blank=True, default=list, null=True),
+                ),
                 (
                     "timezone",
                     models.CharField(
@@ -1256,16 +1711,34 @@ class Migration(migrations.Migration):
                             ("America/Anguilla", "America/Anguilla"),
                             ("America/Antigua", "America/Antigua"),
                             ("America/Araguaina", "America/Araguaina"),
-                            ("America/Argentina/Buenos_Aires", "America/Argentina/Buenos_Aires"),
-                            ("America/Argentina/Catamarca", "America/Argentina/Catamarca"),
+                            (
+                                "America/Argentina/Buenos_Aires",
+                                "America/Argentina/Buenos_Aires",
+                            ),
+                            (
+                                "America/Argentina/Catamarca",
+                                "America/Argentina/Catamarca",
+                            ),
                             ("America/Argentina/Cordoba", "America/Argentina/Cordoba"),
                             ("America/Argentina/Jujuy", "America/Argentina/Jujuy"),
-                            ("America/Argentina/La_Rioja", "America/Argentina/La_Rioja"),
+                            (
+                                "America/Argentina/La_Rioja",
+                                "America/Argentina/La_Rioja",
+                            ),
                             ("America/Argentina/Mendoza", "America/Argentina/Mendoza"),
-                            ("America/Argentina/Rio_Gallegos", "America/Argentina/Rio_Gallegos"),
+                            (
+                                "America/Argentina/Rio_Gallegos",
+                                "America/Argentina/Rio_Gallegos",
+                            ),
                             ("America/Argentina/Salta", "America/Argentina/Salta"),
-                            ("America/Argentina/San_Juan", "America/Argentina/San_Juan"),
-                            ("America/Argentina/San_Luis", "America/Argentina/San_Luis"),
+                            (
+                                "America/Argentina/San_Juan",
+                                "America/Argentina/San_Juan",
+                            ),
+                            (
+                                "America/Argentina/San_Luis",
+                                "America/Argentina/San_Luis",
+                            ),
                             ("America/Argentina/Tucuman", "America/Argentina/Tucuman"),
                             ("America/Argentina/Ushuaia", "America/Argentina/Ushuaia"),
                             ("America/Aruba", "America/Aruba"),
@@ -1314,10 +1787,16 @@ class Migration(migrations.Migration):
                             ("America/Halifax", "America/Halifax"),
                             ("America/Havana", "America/Havana"),
                             ("America/Hermosillo", "America/Hermosillo"),
-                            ("America/Indiana/Indianapolis", "America/Indiana/Indianapolis"),
+                            (
+                                "America/Indiana/Indianapolis",
+                                "America/Indiana/Indianapolis",
+                            ),
                             ("America/Indiana/Knox", "America/Indiana/Knox"),
                             ("America/Indiana/Marengo", "America/Indiana/Marengo"),
-                            ("America/Indiana/Petersburg", "America/Indiana/Petersburg"),
+                            (
+                                "America/Indiana/Petersburg",
+                                "America/Indiana/Petersburg",
+                            ),
                             ("America/Indiana/Tell_City", "America/Indiana/Tell_City"),
                             ("America/Indiana/Vevay", "America/Indiana/Vevay"),
                             ("America/Indiana/Vincennes", "America/Indiana/Vincennes"),
@@ -1326,8 +1805,14 @@ class Migration(migrations.Migration):
                             ("America/Iqaluit", "America/Iqaluit"),
                             ("America/Jamaica", "America/Jamaica"),
                             ("America/Juneau", "America/Juneau"),
-                            ("America/Kentucky/Louisville", "America/Kentucky/Louisville"),
-                            ("America/Kentucky/Monticello", "America/Kentucky/Monticello"),
+                            (
+                                "America/Kentucky/Louisville",
+                                "America/Kentucky/Louisville",
+                            ),
+                            (
+                                "America/Kentucky/Monticello",
+                                "America/Kentucky/Monticello",
+                            ),
                             ("America/Kralendijk", "America/Kralendijk"),
                             ("America/La_Paz", "America/La_Paz"),
                             ("America/Lima", "America/Lima"),
@@ -1354,9 +1839,18 @@ class Migration(migrations.Migration):
                             ("America/Nipigon", "America/Nipigon"),
                             ("America/Nome", "America/Nome"),
                             ("America/Noronha", "America/Noronha"),
-                            ("America/North_Dakota/Beulah", "America/North_Dakota/Beulah"),
-                            ("America/North_Dakota/Center", "America/North_Dakota/Center"),
-                            ("America/North_Dakota/New_Salem", "America/North_Dakota/New_Salem"),
+                            (
+                                "America/North_Dakota/Beulah",
+                                "America/North_Dakota/Beulah",
+                            ),
+                            (
+                                "America/North_Dakota/Center",
+                                "America/North_Dakota/Center",
+                            ),
+                            (
+                                "America/North_Dakota/New_Salem",
+                                "America/North_Dakota/New_Salem",
+                            ),
                             ("America/Nuuk", "America/Nuuk"),
                             ("America/Ojinaga", "America/Ojinaga"),
                             ("America/Panama", "America/Panama"),
@@ -1643,11 +2137,17 @@ class Migration(migrations.Migration):
                         max_length=240,
                     ),
                 ),
-                ("data_attributes", models.JSONField(default=posthog.models.team.team.get_default_data_attributes)),
+                (
+                    "data_attributes",
+                    models.JSONField(default=posthog.models.team.team.get_default_data_attributes),
+                ),
                 (
                     "person_display_name_properties",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=400), blank=True, null=True, size=None
+                        base_field=models.CharField(max_length=400),
+                        blank=True,
+                        null=True,
+                        size=None,
                     ),
                 ),
                 (
@@ -1659,11 +2159,20 @@ class Migration(migrations.Migration):
                 (
                     "recording_domains",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=200, null=True), blank=True, null=True, size=None
+                        base_field=models.CharField(max_length=200, null=True),
+                        blank=True,
+                        null=True,
+                        size=None,
                     ),
                 ),
-                ("correlation_config", models.JSONField(blank=True, default=dict, null=True)),
-                ("session_recording_retention_period_days", models.IntegerField(blank=True, default=None, null=True)),
+                (
+                    "correlation_config",
+                    models.JSONField(blank=True, default=dict, null=True),
+                ),
+                (
+                    "session_recording_retention_period_days",
+                    models.IntegerField(blank=True, default=None, null=True),
+                ),
                 ("plugins_opt_in", models.BooleanField(default=False)),
                 ("opt_out_capture", models.BooleanField(default=False)),
                 ("event_names", models.JSONField(default=list)),
@@ -1720,16 +2229,36 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="UserPromptState",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("last_updated_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "last_updated_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("step", models.IntegerField(default=None, null=True)),
                 ("completed", models.BooleanField(default=False)),
                 ("dismissed", models.BooleanField(default=False)),
                 (
                     "sequence",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.promptsequence"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.promptsequence",
+                    ),
                 ),
-                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -1738,20 +2267,35 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("media_location", models.TextField(blank=True, max_length=1000, null=True)),
-                ("content_type", models.TextField(blank=True, max_length=100, null=True)),
+                (
+                    "media_location",
+                    models.TextField(blank=True, max_length=1000, null=True),
+                ),
+                (
+                    "content_type",
+                    models.TextField(blank=True, max_length=100, null=True),
+                ),
                 ("file_name", models.TextField(blank=True, max_length=1000, null=True)),
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
             options={
                 "abstract": False,
@@ -1760,13 +2304,27 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Text",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("body", models.CharField(blank=True, max_length=4000, null=True)),
-                ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "last_modified_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
@@ -1779,7 +2337,10 @@ class Migration(migrations.Migration):
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -1788,7 +2349,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 (
@@ -1844,7 +2408,9 @@ class Migration(migrations.Migration):
                 (
                     "tag",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="tagged_items", to="posthog.tag"
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tagged_items",
+                        to="posthog.tag",
                     ),
                 ),
             ],
@@ -1857,12 +2423,25 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Subscription",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("title", models.CharField(blank=True, max_length=100, null=True)),
                 (
                     "target_type",
                     models.CharField(
-                        choices=[("email", "Email"), ("slack", "Slack"), ("webhook", "Webhook")], max_length=10
+                        choices=[
+                            ("email", "Email"),
+                            ("slack", "Slack"),
+                            ("webhook", "Webhook"),
+                        ],
+                        max_length=10,
                     ),
                 ),
                 ("target_value", models.TextField()),
@@ -1910,24 +2489,46 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
                     "dashboard",
-                    models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.dashboard"),
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.dashboard",
+                    ),
                 ),
                 (
                     "insight",
-                    models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.insight"),
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.insight",
+                    ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.CreateModel(
             name="SharingConfiguration",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("enabled", models.BooleanField(default=False)),
                 (
@@ -1942,29 +2543,65 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "dashboard",
-                    models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.dashboard"),
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.dashboard",
+                    ),
                 ),
                 (
                     "insight",
-                    models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.insight"),
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.insight",
+                    ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.CreateModel(
             name="SessionRecordingViewed",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
                 ("session_id", models.CharField(max_length=200)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
             name="SessionRecordingPlaylistItem",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("session_id", models.CharField(max_length=200)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("deleted", models.BooleanField(blank=True, null=True)),
@@ -1986,14 +2623,28 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="SessionRecordingEvent",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
-                ("timestamp", models.DateTimeField(blank=True, default=django.utils.timezone.now)),
+                (
+                    "timestamp",
+                    models.DateTimeField(blank=True, default=django.utils.timezone.now),
+                ),
                 ("distinct_id", models.CharField(max_length=200)),
                 ("session_id", models.CharField(max_length=200)),
                 ("window_id", models.CharField(blank=True, max_length=200, null=True)),
                 ("snapshot_data", models.JSONField(default=dict)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddField(
@@ -2009,12 +2660,23 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="PluginStorage",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("key", models.CharField(max_length=200)),
                 ("value", models.TextField(blank=True, null=True)),
                 (
                     "plugin_config",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.pluginconfig"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.pluginconfig",
+                    ),
                 ),
             ],
         ),
@@ -2024,7 +2686,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("filename", models.CharField(max_length=200)),
@@ -2032,7 +2697,11 @@ class Migration(migrations.Migration):
                 (
                     "status",
                     models.CharField(
-                        choices=[("LOCKED", "locked"), ("TRANSPILED", "transpiled"), ("ERROR", "error")],
+                        choices=[
+                            ("LOCKED", "locked"),
+                            ("TRANSPILED", "transpiled"),
+                            ("ERROR", "error"),
+                        ],
                         max_length=20,
                         null=True,
                     ),
@@ -2040,18 +2709,33 @@ class Migration(migrations.Migration):
                 ("transpiled", models.TextField(blank=True, null=True)),
                 ("error", models.TextField(blank=True, null=True)),
                 ("updated_at", models.DateTimeField(blank=True, null=True)),
-                ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin")),
+                (
+                    "plugin",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin"),
+                ),
             ],
         ),
         migrations.AddField(
             model_name="pluginconfig",
             name="team",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="posthog.team",
+            ),
         ),
         migrations.CreateModel(
             name="PluginAttachment",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("key", models.CharField(max_length=200)),
                 ("content_type", models.CharField(max_length=200)),
                 ("file_name", models.CharField(max_length=200)),
@@ -2060,22 +2744,46 @@ class Migration(migrations.Migration):
                 (
                     "plugin_config",
                     models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.pluginconfig"
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.pluginconfig",
                     ),
                 ),
-                ("team", models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
             name="PersonDistinctId",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("distinct_id", models.CharField(max_length=400)),
                 ("version", models.BigIntegerField(blank=True, null=True)),
-                ("person", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.person")),
+                (
+                    "person",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.person"),
+                ),
                 (
                     "team",
-                    models.ForeignKey(db_index=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                    models.ForeignKey(
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
+                    ),
                 ),
             ],
         ),
@@ -2092,8 +2800,20 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("label", models.CharField(max_length=40)),
-                ("value", models.CharField(blank=True, editable=False, max_length=50, null=True, unique=True)),
-                ("secure_value", models.CharField(editable=False, max_length=300, null=True, unique=True)),
+                (
+                    "value",
+                    models.CharField(
+                        blank=True,
+                        editable=False,
+                        max_length=50,
+                        null=True,
+                        unique=True,
+                    ),
+                ),
+                (
+                    "secure_value",
+                    models.CharField(editable=False, max_length=300, null=True, unique=True),
+                ),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("last_used_at", models.DateTimeField(blank=True, null=True)),
                 (
@@ -2127,13 +2847,17 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 (
                     "level",
                     models.PositiveSmallIntegerField(
-                        choices=[(1, "member"), (8, "administrator"), (15, "owner")], default=1
+                        choices=[(1, "member"), (8, "administrator"), (15, "owner")],
+                        default=1,
                     ),
                 ),
                 ("joined_at", models.DateTimeField(auto_now_add=True)),
@@ -2164,10 +2888,16 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
-                ("target_email", models.EmailField(db_index=True, max_length=254, null=True)),
+                (
+                    "target_email",
+                    models.EmailField(db_index=True, max_length=254, null=True),
+                ),
                 ("first_name", models.CharField(blank=True, default="", max_length=30)),
                 ("emailing_attempt_made", models.BooleanField(default=False)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -2203,27 +2933,45 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("domain", models.CharField(max_length=128, unique=True)),
                 (
                     "verification_challenge",
                     models.CharField(
-                        default=posthog.models.organization_domain.generate_verification_challenge, max_length=128
+                        default=posthog.models.organization_domain.generate_verification_challenge,
+                        max_length=128,
                     ),
                 ),
-                ("verified_at", models.DateTimeField(blank=True, default=None, null=True)),
-                ("last_verification_retry", models.DateTimeField(blank=True, default=None, null=True)),
+                (
+                    "verified_at",
+                    models.DateTimeField(blank=True, default=None, null=True),
+                ),
+                (
+                    "last_verification_retry",
+                    models.DateTimeField(blank=True, default=None, null=True),
+                ),
                 ("jit_provisioning_enabled", models.BooleanField(default=False)),
                 ("sso_enforcement", models.CharField(blank=True, max_length=28)),
-                ("saml_entity_id", models.CharField(blank=True, max_length=512, null=True)),
-                ("saml_acs_url", models.CharField(blank=True, max_length=512, null=True)),
+                (
+                    "saml_entity_id",
+                    models.CharField(blank=True, max_length=512, null=True),
+                ),
+                (
+                    "saml_acs_url",
+                    models.CharField(blank=True, max_length=512, null=True),
+                ),
                 ("saml_x509_cert", models.TextField(blank=True, null=True)),
                 (
                     "organization",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="domains", to="posthog.organization"
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="domains",
+                        to="posthog.organization",
                     ),
                 ),
             ],
@@ -2247,14 +2995,19 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("last_viewed_activity_date", models.DateTimeField(default=None)),
                 (
                     "user",
                     models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
             ],
@@ -2265,7 +3018,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("email_hash", models.CharField(max_length=1024)),
@@ -2280,7 +3036,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Integration",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("kind", models.CharField(choices=[("slack", "Slack")], max_length=10)),
                 ("config", models.JSONField(default=dict)),
                 ("sensitive_config", models.JSONField(default=dict)),
@@ -2289,10 +3053,16 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddConstraint(
@@ -2328,7 +3098,9 @@ class Migration(migrations.Migration):
             model_name="insightcachingstate",
             name="insight",
             field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="caching_states", to="posthog.insight"
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="caching_states",
+                to="posthog.insight",
             ),
         ),
         migrations.AddField(
@@ -2340,7 +3112,10 @@ class Migration(migrations.Migration):
             model_name="insight",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
@@ -2358,7 +3133,10 @@ class Migration(migrations.Migration):
             model_name="insight",
             name="dive_dashboard",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboard"
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to="posthog.dashboard",
             ),
         ),
         migrations.AddField(
@@ -2426,18 +3204,29 @@ class Migration(migrations.Migration):
             model_name="exportedasset",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
             model_name="exportedasset",
             name="dashboard",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.dashboard"),
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="posthog.dashboard",
+            ),
         ),
         migrations.AddField(
             model_name="exportedasset",
             name="insight",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.insight"),
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="posthog.insight",
+            ),
         ),
         migrations.AddField(
             model_name="exportedasset",
@@ -2488,21 +3277,29 @@ class Migration(migrations.Migration):
             model_name="element",
             name="event",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.event"
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="posthog.event",
             ),
         ),
         migrations.AddField(
             model_name="element",
             name="group",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.elementgroup"
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="posthog.elementgroup",
             ),
         ),
         migrations.AddField(
             model_name="dashboardtile",
             name="dashboard",
             field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="tiles", to="posthog.dashboard"
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="tiles",
+                to="posthog.dashboard",
             ),
         ),
         migrations.AddField(
@@ -2529,14 +3326,20 @@ class Migration(migrations.Migration):
             model_name="dashboard",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
             model_name="dashboard",
             name="insights",
             field=models.ManyToManyField(
-                blank=True, related_name="dashboards", through="posthog.DashboardTile", to="posthog.Insight"
+                blank=True,
+                related_name="dashboards",
+                through="posthog.DashboardTile",
+                to="posthog.Insight",
             ),
         ),
         migrations.AddField(
@@ -2558,7 +3361,10 @@ class Migration(migrations.Migration):
             model_name="cohort",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
@@ -2580,27 +3386,39 @@ class Migration(migrations.Migration):
             model_name="asyncdeletion",
             name="created_by",
             field=models.ForeignKey(
-                null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
             model_name="annotation",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
             model_name="annotation",
             name="dashboard_item",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.insight"
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to="posthog.insight",
             ),
         ),
         migrations.AddField(
             model_name="annotation",
             name="organization",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.organization"),
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="posthog.organization",
+            ),
         ),
         migrations.AddField(
             model_name="annotation",
@@ -2611,21 +3429,28 @@ class Migration(migrations.Migration):
             model_name="activitylog",
             name="user",
             field=models.ForeignKey(
-                null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
             model_name="actionstep",
             name="action",
             field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="steps", to="posthog.action"
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="steps",
+                to="posthog.action",
             ),
         ),
         migrations.AddField(
             model_name="action",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
@@ -2772,7 +3597,16 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterUniqueTogether(
             name="taggeditem",
-            unique_together={("tag", "dashboard", "insight", "event_definition", "property_definition", "action")},
+            unique_together={
+                (
+                    "tag",
+                    "dashboard",
+                    "insight",
+                    "event_definition",
+                    "property_definition",
+                    "action",
+                )
+            },
         ),
         migrations.AlterUniqueTogether(
             name="tag",
@@ -2780,7 +3614,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="sessionrecordingviewed",
-            index=models.Index(fields=["team_id", "user_id", "session_id"], name="posthog_ses_team_id_465af1_idx"),
+            index=models.Index(
+                fields=["team_id", "user_id", "session_id"],
+                name="posthog_ses_team_id_465af1_idx",
+            ),
         ),
         migrations.AlterUniqueTogether(
             name="sessionrecordingviewed",
@@ -2801,14 +3638,17 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="sessionrecordingevent",
             index=models.Index(
-                fields=["team_id", "distinct_id", "timestamp", "session_id"], name="posthog_ses_team_id_46392f_idx"
+                fields=["team_id", "distinct_id", "timestamp", "session_id"],
+                name="posthog_ses_team_id_46392f_idx",
             ),
         ),
         TrigramExtension(),
         migrations.AddIndex(
             model_name="propertydefinition",
             index=django.contrib.postgres.indexes.GinIndex(
-                fields=["name"], name="index_property_definition_name", opclasses=["gin_trgm_ops"]
+                fields=["name"],
+                name="index_property_definition_name",
+                opclasses=["gin_trgm_ops"],
             ),
         ),
         migrations.AddConstraint(
@@ -2829,7 +3669,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="pluginstorage",
             constraint=models.UniqueConstraint(
-                fields=("plugin_config_id", "key"), name="posthog_unique_plugin_storage_key"
+                fields=("plugin_config_id", "key"),
+                name="posthog_unique_plugin_storage_key",
             ),
         ),
         migrations.AddConstraint(
@@ -2851,13 +3692,16 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="organizationmembership",
             constraint=models.UniqueConstraint(
-                fields=("organization_id", "user_id"), name="unique_organization_membership"
+                fields=("organization_id", "user_id"),
+                name="unique_organization_membership",
             ),
         ),
         migrations.AddConstraint(
             model_name="organizationmembership",
             constraint=models.UniqueConstraint(
-                condition=models.Q(("level", 15)), fields=("organization_id",), name="only_one_owner_per_organization"
+                condition=models.Q(("level", 15)),
+                fields=("organization_id",),
+                name="only_one_owner_per_organization",
             ),
         ),
         migrations.AddConstraint(
@@ -2874,7 +3718,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="insightviewed",
-            index=models.Index(fields=["team_id", "user_id", "-last_viewed_at"], name="posthog_ins_team_id_339ee0_idx"),
+            index=models.Index(
+                fields=["team_id", "user_id", "-last_viewed_at"],
+                name="posthog_ins_team_id_339ee0_idx",
+            ),
         ),
         migrations.AddConstraint(
             model_name="insightviewed",
@@ -2903,13 +3750,15 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="grouptypemapping",
             constraint=models.UniqueConstraint(
-                fields=("team", "group_type_index"), name="unique event column indexes for team"
+                fields=("team", "group_type_index"),
+                name="unique event column indexes for team",
             ),
         ),
         migrations.AddConstraint(
             model_name="grouptypemapping",
             constraint=models.CheckConstraint(
-                check=models.Q(("group_type_index__lte", 5)), name="group_type_index is less than or equal 5"
+                check=models.Q(("group_type_index__lte", 5)),
+                name="group_type_index is less than or equal 5",
             ),
         ),
         migrations.AddConstraint(
@@ -2922,13 +3771,15 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="featureflagoverride",
             constraint=models.UniqueConstraint(
-                fields=("user", "feature_flag", "team"), name="unique feature flag for a user/team combo"
+                fields=("user", "feature_flag", "team"),
+                name="unique feature flag for a user/team combo",
             ),
         ),
         migrations.AddConstraint(
             model_name="featureflaghashkeyoverride",
             constraint=models.UniqueConstraint(
-                fields=("team", "person", "feature_flag_key"), name="Unique hash_key for a user/team/feature_flag combo"
+                fields=("team", "person", "feature_flag_key"),
+                name="Unique hash_key for a user/team/feature_flag combo",
             ),
         ),
         migrations.AddConstraint(
@@ -2946,13 +3797,16 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="eventproperty",
             constraint=models.UniqueConstraint(
-                fields=("team", "event", "property"), name="posthog_event_property_unique_team_event_property"
+                fields=("team", "event", "property"),
+                name="posthog_event_property_unique_team_event_property",
             ),
         ),
         migrations.AddIndex(
             model_name="eventdefinition",
             index=django.contrib.postgres.indexes.GinIndex(
-                fields=["name"], name="index_event_definition_name", opclasses=["gin_trgm_ops"]
+                fields=["name"],
+                name="index_event_definition_name",
+                opclasses=["gin_trgm_ops"],
             ),
         ),
         migrations.AlterUniqueTogether(
@@ -2965,7 +3819,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="event",
-            index=models.Index(fields=["timestamp", "team_id", "event"], name="posthog_eve_timesta_1f6a8c_idx"),
+            index=models.Index(
+                fields=["timestamp", "team_id", "event"],
+                name="posthog_eve_timesta_1f6a8c_idx",
+            ),
         ),
         migrations.AddConstraint(
             model_name="elementgroup",
@@ -2986,7 +3843,9 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="dashboardtile",
             constraint=models.UniqueConstraint(
-                condition=models.Q(("text__isnull", False)), fields=("dashboard", "text"), name="unique_dashboard_text"
+                condition=models.Q(("text__isnull", False)),
+                fields=("dashboard", "text"),
+                name="unique_dashboard_text",
             ),
         ),
         migrations.AddConstraint(
@@ -3019,17 +3878,25 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="asyncdeletion",
             constraint=models.UniqueConstraint(
-                fields=("deletion_type", "key", "group_type_index"), name="unique deletion for groups"
+                fields=("deletion_type", "key", "group_type_index"),
+                name="unique deletion for groups",
             ),
         ),
         migrations.AddIndex(
             model_name="activitylog",
-            index=models.Index(fields=["team_id", "scope", "item_id"], name="posthog_act_team_id_13a0a8_idx"),
+            index=models.Index(
+                fields=["team_id", "scope", "item_id"],
+                name="posthog_act_team_id_13a0a8_idx",
+            ),
         ),
         migrations.AddConstraint(
             model_name="activitylog",
             constraint=models.CheckConstraint(
-                check=models.Q(("team_id__isnull", False), ("organization_id__isnull", False), _connector="OR"),
+                check=models.Q(
+                    ("team_id__isnull", False),
+                    ("organization_id__isnull", False),
+                    _connector="OR",
+                ),
                 name="must_have_team_or_organization_id",
             ),
         ),
@@ -3060,7 +3927,9 @@ class Migration(migrations.Migration):
                     model_name="persondistinctid",
                     name="team",
                     field=models.ForeignKey(
-                        db_index=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
                     ),
                 ),
             ],

@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestTimeToSeeDataApi.test_session_events_api
-  '
+  '''
   {
       "type": "session",
       "data": {
@@ -17,6 +18,7 @@
           "user": {
               "distinct_id": "",
               "first_name": "",
+              "last_name": "",
               "email": "",
               "is_email_verified": false
           }
@@ -193,5 +195,5 @@
           }
       ]
   }
-  '
----
+  '''
+# ---

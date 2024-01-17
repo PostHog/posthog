@@ -1,17 +1,21 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { ObjectTags, ObjectTagsProps } from './ObjectTags'
 
-export default {
+type Story = StoryObj<typeof ObjectTags>
+const meta: Meta<typeof ObjectTags> = {
     title: 'Lemon UI/Object Tags',
     component: ObjectTags,
-} as ComponentMeta<typeof ObjectTags>
+    tags: ['autodocs'],
+}
+export default meta
 
-const BasicTemplate: ComponentStory<typeof ObjectTags> = (props: Partial<ObjectTagsProps>) => {
+const BasicTemplate: StoryFn<typeof ObjectTags> = (props: Partial<ObjectTagsProps>) => {
     return <ObjectTags tags={['one', 'two', 'three']} {...props} />
 }
 
-export const Default = BasicTemplate.bind({})
+export const Default: Story = BasicTemplate.bind({})
 Default.args = {}
 
-export const StaticOnly = BasicTemplate.bind({})
+export const StaticOnly: Story = BasicTemplate.bind({})
 StaticOnly.args = { staticOnly: true }

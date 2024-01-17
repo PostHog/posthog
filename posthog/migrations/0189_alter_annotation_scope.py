@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0188_person_distinct_id_version"),
     ]
@@ -14,7 +13,11 @@ class Migration(migrations.Migration):
             model_name="annotation",
             name="scope",
             field=models.CharField(
-                choices=[("dashboard_item", "insight"), ("project", "project"), ("organization", "organization")],
+                choices=[
+                    ("dashboard_item", "insight"),
+                    ("project", "project"),
+                    ("organization", "organization"),
+                ],
                 default="dashboard_item",
                 max_length=24,
             ),

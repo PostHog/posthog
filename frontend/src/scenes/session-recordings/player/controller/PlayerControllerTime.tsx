@@ -1,15 +1,18 @@
-import { Tooltip } from 'antd'
-import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { TZLabel } from '@posthog/apps-common'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { seekbarLogic } from './seekbarLogic'
-import { LemonButton } from '@posthog/lemon-ui'
+import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
+import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { seekbarLogic } from './seekbarLogic'
 
 export function Timestamp(): JSX.Element {
-    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, currentPlayerTime, currentTimestamp, sessionPlayerData } =
+        useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
@@ -19,8 +22,10 @@ export function Timestamp(): JSX.Element {
 
     return (
         <div className="whitespace-nowrap mr-4">
-            {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
-            {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
+            <TZLabel time={dayjs(currentTimestamp)} showSeconds>
+                <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
+            </TZLabel>{' '}
+            / {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
         </div>
     )
 }
@@ -59,11 +64,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 </div>
             }
         >
-            <LemonButton
-                status="primary-alt"
-                size="small"
-                onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
-            >
+            <LemonButton size="small" onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}>
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>
                     <IconSkipBackward

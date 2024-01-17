@@ -64,4 +64,7 @@ class TestLifecycleFilter(BaseTest):
             },
         )
         self.assertEqual(filter.lifecycle_type, lifecycle_type)
-        self.assertEqual(filter.target_date, relative_date_parse(target_date))
+        self.assertEqual(
+            filter.target_date,
+            relative_date_parse(target_date, self.team.timezone_info),
+        )

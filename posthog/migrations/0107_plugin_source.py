@@ -15,7 +15,6 @@ def backwards(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0106_dashboard_item_type_to_display"),
     ]
@@ -26,7 +25,12 @@ class Migration(migrations.Migration):
             name="plugin_type",
             field=models.CharField(
                 blank=True,
-                choices=[("local", "local"), ("custom", "custom"), ("repository", "repository"), ("source", "source")],
+                choices=[
+                    ("local", "local"),
+                    ("custom", "custom"),
+                    ("repository", "repository"),
+                    ("source", "source"),
+                ],
                 default=None,
                 max_length=200,
                 null=True,

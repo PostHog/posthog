@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 from uuid import UUID, uuid4
 
@@ -29,7 +29,11 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
     def test_persons_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
             person = Person.objects.create(
-                team_id=self.team.pk, properties={"a": 1234}, is_identified=True, version=4, uuid=uuid4()
+                team_id=self.team.pk,
+                properties={"a": 1234},
+                is_identified=True,
+                version=4,
+                uuid=uuid4(),
             )
 
         run_person_sync(self.team.pk, live_run=True, deletes=False, sync=True)
@@ -45,7 +49,11 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
     def test_persons_sync_with_null_version(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
             person = Person.objects.create(
-                team_id=self.team.pk, properties={"a": 1234}, is_identified=True, version=None, uuid=uuid4()
+                team_id=self.team.pk,
+                properties={"a": 1234},
+                is_identified=True,
+                version=None,
+                uuid=uuid4(),
             )
 
         run_person_sync(self.team.pk, live_run=True, deletes=False, sync=True)
@@ -59,7 +67,13 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         self.assertEqual(ch_persons, [(person.uuid, self.team.pk, '{"a": 1234}', True, 0, False)])
 
     def test_persons_deleted(self):
-        uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123}, sync=True)
+        uuid = create_person(
+            uuid=str(uuid4()),
+            team_id=self.team.pk,
+            version=5,
+            properties={"abc": 123},
+            sync=True,
+        )
 
         run_person_sync(self.team.pk, live_run=True, deletes=True, sync=True)
 
@@ -104,7 +118,12 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
     def test_distinct_ids_deleted(self):
         uuid = uuid4()
         create_person_distinct_id(
-            team_id=self.team.pk, distinct_id="test-id-7", person_id=str(uuid), is_deleted=False, version=7, sync=True
+            team_id=self.team.pk,
+            distinct_id="test-id-7",
+            person_id=str(uuid),
+            is_deleted=False,
+            version=7,
+            sync=True,
         )
         run_distinct_id_sync(self.team.pk, live_run=True, deletes=True, sync=True)
 
@@ -114,14 +133,17 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(ch_person_distinct_ids, [(UUID(int=0), self.team.pk, "test-id-7", 107, True)])
+        self.assertEqual(
+            ch_person_distinct_ids,
+            [(UUID(int=0), self.team.pk, "test-id-7", 107, True)],
+        )
 
     @mock.patch(
         f"{posthog.management.commands.sync_persons_to_clickhouse.__name__}.raw_create_group_ch",
         wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
     )
     def test_group_sync(self, mocked_ch_call):
-        ts = datetime.utcnow()
+        ts = datetime.now(timezone.utc)
         Group.objects.create(
             team_id=self.team.pk,
             group_type_index=2,
@@ -156,11 +178,17 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
     )
     def test_group_sync_updates_group(self, mocked_ch_call):
-        group = create_group(self.team.pk, 2, "group-key", {"a": 5}, timestamp=datetime.utcnow() - timedelta(hours=3))
+        group = create_group(
+            self.team.pk,
+            2,
+            "group-key",
+            {"a": 5},
+            timestamp=datetime.now(timezone.utc) - timedelta(hours=3),
+        )
         group.group_properties = {"a": 5, "b": 3}
         group.save()
 
-        ts_before = datetime.utcnow()
+        ts_before = datetime.now(timezone.utc)
         run_group_sync(self.team.pk, live_run=True, sync=True)
         mocked_ch_call.assert_called_once()
 
@@ -175,9 +203,18 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         self.assertEqual(ch_group[0], 2)
         self.assertEqual(ch_group[1], "group-key")
         self.assertEqual(ch_group[2], '{"a": 5, "b": 3}')
-        self.assertEqual(ch_group[3].strftime("%Y-%m-%d %H:%M:%S"), group.created_at.strftime("%Y-%m-%d %H:%M:%S"))
-        self.assertGreaterEqual(ch_group[4].strftime("%Y-%m-%d %H:%M:%S"), ts_before.strftime("%Y-%m-%d %H:%M:%S"))
-        self.assertLessEqual(ch_group[4].strftime("%Y-%m-%d %H:%M:%S"), datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+        self.assertEqual(
+            ch_group[3].strftime("%Y-%m-%d %H:%M:%S"),
+            group.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        self.assertGreaterEqual(
+            ch_group[4].strftime("%Y-%m-%d %H:%M:%S"),
+            ts_before.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        self.assertLessEqual(
+            ch_group[4].strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
         # second time it's a no-op
         run_group_sync(self.team.pk, live_run=True, sync=True)
@@ -188,7 +225,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
     )
     def test_group_sync_multiple_entries(self, mocked_ch_call):
-        ts = datetime.utcnow()
+        ts = datetime.now(timezone.utc)
         Group.objects.create(
             team_id=self.team.pk,
             group_type_index=2,
@@ -256,15 +293,24 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         # 2 persons who should be created
         with mute_selected_signals():  # without creating/updating in clickhouse
             person_should_be_created_1 = Person.objects.create(
-                team_id=self.team.pk, properties={"abcde": 12553633}, version=2, uuid=uuid4()
+                team_id=self.team.pk,
+                properties={"abcde": 12553633},
+                version=2,
+                uuid=uuid4(),
             )
             person_should_be_created_2 = Person.objects.create(
-                team_id=self.team.pk, properties={"abcdeit34": 12553633}, version=3, uuid=uuid4()
+                team_id=self.team.pk,
+                properties={"abcdeit34": 12553633},
+                version=3,
+                uuid=uuid4(),
             )
 
             # 2 persons who have updates
             person_should_update_1 = Person.objects.create(
-                team_id=self.team.pk, properties={"abcde": 12553}, version=5, uuid=uuid4()
+                team_id=self.team.pk,
+                properties={"abcde": 12553},
+                version=5,
+                uuid=uuid4(),
             )
             person_should_update_2 = Person.objects.create(
                 team_id=self.team.pk, properties={"abc": 125}, version=7, uuid=uuid4()
@@ -286,35 +332,61 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
 
         # 2 persons need to be deleted
         deleted_person_1_uuid = create_person(
-            uuid=str(uuid4()), team_id=self.team.pk, version=7, properties={"abcd": 123}, sync=True
+            uuid=str(uuid4()),
+            team_id=self.team.pk,
+            version=7,
+            properties={"abcd": 123},
+            sync=True,
         )
         deleted_person_2_uuid = create_person(
-            uuid=str(uuid4()), team_id=self.team.pk, version=8, properties={"abcef": 123}, sync=True
+            uuid=str(uuid4()),
+            team_id=self.team.pk,
+            version=8,
+            properties={"abcef": 123},
+            sync=True,
         )
 
         # 2 distinct id no update
         PersonDistinctId.objects.create(
-            team=self.team, person=person_not_changed_1, distinct_id="distinct_id", version=0
+            team=self.team,
+            person=person_not_changed_1,
+            distinct_id="distinct_id",
+            version=0,
         )
         PersonDistinctId.objects.create(
-            team=self.team, person=person_not_changed_1, distinct_id="distinct_id-9", version=9
+            team=self.team,
+            person=person_not_changed_1,
+            distinct_id="distinct_id-9",
+            version=9,
         )
 
         # # 2 distinct id to be created
         with mute_selected_signals():  # without creating/updating in clickhouse
             PersonDistinctId.objects.create(
-                team=self.team, person=person_not_changed_1, distinct_id="distinct_id-10", version=10
+                team=self.team,
+                person=person_not_changed_1,
+                distinct_id="distinct_id-10",
+                version=10,
             )
             PersonDistinctId.objects.create(
-                team=self.team, person=person_not_changed_1, distinct_id="distinct_id-11", version=11
+                team=self.team,
+                person=person_not_changed_1,
+                distinct_id="distinct_id-11",
+                version=11,
             )
 
             # 2 distinct id that need to update
             PersonDistinctId.objects.create(
-                team=self.team, person=person_not_changed_2, distinct_id="distinct_id-12", version=13
+                team=self.team,
+                person=person_not_changed_2,
+                distinct_id="distinct_id-12",
+                version=13,
             )
             PersonDistinctId.objects.create(
-                team=self.team, person=person_not_changed_2, distinct_id="distinct_id-14", version=15
+                team=self.team,
+                person=person_not_changed_2,
+                distinct_id="distinct_id-14",
+                version=15,
             )
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -358,7 +430,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             group_type_index=2,
             group_key="group-key",
             group_properties={"a": 1234},
-            created_at=datetime.utcnow() - timedelta(hours=3),
+            created_at=datetime.now(timezone.utc) - timedelta(hours=3),
             version=5,
         )
 
@@ -397,23 +469,95 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             self.assertEqual(
                 ch_persons,
                 [
-                    (person_not_changed_1.uuid, self.team.pk, '{"abcdef": 1111}', False, 0, False),
-                    (person_not_changed_2.uuid, self.team.pk, '{"abcdefg": 11112}', False, 1, False),
-                    (person_should_update_1.uuid, self.team.pk, '{"a": 13}', False, 4, False),
-                    (person_should_update_2.uuid, self.team.pk, '{"a": 1}', False, 6, False),
-                    (UUID(deleted_person_1_uuid), self.team.pk, '{"abcd": 123}', False, 7, False),
-                    (UUID(deleted_person_2_uuid), self.team.pk, '{"abcef": 123}', False, 8, False),
+                    (
+                        person_not_changed_1.uuid,
+                        self.team.pk,
+                        '{"abcdef": 1111}',
+                        False,
+                        0,
+                        False,
+                    ),
+                    (
+                        person_not_changed_2.uuid,
+                        self.team.pk,
+                        '{"abcdefg": 11112}',
+                        False,
+                        1,
+                        False,
+                    ),
+                    (
+                        person_should_update_1.uuid,
+                        self.team.pk,
+                        '{"a": 13}',
+                        False,
+                        4,
+                        False,
+                    ),
+                    (
+                        person_should_update_2.uuid,
+                        self.team.pk,
+                        '{"a": 1}',
+                        False,
+                        6,
+                        False,
+                    ),
+                    (
+                        UUID(deleted_person_1_uuid),
+                        self.team.pk,
+                        '{"abcd": 123}',
+                        False,
+                        7,
+                        False,
+                    ),
+                    (
+                        UUID(deleted_person_2_uuid),
+                        self.team.pk,
+                        '{"abcef": 123}',
+                        False,
+                        8,
+                        False,
+                    ),
                 ],
             )
             self.assertEqual(
                 ch_person_distinct_ids,
                 [
                     (person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False),
-                    (person_not_changed_1.uuid, self.team.pk, "distinct_id-9", 9, False),
-                    (person_not_changed_1.uuid, self.team.pk, "distinct_id-12", 12, False),
-                    (person_not_changed_1.uuid, self.team.pk, "distinct_id-14", 14, False),
-                    (deleted_distinct_id_1_uuid, self.team.pk, "distinct_id-17", 17, False),
-                    (deleted_distinct_id_2_uuid, self.team.pk, "distinct_id-18", 18, False),
+                    (
+                        person_not_changed_1.uuid,
+                        self.team.pk,
+                        "distinct_id-9",
+                        9,
+                        False,
+                    ),
+                    (
+                        person_not_changed_1.uuid,
+                        self.team.pk,
+                        "distinct_id-12",
+                        12,
+                        False,
+                    ),
+                    (
+                        person_not_changed_1.uuid,
+                        self.team.pk,
+                        "distinct_id-14",
+                        14,
+                        False,
+                    ),
+                    (
+                        deleted_distinct_id_1_uuid,
+                        self.team.pk,
+                        "distinct_id-17",
+                        17,
+                        False,
+                    ),
+                    (
+                        deleted_distinct_id_2_uuid,
+                        self.team.pk,
+                        "distinct_id-18",
+                        18,
+                        False,
+                    ),
                 ],
             )
             self.assertEqual(len(ch_groups), 0)
@@ -421,12 +565,54 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             self.assertEqual(
                 ch_persons,
                 [
-                    (person_not_changed_1.uuid, self.team.pk, '{"abcdef": 1111}', False, 0, False),
-                    (person_not_changed_2.uuid, self.team.pk, '{"abcdefg": 11112}', False, 1, False),
-                    (person_should_be_created_1.uuid, self.team.pk, '{"abcde": 12553633}', False, 2, False),
-                    (person_should_be_created_2.uuid, self.team.pk, '{"abcdeit34": 12553633}', False, 3, False),
-                    (person_should_update_1.uuid, self.team.pk, '{"abcde": 12553}', False, 5, False),
-                    (person_should_update_2.uuid, self.team.pk, '{"abc": 125}', False, 7, False),
+                    (
+                        person_not_changed_1.uuid,
+                        self.team.pk,
+                        '{"abcdef": 1111}',
+                        False,
+                        0,
+                        False,
+                    ),
+                    (
+                        person_not_changed_2.uuid,
+                        self.team.pk,
+                        '{"abcdefg": 11112}',
+                        False,
+                        1,
+                        False,
+                    ),
+                    (
+                        person_should_be_created_1.uuid,
+                        self.team.pk,
+                        '{"abcde": 12553633}',
+                        False,
+                        2,
+                        False,
+                    ),
+                    (
+                        person_should_be_created_2.uuid,
+                        self.team.pk,
+                        '{"abcdeit34": 12553633}',
+                        False,
+                        3,
+                        False,
+                    ),
+                    (
+                        person_should_update_1.uuid,
+                        self.team.pk,
+                        '{"abcde": 12553}',
+                        False,
+                        5,
+                        False,
+                    ),
+                    (
+                        person_should_update_2.uuid,
+                        self.team.pk,
+                        '{"abc": 125}',
+                        False,
+                        7,
+                        False,
+                    ),
                     (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 107, True),
                     (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 108, True),
                 ],
@@ -435,11 +621,41 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
                 ch_person_distinct_ids,
                 [
                     (person_not_changed_1.uuid, self.team.pk, "distinct_id", 0, False),
-                    (person_not_changed_1.uuid, self.team.pk, "distinct_id-9", 9, False),
-                    (person_not_changed_1.uuid, self.team.pk, "distinct_id-10", 10, False),
-                    (person_not_changed_1.uuid, self.team.pk, "distinct_id-11", 11, False),
-                    (person_not_changed_2.uuid, self.team.pk, "distinct_id-12", 13, False),
-                    (person_not_changed_2.uuid, self.team.pk, "distinct_id-14", 15, False),
+                    (
+                        person_not_changed_1.uuid,
+                        self.team.pk,
+                        "distinct_id-9",
+                        9,
+                        False,
+                    ),
+                    (
+                        person_not_changed_1.uuid,
+                        self.team.pk,
+                        "distinct_id-10",
+                        10,
+                        False,
+                    ),
+                    (
+                        person_not_changed_1.uuid,
+                        self.team.pk,
+                        "distinct_id-11",
+                        11,
+                        False,
+                    ),
+                    (
+                        person_not_changed_2.uuid,
+                        self.team.pk,
+                        "distinct_id-12",
+                        13,
+                        False,
+                    ),
+                    (
+                        person_not_changed_2.uuid,
+                        self.team.pk,
+                        "distinct_id-14",
+                        15,
+                        False,
+                    ),
                     (UUID(int=0), self.team.pk, "distinct_id-17", 117, True),
                     (UUID(int=0), self.team.pk, "distinct_id-18", 118, True),
                 ],

@@ -1,15 +1,17 @@
 import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import type { newDashboardLogicType } from './newDashboardLogicType'
-import { DashboardRestrictionLevel } from 'lib/constants'
-import { DashboardTemplateType, DashboardType, DashboardTemplateVariableType, DashboardTile, JsonType } from '~/types'
-import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { forms } from 'kea-forms'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { DashboardRestrictionLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardTemplateType, DashboardTemplateVariableType, DashboardTile, DashboardType, JsonType } from '~/types'
+
+import type { newDashboardLogicType } from './newDashboardLogicType'
 
 export interface NewDashboardForm {
     name: string
@@ -194,4 +196,23 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.setActiveDashboardTemplate(template)
         },
     })),
+    urlToAction(({ actions }) => ({
+        '/dashboard': (_, _searchParams, hashParams) => {
+            if ('newDashboard' in hashParams) {
+                actions.showNewDashboardModal()
+            }
+        },
+    })),
+    actionToUrl({
+        hideNewDashboardModal: () => {
+            const hashParams = router.values.hashParams
+            delete hashParams['newDashboard']
+            return [router.values.location.pathname, router.values.searchParams, hashParams]
+        },
+        showNewDashboardModal: () => {
+            const hashParams = router.values.hashParams
+            hashParams['newDashboard'] = 'modal'
+            return [router.values.location.pathname, router.values.searchParams, hashParams]
+        },
+    }),
 ])

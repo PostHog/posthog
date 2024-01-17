@@ -1,6 +1,14 @@
 from typing import Any, Dict, cast
 
-from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
+from rest_framework import (
+    exceptions,
+    mixins,
+    request,
+    response,
+    serializers,
+    status,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
@@ -41,7 +49,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
-            organization_id=self.context["organization_id"], user__email=validated_data["target_email"]
+            organization_id=self.context["organization_id"],
+            user__email=validated_data["target_email"],
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -51,7 +60,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         )
         if is_email_available(with_absolute_urls=True):
             invite.emailing_attempt_made = True
-            send_invite.delay(invite_id=invite.id)
+            send_invite(invite_id=invite.id)
             invite.save()
 
         report_team_member_invited(
@@ -101,7 +110,9 @@ class OrganizationInviteViewSet(
             )
 
         serializer = OrganizationInviteSerializer(
-            data=data, many=True, context={**self.get_serializer_context(), "bulk_create": True}
+            data=data,
+            many=True,
+            context={**self.get_serializer_context(), "bulk_create": True},
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()

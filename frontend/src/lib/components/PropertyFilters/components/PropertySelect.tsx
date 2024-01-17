@@ -1,11 +1,12 @@
-import { useState } from 'react'
-import Fuse from 'fuse.js'
 import { Select } from 'antd'
+import Fuse from 'fuse.js'
+import { useActions } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { SelectOption } from '~/types'
-import { useActions } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useState } from 'react'
+
+import { SelectOption } from '~/types'
 
 interface Props {
     optionGroups: Array<PropertyOptionGroup>
@@ -79,7 +80,7 @@ export function PropertySelect({
                 return true // set to avoid ant.d doing its own filtering
             }}
             onChange={(_: null, selection) => {
-                const { value: val, type } = selection as SelectionOptionType
+                const { value: val, type } = selection as unknown as SelectionOptionType
                 onChange(type, val.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}

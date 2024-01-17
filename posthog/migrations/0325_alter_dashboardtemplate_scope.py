@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0324_user_has_seen_product_intro_for"),
     ]
@@ -15,7 +14,11 @@ class Migration(migrations.Migration):
             name="scope",
             field=models.CharField(
                 blank=True,
-                choices=[("team", "Only team"), ("global", "Global"), ("feature_flag", "Feature Flag")],
+                choices=[
+                    ("team", "Only team"),
+                    ("global", "Global"),
+                    ("feature_flag", "Feature Flag"),
+                ],
                 max_length=24,
                 null=True,
             ),

@@ -10,11 +10,9 @@ from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.queries.test.test_lifecycle import assertLifecycleResults
+from posthog.queries.test.test_lifecycle import TestLifecycleBase
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
@@ -29,15 +27,25 @@ def _create_action(**kwargs):
     return action
 
 
-class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
+class TestClickhouseLifecycle(TestLifecycleBase):
     @snapshot_clickhouse_queries
     def test_test_account_filters_with_groups(self):
         self.team.test_account_filters = [{"key": "key", "type": "group", "value": "value", "group_type_index": 0}]
         self.team.save()
 
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        create_group(self.team.pk, group_type_index=0, group_key="in", properties={"key": "value"})
-        create_group(self.team.pk, group_type_index=0, group_key="out", properties={"key": "othervalue"})
+        create_group(
+            self.team.pk,
+            group_type_index=0,
+            group_key="in",
+            properties={"key": "value"},
+        )
+        create_group(
+            self.team.pk,
+            group_type_index=0,
+            group_key="out",
+            properties={"key": "othervalue"},
+        )
 
         with freeze_time("2020-01-11T12:00:00Z"):
             Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
@@ -48,12 +56,28 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "person1": [
-                    {"event": "$pageview", "timestamp": datetime(2020, 1, 11, 12), "properties": {"$group_0": "out"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2020, 1, 11, 12),
+                        "properties": {"$group_0": "out"},
+                    }
                 ],
                 "person2": [
-                    {"event": "$pageview", "timestamp": datetime(2020, 1, 9, 12), "properties": {"$group_0": "in"}},
-                    {"event": "$pageview", "timestamp": datetime(2020, 1, 12, 12), "properties": {"$group_0": "in"}},
-                    {"event": "$pageview", "timestamp": datetime(2020, 1, 15, 12), "properties": {"$group_0": "in"}},
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2020, 1, 9, 12),
+                        "properties": {"$group_0": "in"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2020, 1, 12, 12),
+                        "properties": {"$group_0": "in"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2020, 1, 15, 12),
+                        "properties": {"$group_0": "in"},
+                    },
                 ],
             },
             self.team,
@@ -72,7 +96,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, 0, 0]},
@@ -113,7 +137,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0, 0, 0, -1, 0, 0, -1, 0]},
@@ -130,7 +154,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
 
             result = self._run_lifecycle({"date_from": "-7d", "interval": "day"})
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0] * 8},
@@ -160,7 +184,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
 
             result = self._run_lifecycle({"date_from": "-30d", "interval": "week"})
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0] * 5},
@@ -169,7 +193,10 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
                 {"status": "returning", "data": [1] * 5},
             ],
         )
-        self.assertEqual(result[0]["days"], ["2021-04-05", "2021-04-12", "2021-04-19", "2021-04-26", "2021-05-03"])
+        self.assertEqual(
+            result[0]["days"],
+            ["2021-04-05", "2021-04-12", "2021-04-19", "2021-04-26", "2021-05-03"],
+        )
 
     @snapshot_clickhouse_queries
     def test_interval_dates_months(self):
@@ -178,7 +205,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
 
             result = self._run_lifecycle({"date_from": "-90d", "interval": "month"})
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0] * 4},
@@ -199,11 +226,14 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
                     "date_from": "-7d",
                     "interval": "day",
                     "properties": [
-                        {"key": "like(properties.$current_url, '%example%') and 'bla' != 'a%sd'", "type": "hogql"},
+                        {
+                            "key": "like(properties.$current_url, '%example%') and 'bla' != 'a%sd'",
+                            "type": "hogql",
+                        },
                     ],
                 }
             )
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0] * 8},
@@ -223,12 +253,15 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
                     "date_from": "-7d",
                     "interval": "day",
                     "properties": [
-                        {"key": "like(person.properties.email, '%test.com')", "type": "hogql"},
+                        {
+                            "key": "like(person.properties.email, '%test.com')",
+                            "type": "hogql",
+                        },
                     ],
                 }
             )
 
-        assertLifecycleResults(
+        self.assertLifecycleResults(
             result,
             [
                 {"status": "dormant", "data": [0] * 8},
@@ -241,7 +274,9 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
     def _setup_returning_lifecycle_data(self, days):
         with freeze_time("2019-01-01T12:00:00Z"):
             Person.objects.create(
-                distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "person@test.com"}
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"email": "person@test.com"},
             )
 
         journeys_for(
@@ -261,7 +296,11 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     def _run_lifecycle(self, data):
         filter = Filter(
-            data={"events": [{"id": "$pageview", "type": "events", "order": 0}], "shown_as": TRENDS_LIFECYCLE, **data},
+            data={
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "shown_as": TRENDS_LIFECYCLE,
+                **data,
+            },
             team=self.team,
         )
         return Trends().run(filter, self.team)

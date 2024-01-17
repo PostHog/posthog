@@ -1,15 +1,17 @@
-import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
+import './LemonFileInput.scss'
+
+import clsx from 'clsx'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import clsx from 'clsx'
-import './LemonFileInput.scss'
-import api from 'lib/api'
+import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
     onChange?: (newValue: File[]) => void
-    // are the files currently being uploaded?
+    /**
+     * are the files currently being uploaded?
+     */
     loading?: boolean
     /** if this is not provided then this component is the drop target
      * and is styled when a file is dragged over it
@@ -18,51 +20,10 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
      * styling is applied to the alternativeDropTargetRef
      * **/
     alternativeDropTargetRef?: RefObject<HTMLElement>
-}
-
-export function useUploadFiles({
-    onUpload,
-    onError,
-}: {
-    onUpload?: (url: string, fileName: string) => void
-    onError: (detail: string) => void
-}): {
-    setFilesToUpload: (files: File[]) => void
-    filesToUpload: File[]
-    uploading: boolean
-} {
-    const [uploading, setUploading] = useState(false)
-    const [filesToUpload, setFilesToUpload] = useState<File[]>([])
-    useEffect(() => {
-        const uploadFiles = async (): Promise<void> => {
-            if (filesToUpload.length === 0) {
-                setUploading(false)
-                return
-            }
-
-            try {
-                setUploading(true)
-                const formData = new FormData()
-                let file: File = filesToUpload[0]
-                if (file.type.startsWith('image/')) {
-                    const compressedBlob = await lazyImageBlobReducer(file)
-                    file = new File([compressedBlob], file.name, { type: compressedBlob.type })
-                }
-                formData.append('image', file)
-                const media = await api.media.upload(formData)
-                onUpload?.(media.image_location, media.name)
-            } catch (error) {
-                const errorDetail = (error as any).detail || 'unknown error'
-                onError(errorDetail)
-            } finally {
-                setUploading(false)
-                setFilesToUpload([])
-            }
-        }
-        uploadFiles().catch(console.error)
-    }, [filesToUpload])
-
-    return { setFilesToUpload, filesToUpload, uploading }
+    /**
+     * the text to display to the user, a sensible default is used if not provided
+     */
+    callToAction?: string | JSX.Element
 }
 
 export const LemonFileInput = ({
@@ -73,6 +34,7 @@ export const LemonFileInput = ({
     // e.g. '.json' or 'image/*'
     accept,
     alternativeDropTargetRef,
+    callToAction,
 }: LemonFileInputProps): JSX.Element => {
     const [files, setFiles] = useState(value || value || ([] as File[]))
 
@@ -173,30 +135,31 @@ export const LemonFileInput = ({
             >
                 <label className="text-muted inline-flex flex flow-row items-center gap-1 cursor-pointer">
                     <input
-                        className={'hidden'}
+                        className="hidden"
                         type="file"
                         multiple={multiple}
                         accept={accept}
                         onChange={onInputChange}
                     />
-                    <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
-                    {accept ? ` ${acceptToDisplayName(accept)}` : ''}
+                    {callToAction || (
+                        <>
+                            <IconUploadFile className="text-2xl" /> Click or drag and drop to upload
+                            {accept ? ` ${acceptToDisplayName(accept)}` : ''}
+                        </>
+                    )}
                 </label>
-                <div className={'flex flex-row gap-2'}>
-                    {files.map((x, i) => (
-                        <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
-                            {x.name}
-                        </LemonTag>
-                    ))}
-                </div>
+                {files.length > 0 && (
+                    <div className="flex flex-row gap-2">
+                        {files.map((x, i) => (
+                            <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
+                                {x.name}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )}
             </div>
         </>
     )
-}
-
-const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
-    const blobReducer = (await import('image-blob-reduce')).default()
-    return blobReducer.toBlob(blob, { max: 2000 })
 }
 
 function acceptToDisplayName(accept: string): string {

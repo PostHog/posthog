@@ -1,7 +1,9 @@
-import { GroupActorType } from '~/types'
 import './PersonDisplay.scss'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { GroupActorType } from '~/types'
 
 export interface GroupActorDisplayProps {
     actor: GroupActorType

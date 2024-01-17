@@ -8,7 +8,12 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person import Person
 from posthog.queries.retention import Retention
-from posthog.queries.test.test_retention import _create_event, _create_events, _date, pluck
+from posthog.queries.test.test_retention import (
+    _create_event,
+    _create_events,
+    _date,
+    pluck,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -23,11 +28,31 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
 
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:2",
+            properties={},
+        )
 
         Person.objects.create(team=self.team, distinct_ids=["person1", "alias1"])
         Person.objects.create(team=self.team, distinct_ids=["person2"])
@@ -44,11 +69,19 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 ("person1", _date(7), {"$group_0": "org:5"}),
                 ("person2", _date(7), {"$group_0": "org:6"}),
                 ("person1", _date(14), {"$group_0": "org:5"}),
-                ("person1", _date(month=1, day=-6), {"$group_0": "org:5", "$group_1": "company:1"}),
+                (
+                    "person1",
+                    _date(month=1, day=-6),
+                    {"$group_0": "org:5", "$group_1": "company:1"},
+                ),
                 ("person2", _date(month=1, day=-6), {"$group_0": "org:6"}),
                 ("person2", _date(month=1, day=1), {"$group_0": "org:6"}),
                 ("person1", _date(month=1, day=1), {"$group_0": "org:5"}),
-                ("person2", _date(month=1, day=15), {"$group_0": "org:6", "$group_1": "company:1"}),
+                (
+                    "person2",
+                    _date(month=1, day=15),
+                    {"$group_0": "org:6", "$group_1": "company:1"},
+                ),
             ],
         )
 
@@ -62,26 +95,13 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                     "date_to": _date(10, month=1, hour=0),
                     "period": "Week",
                     "total_intervals": 7,
-                    "properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}],
-                },
-                team=self.team,
-            ),
-            self.team,
-        )
-
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1]],
-        )
-
-        result = Retention().run(
-            RetentionFilter(
-                data={
-                    "date_to": _date(10, month=1, hour=0),
-                    "period": "Week",
-                    "total_intervals": 7,
                     "properties": [
-                        {"key": "industry", "value": "", "type": "group", "group_type_index": 0, "operator": "is_set"}
+                        {
+                            "key": "industry",
+                            "value": "technology",
+                            "type": "group",
+                            "group_type_index": 0,
+                        }
                     ],
                 },
                 team=self.team,
@@ -91,7 +111,49 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
+            [
+                [1, 1, 0, 1, 1, 0, 1],
+                [1, 0, 1, 1, 0, 1],
+                [0, 0, 0, 0, 0],
+                [1, 1, 0, 1],
+                [1, 0, 1],
+                [0, 0],
+                [1],
+            ],
+        )
+
+        result = Retention().run(
+            RetentionFilter(
+                data={
+                    "date_to": _date(10, month=1, hour=0),
+                    "period": "Week",
+                    "total_intervals": 7,
+                    "properties": [
+                        {
+                            "key": "industry",
+                            "value": "",
+                            "type": "group",
+                            "group_type_index": 0,
+                            "operator": "is_set",
+                        }
+                    ],
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [2, 2, 1, 2, 2, 0, 1],
+                [2, 1, 2, 2, 0, 1],
+                [1, 1, 1, 0, 0],
+                [2, 2, 0, 1],
+                [2, 0, 1],
+                [0, 0],
+                [1],
+            ],
         )
 
     # TODO: Delete this test when moved to person-on-events
@@ -111,7 +173,15 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         result = Retention().run(filter, self.team)
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
+            [
+                [2, 2, 1, 2, 2, 0, 1],
+                [2, 1, 2, 2, 0, 1],
+                [1, 1, 1, 0, 0],
+                [2, 2, 0, 1],
+                [2, 0, 1],
+                [0, 0],
+                [1],
+            ],
         )
 
         actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
@@ -130,7 +200,15 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         result = Retention().run(filter, self.team)
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1]],
+            [
+                [1, 0, 0, 1, 0, 0, 1],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [1, 0, 0, 1],
+                [0, 0, 0],
+                [0, 0],
+                [1],
+            ],
         )
 
     # TODO: Delete this test when moved to person-on-events
@@ -170,7 +248,12 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                         "period": "Week",
                         "total_intervals": 7,
                         "properties": [
-                            {"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}
+                            {
+                                "key": "industry",
+                                "value": "technology",
+                                "type": "group",
+                                "group_type_index": 0,
+                            }
                         ],
                     },
                     team=self.team,
@@ -180,7 +263,15 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[1, 1, 0, 1, 1, 0, 1], [1, 0, 1, 1, 0, 1], [0, 0, 0, 0, 0], [1, 1, 0, 1], [1, 0, 1], [0, 0], [1]],
+                [
+                    [1, 1, 0, 1, 1, 0, 1],
+                    [1, 0, 1, 1, 0, 1],
+                    [0, 0, 0, 0, 0],
+                    [1, 1, 0, 1],
+                    [1, 0, 1],
+                    [0, 0],
+                    [1],
+                ],
             )
 
             result = Retention().run(
@@ -206,7 +297,15 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ],
             )
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
@@ -340,7 +439,15 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         # We expect 1s across the board due to the override set up from person1 to person2, making them the same person
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1], [1, 1], [1]],
+            [
+                [1, 1, 1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1],
+                [1, 1, 1, 1],
+                [1, 1, 1],
+                [1, 1],
+                [1],
+            ],
         )
 
     @also_test_with_materialized_columns(group_properties=[(0, "industry")])
@@ -359,11 +466,18 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-
             result = Retention().run(filter, self.team)
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ],
             )
 
             actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
@@ -383,7 +497,15 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             result = Retention().run(filter, self.team)
             self.assertEqual(
                 pluck(result, "values", "count"),
-                [[1, 0, 0, 1, 0, 0, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [1, 0, 0, 1], [0, 0, 0], [0, 0], [1]],
+                [
+                    [1, 0, 0, 1, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [1, 0, 0, 1],
+                    [0, 0, 0],
+                    [0, 0],
+                    [1],
+                ],
             )
 
     @also_test_with_materialized_columns(group_properties=[(0, "industry")])

@@ -13,9 +13,9 @@ import { Pool } from 'pg'
 
 import { EnqueuedJob, Hub } from '../../types'
 import { instrument } from '../../utils/metrics'
-import { runRetriableFunction } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { createPostgresPool } from '../../utils/utils'
+import { graphileEnqueueJobCounter } from './metrics'
 
 export interface InstrumentationContext {
     key: string
@@ -59,12 +59,7 @@ export class GraphileWorker {
         await this.migrate()
     }
 
-    async enqueue(
-        jobName: string,
-        job: EnqueuedJob,
-        instrumentationContext?: InstrumentationContext,
-        retryOnFailure = false
-    ): Promise<void> {
+    async enqueue(jobName: string, job: EnqueuedJob, instrumentationContext?: InstrumentationContext): Promise<void> {
         const jobType = 'type' in job ? job.type : 'buffer'
 
         let jobPayload: Record<string, any> = {}
@@ -72,34 +67,13 @@ export class GraphileWorker {
             jobPayload = job.payload
         }
 
-        let enqueueFn = () => this._enqueue(jobName, job)
-
-        // This branch will be removed once we implement a Kafka queue for all jobs
-        // as we've done for buffer events (see e.g. anonymous-event-buffer-consumer.ts)
-        if (retryOnFailure) {
-            enqueueFn = () =>
-                runRetriableFunction({
-                    hub: this.hub,
-                    metricName: 'job_queues_enqueue',
-                    metricTags: {
-                        jobName,
-                    },
-                    maxAttempts: 10,
-                    retryBaseMs: 6000,
-                    retryMultiplier: 2,
-                    tryFn: async () => this._enqueue(jobName, job),
-                    catchFn: () => status.error('🔴', 'Exhausted attempts to enqueue job.'),
-                    payload: job,
-                })
-        }
+        const enqueueFn = () => this._enqueue(jobName, job)
 
         await instrument(
-            this.hub.statsd,
             {
-                metricName: 'job_queues_enqueue',
+                metricName: `job_queues_enqueue_${jobName}`,
                 key: instrumentationContext?.key ?? '?',
                 tag: instrumentationContext?.tag ?? '?',
-                tags: { jobName, type: jobType },
                 data: { timestamp: job.timestamp, type: jobType, payload: jobPayload },
             },
             enqueueFn
@@ -109,9 +83,9 @@ export class GraphileWorker {
     async _enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         try {
             await this.addJob(jobName, job)
-            this.hub.statsd?.increment('enqueue_job.success', { jobName })
+            graphileEnqueueJobCounter.labels({ status: 'success', job: jobName }).inc()
         } catch (error) {
-            this.hub.statsd?.increment('enqueue_job.fail', { jobName })
+            graphileEnqueueJobCounter.labels({ status: 'fail', job: jobName }).inc()
             throw error
         }
     }
@@ -155,6 +129,9 @@ export class GraphileWorker {
         if (this.started && !this.paused && !this.runner) {
             status.info('🔄', 'Creating new Graphile worker runner...')
             this.consumerPool = await this.createPool()
+            // KLUDGE: maxContiguousErrors is not configurable programmatically,
+            // it is set to 300 via package.json, which leads the worker to retry
+            // for 10 minutes (300 * pollInterval) before giving up and killing the pod.
             this.runner = await run({
                 // graphile's types refer to a local node_modules version of Pool
                 pgPool: this.consumerPool as Pool as any,
@@ -171,6 +148,14 @@ export class GraphileWorker {
                 parsedCronItems: this.crontab,
             })
             status.info('✅', 'Graphile worker runner created.')
+            this.runner.events?.on('worker:stop', ({ error }) => {
+                if (this.started) {
+                    status.error('💀', `Graphile worker loop stopped unexpectedly`)
+                    process.emit('uncaughtException', error ?? new Error(`Graphile worker loop stopped with no error`))
+                } else {
+                    status.info('🛑', 'Graphile worker loop stopped')
+                }
+            })
             return
         }
 
@@ -207,7 +192,11 @@ export class GraphileWorker {
                 }
             }
 
-            const pool = createPostgresPool(this.hub.JOB_QUEUE_GRAPHILE_URL, onError)
+            const pool = createPostgresPool(
+                this.hub.JOB_QUEUE_GRAPHILE_URL,
+                this.hub.POSTGRES_CONNECTION_POOL_SIZE,
+                onError
+            )
             try {
                 await pool.query('select 1')
             } catch (error) {

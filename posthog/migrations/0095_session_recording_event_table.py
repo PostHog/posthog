@@ -7,7 +7,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0094_description_on_dashboard_items"),
     ]
@@ -16,13 +15,30 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="SessionRecordingEvent",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
-                ("timestamp", models.DateTimeField(blank=True, default=django.utils.timezone.now)),
+                (
+                    "timestamp",
+                    models.DateTimeField(blank=True, default=django.utils.timezone.now),
+                ),
                 ("session_id", models.CharField(max_length=200)),
                 ("distinct_id", models.CharField(max_length=200)),
-                ("snapshot_data", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team")),
+                (
+                    "snapshot_data",
+                    django.contrib.postgres.fields.jsonb.JSONField(default=dict),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team"),
+                ),
             ],
         ),
         migrations.AddIndex(
@@ -32,7 +48,8 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="sessionrecordingevent",
             index=models.Index(
-                fields=["team_id", "distinct_id", "timestamp", "session_id"], name="posthog_ses_team_id_46392f_idx"
+                fields=["team_id", "distinct_id", "timestamp", "session_id"],
+                name="posthog_ses_team_id_46392f_idx",
             ),
         ),
     ]

@@ -20,7 +20,6 @@ def make_owners_administrators_again(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0100_action_step_max_length"),
     ]
@@ -36,8 +35,14 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="organizationmembership",
             constraint=models.UniqueConstraint(
-                condition=models.Q(level=15), fields=("organization_id",), name="only_one_owner_per_organization"
+                condition=models.Q(level=15),
+                fields=("organization_id",),
+                name="only_one_owner_per_organization",
             ),
         ),
-        migrations.RunPython(make_first_administrators_owners, make_owners_administrators_again, elidable=True),
+        migrations.RunPython(
+            make_first_administrators_owners,
+            make_owners_administrators_again,
+            elidable=True,
+        ),
     ]

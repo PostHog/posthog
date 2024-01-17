@@ -15,15 +15,24 @@ class InsightCachingState(UUIDModel):
         indexes = [models.Index(fields=["cache_key"], name="filter_by_cache_key_idx")]
         constraints = [
             UniqueConstraintByExpression(
-                name="unique_insight_tile_idx", expression="(insight_id, coalesce(dashboard_tile_id, -1))"
+                name="unique_insight_tile_idx",
+                expression="(insight_id, coalesce(dashboard_tile_id, -1))",
             )
         ]
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
 
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="caching_states", null=False)
+    insight = models.ForeignKey(
+        "posthog.Insight",
+        on_delete=models.CASCADE,
+        related_name="caching_states",
+        null=False,
+    )
     dashboard_tile = models.ForeignKey(
-        "posthog.DashboardTile", on_delete=models.CASCADE, related_name="caching_states", null=True
+        "posthog.DashboardTile",
+        on_delete=models.CASCADE,
+        related_name="caching_states",
+        null=True,
     )
     cache_key: models.CharField = models.CharField(max_length=400, null=False, blank=False)
 
@@ -67,7 +76,11 @@ def sync_dashboard_updated(sender, instance: Dashboard, **kwargs):
     from posthog.celery import sync_insight_caching_state
 
     update_fields = kwargs.get("update_fields")
-    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"last_accessed_at"})]:
+    if update_fields in [
+        frozenset({"filters_hash"}),
+        frozenset({"last_refresh"}),
+        frozenset({"last_accessed_at"}),
+    ]:
         return
 
     for tile_id in DashboardTile.objects.filter(dashboard=instance).values_list("pk", flat=True):

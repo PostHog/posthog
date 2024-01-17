@@ -1,15 +1,17 @@
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { login2FALogic } from './login2FALogic'
 import { Form } from 'kea-forms'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { Field } from 'lib/forms/Field'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { login2FALogic } from './login2FALogic'
 
 export function Login2FA(): JSX.Element {
     const { isTwofactortokenSubmitting, generalError } = useValues(login2FALogic)
     const { preflight } = useValues(preflightLogic)
+
     return (
         <BridgePage
             view="login"
@@ -38,12 +40,14 @@ export function Login2FA(): JSX.Element {
                         />
                     </Field>
                     <LemonButton
+                        type="primary"
+                        status="alt"
                         htmlType="submit"
                         data-attr="2fa-login"
                         fullWidth
-                        type="primary"
                         center
                         loading={isTwofactortokenSubmitting}
+                        size="large"
                     >
                         Login
                     </LemonButton>

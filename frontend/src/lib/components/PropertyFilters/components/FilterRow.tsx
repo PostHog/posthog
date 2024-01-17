@@ -1,13 +1,16 @@
-import React, { useState } from 'react'
-import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
-import { Row } from 'antd'
-import { PropertyFilterButton } from './PropertyFilterButton'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import './FilterRow.scss'
+
 import clsx from 'clsx'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { IconClose, IconDelete, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import React, { useState } from 'react'
+
+import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
+
+import { OperandTag } from './OperandTag'
+import { PropertyFilterButton } from './PropertyFilterButton'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -51,11 +54,12 @@ export const FilterRow = React.memo(function FilterRow({
 
     return (
         <>
-            <Row
-                align="middle"
-                className={clsx('property-filter-row', !disablePopover && 'wrap-filters')}
+            <div
+                className={clsx(
+                    'property-filter-row flex items-center flex-nowrap space-x-2',
+                    !disablePopover && 'wrap-filters'
+                )}
                 data-attr={'property-filter-' + index}
-                wrap={false}
             >
                 {disablePopover ? (
                     <>
@@ -63,7 +67,6 @@ export const FilterRow = React.memo(function FilterRow({
                         {!!Object.keys(filters[index]).length && (
                             <LemonButton
                                 icon={orFiltering ? <IconDelete /> : <IconClose />}
-                                status="primary-alt"
                                 onClick={() => onRemove(index)}
                                 size="small"
                                 className="ml-2"
@@ -73,7 +76,7 @@ export const FilterRow = React.memo(function FilterRow({
                     </>
                 ) : (
                     <Popover
-                        className={'filter-row-popover'}
+                        className="filter-row-popover"
                         visible={open}
                         onClickOutside={() => handleVisibleChange(false)}
                         overlay={filterComponent(() => setOpen(false))}
@@ -99,12 +102,8 @@ export const FilterRow = React.memo(function FilterRow({
                         )}
                     </Popover>
                 )}
-                {key && showConditionBadge && index + 1 < totalCount && (
-                    <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">
-                        AND
-                    </span>
-                )}
-            </Row>
+                {key && showConditionBadge && index + 1 < totalCount && <OperandTag operand="and" />}
+            </div>
             {errorMessage}
         </>
     )

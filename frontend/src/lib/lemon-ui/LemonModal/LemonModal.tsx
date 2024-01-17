@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
-import Modal from 'react-modal'
+import './LemonModal.scss'
 
+import clsx from 'clsx'
+import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useEffect, useRef, useState } from 'react'
+import Modal from 'react-modal'
 
-import './LemonModal.scss'
-import { Tooltip } from '../Tooltip'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
+import { Tooltip } from '../Tooltip'
 
 interface LemonModalInnerProps {
     children?: React.ReactNode
@@ -41,7 +43,6 @@ export interface LemonModalProps {
     forceAbovePopovers?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
-    getPopupContainer?: () => HTMLElement
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
@@ -77,7 +78,6 @@ export function LemonModal({
     forceAbovePopovers = false,
     contentRef,
     overlayRef,
-    getPopupContainer,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
@@ -115,7 +115,6 @@ export function LemonModal({
                         <LemonButton
                             icon={<IconClose />}
                             size="small"
-                            status="stealth"
                             onClick={onClose}
                             aria-label="close"
                             onMouseEnter={() => setIgnoredOverlayClickCount(0)}
@@ -152,6 +151,8 @@ export function LemonModal({
 
     width = !fullScreen ? width : undefined
 
+    const floatingContainer = useFloatingContainerContext()?.current
+
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props
         <div className="LemonModal ReactModal__Content--after-open" style={{ width }}>
@@ -185,7 +186,7 @@ export function LemonModal({
             appElement={document.getElementById('root') as HTMLElement}
             contentRef={contentRef}
             overlayRef={overlayRef}
-            parentSelector={getPopupContainer}
+            parentSelector={floatingContainer ? () => floatingContainer : undefined}
         >
             {modalContent}
         </Modal>

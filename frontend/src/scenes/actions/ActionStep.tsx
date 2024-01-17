@@ -1,16 +1,20 @@
-import { LemonEventName } from './EventName'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Col, Radio, RadioChangeEvent } from 'antd'
-import { ActionStepType, StringMatching } from '~/types'
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
-import { IconClose, IconOpenInApp } from 'lib/lemon-ui/icons'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import './ActionStep.scss'
+
+import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { IconClose, IconOpenInApp } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useState } from 'react'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+
+import { ActionStepType, StringMatching } from '~/types'
+
+import { LemonEventName } from './EventName'
 
 const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -30,84 +34,80 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     }
 
     return (
-        <Col span={24} md={12}>
-            <div className="rounded border p-4 relative h-full">
-                {index > 0 && <div className="stateful-badge pos-center-end or">OR</div>}
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <b>Match Group #{index + 1}</b>
+        <div className="ActionStep rounded border p-4 relative h-full">
+            {index > 0 && !(index % 2 === 0) && (
+                <div className="ActionStep__or-tag">
+                    <OperandTag operand="or" />
+                </div>
+            )}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <b>Match Group #{index + 1}</b>
 
-                        {!isOnlyStep && (
-                            <LemonButton
-                                status="primary-alt"
-                                icon={<IconClose />}
-                                size="small"
-                                aria-label="delete"
-                                onClick={onDelete}
-                            />
-                        )}
-                    </div>
-                    {<TypeSwitcher step={step} sendStep={sendStep} />}
-
-                    {step.event === '$autocapture' && (
-                        <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
+                    {!isOnlyStep && (
+                        <LemonButton icon={<IconClose />} size="small" aria-label="delete" onClick={onDelete} />
                     )}
-                    {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
-                        <div className="space-y-1">
-                            <LemonLabel>Event name</LemonLabel>
-                            <LemonEventName
-                                value={step.event}
-                                onChange={(value) =>
-                                    sendStep({
-                                        ...step,
-                                        event: value,
-                                    })
-                                }
-                                placeholder="All events"
-                                allEventsOption="explicit"
-                            />
+                </div>
+                <TypeSwitcher step={step} sendStep={sendStep} />
 
-                            <small>
-                                <Link to="https://posthog.com/docs/libraries" target="_blank">
-                                    See documentation
-                                </Link>{' '}
-                                on how to send custom events in lots of languages.
-                            </small>
-                        </div>
-                    )}
-                    {step.event === '$pageview' && (
-                        <div>
-                            <Option
-                                step={step}
-                                sendStep={sendStep}
-                                item="url"
-                                extra_options={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
-                                label="URL"
-                            />
-                            {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
-                                <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
-                            )}
-                        </div>
-                    )}
-
-                    <div className="mt-4 space-y-2">
-                        <LemonLabel>Filters</LemonLabel>
-                        <PropertyFilters
-                            propertyFilters={step.properties}
-                            pageKey={identifier}
-                            eventNames={step.event ? [step.event] : []}
-                            onChange={(properties) => {
+                {step.event === '$autocapture' && (
+                    <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
+                )}
+                {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
+                    <div className="space-y-1">
+                        <LemonLabel>Event name</LemonLabel>
+                        <LemonEventName
+                            value={step.event}
+                            onChange={(value) =>
                                 sendStep({
                                     ...step,
-                                    properties: properties as [],
+                                    event: value,
                                 })
-                            }}
-                            showConditionBadge
+                            }
+                            placeholder="All events"
+                            allEventsOption="explicit"
                         />
+
+                        <small>
+                            <Link to="https://posthog.com/docs/libraries" target="_blank">
+                                See documentation
+                            </Link>{' '}
+                            on how to send custom events in lots of languages.
+                        </small>
                     </div>
+                )}
+                {step.event === '$pageview' && (
+                    <div>
+                        <Option
+                            step={step}
+                            sendStep={sendStep}
+                            item="url"
+                            extra_options={<StringMatchingSelection field="url" step={step} sendStep={sendStep} />}
+                            label="URL"
+                        />
+                        {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
+                            <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
+                        )}
+                    </div>
+                )}
+
+                <div className="mt-4 space-y-2">
+                    <LemonLabel>Filters</LemonLabel>
+                    <PropertyFilters
+                        propertyFilters={step.properties}
+                        pageKey={identifier}
+                        eventNames={step.event ? [step.event] : []}
+                        onChange={(properties) => {
+                            sendStep({
+                                ...step,
+                                properties: properties as [],
+                            })
+                        }}
+                        showConditionBadge
+                    />
                 </div>
             </div>
-        </Col>
+        </div>
     )
 }
 
@@ -161,9 +161,10 @@ function Option({
 
     return (
         <div className="space-y-1">
-            <LemonLabel>
-                {label} {extra_options}
-            </LemonLabel>
+            <div className="flex space-x-1">
+                <LemonLabel>{label}</LemonLabel>
+                {extra_options}
+            </div>
             {caption && <div className="action-step-caption">{caption}</div>}
             <LemonInput
                 data-attr="edit-action-url-input"
@@ -179,8 +180,8 @@ function Option({
 
 const AndSeparator = (): JSX.Element => {
     return (
-        <div className="text-center my-2">
-            <span className="stateful-badge and">AND</span>
+        <div className="flex w-full justify-center">
+            <OperandTag operand="and" />
         </div>
     )
 }
@@ -279,8 +280,7 @@ function TypeSwitcher({
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
 }): JSX.Element {
-    const handleChange = (e: RadioChangeEvent): void => {
-        const type = e.target.value
+    const handleChange = (type: string): void => {
         if (type === '$autocapture') {
             sendStep({ ...step, event: '$autocapture' })
         } else if (type === 'event') {
@@ -296,19 +296,30 @@ function TypeSwitcher({
 
     return (
         <div className="type-switcher">
-            <Radio.Group
-                buttonStyle="solid"
+            <LemonSegmentedButton
                 onChange={handleChange}
                 value={
                     step.event === '$autocapture' || step.event === '$pageview' || step.event === undefined
                         ? step.event
                         : 'event'
                 }
-            >
-                <Radio.Button value="$autocapture">Autocapture</Radio.Button>
-                <Radio.Button value="event">Custom event</Radio.Button>
-                <Radio.Button value="$pageview">Page view</Radio.Button>
-            </Radio.Group>
+                options={[
+                    {
+                        value: '$autocapture',
+                        label: 'Autocapture',
+                    },
+                    {
+                        value: '$pageview',
+                        label: 'Pageview',
+                    },
+                    {
+                        value: 'event',
+                        label: 'All events',
+                    },
+                ]}
+                fullWidth
+                size="small"
+            />
         </div>
     )
 }
@@ -323,15 +334,32 @@ function StringMatchingSelection({
     sendStep: (stepToSend: ActionStepType) => void
 }): JSX.Element {
     const key = `${field}_matching`
-    const handleURLMatchChange = (e: RadioChangeEvent): void => {
-        sendStep({ ...step, [key]: e.target.value })
+    const handleURLMatchChange = (value: string): void => {
+        sendStep({ ...step, [key]: value })
     }
     const defaultValue = field === 'url' ? StringMatching.Contains : StringMatching.Exact
     return (
-        <Radio.Group buttonStyle="solid" onChange={handleURLMatchChange} value={step[key] || defaultValue} size="small">
-            <Radio.Button value="exact">matches exactly</Radio.Button>
-            <Radio.Button value="regex">matches regex</Radio.Button>
-            <Radio.Button value="contains">contains</Radio.Button>
-        </Radio.Group>
+        <div className="flex flex-1">
+            <LemonSegmentedButton
+                onChange={handleURLMatchChange}
+                value={step[key] || defaultValue}
+                options={[
+                    {
+                        value: 'exact',
+                        label: 'matches exactly',
+                    },
+                    {
+                        value: 'regex',
+                        label: 'matches regex',
+                    },
+                    {
+                        value: 'contains',
+                        label: 'contains',
+                    },
+                ]}
+                fullWidth
+                size="xsmall"
+            />
+        </div>
     )
 }

@@ -34,14 +34,26 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 {
                     "person1": [
                         # person1 completed funnel on 2021-05-01
-                        {"event": "user signed up", "timestamp": datetime(2021, 5, 1, 1)},
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2021, 5, 1, 1),
+                        },
                         {"event": "$pageview", "timestamp": datetime(2021, 5, 1, 2)},
-                        {"event": "something else", "timestamp": datetime(2021, 5, 1, 3)},
+                        {
+                            "event": "something else",
+                            "timestamp": datetime(2021, 5, 1, 3),
+                        },
                         # person1 completed part of funnel on 2021-05-03 and took 2 hours to convert
-                        {"event": "user signed up", "timestamp": datetime(2021, 5, 3, 4)},
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2021, 5, 3, 4),
+                        },
                         {"event": "$pageview", "timestamp": datetime(2021, 5, 3, 5)},
                         # person1 completed part of funnel on 2021-05-04 and took 3 hours to convert
-                        {"event": "user signed up", "timestamp": datetime(2021, 5, 4, 7)},
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2021, 5, 4, 7),
+                        },
                         {"event": "$pageview", "timestamp": datetime(2021, 5, 4, 10)},
                     ]
                 },
@@ -61,7 +73,11 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
         def test_funnel_step_conversion_times(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -121,13 +137,27 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             people = journeys_for(
                 {
                     "stopped_after_signup1": [
-                        {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14)},
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2020, 1, 2, 14),
+                        },
                         {"event": "pageview", "timestamp": datetime(2020, 1, 2, 14, 5)},
                     ],
-                    "stopped_after_signup2": [{"event": "user signed up", "timestamp": datetime(2020, 1, 2, 14, 3)}],
+                    "stopped_after_signup2": [
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2020, 1, 2, 14, 3),
+                        }
+                    ],
                     "stopped_after_signup3": [
-                        {"event": "user signed up", "timestamp": datetime(2020, 1, 2, 12)},
-                        {"event": "pageview", "timestamp": datetime(2020, 1, 2, 12, 15)},
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2020, 1, 2, 12),
+                        },
+                        {
+                            "event": "pageview",
+                            "timestamp": datetime(2020, 1, 2, 12, 15),
+                        },
                     ],
                 },
                 self.team,
@@ -149,7 +179,10 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
             self.assertCountEqual(
                 self._get_actor_ids_at_step(filter, 2),
-                [people["stopped_after_signup1"].uuid, people["stopped_after_signup3"].uuid],
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup3"].uuid,
+                ],
             )
 
             filter = filter.shallow_clone({"funnel_window_interval": 5, "funnel_window_interval_unit": "minute"})
@@ -171,6 +204,9 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [people["stopped_after_signup1"].uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2),
+                [people["stopped_after_signup1"].uuid],
+            )
 
     return TestFunnelConversionTime

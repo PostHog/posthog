@@ -7,15 +7,16 @@ import {
     ChartOptions,
     ChartType,
     Color,
-    InteractionItem,
-    TickOptions,
-    TooltipModel,
-    TooltipOptions,
-    ScriptableLineSegmentContext,
     DefaultDataPoint,
-    Tooltip,
+    GridLineOptions,
+    InteractionItem,
     Plugin,
     registerables,
+    ScriptableLineSegmentContext,
+    TickOptions,
+    Tooltip,
+    TooltipModel,
+    TooltipOptions,
 } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
 import { inStorybookTestRunner } from 'lib/utils'
@@ -27,11 +28,11 @@ if (registerables) {
 RawChart.register(CrosshairPlugin)
 RawChart.defaults.animation['duration'] = 0
 
-class Chart<TType extends ChartType = ChartType, TData = DefaultDataPoint<TType>, TLabel = unknown> extends RawChart<
-    TType,
-    TData,
-    TLabel
-> {
+export class Chart<
+    TType extends ChartType = ChartType,
+    TData = DefaultDataPoint<TType>,
+    TLabel = unknown
+> extends RawChart<TType, TData, TLabel> {
     draw(): void {
         if (inStorybookTestRunner()) {
             // Disable Chart.js rendering in Storybook snapshots, as they've proven to be very flaky
@@ -46,19 +47,19 @@ Tooltip.positioners.cursor = function (_, coordinates) {
     return coordinates
 }
 
-export {
+export type {
     ActiveElement,
-    Chart,
     ChartDataset,
     ChartEvent,
     ChartItem,
     ChartOptions,
     ChartType,
     Color,
+    GridLineOptions,
     InteractionItem,
+    Plugin,
+    ScriptableLineSegmentContext,
     TickOptions,
     TooltipModel,
     TooltipOptions,
-    Plugin,
-    ScriptableLineSegmentContext,
 }

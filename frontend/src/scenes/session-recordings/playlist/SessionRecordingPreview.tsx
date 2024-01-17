@@ -1,25 +1,34 @@
-import { DurationType, SessionRecordingType } from '~/types'
-import { colonDelimitedDuration } from 'lib/utils'
 import clsx from 'clsx'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
-import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { urls } from 'scenes/urls'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconAutoAwesome, IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { colonDelimitedDuration } from 'lib/utils'
+import { Fragment, useState } from 'react'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { urls } from 'scenes/urls'
+
+import { DurationType, SessionRecordingType } from '~/types'
+
+import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
-    recordingProperties?: Record<string, any> // Loaded and rendered later
-    recordingPropertiesLoading: boolean
     onPropertyClick?: (property: string, value?: string) => void
     isActive?: boolean
     onClick?: () => void
+    pinned?: boolean
+    summariseFn?: (recording: SessionRecordingType) => void
+    sessionSummaryLoading?: boolean
 }
 
 function RecordingDuration({
@@ -54,68 +63,118 @@ function RecordingDuration({
     )
 }
 
-function ActivityIndicators({
-    recording,
-    recordingProperties,
-    recordingPropertiesLoading,
-    onPropertyClick,
-    iconClassnames,
-}: {
-    recording: SessionRecordingType
-    recordingProperties?: Record<string, any> // Loaded and rendered later
-    recordingPropertiesLoading: boolean
-    onPropertyClick?: (property: string, value?: string) => void
-    iconClassnames: string
-}): JSX.Element {
-    const iconPropertyKeys = ['$browser', '$device_type', '$os', '$geoip_country_code']
+interface GatheredProperty {
+    property: string
+    value: string | undefined
+    label: string | undefined
+    tooltipValue: string
+}
+
+const browserIconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+const mobileIconPropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
+
+export function gatherIconProperties(
+    recordingProperties: Record<string, any> | undefined,
+    recording?: SessionRecordingType
+): GatheredProperty[] {
     const iconProperties =
         recordingProperties && Object.keys(recordingProperties).length > 0
             ? recordingProperties
-            : recording.person?.properties || {}
+            : recording?.person?.properties || {}
 
-    const propertyIcons = (
-        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
-            {!recordingPropertiesLoading ? (
-                iconPropertyKeys.map((property) => {
-                    let value = iconProperties?.[property]
-                    if (property === '$device_type') {
-                        value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
-                    }
+    const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
+    const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
 
-                    let tooltipValue = value
-                    if (property === '$geoip_country_code') {
-                        tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
-                    }
+    return iconPropertyKeys.flatMap((property) => {
+        let value = iconProperties?.[property]
+        let label = value
+        if (property === '$device_type') {
+            value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+        }
 
+        let tooltipValue = value
+        if (property === '$geoip_country_code') {
+            tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
+            label = [iconProperties?.['$geoip_city_name'], iconProperties?.['$geoip_subdivision_1_code']]
+                .filter(Boolean)
+                .join(', ')
+        }
+        return { property, value, tooltipValue, label }
+    })
+}
+
+export interface PropertyIconsProps {
+    recordingProperties: GatheredProperty[]
+    loading?: boolean
+    onPropertyClick?: (property: string, value?: string) => void
+    iconClassnames?: string
+    showTooltip?: boolean
+    showLabel?: (key: string) => boolean
+}
+
+export function PropertyIcons({
+    recordingProperties,
+    loading,
+    onPropertyClick,
+    iconClassnames,
+    showTooltip = true,
+    showLabel = undefined,
+}: PropertyIconsProps): JSX.Element {
+    return (
+        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture items-center">
+            {loading ? (
+                <LemonSkeleton className="w-18 h-4 my-1" />
+            ) : (
+                recordingProperties.map(({ property, value, tooltipValue, label }) => {
                     return (
-                        <PropertyIcon
-                            key={property}
-                            onClick={onPropertyClick}
-                            className={iconClassnames}
-                            property={property}
-                            value={value}
-                            tooltipTitle={() => (
-                                <div className="text-center">
-                                    Click to filter for
-                                    <br />
-                                    <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
-                                </div>
-                            )}
-                        />
+                        <Fragment key={property}>
+                            <PropertyIcon
+                                onClick={(e) => {
+                                    if (e.altKey) {
+                                        e.stopPropagation()
+                                        onPropertyClick?.(property, value)
+                                    }
+                                }}
+                                className={iconClassnames}
+                                property={property}
+                                value={value}
+                                noTooltip={!showTooltip}
+                                tooltipTitle={() => (
+                                    <div className="text-center">
+                                        <code>Alt + Click</code> to filter for
+                                        <br />
+                                        <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
+                                    </div>
+                                )}
+                            />
+                            {showLabel?.(property) && <span className="text-xs text-muted-alt">{label || value}</span>}
+                        </Fragment>
                     )
                 })
-            ) : (
-                <LemonSkeleton className="w-18 my-1" />
             )}
         </div>
     )
+}
+
+function ActivityIndicators({
+    recording,
+    ...props
+}: {
+    recording: SessionRecordingType
+    onPropertyClick?: (property: string, value?: string) => void
+    iconClassnames: string
+}): JSX.Element {
+    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
+    const recordingProperties = recordingPropertiesById[recording.id]
+    const loading = !recordingProperties && recordingPropertiesLoading
+    const iconProperties = gatherIconProperties(recordingProperties, recording)
 
     return (
         <div className="flex iems-center gap-2 text-xs text-muted-alt">
-            {propertyIcons}
+            <PropertyIcons recordingProperties={iconProperties} loading={loading} {...props} />
 
             <span
-                title={`Click count: ${recording.click_count}`}
+                title={`Mouse clicks: ${recording.click_count}`}
                 className="flex items-center gap-1  overflow-hidden shrink-0"
             >
                 <IconAutocapture />
@@ -146,18 +205,18 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     )
 }
 
-function PinnedIndicator(props: { pinnedCount: number | undefined }): JSX.Element | null {
-    return (props.pinnedCount ?? 0) > 0 ? (
-        <Tooltip placement="topRight" title={`This recording is pinned on ${props.pinnedCount} playlists`}>
+function PinnedIndicator(): JSX.Element | null {
+    return (
+        <Tooltip placement="topRight" title="This recording is pinned to this list.">
             <IconPinFilled className="text-sm text-orange shrink-0" />
         </Tooltip>
-    ) : null
+    )
 }
 
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     return !props.viewed ? (
-        <Tooltip title={'Indicates the recording has not been watched yet'}>
-            <div className="w-2 h-2 mt-2 rounded-full bg-primary-light" aria-label="unwatched-recording-label" />
+        <Tooltip title="Indicates the recording has not been watched yet">
+            <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
     ) : null
 }
@@ -175,35 +234,66 @@ export function SessionRecordingPreview({
     isActive,
     onClick,
     onPropertyClick,
-    recordingProperties,
-    recordingPropertiesLoading,
+    pinned,
+    summariseFn,
+    sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
-    const iconClassnames = clsx(
-        'SessionRecordingPreview__property-icon text-base text-muted-alt',
-        !isActive && 'opacity-75'
-    )
+    const iconClassnames = clsx('SessionRecordingPreview__property-icon text-base text-muted-alt')
+
+    const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
+
+    const [summaryButtonIsVisible, setSummaryButtonIsVisible] = useState<boolean>(false)
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <div
                 key={recording.id}
-                className={clsx(
-                    'SessionRecordingPreview',
-                    'flex flex-row py-2 pr-4 pl-0 cursor-pointer relative overflow-hidden',
-                    isActive && 'bg-primary-highlight'
-                )}
+                className={clsx('SessionRecordingPreview', isActive && 'SessionRecordingPreview--active')}
                 onClick={() => onClick?.()}
+                onMouseEnter={() => setSummaryButtonIsVisible(true)}
+                onMouseLeave={() => setSummaryButtonIsVisible(false)}
             >
-                <div className="w-2 h-2 mx-2">
-                    <ViewedIndicator viewed={recording.viewed} />
-                </div>
+                <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
+                    {summariseFn && (
+                        <Popover
+                            showArrow={true}
+                            visible={summaryPopoverIsVisible && summaryButtonIsVisible}
+                            placement="right"
+                            onClickOutside={() => setSummaryPopoverIsVisible(false)}
+                            overlay={
+                                sessionSummaryLoading ? (
+                                    <Spinner />
+                                ) : (
+                                    <div className="text-xl max-w-auto lg:max-w-3/5">{recording.summary}</div>
+                                )
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                className={clsx(
+                                    summaryButtonIsVisible ? 'block' : 'hidden',
+                                    'absolute right-px top-px'
+                                )}
+                                icon={<IconAutoAwesome />}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setSummaryPopoverIsVisible(!summaryPopoverIsVisible)
+                                    if (!recording.summary) {
+                                        summariseFn(recording)
+                                    }
+                                }}
+                            />
+                        </Popover>
+                    )}
+                </FlaggedFeature>
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">
-                            <PinnedIndicator pinnedCount={recording.pinned_count} />
-                            <div className="truncate font-medium text-primary ph-no-capture">
+                            <div className="truncate font-medium text-link ph-no-capture">
                                 {asDisplay(recording.person)}
                             </div>
                         </div>
@@ -219,17 +309,22 @@ export function SessionRecordingPreview({
                         <ActivityIndicators
                             onPropertyClick={onPropertyClick}
                             recording={recording}
-                            recordingProperties={recordingProperties}
-                            recordingPropertiesLoading={recordingPropertiesLoading}
                             iconClassnames={iconClassnames}
                         />
-                        <TZLabel className="overflow-hidden text-ellipsis text-xs" time={recording.start_time} />
+                        <TZLabel
+                            className="overflow-hidden text-ellipsis text-xs"
+                            time={recording.start_time}
+                            placement="right"
+                        />
                     </div>
 
                     <FirstURL startUrl={recording.start_url} />
                 </div>
 
-                <RecordingDebugInfo recording={recording} className="absolute right-0 bottom-0 m-2" />
+                <div className="w-6 flex flex-col items-center mt-1">
+                    <ViewedIndicator viewed={recording.viewed} />
+                    {pinned ? <PinnedIndicator /> : null}
+                </div>
             </div>
         </DraggableToNotebook>
     )
@@ -238,8 +333,8 @@ export function SessionRecordingPreview({
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
         <div className="p-4 space-y-2">
-            <LemonSkeleton className="w-1/2" />
-            <LemonSkeleton className="w-1/3" />
+            <LemonSkeleton className="w-1/2 h-4" />
+            <LemonSkeleton className="w-1/3 h-4" />
         </div>
     )
 }

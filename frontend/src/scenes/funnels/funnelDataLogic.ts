@@ -1,32 +1,32 @@
-import { kea, path, props, key, connect, selectors, actions, reducers } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { BIN_COUNT_AUTO } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { average, percentage, sum } from 'lib/utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { groupsModel, Noun } from '~/models/groupsModel'
+import { NodeKind } from '~/queries/schema'
+import { isFunnelsQuery } from '~/queries/utils'
 import {
-    FilterType,
+    FlattenedFunnelStepByBreakdown,
+    FunnelAPIResponse,
+    FunnelConversionWindow,
+    FunnelConversionWindowTimeUnit,
     FunnelResultType,
-    FunnelVizType,
-    FunnelStep,
-    FunnelStepRangeEntityFilter,
     FunnelStepReference,
+    FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
+    FunnelsTimeConversionBins,
+    FunnelTimeConversionMetrics,
+    FunnelVizType,
+    HistogramGraphDatum,
     InsightLogicProps,
     StepOrderValue,
-    FunnelStepWithConversionMetrics,
-    FlattenedFunnelStepByBreakdown,
-    FunnelsTimeConversionBins,
-    HistogramGraphDatum,
-    FunnelAPIResponse,
-    FunnelTimeConversionMetrics,
     TrendResult,
-    FunnelConversionWindowTimeUnit,
-    FunnelConversionWindow,
 } from '~/types'
-import { FunnelsQuery, NodeKind } from '~/queries/schema'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
-import { isFunnelsQuery } from '~/queries/utils'
-import { percentage, sum, average } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
 import {
     aggregateBreakdownResult,
     aggregationLabelForHogQL,
@@ -38,8 +38,6 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
-import { BIN_COUNT_AUTO } from 'lib/constants'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -55,7 +53,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'querySource as vizQuerySource',
                 'insightFilter',
                 'funnelsFilter',
-                'breakdown',
+                'breakdownFilter',
                 'series',
                 'interval',
                 'insightData',
@@ -154,25 +152,19 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 }
             },
         ],
-        isFunnelWithEnoughSteps: [
-            (s) => [s.series],
-            (series) => {
-                return (series?.length || 0) > 1
-            },
-        ],
         steps: [
-            (s) => [s.breakdown, s.results, s.isTimeToConvertFunnel],
-            (breakdown, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
+            (s) => [s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
                 if (!isTimeToConvertFunnel && Array.isArray(results)) {
                     if (isBreakdownFunnelResults(results)) {
-                        const breakdownProperty = breakdown?.breakdowns
-                            ? breakdown?.breakdowns.map((b) => b.property).join('::')
-                            : breakdown?.breakdown ?? undefined
+                        const breakdownProperty = breakdownFilter?.breakdowns
+                            ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
+                            : breakdownFilter?.breakdown ?? undefined
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
-                    return (results as FunnelStep[]).sort((a, b) => a.order - b.order)
+                    return results.sort((a, b) => a.order - b.order)
                 } else {
                     return []
                 }
@@ -204,7 +196,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,
-                    nested_breakdown: (!!baseLineSteps?.steps
+                    nested_breakdown: (baseLineSteps?.steps
                         ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
                         : step?.nested_breakdown
                     )
@@ -378,32 +370,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
 
-        // Exclusion filters
-        exclusionDefaultStepRange: [
-            (s) => [s.querySource],
-            (querySource: FunnelsQuery): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
-                funnel_from_step: 0,
-                funnel_to_step: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
-            }),
-        ],
-        exclusionFilters: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions,
-            }),
-        ],
-        areExclusionFiltersValid: [
-            (s) => [s.insightDataError],
-            (insightDataError): boolean => {
-                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
-            },
-        ],
-
         isSkewed: [
             (s) => [s.conversionMetrics, s.skewWarningHidden],
             (conversionMetrics, skewWarningHidden): boolean => {
                 return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
+        ],
+        indexedSteps: [
+            (s) => [s.steps],
+            (steps) =>
+                Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
         ],
     })),
 ])

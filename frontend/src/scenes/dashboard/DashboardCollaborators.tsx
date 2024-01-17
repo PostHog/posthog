@@ -1,17 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
 import { IconDelete, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
-import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
-import { DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+
+import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
+
+import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 
 export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrictionLevel> = [
     {
@@ -88,12 +90,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                 </div>
                             )}
                             <h5 className="mt-4">Project members with access</h5>
-                            <div
-                                className="mt-2 pb-2 rounded overflow-y-auto"
-                                style={{
-                                    maxHeight: 300,
-                                }}
-                            >
+                            <div className="mt-2 pb-2 rounded overflow-y-auto max-h-80">
                                 {allCollaborators.map((collaborator) => (
                                     <CollaboratorRow
                                         key={collaborator.user.uuid}
@@ -124,7 +121,7 @@ function CollaboratorRow({
 
     return (
         <div className="flex items-center justify-between mt-2 pl-2 h-8">
-            <ProfilePicture email={user.email} name={user.first_name} size="md" showName />
+            <ProfilePicture user={user} size="md" showName />
             <Tooltip
                 title={
                     !wasInvited
@@ -144,8 +141,6 @@ function CollaboratorRow({
                             icon={<IconDelete />}
                             onClick={() => deleteCollaborator(user.uuid)}
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
-                            status="primary-alt"
-                            type="tertiary"
                             size="small"
                         />
                     )}

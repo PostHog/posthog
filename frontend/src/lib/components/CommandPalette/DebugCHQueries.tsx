@@ -1,16 +1,17 @@
+import { actions, afterMount, kea, path, reducers, selectors, useActions, useValues } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { CodeSnippet, Language } from '../CodeSnippet'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { actions, afterMount, kea, reducers, selectors, useActions, useValues, path } from 'kea'
-import { loaders } from 'kea-loaders'
-import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 
-export async function debugCHQueries(): Promise<void> {
+import { CodeSnippet, Language } from '../CodeSnippet'
+import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
+
+export function openCHQueriesDebugModal(): void {
     LemonDialog.open({
         title: 'ClickHouse queries recently executed for this user',
         content: <DebugCHQueries />,
@@ -55,12 +56,12 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
     selectors({
         paths: [
             (s) => [s.queries],
-            (queries: Query[]) => {
+            (queries: Query[]): [string, number][] | null => {
                 return queries
                     ? Object.entries(
                           queries
                               .map((result) => result.path)
-                              .reduce((acc, val) => {
+                              .reduce((acc: { [path: string]: number }, val: string) => {
                                   acc[val] = acc[val] === undefined ? 1 : (acc[val] += 1)
                                   return acc
                               }, {})
@@ -96,7 +97,7 @@ function DebugCHQueries(): JSX.Element {
                                 size="small"
                                 onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
                             >
-                                {path} ({count})
+                                {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
                             </LemonButton>
                         ))}
                     </div>

@@ -1,17 +1,16 @@
-import { useState } from 'react'
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { InputNumber } from 'antd'
-
-import { AvailableFeature, PathEdgeParameters, EditorFilterProps } from '~/types'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
-
-import { Link } from 'lib/lemon-ui/Link'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { Link } from 'lib/lemon-ui/Link'
+import { useState } from 'react'
+import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+import { urls } from 'scenes/urls'
+
+import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
 
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
@@ -42,7 +41,8 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 <LemonLabel info="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
                     Maximum number of paths
                 </LemonLabel>
-                <InputNumber
+                <LemonInput
+                    type="number"
                     min={0}
                     max={1000}
                     defaultValue={50}
@@ -63,7 +63,8 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 </LemonLabel>
                 <div>
                     <span className="mr-2">Between</span>
-                    <InputNumber
+                    <LemonInput
+                        type="number"
                         min={0}
                         max={100000}
                         onChange={(value): void =>
@@ -76,7 +77,8 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         onPressEnter={updateEdgeParameters}
                     />
                     <span className="mx-2">and</span>
-                    <InputNumber
+                    <LemonInput
+                        type="number"
                         onChange={(value): void =>
                             setLocalEdgeParameters((state) => ({
                                 ...state,
@@ -104,7 +106,10 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         >
                             Path Cleaning Rules
                         </LemonLabel>
-                        <Link className="flex items-center ml-2" to="/project/settings#path_cleaning_filtering">
+                        <Link
+                            className="flex items-center ml-2"
+                            to={urls.settings('project-product-analytics', 'path-cleaning')}
+                        >
                             <IconSettings fontSize="16" className="mr-0.5" />
                             Configure Project Rules
                         </Link>

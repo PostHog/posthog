@@ -1,12 +1,17 @@
 import './PersonDisplay.scss'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+
 import clsx from 'clsx'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { PersonPreview } from './PersonPreview'
-import { useState } from 'react'
 import { router } from 'kea-router'
+import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+import { useMemo, useState } from 'react'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+
+import { NotebookNodeType } from '~/types'
+
 import { asDisplay, asLink } from './person-utils'
+import { PersonPreview } from './PersonPreview'
 
 type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
@@ -15,25 +20,55 @@ type PersonPropType =
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     withIcon?: boolean | ProfilePictureProps['size']
+    href?: string
     noLink?: boolean
     noEllipsis?: boolean
     noPopover?: boolean
+    isCentered?: boolean
 }
 
-export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink }: PersonDisplayProps): JSX.Element {
-    const href = asLink(person)
+export function PersonIcon({
+    person,
+    ...props
+}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'user' | 'name' | 'email'>): JSX.Element {
+    const display = asDisplay(person)
+
+    const email: string | undefined = useMemo(() => {
+        // The email property could be correct but it could also be set strangely such as an array or not even a string
+        const possibleEmail = Array.isArray(person?.properties?.email)
+            ? person?.properties?.email[0]
+            : person?.properties?.email
+        return typeof possibleEmail === 'string' ? possibleEmail : undefined
+    }, [person?.properties?.email])
+
+    return (
+        <ProfilePicture
+            {...props}
+            user={{
+                first_name: display,
+                email,
+            }}
+        />
+    )
+}
+
+export function PersonDisplay({
+    person,
+    withIcon,
+    noEllipsis,
+    noPopover,
+    noLink,
+    isCentered,
+    href = asLink(person),
+}: PersonDisplayProps): JSX.Element {
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
 
+    const notebookNode = useNotebookNode()
+
     let content = (
-        <span className="flex items-center">
-            {withIcon && (
-                <ProfilePicture
-                    name={display}
-                    email={person?.properties?.email}
-                    size={typeof withIcon === 'string' ? withIcon : 'md'}
-                />
-            )}
+        <span className={clsx('flex', 'items-center', isCentered && 'justify-center')}>
+            {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>
     )
@@ -48,6 +83,19 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
                               router.actions.push(href)
                           } else {
                               setVisible(true)
+
+                              if (notebookNode && person) {
+                                  notebookNode.actions.updateAttributes({
+                                      children: [
+                                          {
+                                              type: NotebookNodeType.Person,
+                                              attrs: {
+                                                  id: person.distinct_id || person.distinct_ids?.[0],
+                                              },
+                                          },
+                                      ],
+                                  })
+                              }
                           }
                       }
                     : undefined
@@ -64,6 +112,7 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
                             return
                         }
                     }}
+                    subtle
                     data-attr={`goto-person-email-${person?.distinct_id || person?.distinct_ids?.[0]}`}
                 >
                     {content}
@@ -72,20 +121,26 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
         </span>
     )
 
-    content = noPopover ? (
-        content
-    ) : (
-        <Popover
-            overlay={<PersonPreview distinctId={person?.distinct_id || person?.distinct_ids?.[0]} />}
-            visible={visible}
-            onClickOutside={() => setVisible(false)}
-            placement="right"
-            fallbackPlacements={['bottom', 'top']}
-            showArrow
-        >
-            {content}
-        </Popover>
-    )
+    content =
+        noPopover || notebookNode ? (
+            content
+        ) : (
+            <Popover
+                overlay={
+                    <PersonPreview
+                        distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
+                        onClose={() => setVisible(false)}
+                    />
+                }
+                visible={visible}
+                onClickOutside={() => setVisible(false)}
+                placement="right"
+                fallbackPlacements={['bottom', 'top']}
+                showArrow
+            >
+                {content}
+            </Popover>
+        )
 
     return content
 }

@@ -1,5 +1,6 @@
-import clsx from 'clsx'
 import './Spinner.scss'
+
+import clsx from 'clsx'
 
 export interface SpinnerProps {
     textColored?: boolean
@@ -10,7 +11,7 @@ export interface SpinnerProps {
 export function Spinner({ textColored = false, className }: SpinnerProps): JSX.Element {
     return (
         <svg
-            className={clsx('Spinner', textColored && `Spinner--textColored`, className)}
+            className={clsx('LemonIcon Spinner', textColored && `Spinner--textColored`, className)}
             viewBox="0 0 48 48"
             xmlns="http://www.w3.org/2000/svg"
         >
@@ -24,14 +25,20 @@ export function Spinner({ textColored = false, className }: SpinnerProps): JSX.E
     )
 }
 
-export function SpinnerOverlay(
-    props: SpinnerProps & {
-        sceneLevel?: boolean
-    }
-): JSX.Element {
+export function SpinnerOverlay({
+    sceneLevel,
+    visible = true,
+    className,
+    ...spinnerProps
+}: SpinnerProps & {
+    /** @default false */
+    sceneLevel?: boolean
+    /** @default true */
+    visible?: boolean
+}): JSX.Element {
     return (
-        <div className={clsx('SpinnerOverlay', props.sceneLevel && 'SpinnerOverlay--scene-level')}>
-            <Spinner className="text-5xl" {...props} />
+        <div className={clsx('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
+            <Spinner className={clsx('text-5xl', className)} {...spinnerProps} />
         </div>
     )
 }

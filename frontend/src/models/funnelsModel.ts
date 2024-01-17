@@ -1,9 +1,12 @@
-import { kea } from 'kea'
+import { actions, events, kea, listeners, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { SavedFunnel, InsightType } from '~/types'
-import type { funnelsModelType } from './funnelsModelType'
+
+import { InsightType, SavedFunnel } from '~/types'
+
 import { teamLogic } from '../scenes/teamLogic'
+import type { funnelsModelType } from './funnelsModelType'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     return {
@@ -17,9 +20,14 @@ const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     }
 }
 
-export const funnelsModel = kea<funnelsModelType>({
-    path: ['models', 'funnelsModel'],
-    loaders: ({ values, actions }) => ({
+export const funnelsModel = kea<funnelsModelType>([
+    path(['models', 'funnelsModel']),
+    actions(() => ({
+        setNext: (next) => ({ next }),
+        loadNext: true,
+        appendFunnels: (funnels) => ({ funnels }),
+    })),
+    loaders(({ values, actions }) => ({
         funnels: {
             __default: [] as SavedFunnel[],
             loadFunnels: async () => {
@@ -40,8 +48,8 @@ export const funnelsModel = kea<funnelsModelType>({
                 return values.funnels.filter((funnel) => funnel.id !== funnelId)
             },
         },
-    }),
-    reducers: () => ({
+    })),
+    reducers(() => ({
         next: [
             null as null | string,
             {
@@ -58,13 +66,8 @@ export const funnelsModel = kea<funnelsModelType>({
                 setNext: () => false,
             },
         ],
-    }),
-    actions: () => ({
-        setNext: (next) => ({ next }),
-        loadNext: true,
-        appendFunnels: (funnels) => ({ funnels }),
-    }),
-    listeners: ({ values, actions }) => ({
+    })),
+    listeners(({ values, actions }) => ({
         loadNext: async () => {
             if (!values.next) {
                 throw new Error('URL of next page of funnels is not known.')
@@ -74,8 +77,8 @@ export const funnelsModel = kea<funnelsModelType>({
             actions.setNext(response.next)
             actions.appendFunnels(results)
         },
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: actions.loadFunnels,
-    }),
-})
+    })),
+])

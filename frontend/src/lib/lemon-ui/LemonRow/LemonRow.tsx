@@ -1,8 +1,10 @@
-import clsx from 'clsx'
 import './LemonRow.scss'
-import { Tooltip } from '../Tooltip'
-import { Spinner } from '../Spinner/Spinner'
+
+import clsx from 'clsx'
 import React from 'react'
+
+import { Spinner } from '../Spinner/Spinner'
+import { Tooltip } from '../Tooltip'
 
 // Fix for function type inference in forwardRef, so that function components wrapped with forwardRef can be generic.
 // For some reason the @types/react definitons as React 16 and TS 4.9 don't work, because `P` (the props) is wrapped in

@@ -1,21 +1,15 @@
 import { useValues } from 'kea'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { PageHeader } from 'lib/components/PageHeader'
-import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { TZLabel } from 'lib/components/TZLabel'
-import { Link } from 'lib/lemon-ui/Link'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ProductKey } from '~/types'
 import { ReadingHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
+import { urls } from 'scenes/urls'
 
-export const scene: SceneExport = {
-    component: IngestionWarningsView,
-    logic: ingestionWarningsLogic,
-}
+import { ProductKey } from '~/types'
+
+import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
 
 const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
@@ -24,6 +18,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
+    message_size_too_large: 'Discarded event exceeding 1MB limit',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -36,9 +31,14 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Refused to merge already identified person{' '}
-                <Link to={urls.person(details.sourcePersonDistinctId)}>{details.sourcePersonDistinctId}</Link> into{' '}
-                <Link to={urls.person(details.targetPersonDistinctId)}>{details.targetPersonDistinctId}</Link> via an
-                $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                via an $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
             </>
         )
     },
@@ -51,9 +51,9 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Refused to merge an illegal distinct_id{' '}
-                <Link to={urls.person(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
-                <Link to={urls.person(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an $identify or
-                $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+                <Link to={urls.personByDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
+                <Link to={urls.personByDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
+                $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
             </>
         )
     },
@@ -69,19 +69,26 @@ const WARNING_TYPE_RENDERER = {
     },
     ignored_invalid_timestamp: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
+            eventUuid: string
             field: string
             value: string
             reason: string
         }
         return (
             <>
-                Used server timestamp when ingesting event due to invalid value <code>{details.value}</code> in field{' '}
-                <code>{details.field}</code>: {details.reason}
+                Used server timestamp when ingesting event due to invalid input:
+                <ul>
+                    {details.eventUuid ? <li>Event UUID: {details.eventUuid}</li> : ''}
+                    {details.field ? <li>Invalid field: {details.field}</li> : ''}
+                    {details.value ? <li>Invalid value: {details.value}</li> : ''}
+                    {details.reason ? <li>Error: {details.reason}</li> : ''}
+                </ul>
             </>
         )
     },
     event_timestamp_in_future: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
+            eventUuid: string
             timestamp: string
             sentAt: string
             offset: string
@@ -93,6 +100,7 @@ const WARNING_TYPE_RENDERER = {
                 The event timestamp computed too far in the future, so the capture time was used instead. Event values:
                 <ul>
                     <li>Computed timestamp: {details.result}</li>
+                    {details.eventUuid ? <li>Event UUID: {details.eventUuid}</li> : ''}
                     {details.timestamp ? <li>Client provided timestamp: {details.timestamp}</li> : ''}
                     {details.sentAt ? <li>Client provided sent_at: {details.sentAt}</li> : ''}
                     {details.offset ? <li>Client provided time offset: {details.offset}</li> : ''}
@@ -108,8 +116,21 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Event ingestion has overflowed capacity for distinct_id{' '}
-                <Link to={urls.person(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>. Events will
-                still be processed, but are likely to be delayed longer than usual.
+                <Link to={urls.personByDistinctId(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>.
+                Events will still be processed, but are likely to be delayed longer than usual.
+            </>
+        )
+    },
+    message_size_too_large: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            distinctId: string
+        }
+        return (
+            <>
+                Discarded event for distinct_id{' '}
+                <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> that exceeded 1MB in
+                size after processing (event uuid: <code>{details.eventUuid}</code>)
             </>
         )
     },
@@ -120,12 +141,6 @@ export function IngestionWarningsView(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <PageHeader
-                title="Data Management"
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-            />
-            <DataManagementPageTabs tab={DataManagementTab.IngestionWarnings} />
             {data.length > 0 || dataLoading ? (
                 <>
                     <div className="mb-4">Data ingestion related warnings from past 30 days.</div>
@@ -148,7 +163,7 @@ export function IngestionWarningsView(): JSX.Element {
                                                     .split(' ')
                                                     .join('-')}`}
                                             >
-                                                {'docs'})
+                                                docs)
                                             </Link>
                                         </>
                                     )
@@ -157,7 +172,7 @@ export function IngestionWarningsView(): JSX.Element {
                             {
                                 title: 'Graph',
                                 render: function Render(_, summary: IngestionWarningSummary) {
-                                    return <TableCellSparkline labels={dates} data={summaryDatasets[summary.type]} />
+                                    return <Sparkline labels={dates} data={summaryDatasets[summary.type]} />
                                 },
                             },
                             {

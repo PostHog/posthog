@@ -8,7 +8,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0082_personalapikey"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -21,7 +20,10 @@ class Migration(migrations.Migration):
             fields=[
                 ("created", models.DateTimeField(auto_now_add=True)),
                 ("updated", models.DateTimeField(auto_now=True)),
-                ("event", models.CharField(db_index=True, max_length=64, verbose_name="Event")),
+                (
+                    "event",
+                    models.CharField(db_index=True, max_length=64, verbose_name="Event"),
+                ),
                 ("target", models.URLField(max_length=255, verbose_name="Target URL")),
                 (
                     "id",
@@ -36,7 +38,9 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="rest_hooks", to="posthog.Team"
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="rest_hooks",
+                        to="posthog.Team",
                     ),
                 ),
                 (

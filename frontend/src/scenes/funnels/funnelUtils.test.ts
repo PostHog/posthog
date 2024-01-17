@@ -1,21 +1,23 @@
-import {
-    EMPTY_BREAKDOWN_VALUES,
-    getBreakdownStepValues,
-    getIncompleteConversionWindowStartDate,
-    getMeanAndStandardDeviation,
-    getClampedStepRangeFilter,
-    getVisibilityKey,
-    parseDisplayNameForCorrelation,
-} from './funnelUtils'
+import { dayjs } from 'lib/dayjs'
+
 import {
     FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
-    FunnelStepRangeEntityFilter,
+    FunnelExclusion,
 } from '~/types'
-import { dayjs } from 'lib/dayjs'
+
+import {
+    EMPTY_BREAKDOWN_VALUES,
+    getBreakdownStepValues,
+    getClampedStepRangeFilter,
+    getIncompleteConversionWindowStartDate,
+    getMeanAndStandardDeviation,
+    getVisibilityKey,
+    parseDisplayNameForCorrelation,
+} from './funnelUtils'
 
 describe('getMeanAndStandardDeviation', () => {
     const arrayToExpectedValues: [number[], number[]][] = [
@@ -175,7 +177,7 @@ describe('getClampedStepRangeFilter', () => {
         const stepRange = {
             funnel_from_step: 0,
             funnel_to_step: 1,
-        } as FunnelStepRangeEntityFilter
+        } as FunnelExclusion
         const filters = {
             funnel_from_step: 1,
             funnel_to_step: 2,
@@ -193,7 +195,7 @@ describe('getClampedStepRangeFilter', () => {
     })
 
     it('ensures step range is clamped to step range', () => {
-        const stepRange = {} as FunnelStepRangeEntityFilter
+        const stepRange = {} as FunnelExclusion
         const filters = {
             funnel_from_step: -1,
             funnel_to_step: 12,
@@ -211,7 +213,7 @@ describe('getClampedStepRangeFilter', () => {
     })
 
     it('returns undefined if the incoming filters are undefined', () => {
-        const stepRange = {} as FunnelStepRangeEntityFilter
+        const stepRange = {} as FunnelExclusion
         const filters = {
             funnel_from_step: undefined,
             funnel_to_step: undefined,

@@ -2,35 +2,45 @@ import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
+import { Counter, Summary } from 'prom-client'
 
-import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
     Element,
     GroupTypeIndex,
     Hub,
     ISOTimestamp,
-    PerformanceEventReverseMapping,
     Person,
     PreIngestionEvent,
     RawClickHouseEvent,
-    RawPerformanceEvent,
-    RawSessionRecordingEvent,
-    RRWebEvent,
     Team,
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
+import { MessageSizeTooLarge } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, UUID } from '../../utils/utils'
+import { MessageSizeTooLargeWarningLimiter } from '../../utils/token-bucket'
+import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
 import { PropertyDefinitionsManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
+
+const processEventMsSummary = new Summary({
+    name: 'process_event_ms',
+    help: 'Duration spent in processEvent',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+const elementsOrElementsChainCounter = new Counter({
+    name: 'events_pipeline_elements_or_elements_chain_total',
+    help: 'Number of times elements or elements_chain appears on event',
+    labelNames: ['type'],
+})
 
 export class EventsProcessor {
     pluginsServer: Hub
@@ -52,25 +62,17 @@ export class EventsProcessor {
             this.teamManager,
             this.groupTypeManager,
             pluginsServer.db,
-            pluginsServer,
-            pluginsServer.statsd
+            pluginsServer
         )
     }
 
     public async processEvent(
         distinctId: string,
-        ip: string | null,
         data: PluginEvent,
         teamId: number,
         timestamp: DateTime,
         eventUuid: string
     ): Promise<PreIngestionEvent> {
-        if (!UUID.validateString(eventUuid, false)) {
-            captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
-                eventUuid: JSON.stringify(eventUuid),
-            })
-            throw new Error(`Not a valid UUID: "${eventUuid}"`)
-        }
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard('Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!', {
             event: JSON.stringify(data),
@@ -90,10 +92,8 @@ export class EventsProcessor {
                 eventUuid,
             })
             try {
-                result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
-                this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
-                    team_id: teamId.toString(),
-                })
+                result = await this.capture(eventUuid, team, data['event'], distinctId, properties, timestamp)
+                processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
                 clearTimeout(captureTimeout)
             }
@@ -103,9 +103,34 @@ export class EventsProcessor {
         return result
     }
 
+    private getElementsChain(properties: Properties): string {
+        /*
+        We're deprecating $elements in favor of $elements_chain, which doesn't require extra
+        processing on the ingestion side and is the way we store elements in ClickHouse.
+        As part of that we'll move posthog-js to send us $elements_chain as string directly,
+        but we still need to support the old way of sending $elements and converting them
+        to $elements_chain, while everyone hasn't upgraded.
+        */
+        let elementsChain = ''
+        if (properties['$elements_chain']) {
+            elementsChain = properties['$elements_chain']
+            elementsOrElementsChainCounter.labels('elements_chain').inc()
+        } else if (properties['$elements']) {
+            const elements: Record<string, any>[] | undefined = properties['$elements']
+            let elementsList: Element[] = []
+            if (elements && elements.length) {
+                elementsList = extractElements(elements)
+                elementsChain = elementsToString(elementsList)
+            }
+            elementsOrElementsChainCounter.labels('elements').inc()
+        }
+        delete properties['$elements_chain']
+        delete properties['$elements']
+        return elementsChain
+    }
+
     private async capture(
         eventUuid: string,
-        ip: string | null,
         team: Team,
         event: string,
         distinctId: string,
@@ -113,28 +138,25 @@ export class EventsProcessor {
         timestamp: DateTime
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
-        const elements: Record<string, any>[] | undefined = properties['$elements']
-        let elementsList: Element[] = []
 
-        if (elements && elements.length) {
-            elementsList = extractElements(elements)
-            delete properties['$elements']
+        if (properties['$ip'] && team.anonymize_ips) {
+            delete properties['$ip']
         }
 
-        if (ip && !team.anonymize_ips && !('$ip' in properties)) {
-            properties['$ip'] = ip
+        if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
+            try {
+                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+            } catch (err) {
+                Sentry.captureException(err, { tags: { team_id: team.id } })
+                status.warn('⚠️', 'Failed to update property definitions for an event', {
+                    event,
+                    properties,
+                    err,
+                })
+            }
         }
 
-        try {
-            await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
-        } catch (err) {
-            Sentry.captureException(err, { tags: { team_id: team.id } })
-            status.warn('⚠️', 'Failed to update property definitions for an event', {
-                event,
-                properties,
-                err,
-            })
-        }
+        // Adds group_0 etc values to properties
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         if (event === '$groupidentify') {
@@ -144,11 +166,9 @@ export class EventsProcessor {
         return {
             eventUuid,
             event,
-            ip,
             distinctId,
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
-            elementsList,
             teamId: team.id,
         }
     }
@@ -168,17 +188,20 @@ export class EventsProcessor {
         preIngestionEvent: PreIngestionEvent,
         person: Person
     ): Promise<[RawClickHouseEvent, Promise<void>]> {
-        const {
-            eventUuid: uuid,
-            event,
-            teamId,
-            distinctId,
-            properties,
-            timestamp,
-            elementsList: elements,
-        } = preIngestionEvent
+        const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
-        const elementsChain = elements && elements.length ? elementsToString(elements) : ''
+        let elementsChain = ''
+        try {
+            elementsChain = this.getElementsChain(properties)
+        } catch (error) {
+            Sentry.captureException(error, { tags: { team_id: teamId } })
+            status.warn('⚠️', 'Failed to process elements', {
+                uuid,
+                teamId: teamId,
+                properties,
+                error,
+            })
+        }
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
         const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
@@ -206,12 +229,27 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
-        const ack = this.kafkaProducer.produce({
-            topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            key: uuid,
-            value: Buffer.from(JSON.stringify(rawEvent)),
-            waitForAck: true,
-        })
+        const ack = this.kafkaProducer
+            .produce({
+                topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                key: uuid,
+                value: Buffer.from(JSON.stringify(rawEvent)),
+                waitForAck: true,
+            })
+            .catch(async (error) => {
+                // Some messages end up significantly larger than the original
+                // after plugin processing, person & group enrichment, etc.
+                if (error instanceof MessageSizeTooLarge) {
+                    if (MessageSizeTooLargeWarningLimiter.consume(`${teamId}`, 1)) {
+                        await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
+                            eventUuid: uuid,
+                            distinctId: distinctId,
+                        })
+                    }
+                } else {
+                    throw error
+                }
+            })
 
         return [rawEvent, ack]
     }
@@ -235,142 +273,4 @@ export class EventsProcessor {
             )
         }
     }
-}
-
-export const createSessionRecordingEvent = (
-    uuid: string,
-    team_id: number,
-    distinct_id: string,
-    timestamp: DateTime,
-    properties: Properties
-) => {
-    const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
-
-    const data: Partial<RawSessionRecordingEvent> = {
-        uuid,
-        team_id: team_id,
-        distinct_id: distinct_id,
-        session_id: properties['$session_id'],
-        window_id: properties['$window_id'],
-        snapshot_data: JSON.stringify(properties['$snapshot_data']),
-        timestamp: timestampString,
-        created_at: timestampString,
-    }
-
-    return data
-}
-
-export interface SummarizedSessionRecordingEvent {
-    uuid: string
-    first_timestamp: string
-    last_timestamp: string
-    team_id: number
-    distinct_id: string
-    session_id: string
-    first_url: string | undefined
-    click_count: number
-    keypress_count: number
-    mouse_activity_count: number
-    active_milliseconds: number
-    console_log_count: number
-    console_warn_count: number
-    console_error_count: number
-    size: number
-}
-
-export const createSessionReplayEvent = (
-    uuid: string,
-    team_id: number,
-    distinct_id: string,
-    session_id: string,
-    events: RRWebEvent[]
-) => {
-    const timestamps = events
-        .filter((e) => !!e?.timestamp)
-        .map((e) => castTimestampOrNow(DateTime.fromMillis(e.timestamp), TimestampFormat.ClickHouse))
-        .sort()
-
-    // but every event where chunk index = 0 must have an eventsSummary
-    if (events.length === 0 || timestamps.length === 0) {
-        status.warn('🙈', 'ignoring an empty session recording event', {
-            session_id,
-            events,
-        })
-        // it is safe to throw here as it caught a level up so that we can see this happening in Sentry
-        throw new Error('ignoring an empty session recording event')
-    }
-
-    let clickCount = 0
-    let keypressCount = 0
-    let mouseActivity = 0
-    let consoleLogCount = 0
-    let consoleWarnCount = 0
-    let consoleErrorCount = 0
-    let url: string | undefined = undefined
-    events.forEach((event) => {
-        if (event.type === 3) {
-            mouseActivity += 1
-            if (event.data?.source === 2) {
-                clickCount += 1
-            }
-            if (event.data?.source === 5) {
-                keypressCount += 1
-            }
-        }
-        if (!!event.data?.href?.trim().length && url === undefined) {
-            url = event.data.href
-        }
-        if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
-            const level = event.data.payload?.level
-            if (level === 'log') {
-                consoleLogCount += 1
-            } else if (level === 'warn') {
-                consoleWarnCount += 1
-            } else if (level === 'error') {
-                consoleErrorCount += 1
-            }
-        }
-    })
-
-    const activeTime = activeMilliseconds(events)
-
-    const data: SummarizedSessionRecordingEvent = {
-        uuid,
-        team_id: team_id,
-        distinct_id: distinct_id,
-        session_id: session_id,
-        first_timestamp: timestamps[0],
-        last_timestamp: timestamps[timestamps.length - 1],
-        click_count: clickCount,
-        keypress_count: keypressCount,
-        mouse_activity_count: mouseActivity,
-        first_url: url,
-        active_milliseconds: activeTime,
-        console_log_count: consoleLogCount,
-        console_warn_count: consoleWarnCount,
-        console_error_count: consoleErrorCount,
-        size: Buffer.byteLength(JSON.stringify(events), 'utf8'),
-    }
-
-    return data
-}
-
-export function createPerformanceEvent(uuid: string, team_id: number, distinct_id: string, properties: Properties) {
-    const data: Partial<RawPerformanceEvent> = {
-        uuid,
-        team_id: team_id,
-        distinct_id: distinct_id,
-        session_id: properties['$session_id'],
-        window_id: properties['$window_id'],
-        pageview_id: properties['$pageview_id'],
-        current_url: properties['$current_url'],
-    }
-
-    Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
-        if (key in properties) {
-            data[value] = properties[key]
-        }
-    })
-
-    return data
 }

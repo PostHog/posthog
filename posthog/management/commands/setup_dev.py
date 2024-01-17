@@ -2,7 +2,15 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
-from posthog.models import EventProperty, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, Team, User
+from posthog.models import (
+    EventProperty,
+    PersonalAPIKey,
+    Plugin,
+    PluginConfig,
+    PluginSourceFile,
+    Team,
+    User,
+)
 from posthog.models.event_definition import EventDefinition
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.property_definition import PropertyDefinition
@@ -13,7 +21,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--no-data", action="store_true", help="Create demo account without data")
-        parser.add_argument("--create-e2e-test-plugin", action="store_true", help="Create plugin for charts E2E test")
+        parser.add_argument(
+            "--create-e2e-test-plugin",
+            action="store_true",
+            help="Create plugin for charts E2E test",
+        )
 
     def handle(self, *args, **options):
         print("\n⚠️ setup_dev is deprecated. Use the more robust generate_demo_data command instead.\n")  # noqa T201
@@ -43,7 +55,9 @@ class Command(BaseCommand):
             PropertyDefinition.objects.create(name="is_demo", type=PropertyDefinition.Type.PERSON, team=team)
 
             PersonalAPIKey.objects.create(
-                user=user, label="e2e_demo_api_key key", secure_value=hash_key_value("e2e_demo_api_key")
+                user=user,
+                label="e2e_demo_api_key key",
+                secure_value=hash_key_value("e2e_demo_api_key"),
             )
             if not options["no_data"]:
                 create_demo_data(team)
@@ -62,7 +76,9 @@ class Command(BaseCommand):
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=team, order=1, config={})
 
         PluginSourceFile.objects.update_or_create(
-            plugin=plugin, filename="plugin.json", source='{ "name": "e2e test plugin", "config": [] }'
+            plugin=plugin,
+            filename="plugin.json",
+            source='{ "name": "e2e test plugin", "config": [] }',
         )
         PluginSourceFile.objects.update_or_create(
             plugin=plugin,

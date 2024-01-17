@@ -1,40 +1,42 @@
 import { FunnelLayout, ShownAsValue } from 'lib/constants'
+
 import {
-    InsightQueryNode,
-    TrendsQuery,
     FunnelsQuery,
-    RetentionQuery,
-    StickinessQuery,
+    InsightQueryNode,
     LifecycleQuery,
     NodeKind,
     PathsQuery,
+    RetentionQuery,
+    StickinessQuery,
+    TrendsQuery,
 } from '~/queries/schema'
 import {
-    TrendsFilterType,
-    RetentionFilterType,
-    FunnelsFilterType,
-    PathsFilterType,
-    StickinessFilterType,
-    LifecycleFilterType,
     ActionFilter,
     BaseMathType,
+    BreakdownAttributionType,
     ChartDisplayType,
     FilterLogicalOperator,
     FilterType,
+    FunnelConversionWindowTimeUnit,
+    FunnelPathType,
+    FunnelsFilterType,
+    FunnelStepReference,
+    FunnelVizType,
+    GroupMathType,
     InsightType,
+    LifecycleFilterType,
+    PathsFilterType,
+    PathType,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
-    FunnelVizType,
-    FunnelStepReference,
-    BreakdownAttributionType,
-    FunnelConversionWindowTimeUnit,
-    StepOrderValue,
-    PathType,
-    FunnelPathType,
+    RetentionFilterType,
     RetentionPeriod,
-    GroupMathType,
+    StepOrderValue,
+    StickinessFilterType,
+    TrendsFilterType,
 } from '~/types'
+
 import {
     actionsAndEventsToSeries,
     cleanHiddenLegendIndexes,
@@ -69,6 +71,14 @@ describe('actionsAndEventsToSeries', () => {
         expect(result[0].name).toEqual('itemWithOrder')
         expect(result[1].name).toEqual('item1')
         expect(result[2].name).toEqual('item2')
+    })
+
+    it('assumes typeless series is an event series', () => {
+        const events: ActionFilter[] = [{ id: '$pageview', order: 0, name: 'item1' } as any]
+
+        const result = actionsAndEventsToSeries({ events })
+
+        expect(result[0].kind === NodeKind.EventsNode)
     })
 })
 
@@ -165,7 +175,7 @@ describe('filtersToQueryNode', () => {
             const query: InsightQueryNode = {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: true,
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -210,7 +220,7 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -229,7 +239,7 @@ describe('filtersToQueryNode', () => {
                     date_to: '2021-12-08',
                     date_from: '2021-12-08',
                 },
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
     })
@@ -281,9 +291,10 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<TrendsQuery> = {
+            const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 interval: 'day',
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -300,31 +311,35 @@ describe('filtersToQueryNode', () => {
                 aggregation_axis_format: 'numeric',
                 aggregation_axis_prefix: '£',
                 aggregation_axis_postfix: '%',
+                decimal_places: 8,
                 breakdown_histogram_bin_count: 1,
                 formula: 'A+B',
                 shown_as: ShownAsValue.VOLUME,
                 display: ChartDisplayType.ActionsAreaGraph,
+                show_percent_stack_view: true,
             }
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<TrendsQuery> = {
+            const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 trendsFilter: {
-                    smoothing_intervals: 1,
+                    smoothingIntervals: 1,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
                     compare: true,
-                    aggregation_axis_format: 'numeric',
-                    aggregation_axis_prefix: '£',
-                    aggregation_axis_postfix: '%',
+                    aggregationAxisFormat: 'numeric',
+                    aggregationAxisPrefix: '£',
+                    aggregationAxisPostfix: '%',
+                    decimalPlaces: 8,
                     formula: 'A+B',
-                    shown_as: ShownAsValue.VOLUME,
                     display: ChartDisplayType.ActionsAreaGraph,
+                    showPercentStackView: true,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown_histogram_bin_count: 1,
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -354,7 +369,6 @@ describe('filtersToQueryNode', () => {
                 funnel_correlation_person_entity: { a: 1 },
                 funnel_correlation_person_converted: 'true',
                 funnel_custom_steps: [1, 2, 3],
-                funnel_advanced: true,
                 layout: FunnelLayout.horizontal,
                 funnel_step: 1,
                 entrance_period_start: 'abc',
@@ -364,14 +378,13 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<FunnelsQuery> = {
+            const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
                 funnelsFilter: {
                     funnel_viz_type: FunnelVizType.Steps,
                     funnel_from_step: 1,
                     funnel_to_step: 2,
                     funnel_step_reference: FunnelStepReference.total,
-                    funnel_step_breakdown: 1,
                     breakdown_attribution_type: BreakdownAttributionType.AllSteps,
                     breakdown_attribution_value: 1,
                     bin_count: 'auto',
@@ -384,16 +397,10 @@ describe('filtersToQueryNode', () => {
                             funnel_to_step: 1,
                         },
                     ],
-                    funnel_correlation_person_entity: { a: 1 },
-                    funnel_correlation_person_converted: 'true',
-                    funnel_custom_steps: [1, 2, 3],
-                    funnel_advanced: true,
                     layout: FunnelLayout.horizontal,
-                    funnel_step: 1,
-                    entrance_period_start: 'abc',
-                    drop_off: true,
                     hidden_legend_breakdowns: ['Chrome', 'Safari'],
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -406,21 +413,21 @@ describe('filtersToQueryNode', () => {
                 retention_type: 'retention_first_time',
                 retention_reference: 'total',
                 total_intervals: 2,
-                returning_entity: [{ a: 1 }],
-                target_entity: [{ b: 1 }],
+                returning_entity: { id: '1' },
+                target_entity: { id: '1' },
                 period: RetentionPeriod.Day,
             }
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<RetentionQuery> = {
+            const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
                     retention_type: 'retention_first_time',
                     retention_reference: 'total',
                     total_intervals: 2,
-                    returning_entity: [{ a: 1 }],
-                    target_entity: [{ b: 1 }],
+                    returning_entity: { id: '1' },
+                    target_entity: { id: '1' },
                     period: RetentionPeriod.Day,
                 },
             }
@@ -453,7 +460,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<PathsQuery> = {
+            const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
                     path_type: PathType.Screen,
@@ -465,9 +472,6 @@ describe('filtersToQueryNode', () => {
                     funnel_filter: { a: 1 },
                     exclude_events: ['e', 'f'],
                     step_limit: 1,
-                    path_start_key: 'g',
-                    path_end_key: 'h',
-                    path_dropoff_key: 'i',
                     path_replacements: true,
                     local_path_cleaning_filters: [{ alias: 'home' }],
                     edge_limit: 1,
@@ -486,23 +490,21 @@ describe('filtersToQueryNode', () => {
                 compare: true,
                 show_legend: true,
                 hidden_legend_keys: { 0: true, 10: true },
-                stickiness_days: 2,
                 shown_as: ShownAsValue.STICKINESS,
                 display: ChartDisplayType.ActionsLineGraph,
             }
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<StickinessQuery> = {
+            const query: StickinessQuery = {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
                     compare: true,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
-                    stickiness_days: 2,
-                    shown_as: ShownAsValue.STICKINESS,
                     display: ChartDisplayType.ActionsLineGraph,
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -518,12 +520,108 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<LifecycleQuery> = {
+            const query: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,
                 lifecycleFilter: {
-                    shown_as: ShownAsValue.LIFECYCLE,
                     toggledLifecycles: ['new', 'dormant'],
                 },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+    })
+
+    describe('malformed properties', () => {
+        it('converts properties', () => {
+            const properties: any = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: 'event',
+                                type: PropertyFilterType.Event,
+                                value: 'value',
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            const filters: Partial<FilterType> = {
+                insight: InsightType.TRENDS,
+                properties,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.TrendsQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'event',
+                                    type: PropertyFilterType.Event,
+                                    value: 'value',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('converts properties with the correct cohort structure', () => {
+            const properties: any = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: 'id',
+                                type: PropertyFilterType.Cohort,
+                                value: 6,
+                                operator: null,
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            const filters: Partial<FilterType> = {
+                insight: InsightType.TRENDS,
+                properties,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.TrendsQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'id',
+                                    type: PropertyFilterType.Cohort,
+                                    value: 6,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -657,9 +755,6 @@ describe('filtersToQueryNode', () => {
                     },
                 ],
                 interval: 'day',
-                lifecycleFilter: {
-                    shown_as: ShownAsValue.LIFECYCLE,
-                },
             }
             expect(result).toEqual(query)
         })
@@ -844,7 +939,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     display: ChartDisplayType.ActionsTable,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown: '$current_url',
                     breakdown_type: 'event',
                     breakdown_normalize_url: true,
@@ -1283,7 +1378,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     display: ChartDisplayType.WorldMap,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown: '$geoip_country_code',
                     breakdown_type: 'event',
                 },

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict
+from zoneinfo import ZoneInfo
 
-import pytz
 from celery import shared_task
 
 from ee.api.sentry_stats import get_stats_for_timerange
@@ -31,7 +31,7 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
 
 
 def calculate_rolling_average(threshold_metric: Dict, team: Team, timezone: str) -> float:
-    curr = datetime.now(tz=pytz.timezone(timezone))
+    curr = datetime.now(tz=ZoneInfo(timezone))
 
     rolling_average_days = 7
 
@@ -73,7 +73,9 @@ def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool
 
     elif rollback_condition["threshold_type"] == "insight":
         rolling_average = calculate_rolling_average(
-            rollback_condition["threshold_metric"], feature_flag.team, feature_flag.team.timezone
+            rollback_condition["threshold_metric"],
+            feature_flag.team,
+            feature_flag.team.timezone,
         )
 
         if rollback_condition["operator"] == "lt":

@@ -1,12 +1,15 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
-import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
+
+import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 
 export interface ColumnConfiguratorLogicProps {
     key: string
     columns: string[]
     setColumns: (columns: string[]) => void
+    isPersistent?: boolean
 }
 
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
@@ -61,7 +64,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     }),
     listeners(({ values, props }) => ({
         save: () => {
-            if (values.saveAsDefault) {
+            if (props.isPersistent && values.saveAsDefault) {
                 teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
             }
             props.setColumns(values.columns)

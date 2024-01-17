@@ -29,7 +29,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "properties.$lib",
                         "timestamp",
                     ],
-                    "properties": [{"type": "event", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                    "properties": [
+                        {
+                            "type": "event",
+                            "key": "$browser",
+                            "operator": "exact",
+                            "value": "Chrome",
+                        }
+                    ],
                     "limit": 100,
                 },
             },
@@ -52,7 +59,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "properties.$lib",
                             "timestamp",
                         ],
-                        "properties": [{"type": "event", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                        "properties": [
+                            {
+                                "type": "event",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                         "limit": 100,
                     },
                 },
@@ -69,7 +83,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
                         "kind": "PersonsNode",
-                        "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
@@ -85,7 +106,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
                         "kind": "PersonsNode",
-                        "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
@@ -151,14 +179,22 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "custom_name": "Views",
                             "event": "$pageview",
                             "properties": [
-                                {"type": "event", "key": "$browser", "operator": "exact", "value": "Chrome"},
+                                {
+                                    "type": "event",
+                                    "key": "$browser",
+                                    "operator": "exact",
+                                    "value": "Chrome",
+                                },
                                 {"type": "cohort", "key": "id", "value": 2},
                             ],
                             "limit": 100,
                         }
                     ],
                     "trendsFilter": {"display": "ActionsAreaGraph"},
-                    "breakdown": {"breakdown": "$geoip_country_code", "breakdown_type": "event"},
+                    "breakdownFilter": {
+                        "breakdown": "$geoip_country_code",
+                        "breakdown_type": "event",
+                    },
                 },
             },
         )
@@ -177,7 +213,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "source": {
                         "kind": "PersonsNode",
-                        "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
@@ -194,7 +237,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
                         "kind": "PersonsNode",
-                        "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },
@@ -217,7 +267,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "columns": ["person", "id", "created_at", "person.$delete"],
                     "source": {
                         "kind": "PersonsNode",
-                        "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                        "properties": [
+                            {
+                                "type": "person",
+                                "key": "$browser",
+                                "operator": "exact",
+                                "value": "Chrome",
+                            }
+                        ],
                     },
                 },
             },

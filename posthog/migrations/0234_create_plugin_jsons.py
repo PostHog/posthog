@@ -27,7 +27,6 @@ def migrate_plugin_source(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0233_plugin_source_file"),
     ]

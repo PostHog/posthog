@@ -1,9 +1,11 @@
-import posthog from 'posthog-js'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { AvailableFeature, InsightLogicProps, InsightType } from '~/types'
+import posthog from 'posthog-js'
+
 import { useAvailableFeatures } from '~/mocks/features'
+import { initKeaTests } from '~/test/init'
+import { AvailableFeature, InsightLogicProps, InsightType } from '~/types'
+
 import { funnelCorrelationFeedbackLogic } from './funnelCorrelationFeedbackLogic'
 
 describe('funnelCorrelationFeedbackLogic', () => {

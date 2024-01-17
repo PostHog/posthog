@@ -1,18 +1,24 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from django.utils.timezone import now
 from prometheus_client import Counter
 
-from posthog.caching.calculate_results import calculate_cache_key, calculate_result_by_insight
+from posthog.caching.calculate_results import (
+    calculate_cache_key,
+    calculate_result_by_insight,
+)
 from posthog.caching.insight_cache import update_cached_state
 from posthog.models import DashboardTile, Insight
 from posthog.models.dashboard import Dashboard
+from posthog.schema import QueryTiming
 from posthog.utils import get_safe_cache
 
 insight_cache_read_counter = Counter(
-    "posthog_cloud_insight_cache_read", "A read from the redis insight cache", labelnames=["result"]
+    "posthog_cloud_insight_cache_read",
+    "A read from the redis insight cache",
+    labelnames=["result"],
 )
 
 
@@ -24,6 +30,7 @@ class InsightResult:
     is_cached: bool
     timezone: Optional[str]
     next_allowed_client_refresh: Optional[datetime] = None
+    timings: Optional[List[QueryTiming]] = None
 
 
 @dataclass(frozen=True)
@@ -72,7 +79,9 @@ def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_f
 
 
 def synchronously_update_cache(
-    insight: Insight, dashboard: Optional[Dashboard], refresh_frequency: Optional[timedelta] = None
+    insight: Insight,
+    dashboard: Optional[Dashboard],
+    refresh_frequency: Optional[timedelta] = None,
 ) -> InsightResult:
     cache_key, cache_type, result = calculate_result_by_insight(team=insight.team, insight=insight, dashboard=dashboard)
     timestamp = now()

@@ -1,13 +1,17 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { InsightLogicProps } from '~/types'
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
-import { isAllCohort, isCohort, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 
 export interface BreakdownTagLogicProps {
+    insightProps: InsightLogicProps
     breakdown: string | number
     breakdownType: string
     isTrends: boolean
@@ -15,17 +19,10 @@ export interface BreakdownTagLogicProps {
 
 export const breakdownTagLogic = kea<breakdownTagLogicType>([
     props({} as BreakdownTagLogicProps),
-    key(({ breakdown }) => breakdown),
+    key(({ insightProps, breakdown }) => `${keyForInsightLogicProps('new')(insightProps)}-${breakdown}`),
     path((key) => ['scenes', 'insights', 'BreakdownFilter', 'breakdownTagLogic', key]),
     connect(() => ({
-        values: [
-            taxonomicBreakdownFilterLogic,
-            ['isViewOnly'],
-            propertyDefinitionsModel,
-            ['getPropertyDefinition'],
-            cohortsModel,
-            ['cohortsById'],
-        ],
+        values: [propertyDefinitionsModel, ['getPropertyDefinition'], cohortsModel, ['cohortsById']],
         actions: [taxonomicBreakdownFilterLogic, ['removeBreakdown as removeBreakdownFromList']],
     })),
     actions(() => ({
@@ -37,19 +34,6 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (getPropertyDefinition, breakdown, breakdownType) =>
                 getPropertyDefinition(breakdown, propertyFilterTypeToPropertyDefinitionType(breakdownType)),
         ],
-        propertyName: [
-            (s, p) => [p.breakdown, s.cohortsById],
-            (breakdown, cohortsById) => {
-                if (isAllCohort(breakdown)) {
-                    return 'All Users'
-                } else if (isCohort(breakdown)) {
-                    return cohortsById[breakdown]?.name || `Cohort ${breakdown}`
-                } else {
-                    // regular property breakdown i.e. person, event or group
-                    return breakdown
-                }
-            },
-        ],
         isHistogramable: [
             (s, p) => [p.isTrends, s.propertyDefinition],
             (isTrends, propertyDefinition) => isTrends && !!propertyDefinition?.is_numerical,
@@ -57,10 +41,6 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         isNormalizeable: [
             (s) => [s.propertyDefinition],
             (propertyDefinition) => isURLNormalizeable(propertyDefinition?.name || ''),
-        ],
-        shouldShowMenu: [
-            (s) => [s.isHistogramable, s.isNormalizeable],
-            (isHistogramable, isNormalizeable) => isHistogramable || isNormalizeable,
         ],
     }),
     listeners(({ props, actions }) => ({

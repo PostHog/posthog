@@ -1,15 +1,17 @@
-import { useActions, useValues } from 'kea'
-import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
-import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { deleteWithUndo } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
+import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+
 import { DataWarehouseSceneRow } from '../types'
 import { dataWarehouseSavedQueriesLogic } from './dataWarehouseSavedQueriesLogic'
-import { urls } from 'scenes/urls'
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
-import { router } from 'kea-router'
 
 export function DataWarehouseSavedQueriesContainer(): JSX.Element {
     const { savedQueries, dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseSavedQueriesLogic)
@@ -67,8 +69,8 @@ export function DataWarehouseSavedQueriesContainer(): JSX.Element {
                                         <LemonButton
                                             status="danger"
                                             onClick={() => {
-                                                deleteWithUndo({
-                                                    endpoint: `projects/${currentTeamId}/warehouse_saved_query`,
+                                                void deleteWithUndo({
+                                                    endpoint: `projects/${currentTeamId}/warehouse_saved_queries`,
                                                     object: { name: warehouseView.name, id: warehouseView.id },
                                                     callback: loadDataWarehouseSavedQueries,
                                                 })

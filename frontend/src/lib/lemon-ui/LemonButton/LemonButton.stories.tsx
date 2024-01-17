@@ -1,43 +1,41 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonButtonWithDropdown,
-    LemonButtonWithDropdownProps,
-    LemonButtonWithSideAction,
-} from './LemonButton'
-import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
-import { More } from './More'
+import { IconGear } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import clsx from 'clsx'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { IconCalculate, IconInfo, IconLink, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
-import { Link } from '@posthog/lemon-ui'
-import { LemonBanner } from '../LemonBanner'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import clsx from 'clsx'
 
-const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
+import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
+import { More } from './More'
+
+const statuses: LemonButtonProps['status'][] = ['default', 'alt', 'danger']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
-export default {
+type Story = StoryObj<typeof LemonButton>
+const meta: Meta<typeof LemonButton> = {
     title: 'Lemon UI/Lemon Button',
     component: LemonButton,
+    tags: ['autodocs'],
     argTypes: {
         icon: {
-            defaultValue: <IconCalculate />,
-        },
-        children: {
-            defaultValue: 'Click me',
+            type: 'function',
         },
     },
-} as ComponentMeta<typeof LemonButton>
-
-const BasicTemplate: ComponentStory<typeof LemonButton> = (props: LemonButtonProps) => {
+}
+export default meta
+const BasicTemplate: StoryFn<typeof LemonButton> = (props: LemonButtonProps) => {
     return <LemonButton {...props} />
 }
 
-export const Default = BasicTemplate.bind({})
-Default.args = {}
+export const Default: Story = BasicTemplate.bind({})
+Default.args = {
+    icon: <IconCalculate />,
+    children: 'Click me',
+}
 
 const StatusesTemplate = ({
     noText,
@@ -55,7 +53,7 @@ const StatusesTemplate = ({
     )
 }
 
-const TypesAndStatusesTemplate: ComponentStory<typeof LemonButton> = (props) => {
+const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     return (
         <div className="space-y-2">
             {types.map((type) => (
@@ -68,10 +66,23 @@ const TypesAndStatusesTemplate: ComponentStory<typeof LemonButton> = (props) => 
     )
 }
 
-export const TypesAndStatuses = TypesAndStatusesTemplate.bind({})
-TypesAndStatuses.args = {}
+export const TypesAndStatuses: Story = () => {
+    return (
+        <div className="space-y-12">
+            <div className="p-2 rounded-lg border">
+                <TypesAndStatusesTemplate />
+            </div>
+            <div className="p-2 bg-bg-light rounded-lg border">
+                <TypesAndStatusesTemplate />
+            </div>
+        </div>
+    )
+}
 
-const PopoverTemplate: ComponentStory<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
+TypesAndStatuses.args = { ...Default.args }
+
+type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
+const PopoverTemplate: StoryFn<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
     return <LemonButtonWithDropdown {...props} />
 }
 
@@ -80,11 +91,11 @@ export const NoPadding = (): JSX.Element => {
 }
 
 export const TextOnly = (): JSX.Element => {
-    return <StatusesTemplate type={'secondary'} icon={null} />
+    return <StatusesTemplate type="secondary" icon={null} />
 }
 
 export const Sizes = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="space-y-2">
@@ -99,7 +110,7 @@ export const Sizes = (): JSX.Element => {
 }
 
 export const SizesIconOnly = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="space-y-2">
@@ -118,8 +129,13 @@ export const DisabledWithReason = (): JSX.Element => {
 }
 // TODO: Add DisabledWithReason.play for a proper snapshot showcasing the tooltip
 
-export const Loading = (): JSX.Element => {
+export const Loading: Story = (): JSX.Element => {
     return <TypesAndStatusesTemplate loading />
+}
+Loading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const LoadingViaOnClick = (): JSX.Element => {
@@ -152,20 +168,100 @@ export const Active = (): JSX.Element => {
                 <LemonButton>I am not active</LemonButton>
                 <LemonButton active>I am active</LemonButton>
             </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="primary">I am not active</LemonButton>
+                <LemonButton type="primary" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="primary" status="alt">
+                    I am not active
+                </LemonButton>
+                <LemonButton type="primary" status="alt" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="secondary">I am not active</LemonButton>
+                <LemonButton type="secondary" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="secondary" status="alt">
+                    I am not active
+                </LemonButton>
+                <LemonButton type="secondary" status="alt" active>
+                    I am active
+                </LemonButton>
+            </div>
         </div>
     )
+}
+
+export const PseudoStates = (): JSX.Element => {
+    return (
+        <div className="space-y-8">
+            <div>
+                <div>
+                    <h5>TYPE=3D STATE=DEFAULT</h5>
+                    <StatusesTemplate type="primary" />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=3D STATE=HOVER</h5>
+                    <StatusesTemplate type="primary" />
+                </div>
+                <div id="active">
+                    <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
+                    <StatusesTemplate type="primary" />
+                </div>
+            </div>
+            <div>
+                <div>
+                    <h5>TYPE=SECONDARY STATE=DEFAULT</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=SECONDARY STATE=HOVER</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+                <div id="active">
+                    <h5>TYPE=SECONDARY STATE=HOVER,ACTIVE</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+            </div>
+            <div>
+                <div>
+                    <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
+                    <StatusesTemplate type="tertiary" />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=TERTIARY STATE=HOVER</h5>
+                    <StatusesTemplate type="tertiary" />
+                </div>
+                <div id="active">
+                    <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
+                    <StatusesTemplate type="tertiary" />
+                </div>
+            </div>
+        </div>
+    )
+}
+PseudoStates.parameters = {
+    pseudo: {
+        hover: ['#hover .LemonButton', '#active .LemonButton'],
+        active: ['#active .LemonButton'],
+    },
 }
 
 export const MenuButtons = (): JSX.Element => {
     return (
         <div className="space-y-2">
-            <p>When a button is used inside a menu item it should have the special status **stealth**</p>
             <div className="border rounded-lg flex flex-col p-2 space-y-1">
-                <LemonButton active status="stealth">
-                    Active item
-                </LemonButton>
-                <LemonButton status="stealth">Item 1</LemonButton>
-                <LemonButton status="stealth">Item 2</LemonButton>
+                <LemonButton active>Active item</LemonButton>
+                <LemonButton>Item 1</LemonButton>
+                <LemonButton>Item 2</LemonButton>
             </div>
         </div>
     )
@@ -187,7 +283,7 @@ export const FullWidth = (): JSX.Element => {
                 Full Width centered with icon
             </LemonButton>
 
-            <LemonButtonWithSideAction
+            <LemonButton
                 type="secondary"
                 fullWidth
                 icon={<IconCalculate />}
@@ -198,7 +294,7 @@ export const FullWidth = (): JSX.Element => {
                 }}
             >
                 Full Width with side action
-            </LemonButtonWithSideAction>
+            </LemonButton>
         </div>
     )
 }
@@ -211,7 +307,7 @@ export const WithSideAction = (): JSX.Element => {
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <div className="flex items-center gap-2">
                         {statuses.map((status, i) => (
-                            <LemonButtonWithSideAction
+                            <LemonButton
                                 key={i}
                                 type={type}
                                 sideAction={{
@@ -222,7 +318,7 @@ export const WithSideAction = (): JSX.Element => {
                                 status={status}
                             >
                                 {capitalizeFirstLetter(status || 'Default')}
-                            </LemonButtonWithSideAction>
+                            </LemonButton>
                         ))}
                     </div>
                 </>
@@ -236,7 +332,7 @@ export const AsLinks = (): JSX.Element => {
         <div className="space-y-2">
             <LemonBanner type="info">
                 <b>Reminder</b> - if you just want a link, use the{' '}
-                <Link to={'/?path=/docs/lemon-ui-link'} disableClientSideRouting>
+                <Link to="/?path=/docs/lemon-ui-link" disableClientSideRouting>
                     Link component
                 </Link>
             </LemonBanner>
@@ -261,46 +357,32 @@ export const AsLinks = (): JSX.Element => {
     )
 }
 
-export const WithDropdownToTheRight = PopoverTemplate.bind({})
+export const WithDropdownToTheRight: PopoverStory = PopoverTemplate.bind({})
 WithDropdownToTheRight.args = {
+    ...Default.args,
     dropdown: {
         overlay: (
             <>
-                <LemonButton status="stealth" fullWidth>
-                    Kakapo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kangaroo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kingfisher
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Koala
-                </LemonButton>
+                <LemonButton fullWidth>Kakapo</LemonButton>
+                <LemonButton fullWidth>Kangaroo</LemonButton>
+                <LemonButton fullWidth>Kingfisher</LemonButton>
+                <LemonButton fullWidth>Koala</LemonButton>
             </>
         ),
         placement: 'right-start',
     },
 }
 
-export const WithDropdownToTheBottom = PopoverTemplate.bind({})
+export const WithDropdownToTheBottom: PopoverStory = PopoverTemplate.bind({})
 WithDropdownToTheBottom.args = {
+    ...Default.args,
     dropdown: {
         overlay: (
             <>
-                <LemonButton status="stealth" fullWidth>
-                    Kakapo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kangaroo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kingfisher
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Koala
-                </LemonButton>
+                <LemonButton fullWidth>Kakapo</LemonButton>
+                <LemonButton fullWidth>Kangaroo</LemonButton>
+                <LemonButton fullWidth>Kingfisher</LemonButton>
+                <LemonButton fullWidth>Koala</LemonButton>
             </>
         ),
         placement: 'bottom',
@@ -308,13 +390,14 @@ WithDropdownToTheBottom.args = {
     },
 }
 
-export const WithVeryLongPopoverToTheBottom = PopoverTemplate.bind({})
+export const WithVeryLongPopoverToTheBottom: PopoverStory = PopoverTemplate.bind({})
 WithVeryLongPopoverToTheBottom.args = {
+    ...Default.args,
     dropdown: {
         overlay: (
             <>
                 {range(200).map((n) => (
-                    <LemonButton key={n} status="stealth" fullWidth>
+                    <LemonButton key={n} fullWidth>
                         {n.toString()}
                     </LemonButton>
                 ))}
@@ -325,8 +408,9 @@ WithVeryLongPopoverToTheBottom.args = {
     },
 }
 
-export const WithTooltip = BasicTemplate.bind({})
+export const WithTooltip: Story = BasicTemplate.bind({})
 WithTooltip.args = {
+    ...Default.args,
     tooltip: 'The flux capacitor will be reloaded. This might take up to 14 hours.',
 }
 
@@ -335,12 +419,8 @@ export const More_ = (): JSX.Element => {
         <More
             overlay={
                 <>
-                    <LemonButton status="stealth" fullWidth>
-                        View
-                    </LemonButton>
-                    <LemonButton status="stealth" fullWidth>
-                        Edit
-                    </LemonButton>
+                    <LemonButton fullWidth>View</LemonButton>
+                    <LemonButton fullWidth>Edit</LemonButton>
                     <LemonDivider />
                     <LemonButton status="danger" fullWidth>
                         Delete
@@ -348,5 +428,22 @@ export const More_ = (): JSX.Element => {
                 </>
             }
         />
+    )
+}
+
+export const WithOverflowingContent = (): JSX.Element => {
+    const longText = 'long text that will overflow the button by at least a little!'
+
+    return (
+        <div className="w-200 border p-2 rounded flex items-center gap-2 overflow-hidden">
+            <LemonButton type="secondary">No shrink</LemonButton>
+            <LemonButton type="secondary" icon={<IconLink />}>
+                Small button
+            </LemonButton>
+            <LemonButton type="secondary" icon={<IconGear />} sideIcon={<IconLink />} truncate>
+                Truncating {longText}
+            </LemonButton>
+            <LemonButton type="secondary">{longText}</LemonButton>
+        </div>
     )
 }

@@ -1,10 +1,12 @@
+import './LemonTabs.scss'
+
 import clsx from 'clsx'
 import { AlignType } from 'rc-trigger/lib/interface'
+
 import { useSliderPositioning } from '../hooks'
 import { IconInfo } from '../icons'
-import { Tooltip } from '../Tooltip'
-import './LemonTabs.scss'
 import { Link } from '../Link'
+import { Tooltip } from '../Tooltip'
 
 /** A tab that represents one of the options, but doesn't have any content. Render tab-dependent UI yourself. */
 export interface AbstractLemonTab<T extends string | number> {
@@ -27,6 +29,7 @@ export interface LemonTabsProps<T extends string | number> {
     onChange?: (key: T) => void
     /** List of tabs. Falsy entries are ignored - they're there to make conditional tabs convenient. */
     tabs: (LemonTab<T> | null | false)[]
+    inline?: boolean
     'data-attr'?: string
 }
 
@@ -51,6 +54,7 @@ export function LemonTabs<T extends string | number>({
     activeKey,
     onChange,
     tabs,
+    inline = false,
     'data-attr': dataAttr,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
@@ -64,7 +68,7 @@ export function LemonTabs<T extends string | number>({
 
     return (
         <div
-            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning')}
+            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', inline && 'LemonTabs--inline')}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {

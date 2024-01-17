@@ -16,6 +16,7 @@ class TestCeleryMetrics(TestCase):
         self.assertEqual(
             60,
             registry.get_sample_value(
-                "posthog_celery_clickhouse_errors", labels={"name": "NO_ZOOKEEPER", "replica": "ch1", "shard": "1"}
+                "posthog_celery_clickhouse_errors",
+                labels={"name": "NO_ZOOKEEPER", "replica": "ch1", "shard": "1"},
             ),
         )

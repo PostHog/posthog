@@ -1,11 +1,10 @@
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { useEffect, useRef } from 'react'
-import { InsightType } from '~/types'
-import { Button, Input, Modal } from 'antd'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
-import { InputFocusOptions } from 'antd/lib/input/Input'
+import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+
+import { InsightType } from '~/types'
 
 interface RenameModalProps {
     typeKey: string
@@ -20,64 +19,42 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
     const { name } = useValues(logic)
     const { setName } = useActions(logic)
 
-    const ref = useRef<Input | null>(null)
-    useSelectAllText(ref, { cursor: 'all' }, [modalVisible])
-
     const title = `Rename ${view === InsightType.FUNNELS ? 'funnel step' : 'graph series'}`
 
     return (
-        <Modal
+        <LemonModal
             data-attr="filter-rename-modal"
-            visible={modalVisible}
+            isOpen={modalVisible}
             title={title}
+            width={520}
             footer={
                 <>
-                    <Button type="link" onClick={hideModal}>
+                    <LemonButton type="secondary" onClick={hideModal}>
                         Cancel
-                    </Button>
-                    <Button type="primary" onClick={() => renameFilter(name)}>
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={() => renameFilter(name)}>
                         {title}
-                    </Button>
+                    </LemonButton>
                 </>
             }
-            onCancel={hideModal}
+            onClose={hideModal}
         >
             Query series/steps can be renamed to provide a more{' '}
             <strong>meaningful label for you and your team members</strong>. Custom names are also shown on dashboards.
             <br />
             <div className="l4 mt-2 mb-2">Name</div>
-            <Input
-                ref={ref}
+            <LemonInput
                 value={name}
                 onPressEnter={() => renameFilter(name)}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(value) => setName(value)}
                 suffix={
                     <span className="text-muted-alt">
                         {getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
                     </span>
                 }
+                autoFocus
+                onFocus={(e) => e.target.select()}
             />
-        </Modal>
-    )
-}
-
-function useSelectAllText(
-    ref: React.MutableRefObject<Input | null>,
-    options: InputFocusOptions,
-    dependencies: any[] = []
-): void {
-    // Hacky setTimeout is needed to select all text on modal open
-    // https://github.com/ant-design/ant-design/issues/8668#issuecomment-352955313
-    useEffect(
-        () => {
-            const autoFocusTimeout = setTimeout(() => {
-                if (ref.current) {
-                    ref.current?.focus(options)
-                }
-            }, 0)
-            return () => clearTimeout(autoFocusTimeout)
-        },
-
-        dependencies
+        </LemonModal>
     )
 }

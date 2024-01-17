@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          step_0_matching_events as matching_events
@@ -120,20 +121,23 @@
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s1']
-  '
----
+    AND min_first_timestamp >= '2020-12-31 00:00:00'
+    AND max_last_timestamp <= '2021-01-09 23:59:59'
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.2
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          step_1_matching_events as matching_events
@@ -254,20 +258,23 @@
   WHERE steps IN [2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+    AND min_first_timestamp >= '2020-12-31 00:00:00'
+    AND max_last_timestamp <= '2021-01-09 23:59:59'
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.4
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          step_1_matching_events as matching_events
@@ -388,15 +395,18 @@
   WHERE steps = 2
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+    AND min_first_timestamp >= '2020-12-31 00:00:00'
+    AND max_last_timestamp <= '2021-01-09 23:59:59'
+  '''
+# ---

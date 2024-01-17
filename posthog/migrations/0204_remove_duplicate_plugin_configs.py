@@ -23,7 +23,6 @@ def remove_duplicate_plugin_configs(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0203_dashboard_permissions"),
     ]

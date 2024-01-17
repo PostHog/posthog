@@ -1,40 +1,20 @@
 .properties-table-key {
+    display: flex;
     min-width: 8rem;
     max-width: 24rem;
-    display: flex;
-}
-
-.property-value-type {
-    display: flex;
-    align-items: center;
-    width: fit-content;
-    height: 1.25rem;
-    padding: 0.125rem 0.25rem;
-    letter-spacing: 0.25px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border-light);
-    background: var(--mid);
-    color: var(--muted-alt);
-    font-size: 0.625rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    white-space: nowrap;
-    cursor: default;
-    &:not(:first-child) {
-        margin-left: 0.25rem;
-    }
 }
 
 .properties-table-value {
-    min-width: 12rem;
-    max-width: fit-content;
     display: flex;
     align-items: center;
+    min-width: 12rem;
+    max-width: fit-content;
 
     .value-link {
         > * {
             vertical-align: middle;
         }
+
         > svg {
             margin-left: 0.25rem;
             font-size: 1rem;
@@ -43,7 +23,20 @@
 
     .editable {
         text-decoration: underline dotted;
-        text-decoration-color: var(--primary);
+        text-decoration-color: var(--primary-3000);
         cursor: pointer;
+
+        .posthog-3000 & {
+            padding: 0.125rem 0.25rem;
+            margin-left: -0.25rem;
+            text-decoration: none;
+            border: 1px solid transparent;
+            border-radius: calc(var(--radius) * 0.75);
+
+            &:hover {
+                background: var(--bg-light);
+                border: 1px solid var(--border-light);
+            }
+        }
     }
 }

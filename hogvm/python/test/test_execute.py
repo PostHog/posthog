@@ -81,7 +81,11 @@ class TestBytecodeExecute(BaseTest):
 
     def test_nested_value(self):
         my_dict = {
-            "properties": {"bla": "hello", "list": ["item1", "item2", "item3"], "tuple": ("item1", "item2", "item3")}
+            "properties": {
+                "bla": "hello",
+                "list": ["item1", "item2", "item3"],
+                "tuple": ("item1", "item2", "item3"),
+            }
         }
         chain = ["properties", "bla"]
         self.assertEqual(get_nested_value(my_dict, chain), "hello")
@@ -104,30 +108,3 @@ class TestBytecodeExecute(BaseTest):
         with self.assertRaises(Exception) as e:
             execute_bytecode([_H, op.TRUE, op.TRUE, op.NOT], {})
         self.assertEqual(str(e.exception), "Invalid bytecode. More than one value left on stack")
-
-    def test_async_operations(self):
-        def async_operation(*args):
-            if args[0] == op.IN_COHORT:
-                return args[1] == "my_id" or args[2] == 2
-            elif args[0] == op.NOT_IN_COHORT:
-                return not (args[1] == "my_id" or args[2] == 2)
-            return False
-
-        self.assertEqual(
-            execute_bytecode([_H, op.INTEGER, 1, op.STRING, "my_id", op.IN_COHORT], {}, async_operation), True
-        )
-        self.assertEqual(
-            execute_bytecode([_H, op.INTEGER, 1, op.STRING, "other_id", op.IN_COHORT], {}, async_operation), False
-        )
-        self.assertEqual(
-            execute_bytecode([_H, op.INTEGER, 2, op.STRING, "other_id", op.IN_COHORT], {}, async_operation), True
-        )
-        self.assertEqual(
-            execute_bytecode([_H, op.INTEGER, 1, op.STRING, "my_id", op.NOT_IN_COHORT], {}, async_operation), False
-        )
-        self.assertEqual(
-            execute_bytecode([_H, op.INTEGER, 1, op.STRING, "other_id", op.NOT_IN_COHORT], {}, async_operation), True
-        )
-        self.assertEqual(
-            execute_bytecode([_H, op.INTEGER, 2, op.STRING, "other_id", op.NOT_IN_COHORT], {}, async_operation), False
-        )

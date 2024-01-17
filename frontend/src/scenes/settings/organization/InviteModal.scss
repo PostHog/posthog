@@ -1,0 +1,12 @@
+.InviteModal__share_link {
+    display: flex;
+    width: 175px;
+    overflow: scroll;
+    white-space: nowrap;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.InviteModal__share_link::-webkit-scrollbar {
+    display: none;
+}

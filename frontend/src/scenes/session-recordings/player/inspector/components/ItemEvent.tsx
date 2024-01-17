@@ -1,11 +1,13 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
+import { insightUrlForEvent } from 'scenes/insights/utils'
+
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -24,8 +26,8 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             : undefined
 
     return (
-        <div data-attr={'item-event'}>
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
+        <div data-attr="item-event">
+            <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate">
                     <PropertyKeyInfo
                         className="font-medium shrink-0"

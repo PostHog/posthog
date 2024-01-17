@@ -10,9 +10,13 @@ class TestUser(BaseTest):
         self.assertNotEqual(user.distinct_id, None)
 
     def test_analytics_metadata(self):
+        self.maxDiff = None
         # One org, one team, anonymized
         organization, team, user = User.objects.bootstrap(
-            organization_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True
+            organization_name="Test Org",
+            email="test_org@posthog.com",
+            password="12345678",
+            anonymize_data=True,
         )
 
         with self.is_cloud(True):
@@ -29,12 +33,14 @@ class TestUser(BaseTest):
                     "team_member_count_all": 1,
                     "completed_onboarding_once": False,
                     "organization_id": str(organization.id),
+                    "current_organization_membership_level": 15,
                     "project_id": str(team.uuid),
                     "project_setup_complete": False,
                     "has_password_set": True,
                     "joined_at": user.date_joined,
                     "has_social_auth": False,
                     "social_providers": [],
+                    "strapi_id": None,
                     "instance_url": "http://localhost:8000",
                     "instance_tag": "none",
                     "is_email_verified": None,
@@ -64,12 +70,14 @@ class TestUser(BaseTest):
                     "team_member_count_all": 2,
                     "completed_onboarding_once": True,
                     "organization_id": str(self.organization.id),
+                    "current_organization_membership_level": 1,
                     "project_id": str(self.team.uuid),
                     "project_setup_complete": True,
                     "has_password_set": True,
                     "joined_at": user_2.date_joined,
                     "has_social_auth": False,
                     "social_providers": [],
+                    "strapi_id": None,
                     "instance_url": "http://localhost:8000",
                     "instance_tag": "none",
                     "is_email_verified": None,

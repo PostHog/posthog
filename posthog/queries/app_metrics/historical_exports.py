@@ -2,12 +2,15 @@ import json
 from datetime import timedelta
 from typing import Dict, Optional
 
-import pytz
+from zoneinfo import ZoneInfo
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.plugin import PluginStorage
 from posthog.models.team.team import Team
-from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMetricsQuery
+from posthog.queries.app_metrics.app_metrics import (
+    AppMetricsErrorsQuery,
+    AppMetricsQuery,
+)
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 
 
@@ -65,10 +68,12 @@ def historical_export_metrics(team: Team, plugin_config_id: int, job_id: str):
     filter_data = {
         "category": "exportEvents",
         "job_id": job_id,
-        "date_from": (export_summary["created_at"] - timedelta(hours=1)).astimezone(pytz.utc).isoformat(),
+        "date_from": (export_summary["created_at"] - timedelta(hours=1)).astimezone(ZoneInfo("UTC")).isoformat(),
     }
     if "finished_at" in export_summary:
-        filter_data["date_to"] = (export_summary["finished_at"] + timedelta(hours=1)).astimezone(pytz.utc).isoformat()
+        filter_data["date_to"] = (
+            (export_summary["finished_at"] + timedelta(hours=1)).astimezone(ZoneInfo("UTC")).isoformat()
+        )
 
     filter = AppMetricsRequestSerializer(data=filter_data)
     filter.is_valid(raise_exception=True)

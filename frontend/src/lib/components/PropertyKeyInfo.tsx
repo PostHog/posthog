@@ -1,15 +1,15 @@
 import './PropertyKeyInfo.scss'
+
+import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { getKeyMapping, PropertyKey, PropertyType } from 'lib/taxonomy'
 import React, { useState } from 'react'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 
 interface PropertyKeyInfoProps {
     value: PropertyKey
     type?: PropertyType
-    tooltipPlacement?: TooltipPlacement
+    tooltipPlacement?: TooltipProps['placement']
     disablePopover?: boolean
     disableIcon?: boolean
     /** @default true */

@@ -1,6 +1,9 @@
 from typing import List
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+)
 
 
 class Migration(AsyncMigrationDefinition):

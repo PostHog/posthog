@@ -1,12 +1,15 @@
-import { kea } from 'kea'
-import api from 'lib/api'
 import Fuse from 'fuse.js'
-import type { featureFlagsLogicType } from './featureFlagsLogicType'
-import { Breadcrumb, FeatureFlagType } from '~/types'
-import { teamLogic } from '../teamLogic'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
-import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+
+import { Breadcrumb, FeatureFlagType } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
@@ -15,36 +18,35 @@ export enum FeatureFlagsTab {
     Analysis = 'analysis',
     USAGE = 'usage',
     PERMISSIONS = 'permissions',
+    PROJECTS = 'projects',
+    SCHEDULE = 'schedule',
 }
 
 export interface FeatureFlagsFilters {
     active: string
-    created_by: string
+    created_by: number
     type: string
-}
-
-interface FeatureFlagCreators {
-    [id: string]: string
 }
 
 export interface FlagLogicProps {
     flagPrefix?: string // used to filter flags by prefix e.g. for the user interview flags
 }
 
-export const featureFlagsLogic = kea<featureFlagsLogicType>({
-    props: {} as FlagLogicProps,
-    path: ['scenes', 'feature-flags', 'featureFlagsLogic'],
-    connect: {
+export const featureFlagsLogic = kea<featureFlagsLogicType>([
+    props({} as FlagLogicProps),
+    path(['scenes', 'feature-flags', 'featureFlagsLogic']),
+    connect({
         values: [teamLogic, ['currentTeamId']],
-    },
-    actions: {
+    }),
+    actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
-    },
-    loaders: ({ values }) => ({
+        closeEnrichAnalyticsNotice: true,
+    }),
+    loaders(({ values }) => ({
         featureFlags: {
             __default: [] as FeatureFlagType[],
             loadFeatureFlags: async () => {
@@ -56,8 +58,48 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 return [...values.featureFlags].map((flag) => (flag.id === response.id ? response : flag))
             },
         },
+    })),
+    reducers({
+        searchTerm: {
+            setSearchTerm: (_, { searchTerm }) => searchTerm,
+        },
+        featureFlags: {
+            updateFlag: (state, { flag }) => {
+                if (state.find(({ id }) => id === flag.id)) {
+                    return state.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag))
+                } else {
+                    return [flag, ...state]
+                }
+            },
+            deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
+        },
+        activeTab: [
+            FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
+            {
+                setActiveTab: (state, { tabKey }) =>
+                    Object.values<string>(FeatureFlagsTab).includes(tabKey) ? tabKey : state,
+            },
+        ],
+        filters: [
+            {} as Partial<FeatureFlagsFilters>,
+            {
+                setFeatureFlagsFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...filters }
+                    }
+                    return { ...state, ...filters }
+                },
+            },
+        ],
+        enrichAnalyticsNoticeAcknowledged: [
+            false,
+            { persist: true },
+            {
+                closeEnrichAnalyticsNotice: () => true,
+            },
+        ],
     }),
-    selectors: {
+    selectors({
         searchedFeatureFlags: [
             (selectors) => [
                 selectors.featureFlags,
@@ -90,7 +132,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
                 }
                 if (created_by) {
-                    searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === parseInt(created_by))
+                    searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === created_by)
                 }
                 if (type === 'boolean') {
                     searchedFlags = searchedFlags.filter(
@@ -111,75 +153,25 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: 'Feature Flags',
+                    key: Scene.FeatureFlags,
+                    name: 'Feature flags',
                     path: urls.featureFlags(),
                 },
             ],
         ],
-        uniqueCreators: [
-            (selectors) => [selectors.featureFlags],
-            (featureFlags) => {
-                const creators: FeatureFlagCreators = {}
-                for (const flag of featureFlags) {
-                    if (flag.created_by) {
-                        if (!creators[flag.created_by.id]) {
-                            creators[flag.created_by.id] = flag.created_by.first_name
-                        }
-                    }
-                }
-                const response: LemonSelectOption<string>[] = [
-                    { label: 'Any user', value: 'any' },
-                    ...Object.entries(creators).map(([id, first_name]) => ({ label: first_name, value: id })),
-                ]
-                return response
-            },
-        ],
         shouldShowEmptyState: [
-            (s) => [s.featureFlagsLoading, s.searchedFeatureFlags, s.searchTerm],
-            (featureFlagsLoading, searchedFeatureFlags, searchTerm): boolean => {
-                return searchedFeatureFlags && searchedFeatureFlags?.length == 0 && !featureFlagsLoading && !searchTerm
+            (s) => [s.featureFlagsLoading, s.featureFlags],
+            (featureFlagsLoading, featureFlags): boolean => {
+                return !featureFlagsLoading && featureFlags.length <= 0
             },
         ],
-    },
-    reducers: {
-        searchTerm: {
-            setSearchTerm: (_, { searchTerm }) => searchTerm,
-        },
-        featureFlags: {
-            updateFlag: (state, { flag }) => {
-                if (state.find(({ id }) => id === flag.id)) {
-                    return state.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag))
-                } else {
-                    return [flag, ...state]
-                }
-            },
-            deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
-        },
-        activeTab: [
-            FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
-            {
-                setActiveTab: (state, { tabKey }) =>
-                    Object.values<string>(FeatureFlagsTab).includes(tabKey) ? tabKey : state,
-            },
-        ],
-        filters: [
-            {} as Partial<FeatureFlagsFilters>,
-            {
-                setFeatureFlagsFilters: (state, { filters, replace }) => {
-                    if (replace) {
-                        return { ...filters }
-                    }
-                    return { ...state, ...filters }
-                },
-            },
-        ],
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions }) => ({
         setFeatureFlagsFilters: () => {
             actions.loadFeatureFlags()
         },
-    }),
-    actionToUrl: ({ values }) => ({
+    })),
+    actionToUrl(({ values }) => ({
         setActiveTab: () => {
             const searchParams = {
                 ...router.values.searchParams,
@@ -194,8 +186,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
         },
-    }),
-    urlToAction: ({ actions, values }) => ({
+    })),
+    urlToAction(({ actions, values }) => ({
         [urls.featureFlags()]: async (_, searchParams) => {
             const tabInURL = searchParams['tab']
 
@@ -207,10 +199,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 actions.setActiveTab(tabInURL)
             }
         },
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadFeatureFlags()
         },
-    }),
-})
+    })),
+])

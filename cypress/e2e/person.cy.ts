@@ -1,8 +1,8 @@
 describe('Person Visualization Check', () => {
     beforeEach(() => {
-        cy.clickNavMenu('persons')
-        cy.location('pathname').should('eq', '/persons')
-        cy.get('.ant-spin-spinning').should('not.exist') // Wait until initial table load to be able to use the search
+        cy.clickNavMenu('personsmanagement')
+        cy.location('pathname').should('contain', '/persons')
+        cy.wait(1000)
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
         cy.contains('deborah.fernandez@gmail.com').should('not.exist')
         cy.contains('deborah.fernandez@gmail.com').click()

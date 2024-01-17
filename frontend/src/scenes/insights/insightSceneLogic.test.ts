@@ -1,10 +1,13 @@
 import { combineUrl, router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { expectLogic, partial } from 'kea-test-utils'
-import { InsightShortId, InsightType, ItemMode } from '~/types'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { initKeaTests } from '~/test/init'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { InsightShortId, InsightType, ItemMode } from '~/types'
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
@@ -35,7 +38,7 @@ describe('insightSceneLogic', () => {
         await expectLogic(router)
             .delay(1)
             .toMatchValues({
-                location: partial({ pathname: urls.insightNew() }),
+                location: partial({ pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID) }),
             })
     })
 
@@ -46,10 +49,14 @@ describe('insightSceneLogic', () => {
         await expectLogic(router)
             .delay(1)
             .toMatchValues({
-                location: partial({ pathname: urls.insightNew(), search: '', hash: '' }),
+                location: partial({
+                    pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID),
+                    search: '',
+                    hash: '',
+                }),
             })
 
-        await expect(logic.values.insightLogicRef?.logic.values.filters.insight).toEqual(InsightType.FUNNELS)
+        expect(logic.values.insightLogicRef?.logic.values.filters.insight).toEqual(InsightType.FUNNELS)
     })
 
     it('persists edit mode in the url', async () => {

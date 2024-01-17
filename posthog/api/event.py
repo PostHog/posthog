@@ -25,9 +25,15 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.queries.property_values import get_property_values_for_key
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.utils import convert_property_value, flatten
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
@@ -52,13 +58,27 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class EventViewSet(
+    StructuredViewSetMixin,
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
-    def _build_next_url(self, request: request.Request, last_event_timestamp: datetime, order_by: List[str]) -> str:
+    def _build_next_url(
+        self,
+        request: request.Request,
+        last_event_timestamp: datetime,
+        order_by: List[str],
+    ) -> str:
         params = request.GET.dict()
         reverse = "-timestamp" in order_by
         timestamp = last_event_timestamp.astimezone().isoformat()
@@ -88,14 +108,26 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 many=True,
             ),
             OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
-            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
             OpenApiParameter(
-                "before", OpenApiTypes.DATETIME, description="Only return events with a timestamp before this time."
+                "distinct_id",
+                OpenApiTypes.INT,
+                description="Filter list by distinct id.",
             ),
             OpenApiParameter(
-                "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
+                "before",
+                OpenApiTypes.DATETIME,
+                description="Only return events with a timestamp before this time.",
             ),
-            OpenApiParameter("limit", OpenApiTypes.INT, description="The maximum number of results to return"),
+            OpenApiParameter(
+                "after",
+                OpenApiTypes.DATETIME,
+                description="Only return events with a timestamp after this time.",
+            ),
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                description="The maximum number of results to return",
+            ),
             PropertiesSerializer(required=False),
         ]
     )
@@ -147,7 +179,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 )
 
             result = ClickhouseEventSerializer(
-                query_result[0:limit], many=True, context={"people": self._get_people(query_result, team)}
+                query_result[0:limit],
+                many=True,
+                context={"people": self._get_people(query_result, team)},
             ).data
 
             next_url: Optional[str] = None
@@ -170,12 +204,20 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         return distinct_to_person
 
     def retrieve(
-        self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any
+        self,
+        request: request.Request,
+        pk: Optional[Union[int, str]] = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> response.Response:
-
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return response.Response(
-                {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error"}, status=400
+                {
+                    "detail": "Invalid UUID",
+                    "code": "invalid",
+                    "type": "validation_error",
+                },
+                status=400,
             )
         query_result = query_with_columns(
             SELECT_ONE_EVENT_SQL,

@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -97,7 +98,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
        toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -125,19 +127,21 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+    AND min_first_timestamp >= '2020-12-31 00:00:00'
+    AND max_last_timestamp <= '2021-01-09 23:59:59'
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -303,7 +307,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2, 3]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
        toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
        3 AS target_step,
@@ -331,19 +336,21 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.3
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+    AND min_first_timestamp >= '2020-12-31 00:00:00'
+    AND max_last_timestamp <= '2021-01-09 23:59:59'
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -441,7 +448,7 @@
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['$pageview', 'insight analyzed']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
@@ -453,7 +460,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -463,19 +471,21 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+    AND min_first_timestamp >= '2020-12-31 00:00:00'
+    AND max_last_timestamp <= '2021-01-09 23:59:59'
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -573,7 +583,7 @@
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
@@ -583,7 +593,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -593,19 +604,21 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s2']
-  '
----
+    AND min_first_timestamp >= '2020-12-31 00:00:00'
+    AND max_last_timestamp <= '2021-01-09 23:59:59'
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             final_matching_events as matching_events , timestamp, steps,
@@ -703,7 +716,7 @@
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
@@ -713,7 +726,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -723,14 +737,16 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.3
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s3']
-  '
----
+    AND min_first_timestamp >= '2020-12-31 00:00:00'
+    AND max_last_timestamp <= '2021-01-09 23:59:59'
+  '''
+# ---

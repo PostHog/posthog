@@ -1,3 +1,25 @@
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+import {
+    BIN_COUNT_AUTO,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PERCENT_STACK_VIEW_DISPLAY_TYPE,
+    RETENTION_FIRST_TIME,
+    ShownAsValue,
+} from 'lib/constants'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
+import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
+
 import {
     AnyFilterType,
     ChartDisplayType,
@@ -7,6 +29,7 @@ import {
     FunnelsFilterType,
     FunnelVizType,
     InsightType,
+    IntervalType,
     LifecycleFilterType,
     PathsFilterType,
     PathType,
@@ -15,28 +38,8 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
-import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
-import { getDefaultEventName } from 'lib/utils/getAppContext'
-import {
-    BIN_COUNT_AUTO,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    PERCENT_STACK_VIEW_DISPLAY_TYPE,
-    RETENTION_FIRST_TIME,
-    ShownAsValue,
-} from 'lib/constants'
-import { autocorrectInterval } from 'lib/utils'
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
-import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
-import {
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
-import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -69,8 +72,9 @@ function cleanBreakdownNormalizeURL(
 
 const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const isStepsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Steps
+    const isTrendsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Trends
     const isTrends = isTrendsFilter(filters)
-    const canBreakdown = isStepsFunnel || isTrends
+    const canBreakdown = isStepsFunnel || isTrendsFunnel || isTrends
 
     const canMultiPropertyBreakdown = isStepsFunnel
 
@@ -165,6 +169,46 @@ export const setTestAccountFilterForNewInsight = (
     }
 }
 
+const disableHourFor: Record<string, boolean> = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+    other: false,
+}
+
+export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
+    if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
+        // Non-time-series insights should not have an interval
+        return undefined
+    }
+    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
+        // Only trend funnels support intervals
+        return undefined
+    }
+    if (!filters.interval) {
+        return 'day'
+    }
+
+    // @ts-expect-error - Old legacy interval support
+    const minute_disabled = filters.interval === 'minute'
+    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return filters.interval
+    }
+}
+
 export function cleanFilters(
     filters: Partial<AnyFilterType>,
     test_account_filters_default_checked?: boolean
@@ -232,7 +276,6 @@ export function cleanFilters(
             ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
             ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
             ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
-            ...(filters.funnel_advanced ? { funnel_advanced: filters.funnel_advanced } : {}),
             ...(filters.funnel_aggregate_by_hogql
                 ? { funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql }
                 : {}),

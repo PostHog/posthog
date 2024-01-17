@@ -1,2 +1,2 @@
-export { FeaturePreviewsModal } from './FeaturePreviewsModal'
 export { featurePreviewsLogic } from './featurePreviewsLogic'
+export { FeaturePreviewsModal } from './FeaturePreviewsModal'

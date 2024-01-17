@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0191_rename_specialmigration_asyncmigration"),
     ]
@@ -15,7 +14,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="EventProperty",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("event", models.CharField(max_length=400)),
                 ("property", models.CharField(max_length=400)),
                 (
@@ -38,7 +45,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="eventproperty",
             constraint=models.UniqueConstraint(
-                fields=("team", "event", "property"), name="posthog_event_property_unique_team_event_property"
+                fields=("team", "event", "property"),
+                name="posthog_event_property_unique_team_event_property",
             ),
         ),
     ]

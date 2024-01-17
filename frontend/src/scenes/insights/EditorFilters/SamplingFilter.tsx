@@ -1,8 +1,10 @@
-import { InsightLogicProps } from '~/types'
 import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 import posthog from 'posthog-js'
+
+import { InsightLogicProps } from '~/types'
+
+import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
     'Sampling computes the result on only a subset of the data, making insights load significantly faster.'
@@ -23,7 +25,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
                     infoLink="https://posthog.com/manual/sampling"
                 >
-                    Sampling<LemonTag type="warning">BETA</LemonTag>
+                    Sampling <LemonTag type="warning">BETA</LemonTag>
                 </LemonLabel>
                 <LemonSwitch
                     className="m-2"
@@ -39,7 +41,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     checked={!!samplingPercentage}
                 />
             </div>
-            {!!samplingPercentage ? (
+            {samplingPercentage ? (
                 <div className="SamplingFilter">
                     <div className="flex items-center gap-2">
                         {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (

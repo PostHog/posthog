@@ -1,20 +1,22 @@
 import { beforeUnmount, connect, kea, key, path, props } from 'kea'
-import { Definition, EventDefinition, PropertyDefinition } from '~/types'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { capitalizeFirstLetter } from 'lib/utils'
 import {
     definitionLogic,
     DefinitionLogicProps,
     DefinitionPageMode,
 } from 'scenes/data-management/definition/definitionLogic'
-import type { definitionEditLogicType } from './definitionEditLogicType'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { tagsModel } from '~/models/tagsModel'
+import { Definition, EventDefinition, PropertyDefinition } from '~/types'
+
+import type { definitionEditLogicType } from './definitionEditLogicType'
 
 export interface DefinitionEditLogicProps extends DefinitionLogicProps {
     definition: Definition
@@ -55,33 +57,29 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                 saveDefinition: async (_, breakpoint) => {
                     let definition = { ...values.definition }
 
-                    try {
-                        if (values.isEvent) {
-                            // Event Definition
-                            const _event = definition as EventDefinition
-                            definition = await api.eventDefinitions.update({
-                                eventDefinitionId: _event.id,
-                                eventDefinitionData: {
-                                    ..._event,
-                                    owner: _event.owner?.id ?? null,
-                                    verified: !!_event.verified,
-                                },
-                            })
-                        } else {
-                            // Event Property Definition
-                            const _eventProperty = definition as PropertyDefinition
-                            definition = await api.propertyDefinitions.update({
-                                propertyDefinitionId: _eventProperty.id,
-                                propertyDefinitionData: _eventProperty,
-                            })
-                            updatePropertyDefinitions({
-                                [`event/${definition.name}`]: definition as PropertyDefinition,
-                            })
-                        }
-                        breakpoint()
-                    } catch (response: any) {
-                        throw response
+                    if (values.isEvent) {
+                        // Event Definition
+                        const _event = definition as EventDefinition
+                        definition = await api.eventDefinitions.update({
+                            eventDefinitionId: _event.id,
+                            eventDefinitionData: {
+                                ..._event,
+                                owner: _event.owner?.id ?? null,
+                                verified: !!_event.verified,
+                            },
+                        })
+                    } else {
+                        // Event Property Definition
+                        const _eventProperty = definition as PropertyDefinition
+                        definition = await api.propertyDefinitions.update({
+                            propertyDefinitionId: _eventProperty.id,
+                            propertyDefinitionData: _eventProperty,
+                        })
+                        updatePropertyDefinitions({
+                            [`event/${definition.name}`]: definition as PropertyDefinition,
+                        })
                     }
+                    breakpoint()
 
                     lemonToast.success(`${capitalizeFirstLetter(values.singular)} saved`)
                     // Update table values

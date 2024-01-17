@@ -2,17 +2,20 @@ import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
+    defaultDescriber,
     Description,
     detectBoolean,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     // detail.name
@@ -77,26 +80,31 @@ const featureFlagActionsMapping: Record<
                     .forEach((groupAfter: FeatureFlagGroupType) => {
                         const { properties, rollout_percentage = null } = groupAfter
 
-                        if (properties?.length > 0) {
-                            const newButtons = properties.map((property, idx) => {
-                                return (
-                                    <>
-                                        {' '}
-                                        {idx === 0 && (
-                                            <span>
-                                                <strong>{rollout_percentage ?? 100}%</strong> of{' '}
-                                            </span>
-                                        )}
-                                        <PropertyFilterButton key={property.key} item={property} />
-                                    </>
-                                )
-                            })
+                        if ((properties?.length || 0) > 0) {
+                            const nonEmptyProperties = properties as AnyPropertyFilter[] // above check ensures this is not null
+                            const newButtons =
+                                nonEmptyProperties.map((property, idx) => {
+                                    return (
+                                        <>
+                                            {' '}
+                                            {idx === 0 && (
+                                                <span>
+                                                    <strong>{rollout_percentage ?? 100}%</strong> of{' '}
+                                                </span>
+                                            )}
+                                            <PropertyFilterButton key={property.key} item={property} />
+                                        </>
+                                    )
+                                }) || []
                             newButtons[0] = (
                                 <>
                                     <span>
                                         <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
-                                    <PropertyFilterButton key={properties[0].key} item={properties[0]} />
+                                    <PropertyFilterButton
+                                        key={nonEmptyProperties[0].key}
+                                        item={nonEmptyProperties[0]}
+                                    />
                                 </>
                             )
                             groupAdditions.push(...newButtons)
@@ -186,7 +194,7 @@ const featureFlagActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed rollout percentage to <div className="highlighted-activity">{change?.after}%</div>
+                    changed rollout percentage to <div className="highlighted-activity">{change?.after as string}%</div>
                 </>,
             ],
         }
@@ -244,6 +252,8 @@ const featureFlagActionsMapping: Record<
     performed_rollback: () => null,
     can_edit: () => null,
     analytics_dashboards: () => null,
+    has_enriched_analytics: () => null,
+    surveys: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -252,21 +262,6 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return { description: null }
     }
 
-    if (logItem.activity == 'created') {
-        return {
-            description: <> created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
-        }
-    }
-    if (logItem.activity == 'deleted') {
-        return {
-            description: (
-                <>
-                    deleted {asNotification && ' the flag '}
-                    {logItem.detail.name}
-                </>
-            ),
-        }
-    }
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let changeSuffix: Description = (
@@ -300,7 +295,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                         listParts={changes}
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong>
+                                <strong>{userNameForLogItem(logItem)}</strong>
                             </>
                         }
                         suffix={changeSuffix}
@@ -310,5 +305,5 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification, nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name))
 }

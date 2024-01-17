@@ -8,9 +8,17 @@ from posthog.models.activity_logging.activity_log import Detail, Trigger, log_ac
 from posthog.models.plugin import Plugin, PluginConfig, PluginStorage
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity
+from posthog.queries.app_metrics.historical_exports import (
+    historical_export_metrics,
+    historical_exports_activity,
+)
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
-from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries, snapshot_postgres_queries
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries,
+)
 
 SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 
@@ -32,12 +40,18 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activity="job_triggered",
             detail=Detail(
                 name="Some export plugin",
-                trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload=SAMPLE_PAYLOAD),
+                trigger=Trigger(
+                    job_type="Export historical events V2",
+                    job_id="1234",
+                    payload=SAMPLE_PAYLOAD,
+                ),
             ),
         )
 
         PluginStorage.objects.create(
-            plugin_config_id=self.plugin_config.pk, key="EXPORT_COORDINATION", value=json.dumps({"progress": 0.33})
+            plugin_config_id=self.plugin_config.pk,
+            key="EXPORT_COORDINATION",
+            value=json.dumps({"progress": 0.33}),
         )
 
         activities = historical_exports_activity(self.team.pk, self.plugin_config.pk)
@@ -61,7 +75,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 activity="job_triggered",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload=SAMPLE_PAYLOAD),
+                    trigger=Trigger(
+                        job_type="Export historical events V2",
+                        job_id="1234",
+                        payload=SAMPLE_PAYLOAD,
+                    ),
                 ),
             )
         with freeze_time("2021-08-25T13:00:00Z"):
@@ -69,7 +87,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 activity="export_success",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload={}),
+                    trigger=Trigger(
+                        job_type="Export historical events V2",
+                        job_id="1234",
+                        payload={},
+                    ),
                 ),
             )
 
@@ -95,7 +117,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 activity="job_triggered",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload=SAMPLE_PAYLOAD),
+                    trigger=Trigger(
+                        job_type="Export historical events V2",
+                        job_id="1234",
+                        payload=SAMPLE_PAYLOAD,
+                    ),
                 ),
             )
         with freeze_time("2021-08-25T13:00:00Z"):
@@ -104,7 +130,9 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 detail=Detail(
                     name="Some export plugin",
                     trigger=Trigger(
-                        job_type="Export historical events V2", job_id="1234", payload={"failure_reason": "foobar"}
+                        job_type="Export historical events V2",
+                        job_id="1234",
+                        payload={"failure_reason": "foobar"},
                     ),
                 ),
             )
@@ -130,7 +158,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
             activity="job_triggered",
             detail=Detail(
                 name="Some export plugin",
-                trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload=SAMPLE_PAYLOAD),
+                trigger=Trigger(
+                    job_type="Export historical events V2",
+                    job_id="1234",
+                    payload=SAMPLE_PAYLOAD,
+                ),
             ),
         )
 
@@ -192,7 +224,9 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                     detail=Detail(
                         name="Some export plugin",
                         trigger=Trigger(
-                            job_type="Export historical events V2", job_id=str(hour), payload=SAMPLE_PAYLOAD
+                            job_type="Export historical events V2",
+                            job_id=str(hour),
+                            payload=SAMPLE_PAYLOAD,
                         ),
                     ),
                 )
@@ -218,7 +252,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 activity="job_triggered",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload=SAMPLE_PAYLOAD),
+                    trigger=Trigger(
+                        job_type="Export historical events V2",
+                        job_id="1234",
+                        payload=SAMPLE_PAYLOAD,
+                    ),
                 ),
             )
         with freeze_time("2021-08-25T05:00:00Z"):
@@ -226,7 +264,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                 activity="export_success",
                 detail=Detail(
                     name="Some export plugin",
-                    trigger=Trigger(job_type="Export historical events V2", job_id="1234", payload={}),
+                    trigger=Trigger(
+                        job_type="Export historical events V2",
+                        job_id="1234",
+                        payload={},
+                    ),
                 ),
             )
 
@@ -276,7 +318,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
                     "successes": [0, 102, 0, 10, 0, 0, 0],
                     "successes_on_retry": [0, 0, 0, 0, 0, 0, 0],
                     "failures": [0, 0, 2, 0, 0, 0, 0],
-                    "totals": {"successes": 112, "successes_on_retry": 0, "failures": 2},
+                    "totals": {
+                        "successes": 112,
+                        "successes_on_retry": 0,
+                        "failures": 2,
+                    },
                 },
                 "summary": {
                     "duration": 4 * 60 * 60,
@@ -299,12 +345,13 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
 
     def _create_activity_log(self, **kwargs):
         log_activity(
-            **{
+            **{  # Using dict form so that kwargs can override these defaults
                 "organization_id": self.team.organization.id,
                 "team_id": self.team.pk,
                 "user": self.user,
                 "item_id": self.plugin_config.pk,
                 "scope": "PluginConfig",
+                "was_impersonated": False,
                 **kwargs,
             }
         )

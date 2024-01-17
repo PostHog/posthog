@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0255_user_prompt_sequence_state"),
     ]
@@ -24,10 +23,15 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddIndex(
@@ -45,7 +49,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="asyncdeletion",
             constraint=models.UniqueConstraint(
-                fields=("deletion_type", "key", "group_type_index"), name="unique deletion for groups"
+                fields=("deletion_type", "key", "group_type_index"),
+                name="unique deletion for groups",
             ),
         ),
     ]

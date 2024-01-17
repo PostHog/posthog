@@ -10,6 +10,7 @@ from posthog.permissions import IsStaffUser
 
 KAFKA_CONSUMER_TIMEOUT = 1000
 
+
 # the kafka package doesn't expose ConsumerRecord
 class KafkaConsumerRecord:
     topic: str
@@ -46,13 +47,13 @@ class KafkaInspectorViewSet(viewsets.ViewSet):
         partition = request.data.get("partition", None)
         offset = request.data.get("offset", None)
 
-        if type(topic) != str:
+        if not isinstance(topic, str):
             return Response({"error": "Invalid topic."}, status=400)
 
-        if type(partition) != int:
+        if not isinstance(partition, int):
             return Response({"error": "Invalid partition."}, status=400)
 
-        if type(offset) != int:
+        if not isinstance(offset, int):
             return Response({"error": "Invalid offset."}, status=400)
 
         try:
@@ -74,7 +75,10 @@ class KafkaInspectorViewSet(viewsets.ViewSet):
 
 def get_kafka_message(topic: str, partition: int, offset: int) -> KafkaConsumerRecord:
     consumer = build_kafka_consumer(
-        topic=None, auto_offset_reset="earliest", group_id="kafka-inspector", consumer_timeout_ms=KAFKA_CONSUMER_TIMEOUT
+        topic=None,
+        auto_offset_reset="earliest",
+        group_id="kafka-inspector",
+        consumer_timeout_ms=KAFKA_CONSUMER_TIMEOUT,
     )
 
     consumer.assign([TopicPartition(topic, partition)])

@@ -4,7 +4,10 @@ from typing import Generator, List, Set, Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models.action.util import get_action_tables_and_properties, uses_elements_chain
+from posthog.models.action.util import (
+    get_action_tables_and_properties,
+    uses_elements_chain,
+)
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -13,7 +16,11 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
-from posthog.models.property import PropertyIdentifier, PropertyType, TableWithProperties
+from posthog.models.property import (
+    PropertyIdentifier,
+    PropertyType,
+    TableWithProperties,
+)
 from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.property_optimizer import PropertyOptimizer
 
@@ -27,7 +34,13 @@ class FOSSColumnOptimizer:
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, PropertiesTimelineFilter],
+        filter: Union[
+            Filter,
+            PathFilter,
+            RetentionFilter,
+            StickinessFilter,
+            PropertiesTimelineFilter,
+        ],
         team_id: int,
     ):
         self.filter = filter
@@ -53,7 +66,10 @@ class FOSSColumnOptimizer:
         return self.columns_to_query("person", set(self.used_properties_with_type("person")))
 
     def columns_to_query(
-        self, table: TableWithProperties, used_properties: Set[PropertyIdentifier], table_column: str = "properties"
+        self,
+        table: TableWithProperties,
+        used_properties: Set[PropertyIdentifier],
+        table_column: str = "properties",
     ) -> Set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
 
@@ -119,12 +135,24 @@ class FOSSColumnOptimizer:
                 boxed_breakdown = box_value(self.filter.breakdown)
                 for b in boxed_breakdown:
                     if isinstance(b, str):
-                        counter[(b, self.filter.breakdown_type, self.filter.breakdown_group_type_index)] += 1
+                        counter[
+                            (
+                                b,
+                                self.filter.breakdown_type,
+                                self.filter.breakdown_group_type_index,
+                            )
+                        ] += 1
 
             # If we have a breakdowns attribute then make sure we pull in everything we
             # need to calculate it
             for breakdown in self.filter.breakdowns or []:
-                counter[(breakdown["property"], breakdown["type"], self.filter.breakdown_group_type_index)] += 1
+                counter[
+                    (
+                        breakdown["property"],
+                        breakdown["type"],
+                        self.filter.breakdown_group_type_index,
+                    )
+                ] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.entities_used_in_filter():
@@ -147,7 +175,6 @@ class FOSSColumnOptimizer:
             and self.filter.correlation_type == FunnelCorrelationType.PROPERTIES
             and self.filter.correlation_property_names
         ):
-
             for prop_value in self.filter.correlation_property_names:
                 counter[(prop_value, "person", None)] += 1
 
@@ -157,7 +184,11 @@ class FOSSColumnOptimizer:
         return Counter(
             {
                 (name, type, group_type_index): count
-                for (name, type, group_type_index), count in self.properties_used_in_filter.items()
+                for (
+                    name,
+                    type,
+                    group_type_index,
+                ), count in self.properties_used_in_filter.items()
                 if type == property_type
             }
         )

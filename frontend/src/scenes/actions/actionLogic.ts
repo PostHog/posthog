@@ -1,24 +1,39 @@
-import { kea } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import type { actionLogicType } from './actionLogicType'
-import { ActionType, Breadcrumb } from '~/types'
+import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { ActionType, Breadcrumb } from '~/types'
+
+import { actionEditLogic } from './actionEditLogic'
+import type { actionLogicType } from './actionLogicType'
 
 export interface ActionLogicProps {
     id?: ActionType['id']
 }
 
-export const actionLogic = kea<actionLogicType>({
-    props: {} as ActionLogicProps,
-    key: (props) => props.id || 'new',
-    path: (key) => ['scenes', 'actions', 'actionLogic', key],
-
-    actions: () => ({
+export const actionLogic = kea<actionLogicType>([
+    props({} as ActionLogicProps),
+    key((props) => props.id || 'new'),
+    path((key) => ['scenes', 'actions', 'actionLogic', key]),
+    actions(() => ({
         checkIsFinished: (action) => ({ action }),
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
         setIsComplete: (isComplete) => ({ isComplete }),
-    }),
-    reducers: () => ({
+    })),
+    loaders(({ props }) => ({
+        action: {
+            loadAction: async () => {
+                if (!props.id) {
+                    throw new Error('Cannot fetch an unsaved action from the API.')
+                }
+                return await api.actions.get(props.id)
+            },
+        },
+    })),
+    reducers(() => ({
         pollTimeout: [
             null as number | null,
             {
@@ -31,40 +46,42 @@ export const actionLogic = kea<actionLogicType>({
                 setIsComplete: (_, { isComplete }) => isComplete,
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         breadcrumbs: [
-            (s) => [s.action],
-            (action): Breadcrumb[] => [
+            (s) => [
+                s.action,
+                (state, props) =>
+                    actionEditLogic.findMounted(String(props?.id || 'new'))?.selectors.action(state).name || null,
+            ],
+            (action, inProgressName): Breadcrumb[] => [
                 {
+                    key: Scene.DataManagement,
                     name: `Data Management`,
                     path: urls.eventDefinitions(),
                 },
                 {
+                    key: DataManagementTab.Actions,
                     name: 'Actions',
                     path: urls.actions(),
                 },
                 {
-                    name: action?.name || 'Unnamed',
-                    path: action ? urls.action(action.id) : undefined,
+                    key: [Scene.Action, action?.id || 'new'],
+                    name: inProgressName ?? (action?.name || ''),
+                    onRename: async (name: string) => {
+                        const id = action?.id
+                        const actionEditLogicActions = actionEditLogic.find(String(id || 'new'))
+                        actionEditLogicActions.actions.setActionValue('name', name)
+                        if (id) {
+                            await actionEditLogicActions.asyncActions.submitAction()
+                        }
+                    },
+                    forceEditMode: !action?.id,
                 },
             ],
         ],
-    },
-    loaders: ({ actions, props }) => ({
-        action: {
-            loadAction: async () => {
-                actions.setIsComplete(false)
-                if (!props.id) {
-                    throw new Error('Cannot fetch an unsaved action from the API.')
-                }
-                const action = await api.actions.get(props.id)
-                actions.checkIsFinished(action)
-                return action
-            },
-        },
     }),
-    listeners: ({ actions, values }) => ({
+    listeners(({ actions, values }) => ({
         checkIsFinished: ({ action }) => {
             if (action.is_calculating) {
                 actions.setPollTimeout(setTimeout(() => actions.loadAction(), 1000))
@@ -73,13 +90,17 @@ export const actionLogic = kea<actionLogicType>({
                 values.pollTimeout && clearTimeout(values.pollTimeout)
             }
         },
-    }),
-    events: ({ values, actions, props }) => ({
+        loadActionSuccess: ({ action }) => {
+            actions.setIsComplete(false)
+            actions.checkIsFinished(action)
+        },
+    })),
+    events(({ values, actions, props }) => ({
         afterMount: () => {
             props.id && actions.loadAction()
         },
         beforeUnmount: () => {
             values.pollTimeout && clearTimeout(values.pollTimeout)
         },
-    }),
-})
+    })),
+])

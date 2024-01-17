@@ -4,7 +4,6 @@ import { Counter } from 'prom-client'
 import { EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
-import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { GraphileWorker } from './graphile-worker'
 import { loadPluginSchedule, runScheduledTasks } from './schedule'
 
@@ -84,12 +83,8 @@ export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWork
 export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina): TaskList {
     const pluginJobHandlers: TaskList = {
         pluginJob: async (job) => {
-            pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub, piscina)
             const jobType = (job as EnqueuedPluginJob)?.type
             jobsTriggeredCounter.labels(jobType).inc()
-            hub.statsd?.increment('triggered_job', {
-                instanceId: hub.instanceId.toString(),
-            })
             try {
                 await piscina.run({ task: 'runPluginJob', args: { job: job as EnqueuedPluginJob } })
                 jobsExecutionSuccessCounter.labels(jobType).inc()

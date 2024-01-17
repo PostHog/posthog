@@ -1,7 +1,5 @@
-import { Client, Pool } from 'pg'
-
 import { Action, ActionStep, Hook, RawAction, Team } from '../../types'
-import { postgresQuery } from '../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
 
 export type ActionMap = Record<Action['id'], Action>
@@ -9,10 +7,10 @@ type ActionCache = Record<Team['id'], ActionMap>
 
 export class ActionManager {
     private ready: boolean
-    private postgres: Client | Pool
+    private postgres: PostgresRouter
     private actionCache: ActionCache
 
-    constructor(postgres: Client | Pool) {
+    constructor(postgres: PostgresRouter) {
         this.ready = false
         this.postgres = postgres
         this.actionCache = {}
@@ -75,14 +73,14 @@ export class ActionManager {
 }
 
 export async function fetchAllActionsGroupedByTeam(
-    client: Client | Pool
+    client: PostgresRouter
 ): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
     const restHooks = await fetchActionRestHooks(client)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
 
     const rawActions = (
-        await postgresQuery<RawAction>(
-            client,
+        await client.query<RawAction>(
+            PostgresUse.COMMON_READ,
             `
             SELECT
                 id,
@@ -96,7 +94,9 @@ export async function fetchAllActionsGroupedByTeam(
                 slack_message_format,
                 is_calculating,
                 updated_at,
-                last_calculated_at
+                last_calculated_at,
+                bytecode,
+                bytecode_error
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,
@@ -107,8 +107,8 @@ export async function fetchAllActionsGroupedByTeam(
 
     const pluginIds: number[] = rawActions.map(({ id }) => id)
     const actionSteps: (ActionStep & { team_id: Team['id'] })[] = (
-        await postgresQuery(
-            client,
+        await client.query(
+            PostgresUse.COMMON_READ,
             `
                 SELECT posthog_actionstep.*, posthog_action.team_id
                 FROM posthog_actionstep JOIN posthog_action ON (posthog_action.id = posthog_actionstep.action_id)
@@ -143,10 +143,10 @@ export async function fetchAllActionsGroupedByTeam(
     return actions
 }
 
-export async function fetchActionRestHooks(client: Client | Pool, actionId?: Hook['resource_id']): Promise<Hook[]> {
+export async function fetchActionRestHooks(client: PostgresRouter, actionId?: Hook['resource_id']): Promise<Hook[]> {
     try {
-        const { rows } = await postgresQuery<Hook>(
-            client,
+        const { rows } = await client.query<Hook>(
+            PostgresUse.COMMON_READ,
             `
             SELECT *
             FROM ee_hook
@@ -167,10 +167,10 @@ export async function fetchActionRestHooks(client: Client | Pool, actionId?: Hoo
     }
 }
 
-export async function fetchAction(client: Client | Pool, id: Action['id']): Promise<Action | null> {
+export async function fetchAction(client: PostgresRouter, id: Action['id']): Promise<Action | null> {
     const rawActions: RawAction[] = (
-        await postgresQuery(
-            client,
+        await client.query(
+            PostgresUse.COMMON_READ,
             `SELECT * FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
             [id],
             'fetchActions'
@@ -181,8 +181,8 @@ export async function fetchAction(client: Client | Pool, id: Action['id']): Prom
     }
 
     const [steps, hooks] = await Promise.all([
-        postgresQuery<ActionStep>(
-            client,
+        client.query<ActionStep>(
+            PostgresUse.COMMON_READ,
             `SELECT * FROM posthog_actionstep WHERE action_id = $1`,
             [id],
             'fetchActionSteps'

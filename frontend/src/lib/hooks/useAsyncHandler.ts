@@ -9,7 +9,7 @@ import { useState } from 'react'
  * return <LemonButton onClick={onEvent} loading={loading}>Click me</button>
  */
 export function useAsyncHandler<E extends React.UIEvent>(
-    onEvent: ((e: E) => any | Promise<any>) | undefined
+    onEvent: ((e: E) => any) | undefined
 ): { loading: boolean; onEvent: ((e: E) => void) | undefined } {
     const [loading, setLoading] = useState(false)
 
@@ -19,7 +19,7 @@ export function useAsyncHandler<E extends React.UIEvent>(
                   const result = onEvent(e)
                   if (result instanceof Promise) {
                       setLoading(true)
-                      result.finally(() => setLoading(false))
+                      void result.finally(() => setLoading(false))
                   }
               }
           }

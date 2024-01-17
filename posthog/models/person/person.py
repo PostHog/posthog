@@ -5,6 +5,10 @@ from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
 
+from ..team import Team
+
+MAX_LIMIT_DISTINCT_IDS = 2500
+
 
 class PersonManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
@@ -22,10 +26,14 @@ class PersonManager(models.Manager):
 
 
 class Person(models.Model):
+    _distinct_ids: Optional[List[str]]
+
     @property
     def distinct_ids(self) -> List[str]:
         if hasattr(self, "distinct_ids_cache"):
-            return [id.distinct_id for id in self.distinct_ids_cache]  # type: ignore
+            return [id.distinct_id for id in self.distinct_ids_cache]
+        if hasattr(self, "_distinct_ids") and self._distinct_ids:
+            return self._distinct_ids
         return [
             id[0]
             for id in PersonDistinctId.objects.filter(person=self, team_id=self.team_id)
@@ -42,12 +50,16 @@ class Person(models.Model):
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
-    def split_person(self, main_distinct_id: Optional[str]):
+    def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
         distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
         if not main_distinct_id:
             self.properties = {}
             self.save()
             main_distinct_id = distinct_ids[0]
+
+        if max_splits is not None and len(distinct_ids) > max_splits:
+            # Split the last N distinct_ids of the list
+            distinct_ids = distinct_ids[-1 * max_splits :]
 
         for distinct_id in distinct_ids:
             if not distinct_id == main_distinct_id:
@@ -58,7 +70,10 @@ class Person(models.Model):
                     pdi.version = (pdi.version or 0) + 1
                     pdi.save(update_fields=["version", "person_id"])
 
-                from posthog.models.person.util import create_person, create_person_distinct_id
+                from posthog.models.person.util import (
+                    create_person,
+                    create_person_distinct_id,
+                )
 
                 create_person_distinct_id(
                     team_id=self.team_id,
@@ -67,7 +82,11 @@ class Person(models.Model):
                     is_deleted=False,
                     version=pdi.version,
                 )
-                create_person(team_id=self.team_id, uuid=str(person.uuid), version=person.version or 0)
+                create_person(
+                    team_id=self.team_id,
+                    uuid=str(person.uuid),
+                    version=person.version or 0,
+                )
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
@@ -130,7 +149,10 @@ class PersonOverride(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
+            models.UniqueConstraint(
+                fields=["team", "old_person_id"],
+                name="unique override per old_person_id",
+            ),
             models.CheckConstraint(
                 check=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
@@ -155,3 +177,135 @@ class PersonOverride(models.Model):
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+class PendingPersonOverride(models.Model):
+    """
+    The pending person overrides model/table contains records of merges that
+    have occurred, but have not yet been integrated into the person overrides
+    table.
+
+    This table should generally be considered as a log table or queue. When a
+    merge occurs, it is recorded to the log (added to the queue) as part of the
+    merge transaction. Later, another process comes along, reading from the
+    other end of the log (popping from the queue) and applying the necessary
+    updates to the person overrides table as part of secondary transaction.
+
+    This approach allows us to decouple the set of operations that must occur as
+    part of an atomic transactional unit during person merging (moving distinct
+    IDs, merging properties, deleting the subsumed person, etc.) from those that
+    are more tolerant to eventual consistency (updating person overrides in
+    Postgres and subsequently relaying those updates to ClickHouse in various
+    forms to update the person associated with an event.) This decoupling helps
+    us to minimize the overhead of the primary merge transaction by reducing the
+    degree of contention within the ingestion pipeline caused by long-running
+    transactions. This decoupling also allows us to serialize the execution of
+    all updates to the person overrides table through a single writer, which
+    allows us to safely update the person overrides table while handling tricky
+    cases like applying transitive updates without the need for expensive table
+    constraints to ensure their validity.
+    """
+
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    old_person_id = models.UUIDField()
+    override_person_id = models.UUIDField()
+    oldest_event = models.DateTimeField()
+
+
+class FlatPersonOverride(models.Model):
+    """
+    The (flat) person overrides model/table contains a consolidated record of
+    all merges that have occurred, but have not yet been integrated into the
+    ClickHouse events table through a squash operation. Once the effects of a
+    merge have been integrated into the events table, the associated override
+    record can be deleted from this table.
+
+    This table is in some sense a materialized view over the pending person
+    overrides table (i.e. the merge log.) It differs from that base table in
+    that it should be maintained during updates to account for the effects of
+    transitive merges. For example, if person A is merged into person B, and
+    then person B is merged into person C, we'd expect the first record (A->B)
+    to be updated to reflect that person A has been merged into person C (A->C,
+    eliding the intermediate step.)
+
+    There are several important expectations about the nature of the data within
+    this table:
+
+    * A person should only appear as an "old" person at most once for a given
+      team (as appearing more than once would imply they were merged into
+      multiple people.)
+    * A person cannot be merged into themselves (i.e. be both the "old" and
+      "override" person within a given row.)
+    * A person should only appear in a table as _either_ an "old" person or
+      "override" person for a given team -- but never both, as this would
+      indicate a failure to account for a transitive merge.
+
+    The first two of these expectations can be enforced as constraints, but
+    unfortunately we've found the third to be too costly to enforce in practice.
+    Instead, we try to ensure that this invariant holds by serializing all
+    writes to this table through the ``PendingPersonOverride`` model above.
+
+    The "flat" in the table name is used to distinguish this table from a prior
+    approach that required multiple tables to maintain the same state but
+    otherwise has little significance of its own.
+    """
+
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    old_person_id = models.UUIDField()
+    override_person_id = models.UUIDField()
+    oldest_event = models.DateTimeField()
+    version = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "override_person_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "old_person_id"],
+                name="flatpersonoverride_unique_old_person_by_team",
+            ),
+            models.CheckConstraint(
+                check=~Q(old_person_id__exact=F("override_person_id")),
+                name="flatpersonoverride_check_circular_reference",
+            ),
+        ]
+
+
+def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str]:
+    """_summary_
+    Fetching distinct_ids for a person from CH is slow, so we
+    fetch them from PG for certain queries. Therfore we need
+    to inline the ids in a `distinct_ids IN (...)` clause.
+
+    This can cause the query to explode for persons with many
+    ids. Thus we need to limit the amount of distinct_ids we
+    pass through.
+
+    The first distinct_ids should contain the real distinct_ids
+    for a person and later ones should be associated with current
+    events. Therefore we union from both sides.
+
+    Many ids are usually a sign of instrumentation issues
+    on the customer side.
+    """
+    first_ids_limit = 100
+    last_ids_limit = MAX_LIMIT_DISTINCT_IDS - first_ids_limit
+
+    if person is not None:
+        first_ids = (
+            PersonDistinctId.objects.filter(person=person, team=team)
+            .order_by("id")
+            .values_list("distinct_id", flat=True)[:first_ids_limit]
+        )
+        last_ids = (
+            PersonDistinctId.objects.filter(person=person, team=team)
+            .order_by("-id")
+            .values_list("distinct_id", flat=True)[:last_ids_limit]
+        )
+        distinct_ids = first_ids.union(last_ids)
+    else:
+        distinct_ids = []
+    return list(map(str, distinct_ids))

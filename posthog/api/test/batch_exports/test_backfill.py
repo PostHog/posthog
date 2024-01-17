@@ -10,7 +10,7 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 
 pytestmark = [
     pytest.mark.django_db,
@@ -31,7 +31,6 @@ def test_batch_export_backfill(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -51,7 +50,13 @@ def test_batch_export_backfill(client: HttpClient):
         batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
         batch_export_id = batch_export["id"]
 
-        response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T00:00:00", "2021-01-01T01:00:00")
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            "2021-01-01T00:00:00",
+            "2021-01-01T01:00:00",
+        )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
 
@@ -65,7 +70,6 @@ def test_batch_export_backfill_with_non_isoformatted_dates(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -103,7 +107,6 @@ def test_batch_export_backfill_with_start_at_after_end_at(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -124,10 +127,22 @@ def test_batch_export_backfill_with_start_at_after_end_at(client: HttpClient):
 
         batch_export_id = batch_export["id"]
 
-        response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T01:00:00", "2021-01-01T01:00:00")
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            "2021-01-01T01:00:00",
+            "2021-01-01T01:00:00",
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-        response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T01:00:00", "2020-01-01T01:00:00")
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            "2021-01-01T01:00:00",
+            "2020-01-01T01:00:00",
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
 
@@ -140,7 +155,6 @@ def test_cannot_trigger_backfill_for_another_organization(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -166,7 +180,13 @@ def test_cannot_trigger_backfill_for_another_organization(client: HttpClient):
         batch_export_id = batch_export["id"]
 
         client.force_login(other_user)
-        response = backfill_batch_export(client, team.pk, batch_export_id, "2021-01-01T00:00:00", "2021-01-01T01:00:00")
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            "2021-01-01T00:00:00",
+            "2021-01-01T01:00:00",
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
@@ -180,7 +200,6 @@ def test_backfill_is_partitioned_by_team_id(client: HttpClient):
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
             "prefix": "posthog-events/",
-            "batch_window_size": 3600,
             "aws_access_key_id": "abc123",
             "aws_secret_access_key": "secret",
         },
@@ -203,7 +222,11 @@ def test_backfill_is_partitioned_by_team_id(client: HttpClient):
         batch_export_id = batch_export["id"]
 
         response = backfill_batch_export(
-            client, other_team.pk, batch_export_id, "2021-01-01T00:00:00", "2021-01-01T01:00:00"
+            client,
+            other_team.pk,
+            batch_export_id,
+            "2021-01-01T00:00:00",
+            "2021-01-01T01:00:00",
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()

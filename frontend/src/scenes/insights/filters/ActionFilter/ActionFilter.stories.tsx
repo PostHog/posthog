@@ -1,23 +1,27 @@
-import { useRef, useState } from 'react'
-import { ActionFilter, ActionFilterProps } from './ActionFilter'
-import { cohortsModel } from '~/models/cohortsModel'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useMountedLogic, useValues } from 'kea'
-import { FilterType, InsightType } from '~/types'
-import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import { groupsModel } from '~/models/groupsModel'
-import { alphabet, uuid } from 'lib/utils'
-import { ComponentStory } from '@storybook/react'
+import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { alphabet, uuid } from 'lib/utils'
+import { useRef, useState } from 'react'
 import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
-export default {
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { FilterType, InsightType } from '~/types'
+
+import { ActionFilter, ActionFilterProps } from './ActionFilter'
+import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
+
+type Story = StoryObj<typeof ActionFilter>
+const meta: Meta<typeof ActionFilter> = {
     title: 'Filters/Action Filter',
     decorators: [taxonomicFilterMocksDecorator],
 }
+export default meta
 
-const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<ActionFilterProps>) => {
+const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilterProps>) => {
     useMountedLogic(cohortsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -79,32 +83,32 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
     )
 }
 
-export const Standard = Template.bind({})
+export const Standard: Story = Template.bind({})
 Standard.args = {}
 
-export const Bordered = Template.bind({})
+export const Bordered: Story = Template.bind({})
 Bordered.args = {
     bordered: true,
 }
 
-export const PropertyFiltersWithPopover = Template.bind({})
+export const PropertyFiltersWithPopover: Story = Template.bind({})
 PropertyFiltersWithPopover.args = {
     propertyFiltersPopover: true,
 }
 
-export const Sortable = Template.bind({})
+export const Sortable: Story = Template.bind({})
 Sortable.args = {
     sortable: true,
 }
 
-export const FunnelLike = Template.bind({})
+export const FunnelLike: Story = Template.bind({})
 FunnelLike.args = {
     sortable: true,
     bordered: true,
     seriesIndicatorType: 'numeric',
 }
 
-export const SingleFilter = Template.bind({})
+export const SingleFilter: Story = Template.bind({})
 SingleFilter.args = {
     entitiesLimit: 1,
 }

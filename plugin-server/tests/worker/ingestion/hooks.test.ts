@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
-import * as fetch from 'node-fetch'
+import fetch, { FetchError } from 'node-fetch'
 
 import { Action, PostIngestionEvent, Team } from '../../../src/types'
 import { UUIDT } from '../../../src/utils/utils'
+import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import {
     determineWebhookType,
     getActionDetails,
@@ -16,6 +17,10 @@ import {
 import { Hook } from './../../../src/types'
 
 describe('hooks', () => {
+    beforeEach(() => {
+        process.env.NODE_ENV = 'test'
+    })
+
     describe('determineWebhookType', () => {
         test('Slack', () => {
             const webhookType = determineWebhookType('https://hooks.slack.com/services/')
@@ -102,6 +107,15 @@ describe('hooks', () => {
 
             expect(matchedTokens).toStrictEqual(['action.name', 'user.name'])
             expect(tokenisedMessage).toBe('%s got done by %s')
+        })
+
+        test('allows escaping brackets', () => {
+            const format = '[action.name\\] got done by \\[user.name\\]' // just one of the brackets has to be escaped
+
+            const [matchedTokens, tokenisedMessage] = getTokens(format)
+
+            expect(matchedTokens).toStrictEqual([])
+            expect(tokenisedMessage).toBe('[action.name] got done by [user.name]')
         })
     })
 
@@ -462,29 +476,36 @@ describe('hooks', () => {
         let hook: Hook
 
         beforeEach(() => {
-            hookCommander = new HookCommander({} as any, {} as any, {} as any)
             hook = {
                 id: 'id',
-                team_id: 2,
+                team_id: 1,
                 user_id: 1,
                 resource_id: 1,
                 event: 'foo',
-                target: 'foo.bar',
+                target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             }
+            hookCommander = new HookCommander(
+                {} as any,
+                {} as any,
+                {} as any,
+                { enqueueIfEnabledForTeam: async () => Promise.resolve(false) },
+                { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
+                20000
+            )
         })
 
         test('person = undefined', async () => {
             await hookCommander.postRestHook(hook, { event: 'foo' } as any)
 
-            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+            expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
                     {
                         hook: {
                             id: 'id',
                             event: 'foo',
-                            target: 'foo.bar',
+                            target: 'https://example.com/',
                         },
                         data: {
                             event: 'foo',
@@ -496,7 +517,7 @@ describe('hooks', () => {
                 ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
-                timeout: 10000,
+                timeout: 20000,
             })
         })
 
@@ -505,22 +526,22 @@ describe('hooks', () => {
             const uuid = new UUIDT().toString()
             await hookCommander.postRestHook(hook, {
                 event: 'foo',
-                teamId: 1,
+                teamId: hook.team_id,
                 person_id: uuid,
                 person_properties: { foo: 'bar' },
                 person_created_at: DateTime.fromISO(now).toUTC(),
             } as any)
-            expect(fetch).toHaveBeenCalledWith('foo.bar', {
+            expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
                     {
                         hook: {
                             id: 'id',
                             event: 'foo',
-                            target: 'foo.bar',
+                            target: 'https://example.com/',
                         },
                         data: {
                             event: 'foo',
-                            teamId: 1,
+                            teamId: hook.team_id,
                             person: {
                                 uuid: uuid,
                                 properties: { foo: 'bar' },
@@ -533,8 +554,16 @@ describe('hooks', () => {
                 ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
-                timeout: 10000,
+                timeout: 20000,
             })
+        })
+
+        test('private IP hook forbidden in prod', async () => {
+            process.env.NODE_ENV = 'production'
+
+            await expect(
+                hookCommander.postRestHook({ ...hook, target: 'http://127.0.0.1' }, { event: 'foo' } as any)
+            ).rejects.toThrow(new FetchError('Internal hostname', 'posthog-host-guard'))
         })
     })
 })

@@ -1,10 +1,13 @@
-import { Select, Modal } from 'antd'
-import { PersonType } from '~/types'
-import { useActions, useValues, BindLogic } from 'kea'
 import './MergeSplitPerson.scss'
-import { mergeSplitPersonLogic } from './mergeSplitPersonLogic'
-import { pluralize } from 'lib/utils'
+
+import { Modal, Select } from 'antd'
+import { BindLogic, useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { pluralize } from 'lib/utils'
+
+import { PersonType } from '~/types'
+
+import { mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
     const logicProps = { person }
@@ -17,7 +20,7 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
             title="Split persons"
             onCancel={cancel}
             className="merge-split-person"
-            okText={`Split persons`}
+            okText="Split persons"
             onOk={execute}
             okButtonProps={{ loading: executedLoading }}
             cancelButtonProps={{ disabled: executedLoading }}

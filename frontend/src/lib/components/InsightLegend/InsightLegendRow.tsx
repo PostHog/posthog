@@ -1,12 +1,18 @@
-import { InsightLabel } from 'lib/components/InsightLabel'
+import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
+import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
-import { ChartDisplayType } from '~/types'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { useEffect, useRef } from 'react'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
+import { IndexedTrendResult } from 'scenes/trends/types'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { TrendsFilter } from '~/queries/schema'
+import { ChartDisplayType } from '~/types'
 
 type InsightLegendRowProps = {
     hiddenLegendKeys: Record<string, boolean | undefined>
@@ -31,6 +37,9 @@ export function InsightLegendRow({
     trendsFilter,
     highlighted,
 }: InsightLegendRowProps): JSX.Element {
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
     const highlightStyle: Record<string, any> = highlighted
         ? {
               style: { backgroundColor: getSeriesColor(item.seriesIndex, false, true) },
@@ -43,6 +52,15 @@ export function InsightLegendRow({
             rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
         }
     }, [highlighted])
+
+    const formattedBreakdownValue = formatBreakdownLabel(
+        cohorts,
+        formatPropertyValueForDisplay,
+        item.breakdown_value,
+        item.filter?.breakdown,
+        item.filter?.breakdown_type,
+        item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
+    )
 
     return (
         <div key={item.id} className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
@@ -60,7 +78,7 @@ export function InsightLegendRow({
                             action={item.action}
                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                             hasMultipleSeries={hasMultipleSeries}
-                            breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
+                            breakdownValue={formattedBreakdownValue}
                             compareValue={compare ? formatCompareLabel(item) : undefined}
                             pillMidEllipsis={item?.filter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
                             hideIcon

@@ -7,7 +7,6 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class TaggedItemsUniquenessTest(NonAtomicTestMigrations):
-
     migrate_from = "0217_team_primary_dashboard"
     migrate_to = "0218_uniqueness_constraint_tagged_items"
 

@@ -1,12 +1,14 @@
-import { PersonsNode } from '~/queries/schema'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { AnyPropertyFilter } from '~/types'
-import { useState } from 'react'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useState } from 'react'
+
+import { ActorsQuery, NodeKind, PersonsNode } from '~/queries/schema'
+import { isActorsQuery } from '~/queries/utils'
+import { PersonPropertyFilter } from '~/types'
 
 interface PersonPropertyFiltersProps {
-    query: PersonsNode
-    setQuery?: (query: PersonsNode) => void
+    query: PersonsNode | ActorsQuery
+    setQuery?: (query: PersonsNode | ActorsQuery) => void
 }
 
 let uniqueNode = 0
@@ -15,10 +17,23 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
     return !query.properties || Array.isArray(query.properties) ? (
         <PropertyFilters
             propertyFilters={query.properties || []}
-            onChange={(value: AnyPropertyFilter[]) => setQuery?.({ ...query, properties: value })}
+            onChange={(value) => {
+                setQuery?.({
+                    ...query,
+                    properties: value as PersonPropertyFilter[],
+                })
+            }}
             pageKey={`PersonPropertyFilters.${id}`}
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-            style={{ marginBottom: 0, marginTop: 0 }}
+            taxonomicGroupTypes={
+                isActorsQuery(query)
+                    ? [
+                          TaxonomicFilterGroupType.PersonProperties,
+                          TaxonomicFilterGroupType.Cohorts,
+                          TaxonomicFilterGroupType.HogQLExpression,
+                      ]
+                    : [TaxonomicFilterGroupType.PersonProperties]
+            }
+            metadataSource={{ kind: NodeKind.ActorsQuery }}
         />
     ) : (
         <div>Error: property groups are not supported.</div>

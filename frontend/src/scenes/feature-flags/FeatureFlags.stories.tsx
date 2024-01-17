@@ -1,18 +1,19 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
-import featureFlags from './__mocks__/feature_flags.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
-export default {
+import featureFlags from './__mocks__/feature_flags.json'
+
+const meta: Meta = {
     title: 'Scenes-App/Feature Flags',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -22,16 +23,29 @@ export default {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/integrations': {},
+
                 '/api/projects/:team_id/feature_flags': featureFlags,
+                '/api/projects/:team_id/feature_flags/1111111111111/': [
+                    404,
+                    {
+                        type: 'invalid',
+                        code: 'not_found',
+                        detail: 'Not found.',
+                    },
+                ],
                 '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
                 ],
             },
+            post: {
+                '/api/projects/:team_id/query': {},
+            },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function FeatureFlagsList(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.featureFlags())
@@ -57,6 +71,13 @@ export function EditMultiVariateFeatureFlag(): JSX.Element {
     useEffect(() => {
         useAvailableFeatures([AvailableFeature.MULTIVARIATE_FLAGS])
         router.actions.push(urls.featureFlag(1502))
+    }, [])
+    return <App />
+}
+
+export function FeatureFlagNotFound(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.featureFlag(1111111111111))
     }, [])
     return <App />
 }

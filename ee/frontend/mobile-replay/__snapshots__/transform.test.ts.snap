@@ -1,0 +1,6397 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`replay/transform transform can convert images 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "style": "color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 101,
+                        "textContent": "Ⱏ遲䩞㡛쓯잘ጫ䵤㥦鷁끞鈅毅┌빯湌Თ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "height": 30,
+                      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=",
+                      "style": "width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;",
+                      "width": 100,
+                    },
+                    "childNodes": [],
+                    "id": 12345,
+                    "tagName": "img",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform can convert rect with text 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "style": "color: #ee3ee4;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;",
+                    },
+                    "childNodes": [],
+                    "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "style": "width: 100px;height: 30px;position: fixed;left: 13px;top: 17px;overflow:hidden;white-space:nowrap;",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 102,
+                        "textContent": "i am in the box",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform can process unknown types without error 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "height": 600,
+      "href": "included when present",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "type": 9999,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 100,
+                        "textContent": "image",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform can short-circuit non-mobile full snapshot 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "https://my-awesome.site",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "node": {
+        "the": "payload",
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform child wireframes are processed 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 123456789,
+                      "style": "position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                    },
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "data-rrweb-id": 98765,
+                          "style": "position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                        },
+                        "childNodes": [
+                          {
+                            "attributes": {
+                              "data-rrweb-id": 12345,
+                              "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                            },
+                            "childNodes": [
+                              {
+                                "id": 103,
+                                "textContent": "first nested",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 12345,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                          {
+                            "attributes": {
+                              "data-rrweb-id": 12345,
+                              "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                            },
+                            "childNodes": [
+                              {
+                                "id": 104,
+                                "textContent": "second nested",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 12345,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                        ],
+                        "id": 98765,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                      {
+                        "attributes": {
+                          "data-rrweb-id": 12345,
+                          "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                        },
+                        "childNodes": [
+                          {
+                            "id": 105,
+                            "textContent": "third (different level) nested",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 12345,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 123456789,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs buttons with nested elements 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12359,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "button",
+                  },
+                  "childNodes": [],
+                  "id": 12359,
+                  "tagName": "button",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12361,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "button",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 107,
+                      "textContent": "click me",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 12361,
+                  "tagName": "button",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs closed keyboard custom event 1`] = `
+{
+  "data": {
+    "adds": [],
+    "attributes": [],
+    "removes": [
+      {
+        "id": 6,
+        "parentId": 5,
+      },
+    ],
+    "source": 0,
+    "texts": [],
+  },
+  "timestamp": 1,
+  "type": 3,
+}
+`;
+
+exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - button - click me 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12358,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "button",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 284,
+                      "textContent": "click me",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 12358,
+                  "tagName": "button",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 261,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "checked": true,
+                        "data-rrweb-id": 12357,
+                        "style": null,
+                        "type": "checkbox",
+                      },
+                      "childNodes": [],
+                      "id": 12357,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                    {
+                      "id": 260,
+                      "textContent": "first",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 261,
+                  "tagName": "label",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 263,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 12357,
+                        "style": null,
+                        "type": "checkbox",
+                      },
+                      "childNodes": [],
+                      "id": 12357,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                    {
+                      "id": 262,
+                      "textContent": "second",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 263,
+                  "tagName": "label",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 265,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "checked": true,
+                        "data-rrweb-id": 12357,
+                        "disabled": true,
+                        "style": null,
+                        "type": "checkbox",
+                      },
+                      "childNodes": [],
+                      "id": 12357,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                    {
+                      "id": 264,
+                      "textContent": "third",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 265,
+                  "tagName": "label",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "checked": true,
+                    "data-rrweb-id": 12357,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "checkbox",
+                  },
+                  "childNodes": [],
+                  "id": 12357,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - email - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12349,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "email",
+                    "value": "",
+                  },
+                  "childNodes": [],
+                  "id": 12349,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - number - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12350,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "number",
+                    "value": "",
+                  },
+                  "childNodes": [],
+                  "id": 12350,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - password - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12348,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "password",
+                    "value": "",
+                  },
+                  "childNodes": [],
+                  "id": 12348,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - progress - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 291,
+                        "style": "background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;border: 4px solid #35373e;border-radius: 50%;border-top: 4px solid #fff;animation: spin 2s linear infinite;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "type": "text/css",
+                          },
+                          "childNodes": [
+                            {
+                              "id": 290,
+                              "textContent": "@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }",
+                              "type": 3,
+                            },
+                          ],
+                          "id": 289,
+                          "tagName": "style",
+                          "type": 2,
+                        },
+                      ],
+                      "id": 291,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 12365,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - progress - $value 2`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "max": null,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": null,
+                    "value": null,
+                  },
+                  "childNodes": [],
+                  "id": 12365,
+                  "tagName": "progress",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - progress - 0.75 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "max": null,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": null,
+                    "value": 0.75,
+                  },
+                  "childNodes": [],
+                  "id": 12365,
+                  "tagName": "progress",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - progress - 0.75 2`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "max": 2.5,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": null,
+                    "value": 0.75,
+                  },
+                  "childNodes": [],
+                  "id": 12365,
+                  "tagName": "progress",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - search - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12351,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "search",
+                    "value": "",
+                  },
+                  "childNodes": [],
+                  "id": 12351,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - select - hello 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "select",
+                    "value": "hello",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 285,
+                        "selected": true,
+                      },
+                      "childNodes": [
+                        {
+                          "id": 286,
+                          "textContent": "hello",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 285,
+                      "tagName": "option",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 287,
+                      },
+                      "childNodes": [
+                        {
+                          "id": 288,
+                          "textContent": "world",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 287,
+                      "tagName": "option",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 12365,
+                  "tagName": "select",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - tel - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12352,
+                    "disabled": true,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "tel",
+                    "value": "",
+                  },
+                  "childNodes": [],
+                  "id": 12352,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - text - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12347,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "text",
+                    "value": "",
+                  },
+                  "childNodes": [],
+                  "id": 12347,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - text - hello 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12346,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "text",
+                    "value": "hello",
+                  },
+                  "childNodes": [],
+                  "id": 12346,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - textArea - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12364,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "textArea",
+                    "value": "",
+                  },
+                  "childNodes": [],
+                  "id": 12364,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - textArea - hello 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12363,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "textArea",
+                    "value": "hello",
+                  },
+                  "childNodes": [],
+                  "id": 12363,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - toggle - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 270,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 269,
+                      "textContent": "first",
+                      "type": 3,
+                    },
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 12357,
+                        "style": "height:100%;flex:1",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 266,
+                            "style": "position:relative;width:100%;height:100%;",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 267,
+                                "data-toggle-part": "slider",
+                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
+                              },
+                              "childNodes": [],
+                              "id": 267,
+                              "tagName": "div",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 268,
+                                "data-toggle-part": "handle",
+                                "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
+                              },
+                              "childNodes": [],
+                              "id": 268,
+                              "tagName": "div",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 266,
+                          "tagName": "div",
+                          "type": 2,
+                        },
+                      ],
+                      "id": 12357,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 270,
+                  "tagName": "label",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - toggle - $value 2`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 275,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 274,
+                      "textContent": "second",
+                      "type": 3,
+                    },
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 12357,
+                        "style": "height:100%;flex:1",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 271,
+                            "style": "position:relative;width:100%;height:100%;",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 272,
+                                "data-toggle-part": "slider",
+                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#f3f4ef;opacity: 0.2;border-radius:7.5%;",
+                              },
+                              "childNodes": [],
+                              "id": 272,
+                              "tagName": "div",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 273,
+                                "data-toggle-part": "handle",
+                                "style": "position:absolute;top:1.5%;left:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#f3f4ef;border:2px solid #f3f4ef;border-radius:50%;",
+                              },
+                              "childNodes": [],
+                              "id": 273,
+                              "tagName": "div",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 271,
+                          "tagName": "div",
+                          "type": 2,
+                        },
+                      ],
+                      "id": 12357,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 275,
+                  "tagName": "label",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - toggle - $value 3`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 280,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 279,
+                      "textContent": "third",
+                      "type": 3,
+                    },
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 12357,
+                        "style": "height:100%;flex:1",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 276,
+                            "style": "position:relative;width:100%;height:100%;",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 277,
+                                "data-toggle-part": "slider",
+                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
+                              },
+                              "childNodes": [],
+                              "id": 277,
+                              "tagName": "div",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 278,
+                                "data-toggle-part": "handle",
+                                "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
+                              },
+                              "childNodes": [],
+                              "id": 278,
+                              "tagName": "div",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 276,
+                          "tagName": "div",
+                          "type": 2,
+                        },
+                      ],
+                      "id": 12357,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 280,
+                  "tagName": "label",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - toggle - $value 4`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12357,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 281,
+                        "style": "position:relative;width:100%;height:100%;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 282,
+                            "data-toggle-part": "slider",
+                            "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
+                          },
+                          "childNodes": [],
+                          "id": 282,
+                          "tagName": "div",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 283,
+                            "data-toggle-part": "handle",
+                            "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
+                          },
+                          "childNodes": [],
+                          "id": 283,
+                          "tagName": "div",
+                          "type": 2,
+                        },
+                      ],
+                      "id": 281,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 12357,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - url - https://example.io 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12352,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "type": "url",
+                    "value": "https://example.io",
+                  },
+                  "childNodes": [],
+                  "id": 12352,
+                  "tagName": "input",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs isolated add mutation 1`] = `
+{
+  "data": {
+    "adds": [
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 12365,
+            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+          },
+          "childNodes": [],
+          "id": 12365,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 54321,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 210,
+            "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+          },
+          "childNodes": [],
+          "id": 210,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 12365,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 210,
+            "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+          },
+          "childNodes": [],
+          "id": 210,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 12365,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 162,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 162,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 162,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 162,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 163,
+          },
+          "childNodes": [],
+          "id": 163,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 162,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 163,
+          },
+          "childNodes": [],
+          "id": 163,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 162,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 165,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 163,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 164,
+          },
+          "childNodes": [],
+          "id": 164,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 162,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 164,
+          },
+          "childNodes": [],
+          "id": 164,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 162,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 166,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 166,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 166,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 166,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 167,
+          },
+          "childNodes": [],
+          "id": 167,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 166,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 167,
+          },
+          "childNodes": [],
+          "id": 167,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 166,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 169,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 167,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 168,
+          },
+          "childNodes": [],
+          "id": 168,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 166,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 168,
+          },
+          "childNodes": [],
+          "id": 168,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 166,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 170,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 170,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 170,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 170,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 171,
+          },
+          "childNodes": [],
+          "id": 171,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 170,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 171,
+          },
+          "childNodes": [],
+          "id": 171,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 170,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 173,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 171,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 172,
+          },
+          "childNodes": [],
+          "id": 172,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 170,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 172,
+          },
+          "childNodes": [],
+          "id": 172,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 170,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 174,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 174,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 174,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 174,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 175,
+          },
+          "childNodes": [],
+          "id": 175,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 174,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 175,
+          },
+          "childNodes": [],
+          "id": 175,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 174,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 177,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 175,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 176,
+          },
+          "childNodes": [],
+          "id": 176,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 174,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 176,
+          },
+          "childNodes": [],
+          "id": 176,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 174,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 178,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 178,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 178,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 178,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 179,
+          },
+          "childNodes": [],
+          "id": 179,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 178,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 179,
+          },
+          "childNodes": [],
+          "id": 179,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 178,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 181,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 179,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 180,
+          },
+          "childNodes": [],
+          "id": 180,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 178,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 180,
+          },
+          "childNodes": [],
+          "id": 180,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 178,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 182,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 182,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 182,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 182,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 183,
+          },
+          "childNodes": [],
+          "id": 183,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 182,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 183,
+          },
+          "childNodes": [],
+          "id": 183,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 182,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 185,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 183,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 184,
+          },
+          "childNodes": [],
+          "id": 184,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 182,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 184,
+          },
+          "childNodes": [],
+          "id": 184,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 182,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 186,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 186,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 186,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 186,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 187,
+          },
+          "childNodes": [],
+          "id": 187,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 186,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 187,
+          },
+          "childNodes": [],
+          "id": 187,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 186,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 189,
+          "textContent": "half-filled star",
+          "type": 3,
+        },
+        "parentId": 187,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 188,
+          },
+          "childNodes": [],
+          "id": 188,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 186,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 188,
+          },
+          "childNodes": [],
+          "id": 188,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 186,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 190,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 190,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 190,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 190,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 191,
+          },
+          "childNodes": [],
+          "id": 191,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 190,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 191,
+          },
+          "childNodes": [],
+          "id": 191,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 190,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 193,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 191,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 192,
+          },
+          "childNodes": [],
+          "id": 192,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 190,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 192,
+          },
+          "childNodes": [],
+          "id": 192,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 190,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 194,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 194,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 194,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 194,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 195,
+          },
+          "childNodes": [],
+          "id": 195,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 194,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 195,
+          },
+          "childNodes": [],
+          "id": 195,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 194,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 197,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 195,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 196,
+          },
+          "childNodes": [],
+          "id": 196,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 194,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 196,
+          },
+          "childNodes": [],
+          "id": 196,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 194,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 198,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 198,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 198,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 198,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 199,
+          },
+          "childNodes": [],
+          "id": 199,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 198,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 199,
+          },
+          "childNodes": [],
+          "id": 199,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 198,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 201,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 199,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 200,
+          },
+          "childNodes": [],
+          "id": 200,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 198,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 200,
+          },
+          "childNodes": [],
+          "id": 200,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 198,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 202,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 202,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 202,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 202,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 203,
+          },
+          "childNodes": [],
+          "id": 203,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 202,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 203,
+          },
+          "childNodes": [],
+          "id": 203,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 202,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 205,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 203,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 204,
+          },
+          "childNodes": [],
+          "id": 204,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 202,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 204,
+          },
+          "childNodes": [],
+          "id": 204,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 202,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 206,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 206,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 206,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 206,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 210,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 207,
+          },
+          "childNodes": [],
+          "id": 207,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 206,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 207,
+          },
+          "childNodes": [],
+          "id": 207,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 206,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 209,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 207,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 208,
+          },
+          "childNodes": [],
+          "id": 208,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 206,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 208,
+          },
+          "childNodes": [],
+          "id": 208,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 206,
+      },
+    ],
+    "attributes": [],
+    "removes": [],
+    "source": 0,
+    "texts": [],
+  },
+  "timestamp": 1,
+  "type": 3,
+}
+`;
+
+exports[`replay/transform transform inputs isolated remove mutation 1`] = `
+{
+  "data": {
+    "removes": [
+      {
+        "id": 12345,
+        "parentId": 54321,
+      },
+    ],
+    "source": 0,
+  },
+  "timestamp": 1,
+  "type": 3,
+}
+`;
+
+exports[`replay/transform transform inputs isolated update mutation 1`] = `
+{
+  "data": {
+    "adds": [
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 12365,
+            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+          },
+          "childNodes": [],
+          "id": 12365,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 54321,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 259,
+            "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+          },
+          "childNodes": [],
+          "id": 259,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 12365,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 259,
+            "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+          },
+          "childNodes": [],
+          "id": 259,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 12365,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 211,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 211,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 211,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 211,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 212,
+          },
+          "childNodes": [],
+          "id": 212,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 211,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 212,
+          },
+          "childNodes": [],
+          "id": 212,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 211,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 214,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 212,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 213,
+          },
+          "childNodes": [],
+          "id": 213,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 211,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 213,
+          },
+          "childNodes": [],
+          "id": 213,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 211,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 215,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 215,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 215,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 215,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 216,
+          },
+          "childNodes": [],
+          "id": 216,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 215,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 216,
+          },
+          "childNodes": [],
+          "id": 216,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 215,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 218,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 216,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 217,
+          },
+          "childNodes": [],
+          "id": 217,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 215,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 217,
+          },
+          "childNodes": [],
+          "id": 217,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 215,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 219,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 219,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 219,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 219,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 220,
+          },
+          "childNodes": [],
+          "id": 220,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 219,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 220,
+          },
+          "childNodes": [],
+          "id": 220,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 219,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 222,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 220,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 221,
+          },
+          "childNodes": [],
+          "id": 221,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 219,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 221,
+          },
+          "childNodes": [],
+          "id": 221,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 219,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 223,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 223,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 223,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 223,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 224,
+          },
+          "childNodes": [],
+          "id": 224,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 223,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 224,
+          },
+          "childNodes": [],
+          "id": 224,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 223,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 226,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 224,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 225,
+          },
+          "childNodes": [],
+          "id": 225,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 223,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 225,
+          },
+          "childNodes": [],
+          "id": 225,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 223,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 227,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 227,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 227,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 227,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 228,
+          },
+          "childNodes": [],
+          "id": 228,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 227,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 228,
+          },
+          "childNodes": [],
+          "id": 228,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 227,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 230,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 228,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 229,
+          },
+          "childNodes": [],
+          "id": 229,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 227,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 229,
+          },
+          "childNodes": [],
+          "id": 229,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 227,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 231,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 231,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 231,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 231,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 232,
+          },
+          "childNodes": [],
+          "id": 232,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 231,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 232,
+          },
+          "childNodes": [],
+          "id": 232,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 231,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 234,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 232,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 233,
+          },
+          "childNodes": [],
+          "id": 233,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 231,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 233,
+          },
+          "childNodes": [],
+          "id": 233,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 231,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 235,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 235,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 235,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 235,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 236,
+          },
+          "childNodes": [],
+          "id": 236,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 235,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 236,
+          },
+          "childNodes": [],
+          "id": 236,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 235,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 238,
+          "textContent": "half-filled star",
+          "type": 3,
+        },
+        "parentId": 236,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 237,
+          },
+          "childNodes": [],
+          "id": 237,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 235,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 237,
+          },
+          "childNodes": [],
+          "id": 237,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 235,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 239,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 239,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 239,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 239,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 240,
+          },
+          "childNodes": [],
+          "id": 240,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 239,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 240,
+          },
+          "childNodes": [],
+          "id": 240,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 239,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 242,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 240,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 241,
+          },
+          "childNodes": [],
+          "id": 241,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 239,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 241,
+          },
+          "childNodes": [],
+          "id": 241,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 239,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 243,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 243,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 243,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 243,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 244,
+          },
+          "childNodes": [],
+          "id": 244,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 243,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 244,
+          },
+          "childNodes": [],
+          "id": 244,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 243,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 246,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 244,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 245,
+          },
+          "childNodes": [],
+          "id": 245,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 243,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 245,
+          },
+          "childNodes": [],
+          "id": 245,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 243,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 247,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 247,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 247,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 247,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 248,
+          },
+          "childNodes": [],
+          "id": 248,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 247,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 248,
+          },
+          "childNodes": [],
+          "id": 248,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 247,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 250,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 248,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 249,
+          },
+          "childNodes": [],
+          "id": 249,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 247,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 249,
+          },
+          "childNodes": [],
+          "id": 249,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 247,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 251,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 251,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 251,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 251,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 252,
+          },
+          "childNodes": [],
+          "id": 252,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 251,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 252,
+          },
+          "childNodes": [],
+          "id": 252,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 251,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 254,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 252,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 253,
+          },
+          "childNodes": [],
+          "id": 253,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 251,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 253,
+          },
+          "childNodes": [],
+          "id": 253,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 251,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 255,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 255,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 255,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 255,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 259,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 256,
+          },
+          "childNodes": [],
+          "id": 256,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 255,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 256,
+          },
+          "childNodes": [],
+          "id": 256,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 255,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 258,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 256,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 257,
+          },
+          "childNodes": [],
+          "id": 257,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 255,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 257,
+          },
+          "childNodes": [],
+          "id": 257,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 255,
+      },
+    ],
+    "attributes": [],
+    "removes": [
+      {
+        "id": 12365,
+        "parentId": 54321,
+      },
+    ],
+    "source": 0,
+    "texts": [],
+  },
+  "timestamp": 1,
+  "type": 3,
+}
+`;
+
+exports[`replay/transform transform inputs open keyboard custom event 1`] = `
+{
+  "data": {
+    "adds": [
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 6,
+            "style": "color: #35373e;background-color: #f3f4ef;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
+          },
+          "childNodes": [
+            {
+              "id": 160,
+              "textContent": "keyboard",
+              "type": 3,
+            },
+          ],
+          "id": 6,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 5,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 161,
+          "textContent": "keyboard",
+          "type": 3,
+        },
+        "parentId": 6,
+      },
+    ],
+    "attributes": [],
+    "removes": [],
+    "source": 0,
+    "texts": [],
+  },
+  "timestamp": 1,
+  "type": 3,
+}
+`;
+
+exports[`replay/transform transform inputs placeholder - $inputType - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 292,
+                      "textContent": "hello",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 12365,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs progress rating 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 159,
+                        "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 111,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 112,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 114,
+                                  "textContent": "filled star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 112,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                                "data-rrweb-id": 113,
+                              },
+                              "childNodes": [],
+                              "id": 113,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 111,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 115,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 116,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 118,
+                                  "textContent": "filled star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 116,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                                "data-rrweb-id": 117,
+                              },
+                              "childNodes": [],
+                              "id": 117,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 115,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 119,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 120,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 122,
+                                  "textContent": "filled star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 120,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                                "data-rrweb-id": 121,
+                              },
+                              "childNodes": [],
+                              "id": 121,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 119,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 123,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 124,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 126,
+                                  "textContent": "filled star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 124,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                                "data-rrweb-id": 125,
+                              },
+                              "childNodes": [],
+                              "id": 125,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 123,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 127,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 128,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 130,
+                                  "textContent": "filled star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 128,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                                "data-rrweb-id": 129,
+                              },
+                              "childNodes": [],
+                              "id": 129,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 127,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 131,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 132,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 134,
+                                  "textContent": "filled star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 132,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                                "data-rrweb-id": 133,
+                              },
+                              "childNodes": [],
+                              "id": 133,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 131,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 135,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 136,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 138,
+                                  "textContent": "half-filled star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 136,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                                "data-rrweb-id": 137,
+                              },
+                              "childNodes": [],
+                              "id": 137,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 135,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 139,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 140,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 142,
+                                  "textContent": "empty star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 140,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                                "data-rrweb-id": 141,
+                              },
+                              "childNodes": [],
+                              "id": 141,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 139,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 143,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 144,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 146,
+                                  "textContent": "empty star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 144,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                                "data-rrweb-id": 145,
+                              },
+                              "childNodes": [],
+                              "id": 145,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 143,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 147,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 148,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 150,
+                                  "textContent": "empty star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 148,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                                "data-rrweb-id": 149,
+                              },
+                              "childNodes": [],
+                              "id": 149,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 147,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 151,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 152,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 154,
+                                  "textContent": "empty star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 152,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                                "data-rrweb-id": 153,
+                              },
+                              "childNodes": [],
+                              "id": 153,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 151,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                        {
+                          "attributes": {
+                            "data-rrweb-id": 155,
+                            "fill": "currentColor",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "viewBox": "0 0 24 24",
+                          },
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "data-rrweb-id": 156,
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 158,
+                                  "textContent": "empty star",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 156,
+                              "isSVG": true,
+                              "tagName": "title",
+                              "type": 2,
+                            },
+                            {
+                              "attributes": {
+                                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                                "data-rrweb-id": 157,
+                              },
+                              "childNodes": [],
+                              "id": 157,
+                              "isSVG": true,
+                              "tagName": "path",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 155,
+                          "isSVG": true,
+                          "tagName": "svg",
+                          "type": 2,
+                        },
+                      ],
+                      "id": 159,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 12365,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs radio group - $inputType - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs radio_group - $inputType - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 123123,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [],
+                  "id": 123123,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs radio_group 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 54321,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [],
+                  "id": 54321,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 293,
+                      "textContent": "web_view",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 12365,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs web_view with URL 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 12365,
+                    "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                  },
+                  "childNodes": [
+                    {
+                      "id": 110,
+                      "textContent": "https://example.com",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 12365,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs wrapping with labels 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "data-rrweb-id": 3,
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "data-rrweb-id": 4,
+              },
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "data-rrweb-id": 5,
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-rrweb-id": 109,
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "data-rrweb-id": 12359,
+                        "style": null,
+                        "type": "checkbox",
+                      },
+                      "childNodes": [],
+                      "id": 12359,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                    {
+                      "id": 108,
+                      "textContent": "i will wrap the checkbox",
+                      "type": 3,
+                    },
+                  ],
+                  "id": 109,
+                  "tagName": "label",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform omitting x and y is equivalent to setting them to 0 1`] = `
+[
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 106,
+                        "textContent": "image",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform respect incremental ids, replace with body otherwise 1`] = `
+[
+  {
+    "data": {
+      "id": 5,
+      "pointerType": 2,
+      "source": 2,
+      "type": 7,
+      "x": 523,
+      "y": 683,
+    },
+    "delay": 2160,
+    "timestamp": 1701355473313,
+    "type": 3,
+    "windowId": "ddc9c89d-2272-4b07-a280-c00db3a9182f",
+  },
+  {
+    "data": {
+      "id": 145,
+      "pointerType": 2,
+      "source": 2,
+      "type": 7,
+      "x": 523,
+      "y": 683,
+    },
+    "delay": 2160,
+    "timestamp": 1701355473313,
+    "type": 3,
+    "windowId": "ddc9c89d-2272-4b07-a280-c00db3a9182f",
+  },
+]
+`;

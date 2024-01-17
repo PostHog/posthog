@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestClickhousePaths.test_by_funnel_after_dropoff
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -86,7 +87,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -163,10 +165,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -253,7 +255,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -325,10 +328,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -415,7 +418,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -487,10 +491,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -577,7 +581,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -649,10 +654,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -739,7 +744,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -811,10 +817,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff_with_group_filter
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -901,7 +907,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -986,10 +993,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff_with_group_filter.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -1076,7 +1083,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -1156,10 +1164,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff_with_group_filter.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -1246,7 +1254,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -1326,10 +1335,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff_with_group_filter.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -1416,7 +1425,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -1496,10 +1506,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_dropoff_with_group_filter.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -1586,7 +1596,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -1666,10 +1677,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_step
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -1756,7 +1767,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -1833,10 +1845,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_after_step_limit
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -1923,7 +1935,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -2000,10 +2013,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_before_dropoff
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -2090,7 +2103,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 2
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -2167,10 +2181,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_before_step
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp
      FROM
@@ -2257,7 +2271,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -2334,10 +2349,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_between_step
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             max_timestamp,
@@ -2424,7 +2439,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -2503,10 +2519,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_between_step.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             max_timestamp,
@@ -2593,7 +2609,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -2667,10 +2684,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_between_step.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             max_timestamp,
@@ -2757,7 +2774,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -2831,10 +2849,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_between_step.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             max_timestamp,
@@ -2921,7 +2939,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -2995,10 +3014,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_between_step.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             max_timestamp,
@@ -3085,7 +3104,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -3159,10 +3179,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_by_funnel_between_step.5
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id,
             max_timestamp,
@@ -3249,7 +3269,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -3323,10 +3344,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_end
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -3402,10 +3423,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_end.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -3481,10 +3502,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_end_materialized
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -3560,10 +3581,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_end_materialized.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -3639,10 +3660,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_exclusion_filters_with_wildcard_groups
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -3719,10 +3740,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_exclusion_filters_with_wildcard_groups.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -3799,10 +3820,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -3878,10 +3899,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -3957,10 +3978,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.2
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4036,10 +4057,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.3
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4115,10 +4136,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.4
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4194,10 +4215,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.5
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4275,10 +4296,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.6
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4357,10 +4378,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_event_ordering
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4436,10 +4457,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_groups_filtering_person_on_events
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4519,10 +4540,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_groups_filtering_person_on_events.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4602,10 +4623,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_groups_filtering_person_on_events.2
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4685,10 +4706,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_path_cleaning_rules_with_wildcard_groups
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -4766,10 +4787,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -4840,10 +4861,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs.1
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -4913,10 +4934,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs.2
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -4986,10 +5007,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs.3
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -5060,10 +5081,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs.4
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -5133,10 +5154,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs.5
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -5206,10 +5227,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs.6
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -5280,10 +5301,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs.7
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -5353,10 +5374,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_dropoffs.8
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -5426,10 +5447,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -5440,10 +5461,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'poev2_p1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_person_on_events_v2.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -5521,10 +5542,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_recording
-  '
+  '''
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
@@ -5630,19 +5651,21 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_recording.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s1', 's3', 's5']
-  '
----
+    AND min_first_timestamp >= '2011-12-31 00:00:00'
+    AND max_last_timestamp <= '2012-01-03 00:00:00'
+  '''
+# ---
 # name: TestClickhousePaths.test_recording_for_dropoff
-  '
+  '''
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
@@ -5749,19 +5772,21 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_recording_for_dropoff.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in []
-  '
----
+    AND min_first_timestamp >= '2011-12-31 00:00:00'
+    AND max_last_timestamp <= '2012-01-03 00:00:00'
+  '''
+# ---
 # name: TestClickhousePaths.test_recording_for_dropoff.2
-  '
+  '''
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
@@ -5868,19 +5893,21 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_recording_for_dropoff.3
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s1']
-  '
----
+    AND min_first_timestamp >= '2011-12-31 00:00:00'
+    AND max_last_timestamp <= '2012-01-03 00:00:00'
+  '''
+# ---
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id
-  '
+  '''
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
@@ -5986,19 +6013,21 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in []
-  '
----
+    AND min_first_timestamp >= '2011-12-31 00:00:00'
+    AND max_last_timestamp <= '2012-01-03 00:00:00'
+  '''
+# ---
 # name: TestClickhousePaths.test_recording_with_start_and_end
-  '
+  '''
   
   SELECT person_id AS actor_id ,
          groupUniqArray(100)((timestamp, uuid,
@@ -6113,19 +6142,21 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_recording_with_start_and_end.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
   WHERE team_id = 2
     and session_id in ['s1']
-  '
----
+    AND min_first_timestamp >= '2011-12-31 00:00:00'
+    AND max_last_timestamp <= '2012-01-03 00:00:00'
+  '''
+# ---
 # name: TestClickhousePaths.test_respect_session_limits
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -6200,10 +6231,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_and_end
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -6282,10 +6313,10 @@
   ORDER BY event_count DESC,
            source_event,
            target_event
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_and_end.1
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -6360,10 +6391,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_and_end.2
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -6442,10 +6473,10 @@
   ORDER BY event_count DESC,
            source_event,
            target_event
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_and_end.3
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -6520,10 +6551,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_and_end_materialized
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -6602,10 +6633,10 @@
   ORDER BY event_count DESC,
            source_event,
            target_event
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_and_end_materialized.1
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -6680,10 +6711,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_and_end_materialized.2
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -6762,10 +6793,10 @@
   ORDER BY event_count DESC,
            source_event,
            target_event
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_and_end_materialized.3
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -6840,10 +6871,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_start_dropping_orphaned_edges
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -6919,10 +6950,10 @@
            source_event,
            target_event
   LIMIT 6
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_conversion_times
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -6998,10 +7029,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -7076,10 +7107,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit.1
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -7149,10 +7180,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit.2
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -7222,10 +7253,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit.3
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -7300,10 +7331,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit.4
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -7373,10 +7404,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit.5
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -7451,10 +7482,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit.6
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -7524,10 +7555,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit.7
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -7597,10 +7628,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_step_limit.8
-  '
+  '''
   
   SELECT DISTINCT person_id AS actor_id
   FROM
@@ -7670,10 +7701,10 @@
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_team_and_local_path_cleaning_rules
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -7751,10 +7782,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_team_and_local_path_cleaning_rules.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -7832,10 +7863,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_team_and_local_path_cleaning_rules.2
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -7913,10 +7944,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_team_path_cleaning_rules
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -7992,10 +8023,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_team_path_cleaning_rules.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -8072,10 +8103,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_wildcard_groups
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -8150,10 +8181,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_wildcard_groups_across_people
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -8229,10 +8260,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_wildcard_groups_and_min_edge_weight
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -8308,10 +8339,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_wildcard_groups_and_min_edge_weight.1
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -8387,10 +8418,10 @@
            source_event,
            target_event
   LIMIT 2
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_wildcard_groups_and_min_edge_weight.2
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -8467,10 +8498,10 @@
            source_event,
            target_event
   LIMIT 20
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_wildcard_groups_evil_input
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -8546,10 +8577,10 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---
 # name: TestClickhousePaths.test_wildcard_groups_with_sampling
-  '
+  '''
   
   SELECT last_path_key as source_event,
          path_key as target_event,
@@ -8624,5 +8655,5 @@
            source_event,
            target_event
   LIMIT 50
-  '
----
+  '''
+# ---

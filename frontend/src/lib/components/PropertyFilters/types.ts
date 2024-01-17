@@ -1,11 +1,13 @@
-import { PropertyGroupFilter, AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+
+import { AnyDataNode } from '~/queries/schema'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 export interface PropertyFilterBaseProps {
     pageKey: string
@@ -27,6 +29,7 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
     taxonomicOnChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     filterIndex: number
     eventNames?: string[]
+    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
 }
 
 export interface PropertyFilterInternalProps {
@@ -41,4 +44,6 @@ export interface PropertyFilterInternalProps {
     orFiltering?: boolean
     addText?: string | null
     hasRowOperator?: boolean
+    metadataSource?: AnyDataNode
+    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
 }

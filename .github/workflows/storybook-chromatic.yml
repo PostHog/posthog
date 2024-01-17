@@ -6,6 +6,13 @@ on:
             - 'frontend/**'
             - '.storybook/**'
             - 'package.json'
+            - '.github/workflows/storybook-chromatic.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
+    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
+    cancel-in-progress: false
 
 jobs:
     storybook-chromatic:
@@ -28,14 +35,14 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
               run: pnpm i -D chromatic
 
             - name: Publish to Chromatic
-              uses: chromaui/action@v1
+              uses: chromaui/action@v10
               id: publish
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
@@ -47,7 +54,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.29.2
+            image: mcr.microsoft.com/playwright:v1.32.2 # Same as @storybook/test-runner@0.15.2's dependency
         strategy:
             fail-fast: false
             matrix:
@@ -57,7 +64,6 @@ jobs:
             SHARD_COUNT: '2'
             CYPRESS_INSTALL_BINARY: '0'
             NODE_OPTIONS: --max-old-space-size=6144
-            JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
             OPT_OUT_CAPTURE: 1
         outputs:
             # The below have to be manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
@@ -92,12 +98,6 @@ jobs:
             firefox-2-total: ${{ steps.diff.outputs.firefox-2-total }}
             firefox-2-commitHash: ${{ steps.commit-hash.outputs.firefox-2-commitHash }}
         steps:
-            # If this run wasn't initiated by the bot (meaning: snapshot update), cancel previous runs
-            - uses: n1hility/cancel-previous-runs@v3
-              if: github.actor != 'posthog-bot'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
             - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
@@ -112,9 +112,9 @@ jobs:
                   version: 8.x.x
 
             - name: Set up Node.js
-              uses: actions/setup-node@v3
+              uses: buildjet/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -124,12 +124,19 @@ jobs:
               run: pnpm install http-server wait-on
 
             - name: Build Storybook
-              run: pnpm build-storybook --quiet # Silence since progress logging results in a massive wall of spam
+              run: pnpm build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
 
             - name: Serve Storybook in the background
               run: |
-                  pnpm exec http-server storybook-static --port 6006 --silent &
-                  pnpm wait-on http://127.0.0.1:6006 --timeout 60 # Wait for the server to be ready
+                  retries=3
+                  while [ $retries -gt 0 ]; do
+                      pnpm exec http-server storybook-static --port 6006 --silent &
+                      if pnpm wait-on http://127.0.0.1:6006 --timeout 15; then
+                          break
+                      fi
+                      retries=$((retries-1))
+                      echo "Failed to serve Storybook, retrying... ($retries retries left)"
+                  done
 
             - name: Run @storybook/test-runner
               env:
@@ -137,16 +144,16 @@ jobs:
                   HOME: /root
                   # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
+                  STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
+                  pnpm test:visual-regression:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
-            - name: Run @playwright/test (legacy, Chromium-only)
-              if: matrix.browser == 'chromium' && matrix.shard == 1
-              env:
-                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
-                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
-              run: |
-                  pnpm test:visual-regression:legacy:ci:$VARIANT
+            - name: Archive failure screenshots
+              if: ${{ failure() }}
+              uses: actions/upload-artifact@v3
+              with:
+                  name: failure-screenshots-${{ matrix.browser }}
+                  path: frontend/__snapshots__/__failures__/
 
             - name: Count and optimize updated snapshots
               id: diff
@@ -164,8 +171,24 @@ jobs:
                   if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
-                    git add frontend/__snapshots__/ playwright/
-                    pnpm lint-staged
+                    optipng -clobber -o4 -strip all
+
+                    # we don't want to _always_ run OptiPNG
+                    # so, we run it after checking for a diff
+                    # but, the files we diffed might then be changed by OptiPNG
+                    # and as a result they might no longer be different...
+
+                    # we check again
+                    git diff --name-status frontend/__snapshots__/ # For debugging
+                    ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
+                    MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
+                    DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
+                    TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
+
+                    if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
+                        echo "Snapshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
+                        git add frontend/__snapshots__/ playwright/
+                    fi
                   fi
 
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT

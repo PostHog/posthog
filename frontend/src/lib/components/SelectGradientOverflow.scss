@@ -2,11 +2,13 @@
 
 .ant-select-dropdown {
     .scrollable-above::after {
-        @extend %mixin-gradient-overlay;
-        background: linear-gradient(to bottom, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
-        bottom: unset;
         top: 0;
+        bottom: unset;
+        background: linear-gradient(to bottom, rgb(255 255 255 / 100%), rgb(255 255 255 / 0%));
+
+        @extend %mixin-gradient-overlay;
     }
+
     .scrollable-below::after {
         @extend %mixin-gradient-overlay;
     }
@@ -14,30 +16,32 @@
 
 .ant-select-selection-overflow-item {
     .ant-tag {
-        margin: 1px 4px 1px 0;
         display: flex;
+        flex: 0 0 auto;
         align-items: center;
-        flex-basis: auto;
-        flex-grow: 0;
-        flex-shrink: 0;
-        overflow: hidden;
         padding: 0 4px 0 8px;
+        margin: 1px 4px 1px 0;
+        overflow: hidden;
         font-size: inherit;
         line-height: inherit;
+        user-select: none;
         background: #f5f5f5;
         border: 1px solid #f0f0f0;
-        user-select: none;
+
         .label {
             overflow: hidden;
             text-overflow: ellipsis;
         }
+
         .btn-close {
-            font-size: 10px;
             margin-left: 4px;
+            font-size: 10px;
+
             .anticon-close {
-                color: rgba(0, 0, 0, 0.45);
+                color: rgb(0 0 0 / 45%);
+
                 & :hover {
-                    color: rgba(0, 0, 0, 0.75);
+                    color: rgb(0 0 0 / 75%);
                 }
             }
         }

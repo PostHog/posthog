@@ -1,16 +1,17 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
+
 import annotations from './__mocks__/annotations.json'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Annotations',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -28,8 +29,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const Annotations = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.annotations())

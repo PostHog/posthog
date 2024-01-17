@@ -29,7 +29,7 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
 
         pluginEvent = {
             distinct_id: 'my_id',
-            ip: '127.0.0.1',
+            ip: null,
             site_url: 'http://localhost',
             team_id: teamId,
             now: '2020-02-23T02:15:00Z',
@@ -85,6 +85,7 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
                 $browser: 'Chrome',
                 $set: {
                     someProp: 'value',
+                    $browser: 'Chrome',
                 },
                 $set_once: {
                     $initial_browser: 'Chrome',
@@ -95,7 +96,12 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: expect.any(String),
-                properties: { $initial_browser: 'Chrome', someProp: 'value', $creator_event_uuid: expect.any(String) },
+                properties: {
+                    $initial_browser: 'Chrome',
+                    someProp: 'value',
+                    $creator_event_uuid: expect.any(String),
+                    $browser: 'Chrome',
+                },
                 version: 0,
                 is_identified: false,
             })

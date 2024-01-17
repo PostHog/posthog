@@ -5,11 +5,12 @@ describe('Invite Signup', () => {
         const user = randomString('user-charlie-')
         const email = `${user}@posthog.com`
 
-        cy.get('[data-attr=top-menu-toggle]').click()
+        cy.get('[data-attr=menu-item-me]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
 
-        cy.location('pathname').should('eq', '/organization/settings')
-        cy.get('[id="invites"]').contains('Pending Invites').should('exist')
+        cy.location('pathname').should('contain', '/settings/organization')
+        cy.get('[id="invites"]').should('exist')
+        cy.contains('Pending Invites').should('exist')
 
         // Test invite creation flow
         cy.get('[data-attr=invite-teammate-button]').click()
@@ -44,7 +45,7 @@ describe('Invite Signup', () => {
             headers: { Authorization: 'Bearer e2e_demo_api_key' },
         }).then((response) => {
             expect(response.status).to.eq(201)
-            cy.get('[data-attr=top-menu-toggle]').click()
+            cy.get('[data-attr=menu-item-me]').click()
             cy.get('[data-attr=top-menu-item-logout]').click()
             cy.visit('/signup/' + response.body.id)
         })
@@ -64,9 +65,9 @@ describe('Invite Signup', () => {
     it('can navigate to organization settings and invite/change users', () => {
         const user = randomString('user-bob-')
 
-        cy.get('[data-attr=top-menu-toggle]').click()
+        cy.get('[data-attr=menu-item-me]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
-        cy.location('pathname').should('include', '/organization/settings')
+        cy.location('pathname').should('include', '/settings/organization')
 
         // Click "Invite team member"
         cy.get('[data-attr=invite-teammate-button]').first().click()
@@ -78,7 +79,7 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=invite-link]')
             .last()
             .then((element) => {
-                cy.get('[data-attr=top-menu-toggle]').click()
+                cy.get('[data-attr=menu-item-me]').click()
                 cy.get('[data-attr=top-menu-item-logout]').click()
                 cy.visit(element.text())
             })
@@ -95,10 +96,9 @@ describe('Invite Signup', () => {
         cy.login()
 
         // Go to organization settings
-        cy.get('[data-attr=top-menu-toggle]').click()
+        cy.get('[data-attr=menu-item-me]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
-        cy.location('pathname').should('include', '/organization/settings')
-        cy.get('.page-title').should('contain', 'Organization')
+        cy.location('pathname').should('include', '/settings/organization')
 
         // Change membership level
         cy.contains('[data-attr=org-members-table] tr', user).within(() => {

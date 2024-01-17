@@ -1,13 +1,19 @@
 import datetime
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from zoneinfo import ZoneInfo
 
-import pytz
 import structlog
 from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_GROUPS, UNIQUE_USERS, WEEKLY_ACTIVE
+from posthog.constants import (
+    MONTHLY_ACTIVE,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    UNIQUE_GROUPS,
+    UNIQUE_USERS,
+    WEEKLY_ACTIVE,
+)
 from posthog.hogql.hogql import translate_hogql
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
@@ -42,7 +48,10 @@ COUNT_PER_ACTOR_MATH_FUNCTIONS = {
     "p99_count_per_actor": "quantile(0.99)",
 }
 
-ALL_SUPPORTED_MATH_FUNCTIONS = [*list(PROPERTY_MATH_FUNCTIONS.keys()), *list(COUNT_PER_ACTOR_MATH_FUNCTIONS.keys())]
+ALL_SUPPORTED_MATH_FUNCTIONS = [
+    *list(PROPERTY_MATH_FUNCTIONS.keys()),
+    *list(COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()),
+]
 
 
 def process_math(
@@ -72,7 +81,8 @@ def process_math(
     elif entity.math in PROPERTY_MATH_FUNCTIONS:
         if entity.math_property is None:
             raise ValidationError(
-                {"math_property": "This field is required when `math` is set to a function."}, code="required"
+                {"math_property": "This field is required when `math` is set to a function."},
+                code="required",
             )
         if entity.math_property == "$session_duration":
             aggregate_operation = f"{PROPERTY_MATH_FUNCTIONS[entity.math]}(session_duration)"
@@ -90,7 +100,10 @@ def process_math(
 
 
 def parse_response(
-    stats: Dict, filter: Filter, additional_values: Dict = {}, entity: Optional[Entity] = None
+    stats: Dict,
+    filter: Filter,
+    additional_values: Dict = {},
+    entity: Optional[Entity] = None,
 ) -> Dict[str, Any]:
     counts = stats[1]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
@@ -191,5 +204,5 @@ def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, t
     else:  # "day" is the default interval
         date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
     if date.tzinfo is None:
-        date = pytz.timezone(team.timezone).localize(date)
+        date = date.replace(tzinfo=ZoneInfo(team.timezone))
     return date

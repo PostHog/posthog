@@ -1,4 +1,8 @@
-from posthog.hogql.database.models import DateDatabaseField, IntegerDatabaseField, FloatDatabaseField
+from posthog.hogql.database.models import (
+    DateDatabaseField,
+    IntegerDatabaseField,
+    FloatDatabaseField,
+)
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.models import SavedQuery
 

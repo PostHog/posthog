@@ -1,20 +1,24 @@
-import { useState } from 'react'
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { CohortTaxonomicField } from './CohortField'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
-import { actionsModel } from '~/models/actionsModel'
+import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useState } from 'react'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortTaxonomicFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 
-export default {
+import { actionsModel } from '~/models/actionsModel'
+
+import { CohortTaxonomicField } from './CohortField'
+
+type Story = StoryObj<typeof CohortTaxonomicField>
+const meta: Meta<typeof CohortTaxonomicField> = {
     title: 'Filters/Cohort Filters/Fields/Taxonomic',
     component: CohortTaxonomicField,
     decorators: [taxonomicFilterMocksDecorator],
-} as ComponentMeta<typeof CohortTaxonomicField>
+}
+export default meta
 
-const Template: ComponentStory<typeof CohortTaxonomicField> = (props: CohortTaxonomicFieldProps) => {
+const Template: StoryFn<typeof CohortTaxonomicField> = (props: CohortTaxonomicFieldProps) => {
     useMountedLogic(actionsModel)
     const [value, setValue] = useState<string | undefined>('')
     const type =
@@ -33,13 +37,13 @@ const Template: ComponentStory<typeof CohortTaxonomicField> = (props: CohortTaxo
     })
 }
 
-export const EventsAndActions = Template.bind({})
+export const EventsAndActions: Story = Template.bind({})
 EventsAndActions.args = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     placeholder: 'Choose event or action',
 }
 
-export const PersonProperties = Template.bind({})
+export const PersonProperties: Story = Template.bind({})
 PersonProperties.args = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
     placeholder: 'Choose person property',

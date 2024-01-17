@@ -1,20 +1,21 @@
-.activity-log {
+.ActivityLog {
     &.notifications-menu {
         max-width: 25rem;
     }
 
-    .summary-card {
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
+    .ActivityDescription {
         padding: 1rem;
+        background: var(--bg-light);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
 
         .taxonomic-breakdown-filter.tag-pill {
-            font-size: 0.8125rem;
             padding: 0;
+            font-size: 0.8125rem;
+            vertical-align: unset;
+            background: none;
             border: none;
             border-radius: 0;
-            background: none;
-            vertical-align: unset;
         }
 
         section:not(:last-child) {
@@ -22,47 +23,43 @@
         }
     }
 
-    .activity-log-row {
-        display: flex;
-        margin-top: 0.5rem;
-        line-height: 24px;
+    .page-caption {
         max-width: 50rem;
-        overflow-wrap: anywhere;
-        padding: 0.5rem;
+    }
+}
 
-        &.unread {
-            background-color: var(--primary-highlight);
-        }
+.ActivityLogRow {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 50rem;
+    padding: 0.5rem;
+    line-height: 24px;
+    overflow-wrap: anywhere;
 
-        &:first-of-type {
-            margin-top: 0.5rem;
-        }
+    &--unread {
+        background-color: var(--primary-3000-highlight);
+        border-radius: var(--radius);
+    }
 
-        .ProfilePicture {
-            flex-grow: 0;
-        }
+    .ProfilePicture {
+        flex-grow: 0;
+    }
 
-        .details {
-            flex-grow: 1;
-            margin-left: 0.5rem;
+    .ActivityLogRow__details {
+        flex-grow: 1;
 
-            .highlighted-activity {
-                background-color: var(--mark);
-                display: inline;
+        .highlighted-activity {
+            display: inline;
+            background-color: var(--mark);
 
-                & > .PersonDisplay {
-                    min-width: 5.5rem;
-                }
+            & > .PersonDisplay {
+                min-width: 5.5rem;
             }
         }
     }
 
-    .activity-description-extended {
+    .ActivityLogRow__description__extended {
         margin-top: 0.5rem;
         margin-bottom: 0.5rem;
-    }
-
-    .page-caption {
-        max-width: 50rem;
     }
 }

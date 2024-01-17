@@ -1,5 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
+import { Counter, Summary } from 'prom-client'
 import { VM } from 'vm2'
 
 import {
@@ -12,8 +13,8 @@ import {
     PluginTaskType,
     VMMethods,
 } from '../../types'
-import { clearError, processError } from '../../utils/db/error'
-import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
+import { processError } from '../../utils/db/error'
+import { disablePlugin, getPlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { instrument } from '../../utils/metrics'
 import { getNextRetryMs } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -32,10 +33,22 @@ export class SetupPluginError extends Error {
     }
 }
 
+const pluginSetupMsSummary = new Summary({
+    name: 'plugin_setup_ms',
+    help: 'Time to setup plugins',
+    labelNames: ['plugin_id', 'status'],
+})
+const pluginDisabledBySystemCounter = new Counter({
+    name: 'plugin_disabled_by_system',
+    help: 'Count of plugins disabled by the system',
+    labelNames: ['plugin_id'],
+})
+
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
     resolveInternalVm!: Promise<PluginConfigVMResponse | null>
+    usedImports: Set<string> | undefined
     totalInitAttemptsCounter: number
     initRetryTimeout: NodeJS.Timeout | null
     ready: boolean
@@ -53,10 +66,6 @@ export class LazyPluginVM {
         this.hub = hub
         this.inErroredState = false
         this.initVm()
-    }
-
-    public async getExportEvents(): Promise<PluginConfigVMResponse['methods']['exportEvents'] | null> {
-        return await this.getVmMethod('exportEvents')
     }
 
     public async getOnEvent(): Promise<PluginConfigVMResponse['methods']['onEvent'] | null> {
@@ -125,6 +134,7 @@ export class LazyPluginVM {
             this.initialize = async (indexJs: string, logInfo = '') => {
                 try {
                     const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
+                    this.usedImports = vm.usedImports
                     this.vmResponseVariable = vm.vmResponseVariable
 
                     if (!this.pluginConfig.plugin) {
@@ -182,7 +192,6 @@ export class LazyPluginVM {
             const vm = (await this.resolveInternalVm)?.vm
             try {
                 await instrument(
-                    this.hub.statsd,
                     {
                         metricName: 'vm.setup',
                         key: 'plugin',
@@ -203,6 +212,7 @@ export class LazyPluginVM {
             ? pluginDigest(this.pluginConfig.plugin)
             : `plugin config ID '${this.pluginConfig.id}'`
         this.totalInitAttemptsCounter++
+        const pluginId = this.pluginConfig.plugin?.id.toString() || 'unknown'
         const timer = new Date()
         try {
             // Make sure one can't self-replicate resulting in an infinite loop
@@ -212,8 +222,8 @@ export class LazyPluginVM {
                 const team = await this.hub.teamManager.fetchTeam(this.pluginConfig.team_id)
                 // There's a single team with replication for the same api key from US to EU
                 // otherwise we're just checking that token differs to better safeguard against forwarding
-                const isWhitelisted = team?.uuid == '017955d2-b09f-0000-ec00-2116c7e8a605' && host == 'eu.posthog.com'
-                if (!isWhitelisted && team?.api_token.trim() == apiKey.trim()) {
+                const isAllowed = team?.uuid == '017955d2-b09f-0000-ec00-2116c7e8a605' && host == 'eu.posthog.com'
+                if (!isAllowed && team?.api_token.trim() == apiKey.trim()) {
                     throw Error('Self replication is not allowed')
                 }
                 // Only default org can use higher than 1x replication
@@ -224,17 +234,10 @@ export class LazyPluginVM {
                     throw Error('Only 1x replication is allowed')
                 }
             }
-            await instrument(
-                this.hub.statsd,
-                {
-                    metricName: 'plugin.setupPlugin',
-                    key: 'plugin',
-                    tag: this.pluginConfig.plugin?.name || '?',
-                },
-                () => vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
-            )
-            this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
-            this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
+            await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+            pluginSetupMsSummary
+                .labels({ plugin_id: pluginId, status: 'success' })
+                .observe(new Date().getTime() - timer.getTime())
             this.ready = true
 
             status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
@@ -242,13 +245,11 @@ export class LazyPluginVM {
                 `setupPlugin succeeded (instance ID ${this.hub.instanceId}).`,
                 PluginLogEntryType.Debug
             )
-
-            void clearError(this.hub, this.pluginConfig)
         } catch (error) {
-            this.hub.statsd?.increment('plugin.setup.fail', { plugin: this.pluginConfig.plugin?.name ?? '?' })
-            this.hub.statsd?.timing('plugin.setup.fail_timing', timer, {
-                plugin: this.pluginConfig.plugin?.name ?? '?',
-            })
+            pluginSetupMsSummary
+                .labels({ plugin_id: pluginId, status: 'fail' })
+                .observe(new Date().getTime() - timer.getTime())
+
             this.clearRetryTimeoutIfExists()
             if (error instanceof RetryError) {
                 error._attempt = this.totalInitAttemptsCounter
@@ -292,10 +293,7 @@ export class LazyPluginVM {
     }
 
     private async processFatalVmSetupError(error: Error, isSystemError: boolean): Promise<void> {
-        this.hub.statsd?.increment('plugin.disabled.by_system', {
-            teamId: this.pluginConfig.team_id.toString(),
-            plugin: this.pluginConfig.plugin?.name ?? '?',
-        })
+        pluginDisabledBySystemCounter.labels(this.pluginConfig.plugin?.id.toString() || 'unknown').inc()
         await processError(this.hub, this.pluginConfig, error)
         await disablePlugin(this.hub, this.pluginConfig.id)
         await this.hub.db.celeryApplyAsync('posthog.tasks.email.send_fatal_plugin_error', [
@@ -309,12 +307,46 @@ export class LazyPluginVM {
     }
 
     private async updatePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
-        const capabilities = getVMPluginCapabilities(vm)
+        const capabilities = getVMPluginCapabilities(vm.methods, vm.tasks)
 
         const prevCapabilities = this.pluginConfig.plugin!.capabilities
         if (!equal(prevCapabilities, capabilities)) {
-            await setPluginCapabilities(this.hub, this.pluginConfig, capabilities)
+            await setPluginCapabilities(this.hub, this.pluginConfig.plugin_id, capabilities)
             this.pluginConfig.plugin!.capabilities = capabilities
         }
+    }
+}
+
+export async function populatePluginCapabilities(hub: Hub, pluginId: number): Promise<void> {
+    status.info('🔌', `Populating plugin capabilities for plugin ID ${pluginId}...`)
+    const plugin = await getPlugin(hub, pluginId)
+    if (!plugin) {
+        status.error('🔌', `Plugin with ID ${pluginId} not found for populating capabilities.`)
+        return
+    }
+    if (!plugin.source__index_ts) {
+        status.error('🔌', `Plugin with ID ${pluginId} has no index.ts file for populating capabilities.`)
+        return
+    }
+
+    const { methods, tasks } = createPluginConfigVM(
+        hub,
+        {
+            id: 0,
+            plugin: plugin,
+            plugin_id: plugin.id,
+            team_id: 0,
+            enabled: false,
+            order: 0,
+            created_at: '0',
+            config: {},
+        },
+        plugin.source__index_ts || ''
+    )
+    const capabilities = getVMPluginCapabilities(methods, tasks)
+
+    const prevCapabilities = plugin.capabilities
+    if (!equal(prevCapabilities, capabilities)) {
+        await setPluginCapabilities(hub, pluginId, capabilities)
     }
 }

@@ -6,13 +6,15 @@ import requests
 import structlog
 from django.utils import timezone
 from rest_framework.exceptions import NotAuthenticated
+from sentry_sdk import capture_exception
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
-from posthog.models.organization import OrganizationUsageInfo
+from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -49,7 +51,7 @@ class BillingManager:
     license: Optional[License]
 
     def __init__(self, license):
-        self.license = license or License.objects.first_valid()
+        self.license = license or get_cached_instance_license()
 
     def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> Dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
@@ -109,6 +111,18 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
+    def update_billing_distinct_ids(self, organization: Organization) -> None:
+        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+        self.update_billing(organization, {"distinct_ids": distinct_ids})
+
+    def update_billing_customer_email(self, organization: Organization) -> None:
+        try:
+            owner_membership = OrganizationMembership.objects.get(organization=organization, level=15)
+            user = owner_membership.user
+            self.update_billing(organization, {"org_customer_email": user.email})
+        except Exception as e:
+            capture_exception(e)
+
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",
@@ -157,7 +171,10 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(f"{BILLING_SERVICE_URL}/api/billing", headers=self.get_auth_headers(organization))
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=self.get_auth_headers(organization),
+        )
 
         handle_billing_service_error(res)
 
@@ -172,22 +189,16 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(f"{BILLING_SERVICE_URL}/api/billing/portal", headers=self.get_auth_headers(organization))
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing/portal",
+            headers=self.get_auth_headers(organization),
+        )
 
         handle_billing_service_error(res)
 
         data = res.json()
 
         return data["url"]
-
-    def _get_plans(self, plan_keys: Optional[str]):
-        res = requests.get(
-            f'{BILLING_SERVICE_URL}/api/plans{"?keys=" + plan_keys if plan_keys else ""}',
-        )
-
-        handle_billing_service_error(res)
-
-        return res.json()
 
     def _get_products(self, organization: Optional[Organization]):
         headers = {}
@@ -223,6 +234,7 @@ class BillingManager:
             usage_info = OrganizationUsageInfo(
                 events=usage_summary["events"],
                 recordings=usage_summary["recordings"],
+                rows_synced=usage_summary.get("rows_synced", None),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
@@ -241,6 +253,11 @@ class BillingManager:
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
             organization.available_product_features = data["available_product_features"]
+            org_modified = True
+
+        never_drop_data = data.get("never_drop_data", None)
+        if never_drop_data != organization.never_drop_data:
+            organization.never_drop_data = never_drop_data
             org_modified = True
 
         if org_modified:

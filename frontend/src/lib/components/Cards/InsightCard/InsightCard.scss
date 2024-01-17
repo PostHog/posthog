@@ -1,61 +1,67 @@
 .InsightCard {
-    transition: border 200ms ease;
     position: relative;
-    height: 30rem;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
     min-width: 0;
     max-width: 100%;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    z-index: 3;
+    height: 30rem;
     background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: border 200ms ease;
+
     &--highlighted {
-        border-color: var(--primary);
-        outline: 1px solid var(--primary);
+        border-color: var(--primary-3000);
+        outline: 1px solid var(--primary-3000);
     }
+
     .ant-alert {
-        margin: 1rem;
         width: 100%;
+        margin: 1rem;
         overflow: auto;
     }
 }
 
-.InsightViz {
-    position: absolute;
-    bottom: 0;
-    left: 0;
+.InsightCard__viz {
+    position: relative;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 0;
+    flex: 1;
+    flex-direction: column;
     width: 100%;
     overflow: auto;
+
     .LineGraph,
     .AnnotationsOverlay {
-        padding: 1rem;
+        padding: 0.5rem;
     }
+
     .insight-empty-state {
         height: 100%; // Fix wonkiness when SpinnerOverlay is shown
-        font-size: 0.875rem; // Reduce font size
         padding-top: 0;
         padding-bottom: 0;
+        font-size: 0.875rem; // Reduce font size
     }
-    > :first-child {
-        margin-top: auto;
-    }
-    > :last-child {
-        margin-bottom: auto;
+
+    .LemonTable {
+        background: none;
+        border: none;
+        border-radius: 0;
     }
 }
 
 .InsightDetails {
     font-size: 0.8125rem;
     line-height: 1.5rem;
+
     h5 {
         margin-bottom: 0.125rem;
     }
+
     section:not(:last-child) {
         margin-bottom: 0.5rem;
     }
+
     .LemonRow {
         min-height: 2rem;
         font-size: inherit;
@@ -63,51 +69,62 @@
 }
 
 .InsightDetails__query {
-    margin-top: 0.25rem;
     padding: 0.5rem;
-    border-radius: var(--radius);
+    margin-top: 0.25rem;
     background: var(--side);
+    border-radius: var(--radius);
+
     .LemonRow {
-        padding-left: 0;
         padding-right: 0;
+        padding-left: 0;
     }
 }
 
 .InsightDetails__formula {
     code {
-        font-weight: 600;
         margin-left: 0.375rem;
+        font-weight: 600;
     }
 }
 
 .InsightDetails__series {
     margin: -0.125rem 0;
+
     &:not(:first-child) {
         margin-top: 0.5rem;
     }
+
     .LemonDivider {
         width: calc(100% - 1.5rem);
         margin-left: 1.5rem;
     }
 }
 
+.InsightDetails__breakdown {
+    margin-bottom: 0.5rem;
+
+    .breakdown-tag {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8125rem;
+        line-height: 0.8125rem;
+    }
+}
+
 .InsightDetails__footer {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
+
     .profile-package {
         vertical-align: middle;
     }
-    .tz-label {
-        line-height: normal;
-        vertical-align: middle;
-    }
+
     .taxonomic-breakdown-filter.tag-pill {
-        font-size: 0.8125rem;
         padding: 0;
+        font-size: 0.8125rem;
+        vertical-align: unset;
+        background: none;
         border: none;
         border-radius: 0;
-        background: none;
-        vertical-align: unset;
     }
 }
 
@@ -117,33 +134,39 @@
 
 .SeriesDisplay__raw-name {
     display: inline-flex;
+    align-items: center;
     padding: 0.125rem 0.25rem;
     margin: 0 0.25rem;
-    background: var(--primary-bg-hover);
-    border-radius: var(--radius);
-    color: var(--primary-alt);
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
+    color: var(--primary-alt);
+    background: var(--primary-bg-hover);
+    border-radius: var(--radius);
+
     &.SeriesDisplay__raw-name--action,
     &.SeriesDisplay__raw-name--event {
         padding: 0.25rem;
+
         &::before {
             display: inline-block;
-            text-align: center;
+            flex-shrink: 0;
             width: 1rem;
-            border-radius: 0.25rem;
             margin-right: 0.25rem;
-            background: var(--primary);
-            color: var(--bg-light);
-            line-height: 1rem;
             font-size: 0.625rem;
             font-weight: 700;
+            line-height: 1rem;
+            color: var(--bg-light);
+            text-align: center;
+            background: var(--primary-3000);
+            border-radius: var(--radius);
         }
     }
+
     &.SeriesDisplay__raw-name--action::before {
         content: 'A';
     }
+
     &.SeriesDisplay__raw-name--event::before {
         content: 'E';
     }
@@ -156,7 +179,6 @@
 .SeriesDisplay__arrow {
     flex-shrink: 0;
     margin-right: 0.25rem;
-    color: var(--border-bold);
     font-size: 1.25rem;
-    vertical-align: middle;
+    color: var(--border-bold);
 }

@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
-
+import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { TrendsFilter } from '~/queries/schema'
+import { GraphDataset, GraphType } from '~/types'
+
+import { InsightEmptyState } from '../insights/EmptyStates'
+import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { retentionLineGraphLogic } from './retentionLineGraphLogic'
 import { retentionModalLogic } from './retentionModalLogic'
-
-import { GraphType, GraphDataset } from '~/types'
-import { roundToDecimal } from 'lib/utils'
-import { LineGraph } from '../insights/views/LineGraph/LineGraph'
-import { InsightEmptyState } from '../insights/EmptyStates'
-import { TrendsFilter } from '~/queries/schema'
 
 interface RetentionLineGraphProps {
     inSharedMode?: boolean
@@ -35,7 +35,7 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
             labelGroupType={aggregationGroupTypeIndex}
-            trendsFilter={{ aggregation_axis_format: 'percentage' } as TrendsFilter}
+            trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
             tooltip={{
                 rowCutoff: 11, // 11 time units is hardcoded into retention insights
                 renderSeries: function _renderCohortPrefix(value) {

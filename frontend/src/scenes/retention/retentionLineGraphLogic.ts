@@ -1,31 +1,31 @@
+import { connect, kea, key, path, props, selectors } from 'kea'
 import { dayjs, QUnitType } from 'lib/dayjs'
-import { kea } from 'kea'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTrendPayload } from 'scenes/retention/types'
+
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
+
 import { dateOptionToTimeIntervalMap } from './constants'
-
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { retentionLogic } from './retentionLogic'
-
 import type { retentionLineGraphLogicType } from './retentionLineGraphLogicType'
+import { retentionLogic } from './retentionLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    path: (key) => ['scenes', 'retention', 'retentionLineGraphLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
+    path((key) => ['scenes', 'retention', 'retentionLineGraphLogic', key]),
+    connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
             ['results'],
         ],
-    }),
-
-    selectors: {
+    })),
+    selectors({
         trendSeries: [
             (s) => [s.results, s.retentionFilter],
             (results, retentionFilter): RetentionTrendPayload[] => {
@@ -71,7 +71,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
                         label: cohortRetention.date
                             ? period === 'Hour'
                                 ? dayjs(cohortRetention.date).format('MMM D, h A')
-                                : dayjs.utc(cohortRetention.date).format('MMM D')
+                                : dayjs(cohortRetention.date).format('MMM D')
                             : cohortRetention.label,
                         data:
                             retention_reference === 'previous'
@@ -118,8 +118,12 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
         aggregationGroupTypeIndex: [
             (s) => [s.querySource],
             (querySource) => {
-                return querySource?.aggregation_group_type_index ?? 'people'
+                return (
+                    (isLifecycleQuery(querySource) || isStickinessQuery(querySource)
+                        ? null
+                        : querySource?.aggregation_group_type_index) ?? 'people'
+                )
             },
         ],
-    },
-})
+    }),
+])

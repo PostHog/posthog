@@ -34,7 +34,11 @@ class TestLoginPrecheckAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     def test_login_precheck_with_unenforced_sso(self):
-        OrganizationDomain.objects.create(domain="witw.app", organization=self.organization, verified_at=timezone.now())
+        OrganizationDomain.objects.create(
+            domain="witw.app",
+            organization=self.organization,
+            verified_at=timezone.now(),
+        )
 
         response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -82,7 +86,11 @@ class TestLoginAPI(APIBaseTest):
             self.user.distinct_id,
             "user logged in",
             properties={"social_provider": ""},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
@@ -142,7 +150,10 @@ class TestLoginAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_email(self, mock_capture):
-        response = self.client.post("/api/login", {"email": "user2@posthog.com", "password": self.CONFIG_PASSWORD})
+        response = self.client.post(
+            "/api/login",
+            {"email": "user2@posthog.com", "password": self.CONFIG_PASSWORD},
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
@@ -183,7 +194,10 @@ class TestLoginAPI(APIBaseTest):
         # Fill the attempt limit
         with self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=3):
             for _ in range(0, 2):
-                response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})
+                response = self.client.post(
+                    "/api/login",
+                    {"email": "new_user@posthog.com", "password": "invalid"},
+                )
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
                 self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
@@ -210,7 +224,12 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(
             response.json(),
-            {"type": "server_error", "code": "2fa_required", "detail": "2FA is required.", "attr": None},
+            {
+                "type": "server_error",
+                "code": "2fa_required",
+                "detail": "2FA is required.",
+                "attr": None,
+            },
         )
 
         # Assert user is not logged in
@@ -234,11 +253,19 @@ class TestLoginAPI(APIBaseTest):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
 
         with freeze_time("2023-01-01T10:00:00"):
-            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+            )
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertEqual(
                 response.json(),
-                {"type": "server_error", "code": "2fa_required", "detail": "2FA is required.", "attr": None},
+                {
+                    "type": "server_error",
+                    "code": "2fa_required",
+                    "detail": "2FA is required.",
+                    "attr": None,
+                },
             )
 
         with freeze_time("2023-01-01T10:30:00"):
@@ -260,9 +287,13 @@ class TestLoginAPI(APIBaseTest):
     def test_2fa_throttling(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"], "2fa_invalid")
         self.assertEqual(
-            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"], "2fa_too_many_attempts"
+            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
+            "2fa_invalid",
+        )
+        self.assertEqual(
+            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
+            "2fa_too_many_attempts",
         )
 
 
@@ -289,7 +320,8 @@ class TestPasswordResetAPI(APIBaseTest):
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
-            user.requested_password_reset_at, datetime.datetime(2021, 10, 5, 12, 0, 0, tzinfo=timezone.utc)
+            user.requested_password_reset_at,
+            datetime.datetime(2021, 10, 5, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
@@ -299,7 +331,9 @@ class TestPasswordResetAPI(APIBaseTest):
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.validate_basic_html(
-            html_message, "https://my.posthog.net", preheader="Please follow the link inside to reset your password."
+            html_message,
+            "https://my.posthog.net",
+            preheader="Please follow the link inside to reset your password.",
         )
 
         # validate reset token
@@ -307,7 +341,8 @@ class TestPasswordResetAPI(APIBaseTest):
         reset_link = html_message[link_index : html_message.find('"', link_index)]
         self.assertTrue(
             password_reset_token_generator.check_token(
-                self.user, reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", "")
+                self.user,
+                reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", ""),
             )
         )
 
@@ -337,7 +372,9 @@ class TestPasswordResetAPI(APIBaseTest):
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.validate_basic_html(
-            html_message, "https://my.posthog.net", preheader="Please follow the link inside to reset your password."
+            html_message,
+            "https://my.posthog.net",
+            preheader="Please follow the link inside to reset your password.",
         )
 
         # validate reset token
@@ -345,7 +382,8 @@ class TestPasswordResetAPI(APIBaseTest):
         reset_link = html_message[link_index : html_message.find('"', link_index)]
         self.assertTrue(
             password_reset_token_generator.check_token(
-                self.user, reset_link.replace(f"https://my.posthog.net/reset/{self.user.uuid}/", "")
+                self.user,
+                reset_link.replace(f"https://my.posthog.net/reset/{self.user.uuid}/", ""),
             )
         )
 
@@ -389,7 +427,8 @@ class TestPasswordResetAPI(APIBaseTest):
                 # Fourth request should fail
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
                 self.assertDictContainsSubset(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"}, response.json()
+                    {"attr": None, "code": "throttled", "type": "throttled_error"},
+                    response.json(),
                 )
 
         # Three emails should be sent, fourth should not
@@ -408,7 +447,12 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token"},
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "token",
+            },
         )
 
     def test_invalid_token_returns_error(self):
@@ -418,7 +462,12 @@ class TestPasswordResetAPI(APIBaseTest):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
-        for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
+        for token in [
+            valid_token[:-1],
+            "not_even_trying",
+            self.user.uuid,
+            expired_token,
+        ]:
             response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
@@ -470,12 +519,20 @@ class TestPasswordResetAPI(APIBaseTest):
             self.user.distinct_id,
             "user logged in",
             properties={"social_provider": ""},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
         mock_capture.assert_any_call(
             self.user.distinct_id,
             "user password reset",
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
         self.assertEqual(mock_capture.call_count, 2)
 
@@ -507,7 +564,12 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token"},
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "token",
+            },
         )
 
         # user remains logged out
@@ -526,8 +588,16 @@ class TestPasswordResetAPI(APIBaseTest):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
-        for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
-            response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "a12345678"})
+        for token in [
+            valid_token[:-1],
+            "not_even_trying",
+            self.user.uuid,
+            expired_token,
+        ]:
+            response = self.client.post(
+                f"/api/reset/{self.user.uuid}/",
+                {"token": token, "password": "a12345678"},
+            )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
                 response.json(),
@@ -579,7 +649,8 @@ class TestPasswordResetAPI(APIBaseTest):
 
         with self.settings(E2E_TESTING=True):
             response = self.client.post(
-                "/api/reset/e2e_test_user/", {"token": "e2e_test_token", "password": "a12345678"}
+                "/api/reset/e2e_test_user/",
+                {"token": "e2e_test_token", "password": "a12345678"},
             )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
@@ -590,7 +661,10 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
         )
 
         with freeze_time("2021-08-25T22:10:14.252"):
@@ -610,7 +684,10 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
         )
 
         with freeze_time("2022-08-25T22:00:14.252"):
@@ -630,7 +707,10 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
         )
 
         with freeze_time("2021-08-26T22:00:14.252"):
@@ -668,7 +748,10 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
         )
 
         with freeze_time("2021-08-25T21:14:14.252"):
@@ -687,7 +770,10 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
         )
 
         with freeze_time("2021-08-24T21:14:14.252"):

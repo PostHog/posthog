@@ -1,16 +1,37 @@
 import pytest
 
-from posthog.queries.time_to_see_data.hierarchy import Node, NodeType, construct_hierarchy, is_child
+from posthog.queries.time_to_see_data.hierarchy import (
+    Node,
+    NodeType,
+    construct_hierarchy,
+    is_child,
+)
 
 
 @pytest.mark.parametrize(
     "potential_parent,potential_child,expected_result",
     [
         # Sessions
-        (Node(NodeType.SESSION, {"session_id": 1}), Node(NodeType.INTERACTION, {"session_id": 1}), True),
-        (Node(NodeType.SESSION, {"session_id": 1}), Node(NodeType.QUERY, {"session_id": 1}), True),
-        (Node(NodeType.SESSION, {"session_id": 2}), Node(NodeType.QUERY, {"session_id": 1}), False),
-        (Node(NodeType.SESSION, {"session_id": 1}), Node(NodeType.SESSION, {"session_id": 1}), False),
+        (
+            Node(NodeType.SESSION, {"session_id": 1}),
+            Node(NodeType.INTERACTION, {"session_id": 1}),
+            True,
+        ),
+        (
+            Node(NodeType.SESSION, {"session_id": 1}),
+            Node(NodeType.QUERY, {"session_id": 1}),
+            True,
+        ),
+        (
+            Node(NodeType.SESSION, {"session_id": 2}),
+            Node(NodeType.QUERY, {"session_id": 1}),
+            False,
+        ),
+        (
+            Node(NodeType.SESSION, {"session_id": 1}),
+            Node(NodeType.SESSION, {"session_id": 1}),
+            False,
+        ),
         # Interactions
         (
             Node(NodeType.INTERACTION, {"primary_interaction_id": "1"}),
@@ -37,7 +58,11 @@ from posthog.queries.time_to_see_data.hierarchy import Node, NodeType, construct
             Node(NodeType.SUBQUERY, {"client_query_id": "123::2543245"}),
             False,
         ),
-        (Node(NodeType.INTERACTION, {"session_id": 1}), Node(NodeType.SESSION, {}), False),
+        (
+            Node(NodeType.INTERACTION, {"session_id": 1}),
+            Node(NodeType.SESSION, {}),
+            False,
+        ),
         (Node(NodeType.INTERACTION, {}), Node(NodeType.INTERACTION, {}), False),
         # Events
         (
@@ -75,17 +100,44 @@ def test_is_child(potential_parent, potential_child, expected_result):
 def test_construct_hierarchy():
     session = {"session_id": 1}
 
-    interaction_1 = {**session, "is_primary_interaction": True, "primary_interaction_id": "123"}
-    event_11 = {**session, "is_primary_interaction": False, "primary_interaction_id": "123", "query_id": "456"}
+    interaction_1 = {
+        **session,
+        "is_primary_interaction": True,
+        "primary_interaction_id": "123",
+    }
+    event_11 = {
+        **session,
+        "is_primary_interaction": False,
+        "primary_interaction_id": "123",
+        "query_id": "456",
+    }
     query_111 = {**session, "client_query_id": "123::456", "is_initial_query": True}
-    subquery_1111 = {**session, "client_query_id": "123::456", "is_initial_query": False}
-    event_12 = {**session, "is_primary_interaction": False, "primary_interaction_id": "123", "query_id": "789"}
+    subquery_1111 = {
+        **session,
+        "client_query_id": "123::456",
+        "is_initial_query": False,
+    }
+    event_12 = {
+        **session,
+        "is_primary_interaction": False,
+        "primary_interaction_id": "123",
+        "query_id": "789",
+    }
     query_121 = {**session, "client_query_id": "123::789", "is_initial_query": True}
     query_13 = {**session, "client_query_id": "123::1111", "is_initial_query": True}
 
-    interaction_2 = {**session, "is_primary_interaction": True, "primary_interaction_id": "8888"}
+    interaction_2 = {
+        **session,
+        "is_primary_interaction": True,
+        "primary_interaction_id": "8888",
+    }
 
-    stray_event = {**session, "is_primary_interaction": False, "primary_interaction_id": "efg", "query_id": "9999"}
+    stray_event = {
+        **session,
+        "is_primary_interaction": False,
+        "primary_interaction_id": "efg",
+        "query_id": "9999",
+    }
     stray_query = {**session, "client_query_id": "foobar", "is_initial_query": True}
 
     result = construct_hierarchy(

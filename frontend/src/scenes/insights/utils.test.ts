@@ -1,4 +1,4 @@
-import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
     extractObjectDiffKeys,
     formatAggregationValue,
@@ -7,9 +7,10 @@ import {
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
 } from 'scenes/insights/utils'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+
 import { ActionsNode, BreakdownFilter, EventsNode, NodeKind } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
+import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -180,7 +181,7 @@ describe('formatAggregationValue', () => {
 
     it('uses render count when there is a value and property format is a no-op', () => {
         const fakeRenderCount = (x: number): string =>
-            formatAggregationAxisValue({ aggregation_axis_format: 'duration' }, x)
+            formatAggregationAxisValue({ aggregationAxisFormat: 'duration' }, x)
         const noOpFormatProperty = jest.fn((_, y) => y)
         const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
         expect(actual).toEqual('8m 20s')
@@ -188,7 +189,7 @@ describe('formatAggregationValue', () => {
 
     it('uses render count when there is a value and property format converts number to string', () => {
         const fakeRenderCount = (x: number): string =>
-            formatAggregationAxisValue({ aggregation_axis_format: 'duration' }, x)
+            formatAggregationAxisValue({ aggregationAxisFormat: 'duration' }, x)
         const noOpFormatProperty = jest.fn((_, y) => String(y))
         const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
         expect(actual).toEqual('8m 20s')

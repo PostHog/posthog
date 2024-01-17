@@ -9,8 +9,8 @@ jest.mock('../../src/main/ingestion-queues/kafka-queue')
 jest.mock('../../src/main/graphile-worker/schedule')
 
 describe('stringToPluginServerMode', () => {
-    test('gives the right value for async -> PluginServerMode.plugins_async', () => {
-        expect(stringToPluginServerMode['async']).toEqual(PluginServerMode.plugins_async)
+    test('gives the right value for ingestion -> PluginServerMode.plugins_ingestion', () => {
+        expect(stringToPluginServerMode['ingestion']).toEqual(PluginServerMode.ingestion)
     })
 
     test('gives undefined for invalid input', () => {

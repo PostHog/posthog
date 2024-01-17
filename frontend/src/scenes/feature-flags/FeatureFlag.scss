@@ -1,9 +1,9 @@
-.variant-form-list {
+.VariantFormList {
+    padding: 16px;
+    margin-top: 16px;
     font-size: 13px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 16px;
-    margin-top: 16px;
 
     .ant-form-item {
         min-height: 32px;
@@ -13,25 +13,28 @@
         font-weight: bold;
 
         .ant-col {
-            min-height: 32px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
+            min-height: 32px;
         }
+    }
+
+    .VariantFormList__row {
+        grid-template-columns: repeat(24, minmax(0, 1fr));
     }
 }
 
 .feature-flag-property-display {
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: wrap;
+    flex-flow: row wrap;
     gap: 0.5rem;
+    align-items: center;
     margin-top: 0.5rem;
 
     .arrow-right {
-        margin-right: -8px;
         margin-top: 0.25rem;
+        margin-right: -8px;
     }
 
     .display-value {
@@ -40,16 +43,16 @@
 }
 
 .condition-set-separator {
-    color: var(--primary-alt);
+    margin-bottom: 0.5rem;
+    margin-left: 0.5rem;
     font-size: 12px;
     font-weight: var(--font-semibold);
-    margin-left: 0.5rem;
-    margin-bottom: 0.5rem;
+    color: var(--primary-alt);
 }
 
 .feature-flag-form-row {
     display: flex;
-    justify-content: space-between;
+    flex-wrap: wrap;
     align-items: center;
     width: 100%;
 
@@ -57,11 +60,5 @@
         display: flex;
         align-items: center;
         white-space: pre-wrap;
-    }
-}
-
-.FeatureConditionCard {
-    .FeatureConditionCard--border--highlight {
-        border-color: var(--primary);
     }
 }

@@ -1,16 +1,16 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { beforeUnload } from 'kea-router'
+import api from 'lib/api'
+import { FormErrors } from 'lib/forms/Errors'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { validateJson } from 'lib/utils'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { formatSource } from 'scenes/pipeline/appCodeLogic'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 import type { pluginSourceLogicType } from './pluginSourceLogicType'
-import { forms } from 'kea-forms'
-import api from 'lib/api'
-import { loaders } from 'kea-loaders'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { validateJson } from 'lib/utils'
-import { FormErrors } from 'lib/forms/Errors'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { formatSource } from 'scenes/plugins/source/formatSource'
-import { beforeUnload } from 'kea-router'
 
 export interface PluginSourceProps {
     pluginId: number

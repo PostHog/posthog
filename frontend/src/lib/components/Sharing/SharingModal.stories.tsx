@@ -1,10 +1,12 @@
-import { useState } from 'react'
-import { ComponentMeta } from '@storybook/react'
-import { SharingModal, SharingModalProps } from './SharingModal'
-import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
-import { useStorybookMocks } from '~/mocks/browser'
+import { Meta } from '@storybook/react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
+
+import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
+
+import { SharingModal, SharingModalProps } from './SharingModal'
 
 const fakeInsight: Partial<InsightModel> = {
     id: 123,
@@ -12,15 +14,15 @@ const fakeInsight: Partial<InsightModel> = {
     filters: { insight: InsightType.TRENDS },
 }
 
-export default {
+const meta: Meta<typeof SharingModal> = {
     title: 'Components/Sharing',
     component: SharingModal,
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as ComponentMeta<typeof SharingModal>
+}
+export default meta
 
 const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JSX.Element => {
     const { licensed = false, ...props } = args
@@ -62,7 +64,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                                 created_at: '2022-06-28T12:30:51.459746Z',
                                 enabled: true,
                                 access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
-                                ...(req.body as any),
+                                ...req.body,
                             },
                         ]
                     },
@@ -129,5 +131,5 @@ export const InsightSharingLicensed = (): JSX.Element => {
 }
 
 export const RecordingSharingLicensed = (): JSX.Element => {
-    return <Template title="Share Recording" recordingId={'fake-id'} licensed previewIframe />
+    return <Template title="Share Recording" recordingId="fake-id" licensed previewIframe />
 }

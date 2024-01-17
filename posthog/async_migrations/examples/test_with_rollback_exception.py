@@ -1,4 +1,7 @@
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+)
 
 # For testing purposes
 
@@ -8,7 +11,6 @@ def raise_exception_fn(_):
 
 
 class Migration(AsyncMigrationDefinition):
-
     # For testing only!!
     description = "Another example async migration that's less realistic and used in tests."
 

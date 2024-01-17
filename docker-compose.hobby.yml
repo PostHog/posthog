@@ -13,8 +13,11 @@ services:
         extends:
             file: docker-compose.base.yml
             service: db
+        # Pin to postgres 12 until we have a process for pg_upgrade to postgres 15 for exsisting installations
+        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:12-alpine
         volumes:
             - postgres-data:/var/lib/postgresql/data
+
     redis:
         extends:
             file: docker-compose.base.yml
@@ -58,7 +61,7 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
-        image: posthog/posthog:$POSTHOG_APP_TAG
+        image: $REGISTRY_URL:$POSTHOG_APP_TAG
     web:
         extends:
             file: docker-compose.base.yml
@@ -66,7 +69,7 @@ services:
         command: /compose/start
         volumes:
             - ./compose:/compose
-        image: posthog/posthog:$POSTHOG_APP_TAG
+        image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
@@ -75,7 +78,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        image: posthog/posthog:$POSTHOG_APP_TAG
+        image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
@@ -103,7 +106,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: asyncmigrationscheck
-        image: posthog/posthog:$POSTHOG_APP_TAG
+        image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
@@ -138,7 +141,7 @@ services:
             service: temporal-django-worker
         volumes:
             - ./compose:/compose
-        image: posthog/posthog:$POSTHOG_APP_TAG
+        image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN

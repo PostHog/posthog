@@ -1,13 +1,14 @@
-import { Tooltip } from 'antd'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSad } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils'
 import { RefCallback, useEffect, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
+
 import { isInteractionNode, isQueryNode, isSessionNode, TimeToSeeNode, TimeToSeeSessionNode } from '../types'
 import { sessionNodeFacts, SpanData, traceLogic } from './traceLogic'
 
@@ -52,7 +53,7 @@ function SpanBar({
                     width: `${durationWidth}%`,
                     marginLeft: `${startMargin}%`,
                 }}
-                className={'text-white pl-1'}
+                className="text-white pl-1"
             >
                 <span>{humanFriendlyMilliseconds(spanData.duration)}</span>
             </div>
@@ -69,7 +70,7 @@ function DescribeSpan({ node }: { node: TimeToSeeNode }): JSX.Element {
             {isSessionNode(node) ? 'session' : null}
 
             {(isFrustratingSession || isFrustratingInteraction) && (
-                <Tooltip title={'This was frustrating because it took longer than 5 seconds'}>
+                <Tooltip title="This was frustrating because it took longer than 5 seconds">
                     <IconSad />
                 </Tooltip>
             )}
@@ -101,7 +102,7 @@ function SpanBarWrapper(props: {
     return (
         <div
             ref={props.ref}
-            className={'grow self-center'}
+            className="grow self-center"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={{
                 width: props.durationContainerWidth || '100%',
@@ -119,7 +120,7 @@ function NodeFacts({ facts }: { facts: Record<string, any> }): JSX.Element {
                 .filter((entry) => entry[1] !== undefined && entry[1] !== '')
                 .map(([key, fact], index) => {
                     return (
-                        <div key={index} className={'flex flex-row w-full overflow-auto whitespace-nowrap'}>
+                        <div key={index} className="flex flex-row w-full overflow-auto whitespace-nowrap">
                             <strong>{key}:</strong> <span>{fact}</span>
                         </div>
                     )
@@ -142,7 +143,7 @@ function TraceOverview({
     const { maxTimePoint } = useValues(traceLogic)
     return (
         <>
-            <div className={'flex flex-col gap-2 border rounded p-4'}>
+            <div className="flex flex-col gap-2 border rounded p-4">
                 <NodeFacts facts={sessionNodeFacts(timeToSeeSession)} />
                 <h1 className="mb-0">Session Interactions</h1>
                 <LemonBanner type="info">
@@ -167,13 +168,13 @@ function TraceOverview({
                                             `Span__${spanData.type}`
                                         )}
                                     >
-                                        <div className={'w-100 relative flex flex-row gap-2'}>
+                                        <div className="w-100 relative flex flex-row gap-2">
                                             {spanData.data && <DescribeSpan node={spanData.data} />}
                                         </div>
                                         <SpanBarWrapper
                                             ref={ref}
                                             // don't set duration container width back onto the element that is generating it
-                                            durationContainerWidth={!!ref ? undefined : parentSpanWidth}
+                                            durationContainerWidth={ref ? undefined : parentSpanWidth}
                                             maxSpan={maxTimePoint}
                                             spanData={spanData}
                                         />
@@ -195,7 +196,7 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
 
     return (
         <BindLogic logic={traceLogic} props={{ sessionNode: timeToSeeSession }}>
-            <div className={'flex flex-col gap-1 border rounded p-4'}>
+            <div className="flex flex-col gap-1 border rounded p-4">
                 <h2>{timeToSeeSession.data.session_id}</h2>
                 <div>
                     session length: {humanFriendlyDuration(timeToSeeSession.data.total_interaction_time_to_see_data_ms)}

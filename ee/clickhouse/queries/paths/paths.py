@@ -61,10 +61,18 @@ class ClickhousePaths(Paths):
             return ""
 
     def get_target_clause(self) -> Tuple[str, Dict]:
-        params: Dict[str, Union[str, None]] = {"target_point": None, "secondary_target_point": None}
+        params: Dict[str, Union[str, None]] = {
+            "target_point": None,
+            "secondary_target_point": None,
+        }
 
         if self._filter.end_point and self._filter.start_point:
-            params.update({"target_point": self._filter.end_point, "secondary_target_point": self._filter.start_point})
+            params.update(
+                {
+                    "target_point": self._filter.end_point,
+                    "secondary_target_point": self._filter.start_point,
+                }
+            )
 
             clause = f"""
             , indexOf(compact_path, %(secondary_target_point)s) as start_target_index
@@ -101,7 +109,10 @@ class ClickhousePaths(Paths):
             include_timestamp=bool(self._filter.funnel_paths),
             include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
         )
-        funnel_persons_query, funnel_persons_param = funnel_persons_generator.actor_query(limit_actors=False)
+        (
+            funnel_persons_query,
+            funnel_persons_param,
+        ) = funnel_persons_generator.actor_query(limit_actors=False)
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
         new_funnel_params = {"funnel_" + str(key): val for key, val in funnel_persons_param.items()}
         self.params.update(new_funnel_params)
@@ -112,7 +123,6 @@ class ClickhousePaths(Paths):
         """
 
     def get_session_threshold_clause(self) -> str:
-
         if self.should_query_funnel():
             self._funnel_filter = cast(Filter, self._funnel_filter)  # typing mess
 

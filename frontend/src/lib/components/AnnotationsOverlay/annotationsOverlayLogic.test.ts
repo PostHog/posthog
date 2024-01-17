@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { insightLogic } from 'scenes/insights/insightLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
 import { initKeaTests } from '~/test/init'
-import { AnnotationScope, RawAnnotationType, InsightShortId, IntervalType, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightShortId, IntervalType, RawAnnotationType } from '~/types'
+
 import { annotationsOverlayLogic } from './annotationsOverlayLogic'
 
 jest.spyOn(Storage.prototype, 'getItem')

@@ -7,8 +7,11 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
+from django.contrib.auth.tokens import (
+    PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator,
+)
 from django.core.exceptions import ValidationError
+from django.core.signing import BadSignature
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
@@ -23,7 +26,10 @@ from rest_framework.throttling import UserRateThrottle
 from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
-from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
+from two_factor.views.utils import (
+    get_remember_device_cookie,
+    validate_remember_device_cookie,
+)
 
 from posthog.api.email_verification import EmailVerifier
 from posthog.email import is_email_available
@@ -99,10 +105,15 @@ class LoginSerializer(serializers.Serializer):
         # If user has a valid 2FA cookie, use that instead of showing them the 2FA screen
         for key, value in self.context["request"].COOKIES.items():
             if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
-                if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
-                    user.otp_device = device  # type: ignore
-                    device.throttle_reset()
-                    return False
+                try:
+                    if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
+                        user.otp_device = device  # type: ignore
+                        device.throttle_reset()
+                        return False
+                except BadSignature:
+                    # Workaround for signature mismatches due to Django upgrades.
+                    # See https://github.com/PostHog/posthog/issues/19350
+                    pass
         return True
 
     def create(self, validated_data: Dict[str, str]) -> Any:
@@ -110,12 +121,18 @@ class LoginSerializer(serializers.Serializer):
         sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
         if sso_enforcement:
             raise serializers.ValidationError(
-                f"You can only login with SSO for this account ({sso_enforcement}).", code="sso_enforced"
+                f"You can only login with SSO for this account ({sso_enforcement}).",
+                code="sso_enforced",
             )
 
         request = self.context["request"]
         user = cast(
-            Optional[User], authenticate(request, email=validated_data["email"], password=validated_data["password"])
+            Optional[User],
+            authenticate(
+                request,
+                email=validated_data["email"],
+                password=validated_data["password"],
+            ),
         )
 
         if not user:
@@ -211,7 +228,8 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         )
         if int(time.time()) > expiration_time:
             raise serializers.ValidationError(
-                detail="Login attempt has expired. Re-enter username/password.", code="2fa_expired"
+                detail="Login attempt has expired. Re-enter username/password.",
+                code="2fa_expired",
             )
 
         with transaction.atomic():
@@ -242,7 +260,8 @@ class PasswordResetSerializer(serializers.Serializer):
         # Check SSO enforcement (which happens at the domain level)
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
             raise serializers.ValidationError(
-                "Password reset is disabled because SSO login is enforced for this domain.", code="sso_enforced"
+                "Password reset is disabled because SSO login is enforced for this domain.",
+                code="sso_enforced",
             )
 
         if not is_email_available():
@@ -278,12 +297,14 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
         except User.DoesNotExist:
             raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
+                {"token": ["This reset token is invalid or has expired."]},
+                code="invalid_token",
             )
 
         if not password_reset_token_generator.check_token(user, validated_data["token"]):
             raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
+                {"token": ["This reset token is invalid or has expired."]},
+                code="invalid_token",
             )
         password = validated_data["password"]
         try:
@@ -295,7 +316,11 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         user.requested_password_reset_at = None
         user.save()
 
-        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
+        login(
+            self.context["request"],
+            user,
+            backend="django.contrib.auth.backends.ModelBackend",
+        )
         report_user_password_reset(user)
         return True
 
@@ -332,7 +357,8 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
 
         if not user or not password_reset_token_generator.check_token(user, token):
             raise serializers.ValidationError(
-                {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
+                {"token": ["This reset token is invalid or has expired."]},
+                code="invalid_token",
             )
 
         return {"success": True, "token": token}

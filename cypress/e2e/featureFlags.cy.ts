@@ -8,7 +8,7 @@ describe('Feature Flags', () => {
 
     it('Create feature flag', () => {
         // ensure unique names to avoid clashes
-        cy.get('h1').should('contain', 'Feature Flags')
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').click().type(`{moveToEnd}${name}`).should('have.value', name)
         cy.get('[data-attr=feature-flag-description]')
@@ -17,17 +17,18 @@ describe('Feature Flags', () => {
 
         // Check that feature flags instructions can be displayed in another code language
         cy.get('[data-attr=feature-flag-instructions-select]').click()
-        cy.get('[data-attr=feature-flag-instructions-select-option-PHP]').click()
+        // force click rather than scrolling the element into view
+        cy.get('[data-attr=feature-flag-instructions-select-option-php]').click({ force: true })
         cy.get('[data-attr=feature-flag-instructions-snippet]').should(
             'contain',
             /if (PostHog::isFeatureEnabled('.*', 'some distinct id')) {/
         )
-        cy.get('[data-attr=feature-flag-instructions-snippet]').should('contain', /    \/\/ do something here/)
+        cy.get('[data-attr=feature-flag-instructions-snippet]').should('contain', / {4}\/\/ do something here/)
         cy.get('[data-attr=feature-flag-instructions-snippet]').should('contain', /}/)
         cy.get('[data-attr=feature-flag-doc-link]').should(
             'have.attr',
             'href',
-            'https://posthog.com/docs/integrations/php-integration?utm_medium=in-product&utm_campaign=feature-flag#feature-flags'
+            'https://posthog.com/docs/libraries/php?utm_medium=in-product&utm_campaign=feature-flag#feature-flags'
         )
 
         // select "add filter" and "property"
@@ -47,6 +48,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=save-feature-flag]').first().click()
 
         // after save there should be a delete button
+        cy.get('[data-attr="more-button"]').click()
         cy.get('button[data-attr="delete-feature-flag"]').should('have.text', 'Delete feature flag')
 
         // make sure the data is there as expected after a page reload!
@@ -76,17 +78,19 @@ describe('Feature Flags', () => {
     })
 
     it('Delete feature flag', () => {
-        cy.get('h1').should('contain', 'Feature Flags')
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').focus().type(name).should('have.value', name)
         cy.get('[data-attr=save-feature-flag]').first().click()
 
         // after save there should be a delete button
+        cy.get('[data-attr="more-button"]').click()
         cy.get('button[data-attr="delete-feature-flag"]').should('have.text', 'Delete feature flag')
 
         cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get(`[data-row-key=${name}]`).contains(name).click()
+        cy.get('[data-attr="more-button"]').click()
         cy.get('[data-attr=delete-feature-flag]').click()
         cy.get('.Toastify').contains('Undo').should('be.visible')
     })

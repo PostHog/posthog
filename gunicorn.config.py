@@ -140,15 +140,25 @@ class WorkerMonitor(threading.Thread):
         Every X seconds, check the status of the Thread pool, as well as the
         """
         active_worker_connections = Gauge(
-            "gunicorn_active_worker_connections", "Number of active connections.", labelnames=["pid"]
+            "gunicorn_active_worker_connections",
+            "Number of active connections.",
+            labelnames=["pid"],
         )
         max_worker_connections = Gauge(
-            "gunicorn_max_worker_connections", "Maximum worker connections.", labelnames=["pid"]
+            "gunicorn_max_worker_connections",
+            "Maximum worker connections.",
+            labelnames=["pid"],
         )
 
-        total_threads = Gauge("gunicorn_max_worker_threads", "Size of the thread pool per worker.", labelnames=["pid"])
+        total_threads = Gauge(
+            "gunicorn_max_worker_threads",
+            "Size of the thread pool per worker.",
+            labelnames=["pid"],
+        )
         active_threads = Gauge(
-            "gunicorn_active_worker_threads", "Number of threads actively processing requests.", labelnames=["pid"]
+            "gunicorn_active_worker_threads",
+            "Number of threads actively processing requests.",
+            labelnames=["pid"],
         )
 
         pending_requests = Gauge(
@@ -169,6 +179,7 @@ class WorkerMonitor(threading.Thread):
 
 
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
+
 
 # Setup stdlib logging to be handled by Structlog
 def add_pid_and_tid(

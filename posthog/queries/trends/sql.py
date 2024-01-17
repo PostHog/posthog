@@ -1,7 +1,7 @@
 VOLUME_SQL = """
 SELECT
     {aggregate_operation} AS total,
-    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s)) AS date
+    {timestamp_truncated} AS date
 {event_query_base}
 GROUP BY date
 """
@@ -15,7 +15,7 @@ VOLUME_PER_ACTOR_SQL = """
 SELECT {aggregate_operation} AS total, date FROM (
     SELECT
         count() AS intermediate_count,
-        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS date
+        {timestamp_truncated} AS date
     {event_query_base}
     GROUP BY {aggregator}, date
 ) GROUP BY date
@@ -33,10 +33,10 @@ SELECT {aggregate_operation} AS total FROM (
 SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} AS total, date FROM (
     SELECT
-        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as date,
+        {timestamp_truncated} as date,
         any(sessions.session_duration) as session_duration
     {event_query_base}
-    GROUP BY e.$session_id, date
+    GROUP BY e."$session_id", date
 ) GROUP BY date
 """
 
@@ -44,7 +44,7 @@ SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} AS total FROM (
     SELECT any(session_duration) as session_duration
     {event_query_base}
-    GROUP BY e.$session_id
+    GROUP BY e."$session_id"
 )
 """
 
@@ -55,8 +55,8 @@ SELECT counts AS total, timestamp AS day_start FROM (
         /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
            and not `events`, because we cannot rely on there being an event for each period (this assumption previously
            caused active user counts to be off for sparse events). */
-        SELECT toDateTime({interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number))) AS timestamp
-        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)), toDateTime(%(date_to)s, %(timezone)s)))
+        SELECT toDateTime({date_to_truncated} - {interval_func}(number)) AS timestamp
+        FROM numbers(dateDiff(%(interval)s, {date_from_active_users_adjusted_truncated}, toDateTime(%(date_to)s, %(timezone)s)))
     ) d
     /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
        but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
@@ -98,9 +98,8 @@ GROUP BY actor_id
 """
 
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
-SELECT groupArray(value) FROM (
     SELECT
-        {value_expression},
+        {breakdown_expression},
         {aggregate_operation} as count
     FROM events e
     {sample_clause}
@@ -112,13 +111,12 @@ SELECT groupArray(value) FROM (
     GROUP BY value
     ORDER BY count DESC, value DESC
     LIMIT %(limit)s OFFSET %(offset)s
-)
 """
 
 HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL = """
 SELECT {bucketing_expression} FROM (
     SELECT
-        {value_expression},
+        {breakdown_expression},
         {aggregate_operation} as count
     FROM events e
     {sample_clause}
@@ -167,12 +165,10 @@ SELECT groupArray(day_start) as date, groupArray(count) AS total, breakdown_valu
                 --       upper bound, then including the lower bound in the query also.
 
                 SELECT
-                    {interval}(
-                        toDateTime(%(date_to)s, %(timezone)s) - number * %(seconds_in_interval)s
-                    ) as day_start
+                {date_to_truncated} - {interval_func}(number) as day_start
                 FROM numbers({num_intervals})
                 UNION ALL
-                SELECT {interval}(toDateTime(%(date_from)s, %(timezone)s)) as day_start
+                SELECT {date_from_truncated} as day_start
             ) as ticks
 
             -- Zero fill for all values for the specified breakdown
@@ -198,7 +194,7 @@ ORDER BY breakdown_value
 BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
+    {timestamp_truncated} as day_start,
     {breakdown_value} as breakdown_value
 FROM events e
 {sample_clause}
@@ -217,7 +213,7 @@ FROM (
     SELECT
         COUNT(*) AS intermediate_count,
         {aggregator},
-        {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS day_start,
+        {timestamp_truncated} AS day_start,
         {breakdown_value} as breakdown_value
     FROM events AS e
     {sample_clause}
@@ -254,7 +250,7 @@ SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
-        SELECT {event_sessions_table_alias}.$session_id, session_duration, {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
+        SELECT {event_sessions_table_alias}.$session_id, session_duration, {timestamp_truncated} as day_start,
             {breakdown_value} as breakdown_value
         FROM events AS e
         {sample_clause}
@@ -272,7 +268,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
+    {timestamp_truncated} as day_start,
     breakdown_value
 FROM (
     SELECT
@@ -372,6 +368,11 @@ ORDER BY breakdown_value
 
 BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query} {null_person_filter}
+"""
+
+BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL = """
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {null_person_filter}
+  {actions_query}
 """
 
 BREAKDOWN_PROP_JOIN_SQL = """

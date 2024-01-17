@@ -1,5 +1,4 @@
-import type { PlaywrightTestConfig } from '@playwright/test'
-import { devices } from '@playwright/test'
+import { defineConfig, devices } from '@playwright/test'
 
 /**
  * Read environment variables from file.
@@ -10,7 +9,7 @@ import { devices } from '@playwright/test'
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
-const config: PlaywrightTestConfig = {
+export default defineConfig({
     testDir: './playwright',
     /* Maximum time one test can run for. */
     timeout: 30 * 1000,
@@ -28,7 +27,7 @@ const config: PlaywrightTestConfig = {
     /* Retry on CI only */
     retries: process.env.CI ? 2 : 0,
     /* Run one worker per core in GitHub Actions. */
-    workers: process.env.CI ? 2 : undefined,
+    workers: process.env.CI ? 4 : undefined,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -102,6 +101,4 @@ const config: PlaywrightTestConfig = {
     //   command: 'npm run start',
     //   port: 3000,
     // },
-}
-
-export default config
+})

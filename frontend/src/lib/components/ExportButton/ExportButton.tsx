@@ -1,6 +1,8 @@
-import { ExporterFormat, OnlineExportContext } from '~/types'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+
+import { ExporterFormat, OnlineExportContext } from '~/types'
+
 import { triggerExport, TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {
@@ -11,14 +13,13 @@ export interface ExportButtonItem {
     insight?: number
 }
 
-export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'status' | 'fullWidth'> {
+export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'fullWidth'> {
     items: ExportButtonItem[]
 }
 
 export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
     return (
         <LemonButtonWithDropdown
-            status="stealth"
             data-attr="export-button"
             {...buttonProps}
             dropdown={{
@@ -50,12 +51,11 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                 <LemonButton
                                     key={i}
                                     fullWidth
-                                    status="stealth"
-                                    onClick={() => triggerExport(triggerExportProps)}
+                                    onClick={() => void triggerExport(triggerExportProps)}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}
                                     data-ph-capture-attribute-export-body={
-                                        !!exportBody.length ? JSON.stringify(exportBody) : null
+                                        exportBody.length ? JSON.stringify(exportBody) : null
                                     }
                                 >
                                     {title ? title : `.${exportFormatExtension}`}

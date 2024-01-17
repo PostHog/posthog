@@ -1,108 +1,269 @@
 .Notebook {
     display: flex;
-    flex-direction: column;
     flex: 1;
+    flex-direction: column;
+    width: 100%;
+
+    // overriding ::selection is necessary here because
+    // antd makes it invisible otherwise
+    span::selection {
+        color: var(--primary-3000);
+    }
 
     .NotebookEditor {
+        position: relative;
         flex: 1;
+        width: 100%;
+        overflow: hidden;
 
-        > h1,
-        > h2,
-        > h3,
-        > h4,
-        > h5 {
-            margin-top: 0.5rem;
-        }
+        .ProseMirror {
+            &-focused {
+                outline: none;
+            }
 
-        > p {
-            margin-bottom: 0.2rem;
-        }
+            > h1,
+            > h2,
+            > h3,
+            > h4,
+            > h5 {
+                margin-top: 0.5rem;
+            }
 
-        > &.ProseMirror-focused {
-            outline: none;
-        }
+            > p {
+                margin-bottom: 0.2rem;
+            }
 
-        > .is-empty::before {
-            content: attr(data-placeholder);
-            float: left;
-            color: rgba(0, 0, 0, 0.2);
-            pointer-events: none;
-            height: 0;
-        }
+            > .is-empty::before {
+                float: left;
+                height: 0;
+                color: rgb(0 0 0 / 20%);
+                pointer-events: none;
+                content: attr(data-placeholder);
 
-        > ul,
-        ol {
-            padding-left: 1rem;
-
-            li {
-                p {
-                    margin-bottom: 0.2rem;
+                [theme='dark'] & {
+                    color: rgb(255 255 255 / 20%);
                 }
+            }
+
+            > ol {
+                list-style-type: decimal;
+
+                ol {
+                    list-style-type: lower-alpha;
+                }
+            }
+
+            > ul {
+                list-style-type: disc;
+
+                ul {
+                    list-style-type: circle;
+                }
+            }
+
+            > ul[data-type='taskList'] {
+                padding-left: 0;
+                list-style-type: none;
+
+                li {
+                    display: flex;
+
+                    > label {
+                        flex: 0 0 auto;
+                        margin-right: 0.5rem;
+                        user-select: none;
+                    }
+
+                    > div {
+                        flex: 1 1 auto;
+                    }
+
+                    ul li,
+                    ol li {
+                        display: list-item;
+                    }
+
+                    ul[data-type='taskList'] > li {
+                        display: flex;
+                    }
+                }
+            }
+
+            > ul,
+            > ol {
+                padding-left: 2rem;
+
+                ul,
+                ol {
+                    padding-left: 2rem;
+                }
+
+                li {
+                    p {
+                        margin-bottom: 0.2rem;
+                    }
+                }
+            }
+
+            > pre {
+                padding: 0.5rem;
+                margin-bottom: 0.5rem;
+                overflow-x: auto;
+                background-color: rgb(0 0 0 / 5%);
+                border-radius: var(--radius);
+            }
+
+            > code,
+            > p code {
+                padding: 0.2rem;
+                background-color: rgb(0 0 0 / 5%);
+                border-radius: var(--radius);
             }
         }
 
-        > ul {
-            list-style: initial;
-        }
-
-        > pre {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            overflow-x: auto;
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-        }
-
-        > code,
-        > p code {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            padding: 0.2rem;
-        }
-
-        .Backlink__label {
+        .Backlink {
             padding: 0.125rem 0.25rem;
+            background-color: var(--bg-light);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            background-color: var(--white);
 
             &:hover {
                 background-color: var(--side);
             }
 
+            & svg {
+                color: var(--text-3000);
+            }
+
             &.Backlink--selected {
-                outline-style: solid;
-                outline-color: var(--primary-bg-active);
+                border-color: var(--primary-3000);
             }
 
             &.Backlink--active {
-                border: 1px solid var(--brand-blue);
-                background: var(--brand-blue);
                 color: var(--white);
+                background: var(--primary-3000);
+                border: 1px solid var(--primary-3000);
 
                 & .Backlink__label,
                 & svg {
                     color: var(--white);
                 }
-            }
 
-            & .Backlink__label {
-                color: var(--black);
+                span::selection {
+                    color: var(--white);
+                }
+            }
+        }
+
+        &[contenteditable='true'] {
+            a {
+                cursor: text;
             }
         }
     }
 
-    &--compact {
-        max-width: 1000px;
-        width: 100%;
-        margin-left: auto;
-        margin-right: auto;
+    &--compact:not(.Notebook--canvas) {
+        .NotebookEditor {
+            max-width: 800px;
+        }
+    }
+
+    .NotebookColumn {
+        --notebook-sidebar-height: calc(100vh - 9rem);
+
+        position: relative;
+        width: 0;
+        transition: width var(--notebook-popover-transition-properties);
+
+        .NotebookColumn__content {
+            position: sticky;
+            top: 0;
+            align-self: flex-start;
+            transition: transform var(--notebook-popover-transition-properties);
+            transform: translateX(-100%);
+        }
+
+        .NotebookScene & {
+            --notebook-sidebar-height: calc(100vh - 11rem);
+
+            .NotebookColumn__padding {
+                // Account for fixed title
+                height: 4rem;
+            }
+
+            .NotebookColumn__content {
+                // Account for static header
+                top: 4rem;
+            }
+        }
+
+        &--left {
+            .NotebookColumn__content {
+                width: var(--notebook-column-left-width);
+                transform: translateX(-100%);
+
+                > .LemonWidget .LemonWidget__content {
+                    max-height: var(--notebook-sidebar-height);
+                    overflow: auto;
+                }
+            }
+        }
+
+        &--right {
+            .NotebookColumn__content {
+                width: var(--notebook-column-right-width);
+                transform: translateX(100%);
+            }
+        }
+
+        &--showing {
+            &.NotebookColumn--left {
+                width: var(--notebook-column-left-width);
+                margin-right: 1rem;
+            }
+
+            &.NotebookColumn--right {
+                width: var(--notebook-column-right-width);
+                margin-left: 1rem;
+            }
+
+            .NotebookColumn__content {
+                transform: translateX(0);
+            }
+        }
     }
 
     &--editable {
-        .NotebookEditor {
+        .NotebookEditor .ProseMirror {
+            flex: 1;
+
             // Add some padding to help clicking below the last element
             padding-bottom: 10rem;
+        }
+
+        .NotebookColumn--left.NotebookColumn--showing {
+            & + .NotebookEditor {
+                .ProseMirror {
+                    // Add a lot of padding to allow the entire column to always be on screen
+                    padding-bottom: 100vh;
+                }
+            }
+        }
+    }
+
+    .NotebookHistory {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+    }
+
+    .NotebookInlineMenu {
+        margin-bottom: -0.2rem;
+        box-shadow: 0 4px 10px 0 rgb(0 0 0 / 10%);
+
+        .LemonInput {
+            min-height: 0;
+            border: 0;
         }
     }
 
@@ -114,11 +275,40 @@
 
     .NotebookRecordingTimestamp {
         display: inline-flex;
+        max-height: 22px;
     }
 
-    // overriding ::selection is necessary here because
-    // antd makes it invisible otherwise
-    span::selection {
-        color: var(--primary);
+    .NotebookMention {
+        display: inline-flex;
+        max-height: 22px;
+    }
+
+    .NotebookComment {
+        --notebook-comment-background-opacity: 0.25;
+
+        position: relative;
+        transform-style: preserve-3d;
+
+        &:hover {
+            --notebook-comment-background-opacity: 0.5;
+        }
+
+        &::after {
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            content: '';
+            background: var(--primary-3000);
+            opacity: var(--notebook-comment-background-opacity);
+        }
+    }
+
+    // Overrides for insight controls
+
+    .InsightVizDisplay {
+        .InsightDisplayConfig {
+            padding: 0;
+            border-bottom-width: 0;
+        }
     }
 }

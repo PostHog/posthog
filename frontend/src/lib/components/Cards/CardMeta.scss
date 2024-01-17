@@ -1,27 +1,32 @@
 .TextCard,
 .InsightCard {
     .handle {
+        position: absolute;
+        z-index: var(--z-raised);
         display: flex;
         align-items: flex-end;
         justify-content: center;
-        position: absolute;
         width: 100%;
         height: 100%;
         pointer-events: none;
-        z-index: var(--z-raised);
+
         &.horizontal {
             svg {
                 transform: rotate(90deg) translateX(0.75rem);
             }
         }
+
         &.vertical {
             flex-direction: column;
+
             svg {
                 transform: translateX(0.5rem);
             }
         }
+
         &.corner {
             justify-content: flex-end;
+
             svg {
                 transform: translate(0.5rem, 0.5rem);
             }
@@ -30,81 +35,110 @@
 }
 
 .CardMeta {
-    position: absolute;
-    top: 0;
-    left: 0;
+    position: relative;
+    z-index: 101; // Elevate above viz
     display: flex;
     flex-direction: column;
+    flex-shrink: 0;
     width: 100%;
     max-height: calc(100% - 2rem);
     background: var(--bg-light);
-    z-index: 101; // Elevate above viz
-    overflow: hidden;
     border-radius: var(--radius);
-    h5 {
-        color: var(--muted);
-        line-height: 1.5rem;
-        margin-bottom: 0;
+
+    &--with-details {
+        .CardMeta__top {
+            // Reduced height so that, considering the padding set above, CardMeta__top doesn't have too much margin
+            height: 1.5rem;
+        }
     }
-    h4 {
+
+    h5 {
+        margin-bottom: 0;
         overflow: hidden;
+        line-height: 1rem;
+        color: var(--muted);
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    h4 {
         height: 1.5em;
+        margin-bottom: 0.125rem;
+        overflow: hidden;
         font-size: 1rem;
         font-weight: 600;
-        margin-bottom: 0.125rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
-}
 
-.CardMeta--WithDetails {
-    padding: 1rem 1rem;
-}
-.CardMeta--WithoutDetails {
-    padding: 0.1rem; // needs the tiniest bump to make the "more" button centered
-}
+    .CardMeta__primary {
+        display: flex;
+        width: 100%;
+        padding: 1rem;
+    }
 
-.CardMeta--expansion-enter-active,
-.CardMeta--expansion-exit-active,
-.CardMeta--expansion-enter,
-.CardMeta--expansion-exit {
-    transition: box-shadow 200ms ease, height 200ms ease;
-}
-.CardMeta--expansion-exit.CardMeta--expansion-exit-active,
-.CardMeta--expansion-exit-done,
-.CardMeta--expansion-enter {
-    box-shadow: none;
-}
-.CardMeta--expansion-enter.CardMeta--expansion-enter-active,
-.CardMeta--expansion-enter-done,
-.CardMeta--expansion-exit {
-    box-shadow: var(--shadow-elevation);
-}
-.CardMeta--expansion-enter-done {
-    overflow: auto;
-}
+    .CardMeta__divider {
+        height: 1px;
+        margin: 0 1rem;
+        background: var(--border);
+        opacity: 0;
+        transition: opacity 200ms ease;
+    }
 
-.CardMeta__primary {
-    display: flex;
-    width: 100%;
-    margin-bottom: 0.5rem;
+    .CardMeta__details {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        left: 0;
+        max-height: 18rem;
+        margin-top: -1px; // To cause overlap with the divider when closed
+        overflow-y: auto;
+        background: var(--bg-light);
+        border-bottom-width: 1px;
+        transition: box-shadow 200ms ease, height 200ms ease, margin 200ms ease;
+
+        .CardMeta__details__content {
+            overflow-y: auto;
+            pointer-events: none;
+        }
+    }
+
+    &.CardMeta--details-shown {
+        .CardMeta__details {
+            margin-top: 0;
+            box-shadow: var(--shadow-elevation);
+
+            .CardMeta__details__content {
+                pointer-events: all;
+                opacity: 1;
+            }
+        }
+
+        .CardMeta__divider {
+            opacity: 1;
+        }
+    }
 }
 
 .CardMeta__ribbon {
     align-self: stretch;
     width: 0.375rem;
     margin: 0 0.75rem 0 -0.25rem;
-    border-radius: var(--radius);
     background: var(--muted); // Just a fallback value in case there's some unrecognized value
+    border-radius: var(--radius);
+
     &.blue {
         background: var(--blue);
     }
+
     &.purple {
         background: var(--purple);
     }
+
     &.green {
         background: var(--green);
     }
+
     &.black {
         background: var(--black);
     }
@@ -117,17 +151,18 @@
     width: 100%;
     height: fit-content;
     min-height: 2rem;
+
     > * {
         max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works
     }
 }
 
 .CardMeta__top {
-    align-self: stretch;
     display: flex;
     align-items: center;
+    align-self: stretch;
     justify-content: space-between;
-    height: 1.5rem;
+    height: 2rem;
 
     .LemonButton {
         height: 1.75rem;
@@ -136,6 +171,6 @@
 
 .CardMeta__controls {
     display: flex;
-    align-items: center;
     gap: 0.25rem;
+    align-items: center;
 }

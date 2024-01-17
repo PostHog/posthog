@@ -1,9 +1,10 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { QueryEditorProps } from '~/queries/QueryEditor/QueryEditor'
 import { Node } from '~/queries/schema'
 
 import type { queryEditorLogicType } from './queryEditorLogicType'
-import { QueryEditorProps } from '~/queries/QueryEditor/QueryEditor'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 function prettyJSON(source: string): string {
     try {
@@ -49,7 +50,7 @@ export const queryEditorLogic = kea<queryEditorLogicType>([
         ],
         JSONQuery: [(s) => [s.parsedQuery], ({ JSONQuery }): Node | null => JSONQuery],
         error: [(s) => [s.parsedQuery], ({ error }): string | null => error],
-        inputChanged: [(s) => [(_, props) => props.query, s.queryInput], (query, queryInput) => query !== queryInput],
+        inputChanged: [(s, p) => [p.query, s.queryInput], (query, queryInput) => query !== queryInput],
     }),
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {

@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { useState } from 'react'
 
 interface Props {
     onSave: (title: string) => void
@@ -11,7 +11,7 @@ export function SaveCohortModal({ onSave, onCancel, isOpen }: Props): JSX.Elemen
     const [cohortTitle, setCohortTitle] = useState('')
     return (
         <LemonModal
-            title="New Cohort"
+            title="New cohort"
             footer={
                 <>
                     <LemonButton type="secondary" onClick={onCancel}>
@@ -19,7 +19,7 @@ export function SaveCohortModal({ onSave, onCancel, isOpen }: Props): JSX.Elemen
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        disabled={!cohortTitle}
+                        disabledReason={!cohortTitle && 'Please add a title to your cohort'}
                         onClick={() => {
                             onSave(cohortTitle)
                             setCohortTitle('')

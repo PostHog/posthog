@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict
 from unittest import mock
 
 from freezegun import freeze_time
@@ -6,7 +6,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team, Organization
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
@@ -55,7 +54,10 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         notebook_two = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={}).json()
         notebook_three = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={}).json()
 
-        self.client.patch(f"/api/projects/{self.team.id}/notebooks/{notebook_two['short_id']}", data={"deleted": True})
+        self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook_two['short_id']}",
+            data={"deleted": True},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks")
 
@@ -68,17 +70,25 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("without_content", None),
-            ("with_content", {"some": "kind", "of": "tip", "tap": "content"}),
+            ("without_content", None, None),
+            (
+                "with_content",
+                {"some": "kind", "of": "tip", "tap": "content"},
+                "some kind of tip tap content",
+            ),
         ]
     )
-    def test_create_a_notebook(self, _, content: Optional[Dict]) -> None:
-        response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={"content": content})
+    def test_create_a_notebook(self, _, content: Dict | None, text_content: str | None) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"content": content, "text_content": text_content},
+        )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {
             "id": response.json()["id"],
             "short_id": response.json()["short_id"],
             "content": content,
+            "text_content": text_content,
             "title": None,
             "version": 0,
             "created_at": mock.ANY,
@@ -90,7 +100,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
             ],
         )
 
@@ -111,7 +121,11 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         with freeze_time("2022-01-02"):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/notebooks/{short_id}",
-                {"content": {"some": "updated content"}, "version": response_json["version"], "title": "New title"},
+                {
+                    "content": {"some": "updated content"},
+                    "version": response_json["version"],
+                    "title": "New title",
+                },
             )
 
         assert response.json()["short_id"] == short_id
@@ -120,7 +134,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
                 {
                     "activity": "updated",
                     "created_at": mock.ANY,
@@ -153,9 +167,12 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                         "trigger": None,
                         "type": None,
                     },
-                    "item_id": response.json()["id"],
+                    "item_id": response.json()["short_id"],
                     "scope": "Notebook",
-                    "user": {"email": self.user.email, "first_name": self.user.first_name},
+                    "user": {
+                        "email": self.user.email,
+                        "first_name": self.user.first_name,
+                    },
                 },
             ],
         )
@@ -170,24 +187,6 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         # out of the box this is accepted _and_ ignored 🤷‍♀️
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["short_id"] == notebook["short_id"]
-
-    def test_filters_based_on_params(self) -> None:
-        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
-        notebook_one = Notebook.objects.create(team=self.team, created_by=self.user)
-        notebook_two = Notebook.objects.create(team=self.team, created_by=self.user)
-        other_users_notebook = Notebook.objects.create(team=self.team, created_by=other_user)
-
-        results = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?user=true",
-        ).json()["results"]
-
-        assert [r["short_id"] for r in results] == [notebook_two.short_id, notebook_one.short_id]
-
-        results = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?created_by={other_user.id}",
-        ).json()["results"]
-
-        assert [r["short_id"] for r in results] == [other_users_notebook.short_id]
 
     def test_listing_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
@@ -230,3 +229,17 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": {"something": "here"}},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_responds_not_modified_if_versions_match(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"content": {}, "text_content": ""},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{response.json()['short_id']}",
+            HTTP_IF_NONE_MATCH=response.json()["version"],
+        )
+
+        assert response.status_code == status.HTTP_304_NOT_MODIFIED

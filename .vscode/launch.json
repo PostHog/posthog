@@ -8,7 +8,7 @@
             "name": "Celery",
             "type": "python",
             "request": "launch",
-            "module": "celery",
+            "program": "${workspaceFolder}/env/bin/celery",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
@@ -21,15 +21,15 @@
                 "redbeat.RedBeatScheduler",
                 "--without-heartbeat",
                 "--without-gossip",
-                "--without-mingle"
+                "--without-mingle",
+                "-Ofair",
+                "-n",
+                "node@%h"
             ],
             "env": {
-                "PYTHONUNBUFFERED": "1",
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
                 "DEBUG": "1",
-                "CLICKHOUSE_SECURE": "False",
-                "KAFKA_HOSTS": "localhost:9092",
-                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
-                "WORKER_CONCURRENCY": "2",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
             }
         },
@@ -70,17 +70,65 @@
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
-                "REPLAY_EVENTS_NEW_CONSUMER_RATIO": "1.0"
+                "REPLAY_EVENTS_NEW_CONSUMER_RATIO": "1.0",
+                "AUTO_LOGIN": "True",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev"
             },
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Temporal Worker",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["start_temporal_worker"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1"
+            },
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Pytest: Current File",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${file}", "-vvv"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "(lldb) Attach",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "/Users/twixes/.pyenv/versions/3.10.10/envs/posthog-3.10/bin/python",
+            "MIMode": "lldb"
+        },
+        {
+            "name": "Python C++ Debugger: Current File",
+            "type": "pythoncpp",
+            "request": "launch",
+            "pythonConfig": "custom",
+            "pythonLaunchName": "Pytest: Current File",
+            "cppConfig": "custom",
+            "cppAttachName": "(lldb) Attach"
         }
     ],
     "compounds": [
         {
             "name": "PostHog",
-            "configurations": ["Backend", "Celery", "Frontend", "Plugin Server"],
+            "configurations": ["Backend", "Celery", "Frontend", "Plugin Server", "Temporal Worker"],
             "stopAll": true
         }
     ]

@@ -1,31 +1,32 @@
-import { autoCaptureEventToDescription, clamp } from 'lib/utils'
-import {
-    FunnelStepRangeEntityFilter,
-    FunnelStep,
-    FunnelStepWithNestedBreakdown,
-    BreakdownKeyType,
-    FunnelResultType,
-    FunnelStepReference,
-    FunnelConversionWindow,
-    FunnelsFilterType,
-    Breakdown,
-    FunnelStepWithConversionMetrics,
-    FlattenedFunnelStepByBreakdown,
-    FunnelCorrelation,
-    AnyPropertyFilter,
-    PropertyOperator,
-    ElementPropertyFilter,
-    PropertyFilterType,
-    FunnelCorrelationResultsType,
-    CorrelationConfigType,
-} from '~/types'
-import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
-import { FunnelsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { autoCaptureEventToDescription, clamp } from 'lib/utils'
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { Noun } from '~/models/groupsModel'
+import { FunnelsQuery } from '~/queries/schema'
+import {
+    AnyPropertyFilter,
+    Breakdown,
+    BreakdownKeyType,
+    CorrelationConfigType,
+    ElementPropertyFilter,
+    FlattenedFunnelStepByBreakdown,
+    FunnelConversionWindow,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelExclusion,
+    FunnelResultType,
+    FunnelsFilterType,
+    FunnelStep,
+    FunnelStepReference,
+    FunnelStepWithConversionMetrics,
+    FunnelStepWithNestedBreakdown,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 /** Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
@@ -225,9 +226,7 @@ export const isStepsEmpty = (filters: FunnelsFilterType): boolean =>
 export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
     typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
 
-export const deepCleanFunnelExclusionEvents = (
-    filters: FunnelsFilterType
-): FunnelStepRangeEntityFilter[] | undefined => {
+export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): FunnelExclusion[] | undefined => {
     if (!filters.exclusions) {
         return undefined
     }
@@ -255,9 +254,9 @@ export const getClampedStepRangeFilter = ({
     stepRange,
     filters,
 }: {
-    stepRange?: FunnelStepRangeEntityFilter
+    stepRange?: FunnelExclusion
     filters: FunnelsFilterType
-}): FunnelStepRangeEntityFilter => {
+}): FunnelExclusion => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
 
     let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
@@ -282,9 +281,9 @@ export const getClampedStepRangeFilterDataExploration = ({
     stepRange,
     query,
 }: {
-    stepRange?: FunnelStepRangeEntityFilter
+    stepRange?: FunnelExclusion
     query: FunnelsQuery
-}): FunnelStepRangeEntityFilter => {
+}): FunnelExclusion => {
     const maxStepIndex = Math.max(query.series.length || 0 - 1, 1)
 
     let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, query.funnelsFilter?.funnel_from_step])
@@ -441,7 +440,7 @@ export function flattenedStepsByBreakdown(
     skipInitialRows: boolean = false
 ): FlattenedFunnelStepByBreakdown[] {
     // Initialize with two rows for rendering graph and header
-    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = !!skipInitialRows
+    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = skipInitialRows
         ? []
         : [{ rowKey: 'steps-meta' }, { rowKey: 'graph' }, { rowKey: 'table-header' }]
 
@@ -602,7 +601,7 @@ export const parseDisplayNameForCorrelation = (
         first_value = autoCaptureEventToDescription({
             ...record.event,
             event: '$autocapture',
-        }) as string
+        })
         return { first_value, second_value }
     } else {
         // FunnelCorrelationResultsType.EventWithProperties

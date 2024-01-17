@@ -4,7 +4,12 @@ from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models import PropertyDefinition
-from posthog.models.activity_logging.activity_log import dict_changes_between, log_activity, Detail
+from posthog.models.activity_logging.activity_log import (
+    dict_changes_between,
+    log_activity,
+    Detail,
+)
+from loginas.utils import is_impersonated_session
 
 
 class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -73,6 +78,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             organization_id=None,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
             item_id=str(property_definition.id),
             scope="PropertyDefinition",
             activity="changed",

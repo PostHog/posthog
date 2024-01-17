@@ -1,14 +1,17 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import { ChartDisplayType, PersonActorType } from '~/types'
+
 import { PropertiesTimeline } from '.'
 import { RawPropertiesTimelineResult } from './propertiesTimelineLogic'
 
-export default {
+const meta: Meta<typeof PropertiesTimeline> = {
     title: 'Components/Properties Timeline',
     component: PropertiesTimeline,
-} as ComponentMeta<typeof PropertiesTimeline>
+}
+export default meta
 
 const EXAMPLE_PERSON: Omit<PersonActorType, 'id' | 'uuid'> = {
     type: 'person',

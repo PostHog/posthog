@@ -22,7 +22,12 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         self.assertIsNone(key.last_used_at)
         self.assertDictEqual(
             response_data,
-            {"id": key.id, "label": label, "last_used_at": None, "user_id": self.user.id},
+            {
+                "id": key.id,
+                "label": label,
+                "last_used_at": None,
+                "user_id": self.user.id,
+            },
         )
         self.assertTrue(value.startswith("phx_"))  # Personal API key prefix
 
@@ -32,12 +37,19 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         response_data = response.json()
         self.assertDictEqual(
             response_data,
-            {"type": "validation_error", "code": "blank", "detail": "This field may not be blank.", "attr": "label"},
+            {
+                "type": "validation_error",
+                "code": "blank",
+                "detail": "This field may not be blank.",
+                "attr": "label",
+            },
         )
 
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey.objects.create(
-            label="Test", user=self.user, secure_value=hash_key_value(generate_random_token_personal())
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
         )
         self.assertEqual(PersonalAPIKey.objects.count(), 1)
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
@@ -47,11 +59,15 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
         my_key = PersonalAPIKey.objects.create(
-            label=my_label, user=self.user, secure_value=hash_key_value(generate_random_token_personal())
+            label=my_label,
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
         )
         other_user = self._create_user("abc@def.xyz")
         PersonalAPIKey.objects.create(
-            label="Other test", user=other_user, secure_value=hash_key_value(generate_random_token_personal())
+            label="Other test",
+            user=other_user,
+            secure_value=hash_key_value(generate_random_token_personal()),
         )
         self.assertEqual(PersonalAPIKey.objects.count(), 2)
         response = self.client.get("/api/personal_api_keys")
@@ -60,26 +76,42 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         self.assertEqual(len(response_data), 1)
         response_data[0].pop("created_at")
         self.assertDictEqual(
-            response_data[0], {"id": my_key.id, "label": my_label, "last_used_at": None, "user_id": self.user.id}
+            response_data[0],
+            {
+                "id": my_key.id,
+                "label": my_label,
+                "last_used_at": None,
+                "user_id": self.user.id,
+            },
         )
 
     def test_get_own_personal_api_key(self):
         my_label = "Test"
         my_key = PersonalAPIKey.objects.create(
-            label=my_label, user=self.user, secure_value=hash_key_value(generate_random_token_personal())
+            label=my_label,
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
         )
         response = self.client.get(f"/api/personal_api_keys/{my_key.id}/")
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
         response_data.pop("created_at")
         self.assertDictEqual(
-            response_data, {"id": my_key.id, "label": my_label, "last_used_at": None, "user_id": self.user.id}
+            response_data,
+            {
+                "id": my_key.id,
+                "label": my_label,
+                "last_used_at": None,
+                "user_id": self.user.id,
+            },
         )
 
     def test_get_someone_elses_personal_api_key(self):
         other_user = self._create_user("abc@def.xyz")
         other_key = PersonalAPIKey.objects.create(
-            label="Other test", user=other_user, secure_value=hash_key_value(generate_random_token_personal())
+            label="Other test",
+            user=other_user,
+            secure_value=hash_key_value(generate_random_token_personal()),
         )
         response = self.client.get(f"/api/personal_api_keys/{other_key.id}/")
         self.assertEqual(response.status_code, 404)
@@ -96,6 +128,16 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
     def setUp(self):
         self.value = generate_random_token_personal()
         self.key = PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(self.value))
+        self.value_390000 = generate_random_token_personal()
+        self.key_390000 = PersonalAPIKey.objects.create(
+            label="Test", user=self.user, secure_value=hash_key_value(self.value_390000, iterations=390000)
+        )
+        self.value_hardcoded = "phx_0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p"
+        self.key_hardcoded = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$dUOOjl6bYdigHd+QfhYzN6P2vM01ZbFROS8dm9KRK7Y=",
+        )
         return super().setUp()
 
     def test_no_key(self):
@@ -113,7 +155,22 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
 
     def test_header_resilient(self):
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer  {self.value}  "
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer  {self.value}  ",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_header_alternative_iteration_count(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value_390000}",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_header_hardcoded(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value_hardcoded}",
         )
         self.assertEqual(response.status_code, 200)
 
@@ -122,7 +179,10 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         self.assertEqual(response.status_code, 200)
 
     def test_body(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/", {"personal_api_key": self.value})
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"personal_api_key": self.value},
+        )
         self.assertEqual(response.status_code, 200)
 
     def test_user_not_active(self):
@@ -137,15 +197,19 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
 
     def test_does_not_interfere_with_temporary_token_auth(self):
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer {self.value}"
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         impersonated_access_token = encode_jwt(
-            {"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+            {"id": self.user.id},
+            timedelta(minutes=15),
+            PosthogJwtAudience.IMPERSONATED_USER,
         )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer {impersonated_access_token}"
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer {impersonated_access_token}",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)

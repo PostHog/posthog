@@ -45,19 +45,34 @@ def mocked_plugin_requests_get(*args, **kwargs):
 
     if args[0] == "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=":
         return MockJSONResponse(
-            [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
+            [
+                {
+                    "sha": "MOCKLATESTCOMMIT",
+                    "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT",
+                }
+            ],
             200,
         )
 
     if args[0] == "https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=":
         return MockJSONResponse(
-            [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
+            [
+                {
+                    "sha": "MOCKLATESTCOMMIT",
+                    "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT",
+                }
+            ],
             200,
         )
 
     if args[0] == "https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=test/path/in/repo":
         return MockJSONResponse(
-            [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
+            [
+                {
+                    "sha": "MOCKLATESTCOMMIT",
+                    "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT",
+                }
+            ],
             200,
         )
 

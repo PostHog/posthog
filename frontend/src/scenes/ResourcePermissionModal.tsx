@@ -1,20 +1,21 @@
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
-import { Row } from 'antd'
 import { useValues } from 'kea'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { IconDelete, IconSettings } from 'lib/lemon-ui/icons'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
 } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+
 import { AccessLevel, Resource, RoleType } from '~/types'
+
 import {
     FormattedResourceLevel,
     permissionsLogic,
     ResourcePermissionMapping,
-} from './organization/Settings/Permissions/permissionsLogic'
-import { rolesLogic } from './organization/Settings/Permissions/Roles/rolesLogic'
+} from './settings/organization/Permissions/permissionsLogic'
+import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {
@@ -114,8 +115,7 @@ export function ResourcePermission({
                                 icon={
                                     <LemonButton
                                         icon={<IconSettings />}
-                                        to={`${urls.organizationSettings()}?tab=role_based_access`}
-                                        status="stealth"
+                                        to={`${urls.settings('organization')}?tab=role_based_access`}
                                         targetBlank
                                         size="small"
                                         noPadding
@@ -145,10 +145,8 @@ export function ResourcePermission({
                             <LemonButton
                                 icon={<IconDelete />}
                                 onClick={() => deleteAssociatedRole(role.id)}
-                                tooltip={'Remove custom role from feature flag'}
+                                tooltip="Remove custom role from feature flag"
                                 tooltipPlacement="bottomLeft"
-                                status="primary-alt"
-                                type="tertiary"
                                 size="small"
                             />
                         )}
@@ -174,7 +172,7 @@ export function ResourcePermission({
             {!shouldShowPermissionsTable && (
                 <>
                     {resourceLevel && <OrganizationResourcePermissionLabel resourceLevel={resourceLevel} />}
-                    {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
+                    <OrganizationResourcePermissionRoles roles={rolesWithAccess} />
                 </>
             )}
             {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
@@ -182,12 +180,7 @@ export function ResourcePermission({
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
-                        <div
-                            className="pb-2 rounded overflow-y-auto"
-                            style={{
-                                maxHeight: 300,
-                            }}
-                        >
+                        <div className="pb-2 rounded overflow-y-auto max-h-80">
                             {roles.map((role) => {
                                 return (
                                     <RoleRow
@@ -219,16 +212,9 @@ export function ResourcePermission({
                                 options={roleLemonSelectOptions(addableRoles)}
                             />
                         </div>
-                        {
-                            <LemonButton
-                                type="primary"
-                                loading={false}
-                                disabled={rolesToAdd.length === 0}
-                                onClick={onAdd}
-                            >
-                                Add
-                            </LemonButton>
-                        }
+                        <LemonButton type="primary" loading={false} disabled={rolesToAdd.length === 0} onClick={onAdd}>
+                            Add
+                        </LemonButton>
                     </div>
                 </>
             )}
@@ -247,8 +233,7 @@ function OrganizationResourcePermissionLabel({
                 icon={
                     <LemonButton
                         icon={<IconSettings />}
-                        to={`${urls.organizationSettings()}?tab=role_based_access`}
-                        status="stealth"
+                        to={`${urls.settings('organization')}?tab=role_based_access`}
                         targetBlank
                         size="small"
                         noPadding
@@ -267,13 +252,13 @@ function OrganizationResourcePermissionRoles({ roles }: { roles: RoleType[] }): 
     return (
         <>
             <h5 className="mt-4">Roles with edit access</h5>
-            <Row>
+            <div className="flex">
                 {roles.map((role) => (
                     <span key={role.id} className="simple-tag tag-light-blue text-primary-alt mr-2">
                         <b>{role.name}</b>{' '}
                     </span>
                 ))}
-            </Row>
+            </div>
         </>
     )
 }
@@ -286,10 +271,8 @@ function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: R
                 <LemonButton
                     icon={<IconDelete />}
                     onClick={() => deleteRole(role.id)}
-                    tooltip={'Remove role from permission'}
+                    tooltip="Remove role from permission"
                     tooltipPlacement="bottomLeft"
-                    status="primary-alt"
-                    type="tertiary"
                     size="small"
                 />
             )}

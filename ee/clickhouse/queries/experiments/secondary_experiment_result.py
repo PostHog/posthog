@@ -1,9 +1,11 @@
 from datetime import datetime
 from typing import Dict, Optional
+from zoneinfo import ZoneInfo
 
-import pytz
 from rest_framework.exceptions import ValidationError
-from ee.clickhouse.queries.experiments.trend_experiment_result import uses_count_per_user_aggregation
+from ee.clickhouse.queries.experiments.trend_experiment_result import (
+    uses_math_aggregation_by_user_or_property_value,
+)
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag
@@ -29,7 +31,6 @@ class ClickhouseSecondaryExperimentResult:
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
     ):
-
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
 
@@ -37,9 +38,9 @@ class ClickhouseSecondaryExperimentResult:
         # while start and end date are in UTC.
         # so we need to convert them to the project timezone
         if team.timezone:
-            start_date_in_project_timezone = experiment_start_date.astimezone(pytz.timezone(team.timezone))
+            start_date_in_project_timezone = experiment_start_date.astimezone(ZoneInfo(team.timezone))
             end_date_in_project_timezone = (
-                experiment_end_date.astimezone(pytz.timezone(team.timezone)) if experiment_end_date else None
+                experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
             )
 
         query_filter = filter.shallow_clone(
@@ -56,13 +57,14 @@ class ClickhouseSecondaryExperimentResult:
         )
 
         self.team = team
-        if query_filter.insight == INSIGHT_TRENDS and not uses_count_per_user_aggregation(query_filter):
+        if query_filter.insight == INSIGHT_TRENDS and not (
+            uses_math_aggregation_by_user_or_property_value(query_filter)
+        ):
             query_filter = query_filter.shallow_clone({"display": TRENDS_CUMULATIVE})
 
         self.query_filter = query_filter
 
     def get_results(self):
-
         if self.query_filter.insight == INSIGHT_TRENDS:
             trend_results = Trends().run(self.query_filter, self.team)
             variants = self.get_trend_count_data_for_variants(trend_results)
@@ -96,7 +98,7 @@ class ClickhouseSecondaryExperimentResult:
             count = result["count"]
             breakdown_value = result["breakdown_value"]
 
-            if uses_count_per_user_aggregation(self.query_filter):
+            if uses_math_aggregation_by_user_or_property_value(self.query_filter):
                 count = result["count"] / len(result.get("data", [0]))
 
             if breakdown_value in self.variants:

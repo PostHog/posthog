@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 PLUGIN_LOG_ENTRIES_TABLE_ENGINE = lambda: ReplacingMergeTree(PLUGIN_LOG_ENTRIES_TABLE, ver="_timestamp")
 PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: (
     PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL
-    + """PARTITION BY plugin_id ORDER BY (team_id, id)
+    + """PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, plugin_id, plugin_config_id, timestamp)
 {ttl_period}
 SETTINGS index_granularity=512
 """
@@ -61,7 +61,9 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PLUGIN_LOG_ENTRIES_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
+    table_name=PLUGIN_LOG_ENTRIES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
 )
 
 

@@ -1,5 +1,15 @@
-import { ActionsNode, BreakdownFilter, EventsNode, InsightNodeKind, InsightQueryNode, NodeKind } from '~/queries/schema'
-import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
+import { objectClean } from 'lib/utils'
+import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+
+import {
+    ActionsNode,
+    BreakdownFilter,
+    EventsNode,
+    InsightNodeKind,
+    InsightQueryNode,
+    NodeKind,
+    TrendsFilterLegacy,
+} from '~/queries/schema'
 import {
     isActionsNode,
     isEventsNode,
@@ -10,8 +20,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { objectClean } from 'lib/utils'
-import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
@@ -86,7 +95,6 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
         entity_type: 'events',
         sampling_factor: query.samplingFactor,
-        aggregation_group_type_index: query.aggregation_group_type_index,
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
@@ -103,8 +111,17 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     }
 
     // TODO stickiness should probably support breakdowns as well
-    if ((isTrendsQuery(query) || isFunnelsQuery(query)) && query.breakdown) {
-        Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
+    if ((isTrendsQuery(query) || isFunnelsQuery(query)) && query.breakdownFilter) {
+        Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdownFilter))
+    }
+
+    if (!isLifecycleQuery(query) && !isStickinessQuery(query)) {
+        Object.assign(
+            filters,
+            objectClean({
+                aggregation_group_type_index: query.aggregation_group_type_index,
+            })
+        )
     }
 
     if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query) || isFunnelsQuery(query)) {
@@ -127,11 +144,29 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isLifecycleQuery(query) && isLifecycleFilter(filters)) {
         filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
-        filters.shown_as = query.lifecycleFilter?.shown_as
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...
-    Object.assign(filters, query[filterMap[query.kind]])
+    const insightFilter = JSON.parse(JSON.stringify(query[filterMap[query.kind]] || {}))
+    const legacyProps: TrendsFilterLegacy = {}
+    if (isTrendsQuery(query)) {
+        legacyProps.smoothing_intervals = insightFilter.smoothingIntervals
+        legacyProps.decimal_places = insightFilter.decimalPlaces
+        legacyProps.aggregation_axis_format = insightFilter.aggregationAxisFormat
+        legacyProps.aggregation_axis_postfix = insightFilter.aggregationAxisPostfix
+        legacyProps.aggregation_axis_prefix = insightFilter.aggregationAxisPrefix
+        legacyProps.show_labels_on_series = insightFilter.showLabelsOnSeries
+        legacyProps.show_percent_stack_view = insightFilter.showPercentStackView
+        delete insightFilter.smoothingIntervals
+        delete insightFilter.decimalPlaces
+        delete insightFilter.aggregationAxisFormat
+        delete insightFilter.aggregationAxisPostfix
+        delete insightFilter.aggregationAxisPrefix
+        delete insightFilter.showLabelsOnSeries
+        delete insightFilter.showPercentStackView
+    }
+    Object.assign(filters, insightFilter)
+    Object.assign(filters, legacyProps)
 
     return filters
 }

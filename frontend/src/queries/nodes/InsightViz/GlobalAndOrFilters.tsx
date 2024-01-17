@@ -1,20 +1,21 @@
+import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
-import { useValues } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
-import { TrendsQuery, StickinessQuery } from '~/queries/schema'
-import { isTrendsQuery } from '~/queries/utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
 import { actionsModel } from '~/models/actionsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { EditorFilterProps } from '~/types'
+
+import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
 import { getAllEventNames } from './utils'
 
-type GlobalAndOrFiltersProps = {
-    query: TrendsQuery | StickinessQuery
-    setQuery: (node: TrendsQuery | StickinessQuery) => void
-}
-
-export function GlobalAndOrFilters({ query, setQuery }: GlobalAndOrFiltersProps): JSX.Element {
+export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Element {
     const { actions: allActions } = useValues(actionsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { isTrends, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
@@ -23,18 +24,18 @@ export function GlobalAndOrFilters({ query, setQuery }: GlobalAndOrFiltersProps)
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(isTrendsQuery(query) ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
         TaxonomicFilterGroupType.HogQLExpression,
     ]
 
     return (
         <PropertyGroupFilters
-            pageKey="insight-filters"
-            query={query}
-            setQuery={setQuery}
-            eventNames={getAllEventNames(query, allActions)}
+            insightProps={insightProps}
+            pageKey={`${keyForInsightLogicProps('new')(insightProps)}-GlobalAndOrFilters`}
+            query={querySource as TrendsQuery | StickinessQuery}
+            setQuery={updateQuerySource}
+            eventNames={getAllEventNames(querySource as TrendsQuery | StickinessQuery, allActions)}
             taxonomicGroupTypes={taxonomicGroupTypes}
-            noTitle
         />
     )
 }

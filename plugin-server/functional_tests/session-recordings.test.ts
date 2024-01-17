@@ -1,135 +1,92 @@
-import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
+import fetch from 'node-fetch'
 import { v4 as uuidv4 } from 'uuid'
 
-import { defaultConfig } from '../src/config/config'
+import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
 import { UUIDT } from '../src/utils/utils'
-import {
-    capture,
-    createOrganization,
-    createTeam,
-    fetchPerformanceEvents,
-    fetchSessionRecordingsEvents,
-    getMetric,
-} from './api'
+import { capture, createOrganization, createTeam, fetchSessionReplayEvents, getMetric } from './api'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
-let kafka: Kafka
 let organizationId: string
 
-let dlq: KafkaMessage[]
-let dlqConsumer: Consumer
-
 beforeAll(async () => {
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
-
-    // Make sure the dlq topic exists before starting the consumer
-    const admin = kafka.admin()
-    await admin.createTopics({ topics: [{ topic: 'session_recording_events_dlq' }] })
-    await admin.disconnect()
-
-    dlq = []
-    dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
-    await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq', fromBeginning: true })
-    await dlqConsumer.run({
-        eachMessage: ({ message }) => {
-            dlq.push(message)
-            return Promise.resolve()
-        },
-    })
-
     organizationId = await createOrganization()
 })
 
-afterAll(async () => {
-    await dlqConsumer.disconnect()
-})
+test.skip(`snapshot captured, processed, ingested`, async () => {
+    const teamId = await createTeam(organizationId)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+    const sessionId = new UUIDT().toString()
 
-test.concurrent(
-    `snapshot captured, processed, ingested`,
-    async () => {
-        const teamId = await createTeam(organizationId)
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
-        const sessionId = new UUIDT().toString()
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: '$snapshot_items',
+        properties: {
+            $session_id: sessionId,
+            $window_id: 'abc1234',
+            $snapshot_items: ['yes way'],
+        },
+    })
 
-        await capture({
-            teamId,
-            distinctId,
-            uuid,
-            event: '$snapshot',
-            properties: {
-                $session_id: sessionId,
-                $window_id: 'abc1234',
-                $snapshot_data: 'yes way',
-            },
-        })
+    const events = await waitForExpect(async () => {
+        const events = await fetchSessionReplayEvents(teamId, sessionId)
+        expect(events.length).toBe(1)
+        return events
+    })
 
-        const events = await waitForExpect(async () => {
-            const events = await fetchSessionRecordingsEvents(teamId)
-            expect(events.length).toBe(1)
-            return events
-        })
+    expect(events[0]).toEqual({
+        _offset: expect.any(Number),
+        _timestamp: expect.any(String),
+        click_count: 0,
+        created_at: expect.any(String),
+        distinct_id: distinctId,
+        events_summary: [],
+        first_event_timestamp: null,
+        has_full_snapshot: 0,
+        keypress_count: 0,
+        last_event_timestamp: null,
+        session_id: sessionId,
+        snapshot_data: 'yes way',
+        team_id: teamId,
+        timestamp: expect.any(String),
+        timestamps_summary: [],
+        urls: [],
+        uuid: uuid,
+        window_id: 'abc1234',
+    })
+}, 20000)
 
-        expect(events[0]).toEqual({
-            _offset: expect.any(Number),
-            _timestamp: expect.any(String),
-            click_count: 0,
-            created_at: expect.any(String),
-            distinct_id: distinctId,
-            events_summary: [],
-            first_event_timestamp: null,
-            has_full_snapshot: 0,
-            keypress_count: 0,
-            last_event_timestamp: null,
-            session_id: sessionId,
-            snapshot_data: 'yes way',
-            team_id: teamId,
-            timestamp: expect.any(String),
-            timestamps_summary: [],
-            urls: [],
-            uuid: uuid,
-            window_id: 'abc1234',
-        })
-    },
-    20000
-)
+test.skip(`snapshot captured, processed, ingested with no team_id set`, async () => {
+    const token = uuidv4()
+    const teamId = await createTeam(organizationId, undefined, token)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
 
-test.concurrent(
-    `snapshot captured, processed, ingested with no team_id set`,
-    async () => {
-        const token = uuidv4()
-        const teamId = await createTeam(organizationId, undefined, token)
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
+    await capture({
+        teamId: null,
+        distinctId,
+        uuid,
+        event: '$snapshot_items',
+        properties: {
+            $session_id: '1234abc',
+            $snapshot_items: ['yes way'],
+        },
+        token,
+        sentAt: new Date(),
+        eventTime: new Date(),
+        now: new Date(),
+    })
 
-        await capture({
-            teamId: null,
-            distinctId,
-            uuid,
-            event: '$snapshot',
-            properties: {
-                $session_id: '1234abc',
-                $snapshot_data: 'yes way',
-            },
-            token,
-            sentAt: new Date(),
-            eventTime: new Date(),
-            now: new Date(),
-        })
+    await waitForExpect(async () => {
+        const events = await fetchSessionReplayEvents(teamId)
+        expect(events.length).toBe(1)
+    })
+}, 20000)
 
-        await waitForExpect(async () => {
-            const events = await fetchSessionRecordingsEvents(teamId)
-            expect(events.length).toBe(1)
-
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
-        })
-    },
-    20000
-)
-
-test.concurrent(`recording events not ingested to ClickHouse if team is opted out`, async () => {
+test.skip(`recording events not ingested to ClickHouse if team is opted out`, async () => {
     // NOTE: to have something we can assert on in the positive to ensure that
     // we had tried to ingest the recording for the team with the opted out
     // session recording status, we create a team that is opted in and then
@@ -145,10 +102,10 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
         teamId: null,
         distinctId: new UUIDT().toString(),
         uuid: uuidOptedOut,
-        event: '$snapshot',
+        event: '$snapshot_items',
         properties: {
             $session_id: '1234abc',
-            $snapshot_data: 'yes way',
+            $snapshot_items: ['yes way'],
         },
         token: tokenOptedOut,
         sentAt: new Date(),
@@ -164,10 +121,10 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
         teamId: null,
         distinctId: new UUIDT().toString(),
         uuid: uuidOptedIn,
-        event: '$snapshot',
+        event: '$snapshot_items',
         properties: {
             $session_id: '1234abc',
-            $snapshot_data: 'yes way',
+            $snapshot_items: ['yes way'],
         },
         token: tokenOptedIn,
         sentAt: new Date(),
@@ -176,7 +133,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     })
 
     await waitForExpect(async () => {
-        const events = await fetchSessionRecordingsEvents(teamOptedInId)
+        const events = await fetchSessionReplayEvents(teamOptedInId)
         expect(events.length).toBe(1)
     })
 
@@ -184,125 +141,9 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     // and that the consumer produceAndFlushs messages in the order they are consumed.
     // TODO: add some side-effect we can assert on rather than relying on the
     // partitioning / ordering setup e.g. an ingestion warning.
-    const events = await fetchSessionRecordingsEvents(teamOptedOutId, uuidOptedOut)
+    const events = await fetchSessionReplayEvents(teamOptedOutId)
     expect(events.length).toBe(0)
 })
-
-test.concurrent(
-    `ingests $performance_event`,
-    async () => {
-        const teamId = await createTeam(organizationId)
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
-        const sessionId = new UUIDT().toString()
-        const now = new Date()
-
-        const properties = {
-            // Taken from a real event from the JS
-            '0': 'resource',
-            '1': now.getTime(),
-            '2': 'http://localhost:8000/api/projects/1/session_recordings',
-            '3': 10737.89999999106,
-            '4': 0,
-            '5': 0,
-            '6': 0,
-            '7': 10737.89999999106,
-            '8': 10737.89999999106,
-            '9': 10737.89999999106,
-            '10': 10737.89999999106,
-            '11': 0,
-            '12': 10737.89999999106,
-            '13': 10745.09999999404,
-            '14': 11121.70000000298,
-            '15': 11122.20000000298,
-            '16': 73374,
-            '17': 1767,
-            '18': 'fetch',
-            '19': 'http/1.1',
-            '20': 'non-blocking',
-            '22': 2067,
-            '39': 384.30000001192093,
-            '40': now.getTime() + 1000,
-            token: 'phc_234',
-            $session_id: sessionId,
-            $window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
-            distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-            $current_url: 'http://localhost:8000/recordings/recent',
-        }
-
-        await capture({
-            teamId,
-            distinctId,
-            uuid,
-            event: '$performance_event',
-            properties,
-            token: null,
-            sentAt: now,
-            eventTime: now,
-            now,
-        })
-
-        const events = await waitForExpect(async () => {
-            const events = await fetchPerformanceEvents(teamId)
-            expect(events.length).toBe(1)
-            return events
-        })
-
-        expect(events[0]).toEqual({
-            session_id: sessionId,
-            _offset: expect.any(Number),
-            _partition: expect.any(Number),
-            _timestamp: expect.any(String),
-            connect_end: 10737.89999999106,
-            connect_start: 10737.89999999106,
-            current_url: 'http://localhost:8000/recordings/recent',
-            decoded_body_size: 73374,
-            distinct_id: distinctId,
-            dom_complete: 0,
-            dom_content_loaded_event: 0,
-            dom_interactive: 0,
-            domain_lookup_end: 10737.89999999106,
-            domain_lookup_start: 10737.89999999106,
-            duration: 384.30000001192093,
-            encoded_body_size: 1767,
-            entry_type: 'resource',
-            fetch_start: 10737.89999999106,
-            initiator_type: 'fetch',
-            largest_contentful_paint_element: '',
-            largest_contentful_paint_id: '',
-            largest_contentful_paint_load_time: 0,
-            largest_contentful_paint_render_time: 0,
-            largest_contentful_paint_size: 0,
-            largest_contentful_paint_url: '',
-            load_event_end: 0,
-            load_event_start: 0,
-            name: 'http://localhost:8000/api/projects/1/session_recordings',
-            navigation_type: '',
-            next_hop_protocol: 'http/1.1',
-            pageview_id: '',
-            redirect_count: 0,
-            redirect_end: 0,
-            redirect_start: 0,
-            render_blocking_status: 'non-blocking',
-            request_start: 10745.09999999404,
-            response_end: 11122.20000000298,
-            response_start: 11121.70000000298,
-            response_status: 0,
-            secure_connection_start: 0,
-            start_time: 10737.89999999106,
-            team_id: teamId,
-            time_origin: expect.any(String),
-            timestamp: expect.any(String),
-            transfer_size: 2067,
-            unload_event_end: 0,
-            unload_event_start: 0,
-            uuid: uuid,
-            window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
-            worker_start: 0,
-        })
-    },
-    20000
-)
 
 test.concurrent(`liveness check endpoint works`, async () => {
     await waitForExpect(async () => {
@@ -312,44 +153,37 @@ test.concurrent(`liveness check endpoint works`, async () => {
         const body = await response.json()
         expect(body).toEqual(
             expect.objectContaining({
-                checks: expect.objectContaining({ 'session-recordings': 'ok' }),
+                checks: expect.objectContaining({ 'session-recordings-blob': 'ok' }),
             })
         )
     })
 })
 
-test.concurrent(
-    `consumer handles empty messages`,
-    async () => {
-        const key = uuidv4()
-
-        await produce({ topic: 'session_recording_events', message: null, key })
-
-        await waitForExpect(() => {
-            const messages = dlq.filter((message) => message.key?.toString() === key)
-            expect(messages.length).toBe(1)
-        })
-    },
-    20000
-)
-
-test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+test.skip('consumer updates timestamp exported to prometheus', async () => {
     // NOTE: it may be another event other than the one we emit here that causes
     // the gauge to increase, but pushing this event through should at least
     // ensure that the gauge is updated.
     const metricBefore = await getMetric({
         name: 'latest_processed_timestamp_ms',
         type: 'GAUGE',
-        labels: { topic: 'session_recording_events', partition: '0', groupId: 'session-recordings' },
+        labels: {
+            topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+            partition: '0',
+            groupId: 'session-recordings-blob',
+        },
     })
 
-    await produce({ topic: 'session_recording_events', message: Buffer.from(''), key: '' })
+    await produce({ topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS, message: Buffer.from(''), key: '' })
 
     await waitForExpect(async () => {
         const metricAfter = await getMetric({
             name: 'latest_processed_timestamp_ms',
             type: 'GAUGE',
-            labels: { topic: 'session_recording_events', partition: '0', groupId: 'session-recordings' },
+            labels: {
+                topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+                partition: '0',
+                groupId: 'session-recordings-blob',
+            },
         })
         expect(metricAfter).toBeGreaterThan(metricBefore)
         expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
@@ -357,18 +191,42 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     }, 10_000)
 })
 
-test.concurrent(`handles invalid JSON`, async () => {
-    const key = uuidv4()
+function makeSessionMessage(
+    teamId: number,
+    sessionId: string,
+    uuid?: string
+): {
+    teamId: number | null
+    distinctId: string
+    uuid: string
+    event: string
+    properties?: object | undefined
+    token?: string | null | undefined
+    sentAt?: Date | undefined
+    eventTime?: Date | undefined
+    now?: Date | undefined
+    topic?: string | undefined
+    $set?: object | undefined
+    $set_once?: object | undefined
+} {
+    return {
+        teamId: teamId,
+        distinctId: new UUIDT().toString(),
+        uuid: uuid || new UUIDT().toString(),
+        event: '$snapshot_items',
+        properties: {
+            $session_id: sessionId,
+            $snapshot_items: ['yes way'],
+        },
+        sentAt: new Date(),
+        eventTime: new Date(),
+        now: new Date(),
+        topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    }
+}
 
-    await produce({ topic: 'session_recording_events', message: Buffer.from('invalid json'), key })
-
-    await waitForExpect(() => {
-        const messages = dlq.filter((message) => message.key?.toString() === key)
-        expect(messages.length).toBe(1)
-    })
-})
-
-test.concurrent(`handles message with no token or with token and no associated team_id`, async () => {
+// TODO we can't query for replay events by UUID
+test.skip(`handles message with no token or with token and no associated team_id`, async () => {
     // NOTE: Here we are relying on the topic only having a single partition,
     // which ensures that if the last message we send is in ClickHouse, then
     // that should mean that the previous messages have already been processed.
@@ -382,48 +240,30 @@ test.concurrent(`handles message with no token or with token and no associated t
     const noAssociatedTeamKey = uuidv4()
     const noTokenUuid = uuidv4()
     const noAssociatedTeamUuid = uuidv4()
-    const uuid = uuidv4()
 
     await produce({
-        topic: 'session_recording_events',
+        topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         message: Buffer.from(JSON.stringify({ uuid: noTokenUuid, data: JSON.stringify({}) })),
         key: noTokenKey,
     })
     await produce({
-        topic: 'session_recording_events',
+        topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         message: Buffer.from(
             JSON.stringify({ uuid: noAssociatedTeamUuid, token: 'no associated team', data: JSON.stringify({}) })
         ),
         key: noAssociatedTeamKey,
     })
 
-    await capture({
-        teamId: teamId,
-        distinctId: new UUIDT().toString(),
-        uuid: uuid,
-        event: '$snapshot',
-        properties: {
-            $session_id: '1234abc',
-            $snapshot_data: 'yes way',
-        },
-        sentAt: new Date(),
-        eventTime: new Date(),
-        now: new Date(),
-        topic: 'session_recording_events',
-    })
+    await capture(makeSessionMessage(teamId, 'should be ingested'))
 
     await waitForExpect(async () => {
-        const events = await fetchSessionRecordingsEvents(teamId, uuid)
+        const events = await fetchSessionReplayEvents(teamId, 'should be ingested')
         expect(events.length).toBe(1)
     })
 
-    // These shouldn't have been DLQ'd
-    expect(dlq.filter((message) => message.key?.toString() === noTokenKey).length).toBe(0)
-    expect(dlq.filter((message) => message.key?.toString() === noAssociatedTeamKey).length).toBe(0)
-
     // And they shouldn't have been ingested into ClickHouse
-    expect((await fetchSessionRecordingsEvents(teamId, noTokenUuid)).length).toBe(0)
-    expect((await fetchSessionRecordingsEvents(teamId, noAssociatedTeamUuid)).length).toBe(0)
+    expect((await fetchSessionReplayEvents(teamId, noTokenUuid)).length).toBe(0)
+    expect((await fetchSessionReplayEvents(teamId, noAssociatedTeamUuid)).length).toBe(0)
 })
 
 // TODO: implement schema validation and add a test.

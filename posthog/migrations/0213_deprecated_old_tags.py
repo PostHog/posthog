@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0212_alter_persondistinctid_team"),
     ]
@@ -18,14 +17,22 @@ class Migration(migrations.Migration):
             model_name="dashboard",
             name="deprecated_tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
+                base_field=models.CharField(max_length=32),
+                blank=True,
+                default=list,
+                null=True,
+                size=None,
             ),
         ),
         migrations.AlterField(
             model_name="insight",
             name="deprecated_tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
+                base_field=models.CharField(max_length=32),
+                blank=True,
+                default=list,
+                null=True,
+                size=None,
             ),
         ),
         migrations.RemoveConstraint(
@@ -78,7 +85,16 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterUniqueTogether(
             name="taggeditem",
-            unique_together={("tag", "dashboard", "insight", "event_definition", "property_definition", "action")},
+            unique_together={
+                (
+                    "tag",
+                    "dashboard",
+                    "insight",
+                    "event_definition",
+                    "property_definition",
+                    "action",
+                )
+            },
         ),
         migrations.AddConstraint(
             model_name="taggeditem",

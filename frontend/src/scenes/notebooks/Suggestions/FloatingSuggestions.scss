@@ -1,9 +1,10 @@
 .FloatingSuggestion {
+    position: absolute;
     height: 1.375rem;
 }
 
-.NotebookFloatingButton__plus {
-    border-radius: 1rem;
-    min-height: 0.25rem;
-    padding: 0.25rem !important; // NOTE - yuck
+.NotebookFloatingButton {
+    position: absolute;
+    left: 0;
+    z-index: var(--z-popover);
 }
