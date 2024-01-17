@@ -19,6 +19,7 @@ import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
 
 import { sharingLogic } from './sharingLogic'
+import {captureException} from "@sentry/react";
 
 export const SHARING_MODAL_WIDTH = 600
 
@@ -114,7 +115,14 @@ export function SharingModalContent({
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         size="small"
-                                        onClick={() => void copyToClipboard(shareLink, 'link')}
+                                        onClick={() => {
+                                            // TRICKY: there's a chance this was sending useless errors to Sentry
+                                            // even when it succeeded, so we're explicitly ignoring the promise success
+                                            // and naming the error when reported to Sentry
+                                            copyToClipboard(shareLink, 'link')
+                                                .then(() => {}) // purposefully no-op
+                                                .catch((e) => captureException(new Error('unexpected sharing modal clipboard error: ' + e.message)));
+                                        }}
                                         icon={<IconLink />}
                                     >
                                         Copy public link
