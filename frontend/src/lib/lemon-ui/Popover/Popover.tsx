@@ -270,6 +270,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     </PopoverOverlayContext.Provider>
                 </CSSTransition>
             </FloatingPortal>
-        </> 
+        </>
     )
 })
