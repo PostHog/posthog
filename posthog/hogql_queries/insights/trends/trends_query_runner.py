@@ -3,7 +3,9 @@ from datetime import timedelta
 from itertools import groupby
 from math import ceil
 from operator import itemgetter
+import threading
 from typing import List, Optional, Any, Dict
+from django.conf import settings
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -40,6 +42,7 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryResponse,
     InCohortVia,
+    QueryTiming,
     TrendsQuery,
     TrendsQueryResponse,
     HogQLQueryModifiers,
@@ -129,23 +132,69 @@ class TrendsQueryRunner(QueryRunner):
     def calculate(self):
         queries = self.to_query()
 
+        res_matrix: List[List[Any] | Any | None] = [None] * len(queries)
+        timings_matrix: List[List[QueryTiming] | None] = [None] * len(queries)
+        errors: List[Exception] = []
+
+        def run(index: int, query: ast.SelectQuery | ast.SelectUnionQuery, is_parallel: bool):
+            try:
+                series_with_extra = self.series[index]
+
+                response = execute_hogql_query(
+                    query_type="TrendsQuery",
+                    query=query,
+                    team=self.team,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                )
+
+                timings_matrix[index] = response.timings
+                res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
+            except Exception as e:
+                errors.append(e)
+            finally:
+                if is_parallel:
+                    from django.db import connection
+
+                    # This will only close the DB connection for the newly spawned thread and not the whole app
+                    connection.close()
+
+        # This exists so that we're not spawning threads during unit tests. We can't do
+        # this right now due to the lack of multithreaded support of Django
+        if settings.IN_UNIT_TESTING:  # type: ignore
+            for index, query in enumerate(queries):
+                run(index, query, False)
+        elif len(queries) == 1:
+            run(0, queries[0], False)
+        else:
+            jobs = [threading.Thread(target=run, args=(index, query, True)) for index, query in enumerate(queries)]
+
+            # Start the threads
+            for j in jobs:
+                j.start()
+
+            # Ensure all of the threads have finished
+            for j in jobs:
+                j.join()
+
+        # Raise any errors raised in a seperate thread
+        if len(errors) > 0:
+            raise errors[0]
+
+        # Flatten res and timings
         res = []
+        for result in res_matrix:
+            if isinstance(result, List):
+                res.extend(result)
+            else:
+                res.append(result)
+
         timings = []
-
-        for index, query in enumerate(queries):
-            series_with_extra = self.series[index]
-
-            response = execute_hogql_query(
-                query_type="TrendsQuery",
-                query=query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-            )
-
-            timings.extend(response.timings)
-
-            res.extend(self.build_series_response(response, series_with_extra, len(queries)))
+        for result in timings_matrix:
+            if isinstance(result, List):
+                timings.extend(result)
+            else:
+                timings.append(result)
 
         if (
             self.query.trendsFilter is not None

@@ -60,6 +60,13 @@ services:
         image: maildev/maildev:2.0.5
         restart: on-failure
 
+    flower:
+        image: mher/flower:2.0.0
+        restart: on-failure
+        environment:
+            FLOWER_PORT: 5555
+            CELERY_BROKER_URL: redis://redis:6379
+
     worker: &worker
         command: ./bin/docker-worker-celery --with-scheduler
         restart: on-failure
