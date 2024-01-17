@@ -42,8 +42,8 @@ export function Sparkline({ labels, data }: SparklineProps): JSX.Element {
             chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
                 type: 'bar',
                 data: {
-                    labels: labels || Object.values(adjustedData).map(() => ''),
-                    datasets: adjustedData.map((timeseries) => ({
+                    labels: labels || adjustedData[0].values.map((_, i) => `Entry ${i}`),
+                                        datasets: adjustedData.map((timeseries) => ({
                         data: timeseries.values,
                         minBarLength: 0,
                         backgroundColor: getColorVar(timeseries.color),
