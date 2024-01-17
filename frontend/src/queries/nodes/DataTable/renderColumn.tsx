@@ -83,7 +83,10 @@ export function renderColumn(
                         object[value[i]] = value[i + 1]
                     }
                     if ('results' in object && Array.isArray(object.results)) {
-                        return <Sparkline data={object.results} />
+                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
+                        return <Sparkline data={[{
+                            name: key.includes('__hogql_chart_type') ? 'Data' : key , values: object.results.map((v: any) => Number(v))
+                         }]} />
                     }
                 }
 
