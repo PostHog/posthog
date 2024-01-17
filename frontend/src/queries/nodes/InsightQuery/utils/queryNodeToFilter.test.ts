@@ -56,13 +56,13 @@ describe('queryNodeToFilter', () => {
                 display: ChartDisplayType.ActionsBar,
                 // breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
                 // show_legend?: TrendsFilterLegacy['show_legend']
-                // aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
-                // aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
-                // aggregation_axis_postfix?: TrendsFilterLegacy['aggregation_axis_postfix']
-                // decimal_places?: TrendsFilterLegacy['decimal_places']
+                aggregationAxisFormat: 'numeric',
+                aggregationAxisPrefix: 'M',
+                aggregationAxisPostfix: '$',
+                decimalPlaces: 5,
                 // show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
-                // show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
-                // show_percent_stack_view?: TrendsFilterLegacy['show_percent_stack_view']
+                showLabelsOnSeries: true,
+                showPercentStackView: true,
                 // hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
             },
         }
@@ -78,6 +78,12 @@ describe('queryNodeToFilter', () => {
             display: ChartDisplayType.ActionsBar,
             formula: 'A + B',
             compare: true,
+            decimal_places: 5,
+            aggregation_axis_format: 'numeric',
+            aggregation_axis_prefix: 'M',
+            aggregation_axis_postfix: '$',
+            show_labels_on_series: true,
+            show_percent_stack_view: true,
         }
         expect(result).toEqual(filters)
     })
