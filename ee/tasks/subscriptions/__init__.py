@@ -148,12 +148,12 @@ def schedule_all_subscriptions() -> None:
 report_timeout_seconds = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 60 * 1.5
 
 
-@app.task(soft_time_limit=report_timeout_seconds, timeout=report_timeout_seconds + 10)
+@app.task(soft_time_limit=report_timeout_seconds, time_limit=report_timeout_seconds + 10)
 def deliver_subscription_report(subscription_id: int) -> None:
     return _deliver_subscription_report(subscription_id)
 
 
-@app.task(soft_time_limit=30, time_limit=40)
+@app.task(soft_time_limit=report_timeout_seconds, time_limit=report_timeout_seconds + 10)
 def handle_subscription_value_change(
     subscription_id: int, previous_value: str, invite_message: Optional[str] = None
 ) -> None:
