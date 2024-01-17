@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 import openai
+from django.conf import settings
 from prometheus_client import Histogram
 
 from posthog.api.activity_log import ServerTimingsGathered
@@ -330,7 +331,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     with timer("openai_completion"):
         result = openai.ChatCompletion.create(
             # model="gpt-4-1106-preview",  # allows 128k tokens
-            model="gpt-4",  # allows 8k tokens
+            model=settings.OPENAI_API_MODEL,  # allows 8k tokens
             temperature=0.7,
             messages=messages,
             user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
