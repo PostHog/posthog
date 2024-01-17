@@ -266,7 +266,9 @@ googleapis-common-protos==1.60.0
     #   google-api-core
     #   grpcio-status
 greenlet==3.0.3
-    # via gevent
+    # via
+    #   gevent
+    #   sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -438,7 +440,7 @@ pyasn1-modules==0.3.0
     # via google-auth
 pycparser==2.20
     # via cffi
-pycryptodomex==3.18.0
+pycryptodomex==3.19.1
     # via snowflake-connector-python
 pydantic==2.5.3
     # via -r requirements.in
