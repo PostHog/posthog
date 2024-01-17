@@ -77,6 +77,10 @@ FLAGS+=("-n node@%h")
 # https://github.com/heroku/heroku-buildpack-python/blob/main/vendor/WEB_CONCURRENCY.sh
 [[ -n "${WEB_CONCURRENCY}" ]]    && FLAGS+=" --concurrency $WEB_CONCURRENCY"
 
+if [[ -z "${CELERY_WORKER_QUEUES}" ]]; then
+  source ./bin/celery-queues.env
+fi
+
 echo
 echo "SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}"
 echo

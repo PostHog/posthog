@@ -1,10 +1,10 @@
 import {
     LemonButton,
     LemonDivider,
+    LemonSkeleton,
     LemonTable,
     LemonTableColumn,
     LemonTag,
-    LemonTagType,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -14,13 +14,15 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { PipelineAppKind, ProductKey } from '~/types'
 
-import { DestinationType, pipelineDestinationsLogic } from './destinationsLogic'
+import { DestinationType, PipelineAppBackend, pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
+import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { RenderApp } from './utils'
 
 export function Destinations(): JSX.Element {
@@ -98,42 +100,9 @@ function DestinationsTable(): JSX.Element {
                         },
                     },
                     {
-                        title: '24h', // TODO: two options 24h or 7d selected
-                        render: function Render24hDeliveryRate(_, destination) {
-                            if (destination.backend === 'plugin') {
-                                let tooltip = 'No events exported in the past 24 hours'
-                                let value = '-'
-                                let tagType: LemonTagType = 'muted'
-                                const deliveryRate = destination.success_rates['24h']
-                                if (deliveryRate !== null) {
-                                    value = `${Math.floor(deliveryRate * 100)}%`
-                                    tooltip = 'Success rate for past 24 hours'
-                                    if (deliveryRate >= 0.99) {
-                                        tagType = 'success'
-                                    } else if (deliveryRate >= 0.75) {
-                                        tagType = 'warning'
-                                    } else {
-                                        tagType = 'danger'
-                                    }
-                                }
-                                return (
-                                    <Tooltip title={tooltip}>
-                                        <Link to={destination.metrics_url}>
-                                            <LemonTag type={tagType}>{value}</LemonTag>
-                                        </Link>
-                                    </Tooltip>
-                                )
-                            } else {
-                                // Batch exports // TODO: fix this
-                                const tooltip = 'No events exported in the past 24 hours'
-                                return (
-                                    <Tooltip title={tooltip}>
-                                        <Link to={destination.metrics_url}>
-                                            <LemonTag type="muted">-</LemonTag>
-                                        </Link>
-                                    </Tooltip>
-                                )
-                            }
+                        title: 'Success rate',
+                        render: function RenderSuccessRate(_, destination) {
+                            return <DestinationSparkLine destination={destination} />
                         },
                     },
                     updatedAtColumn() as LemonTableColumn<DestinationType, any>,
@@ -240,4 +209,27 @@ function DestinationsTable(): JSX.Element {
             />
         </>
     )
+}
+
+function DestinationSparkLine({ destination }: { destination: DestinationType }): JSX.Element {
+    if (destination.backend === PipelineAppBackend.BatchExport) {
+        return <></> // TODO: not ready yet
+    } else {
+        const logic = pipelineAppMetricsLogic({ pluginConfigId: destination.id })
+        const { appMetricsResponse } = useValues(logic)
+
+        if (appMetricsResponse === null) {
+            return <LemonSkeleton className="w-full h-9" />
+        }
+
+        return (
+            <Sparkline
+                labels={appMetricsResponse.metrics.dates}
+                data={[
+                    { color: 'danger', name: 'failures', values: appMetricsResponse.metrics.failures },
+                    { color: 'success', name: 'sucesses', values: appMetricsResponse.metrics.successes },
+                ]}
+            />
+        )
+    }
 }

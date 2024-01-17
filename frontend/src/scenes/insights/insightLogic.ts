@@ -380,6 +380,10 @@ export const insightLogic = kea<insightLogicType>([
             (props: InsightLogicProps) =>
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
+        isInExperimentContext: [
+            () => [router.selectors.location],
+            ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
+        ],
         derivedName: [
             (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
             (insight, aggregationLabel, cohortsById, mathDefinitions) =>

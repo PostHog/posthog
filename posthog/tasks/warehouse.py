@@ -10,7 +10,7 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-MONTHLY_LIMIT = 1_000_000
+MONTHLY_LIMIT = 5_000_000
 
 
 def check_synced_row_limits() -> None:
@@ -22,6 +22,8 @@ def check_synced_row_limits() -> None:
 @app.task(ignore_result=True)
 def check_synced_row_limits_of_team(team_id: int) -> None:
     logger.info("Checking synced row limits of team", team_id=team_id)
+
+    # TODO: Can change this to be billing period based once billing is integrated
     start_of_month = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     rows_synced_list = [
         x

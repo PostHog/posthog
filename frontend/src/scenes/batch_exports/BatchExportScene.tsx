@@ -26,8 +26,9 @@ import { useEffect, useState } from 'react'
 import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportLogEntry } from '~/types'
+import { AvailableFeature, BatchExportLogEntry } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
@@ -44,6 +45,10 @@ export const scene: SceneExport = {
 }
 
 export function RunsTab(): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+        return <></>
+    }
     const {
         batchExportRunsResponse,
         batchExportConfig,
