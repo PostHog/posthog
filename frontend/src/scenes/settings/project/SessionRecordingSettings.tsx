@@ -181,19 +181,22 @@ export function ReplayCostControl(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const  { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // some organisations have access to this by virtue of being in a flag
     // other orgs have access by virtue of being on the correct plan
     // having the flag enabled overrides the plan feature check
     const flagIsEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING]
     const samplingControlFeatureEnabled = flagIsEnabled || hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
-    const recordingDurationMinimumFeatureEnabled = flagIsEnabled || hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
-    const featureFlagRecordingFeatureEnabled = flagIsEnabled || hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
+    const recordingDurationMinimumFeatureEnabled =
+        flagIsEnabled || hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
+    const featureFlagRecordingFeatureEnabled =
+        flagIsEnabled || hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
 
-    const canAccessAnyControl = samplingControlFeatureEnabled || recordingDurationMinimumFeatureEnabled || featureFlagRecordingFeatureEnabled
+    const canAccessAnyControl =
+        samplingControlFeatureEnabled || recordingDurationMinimumFeatureEnabled || featureFlagRecordingFeatureEnabled
 
-    return canAccessAnyControl?(
+    return canAccessAnyControl ? (
         <>
             <p>
                 PostHog offers several tools to let you control the number of recordings you collect and which users you
