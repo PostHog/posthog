@@ -1,6 +1,7 @@
 import './SharingModal.scss'
 
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -19,7 +20,6 @@ import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
 
 import { sharingLogic } from './sharingLogic'
-import { captureException } from '@sentry/react'
 
 export const SHARING_MODAL_WIDTH = 600
 
