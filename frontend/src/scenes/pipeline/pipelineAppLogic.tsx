@@ -68,6 +68,16 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
                 return pluginConfigsLoading || pluginsLoading
             },
         ],
+        tabs: [
+            (s) => [s.appBackend],
+            (appBackend) => {
+                if (appBackend === PipelineAppBackend.BatchExport) {
+                    return Object.values(PipelineAppTab).filter((t) => t !== PipelineAppTab.History)
+                }
+
+                return Object.values(PipelineAppTab)
+            },
+        ],
         maybePluginConfig: [
             (s, p) => [s.pluginConfigs, s.appBackend, p.id],
             (pluginConfigs, appBackend, maybePluginConfigId): PluginConfigTypeNew | null => {
