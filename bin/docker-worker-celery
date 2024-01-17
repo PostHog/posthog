@@ -78,7 +78,7 @@ FLAGS+=("-n node@%h")
 [[ -n "${WEB_CONCURRENCY}" ]]    && FLAGS+=" --concurrency $WEB_CONCURRENCY"
 
 if [[ -z "${CELERY_WORKER_QUEUES}" ]]; then
-  source celery-queues.env
+  source ./bin/celery-queues.env
 fi
 
 echo
