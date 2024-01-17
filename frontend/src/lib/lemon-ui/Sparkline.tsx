@@ -1,11 +1,12 @@
+import clsx from 'clsx'
 import { Chart, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+
 import { LemonSkeleton } from './LemonSkeleton'
-import clsx from 'clsx'
 
 interface SparkLineTimeSeries {
     name: string
@@ -26,7 +27,7 @@ interface SparklineProps {
     className?: string
 }
 
-export function Sparkline({ labels, data,type = 'bar', loading = false, className, }: SparklineProps): JSX.Element {
+export function Sparkline({ labels, data, type = 'bar', loading = false, className }: SparklineProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -34,8 +35,8 @@ export function Sparkline({ labels, data,type = 'bar', loading = false, classNam
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
 
     const adjustedData: SparkLineTimeSeries[] = !isSparkLineTimeSeries(data)
-    ? [{ name: 'Data', color: 'muted', values: data }]
-    : data
+        ? [{ name: 'Data', color: 'muted', values: data }]
+        : data
 
     useEffect(() => {
         // data should always be provided but React can render this without it,
@@ -99,7 +100,6 @@ export function Sparkline({ labels, data,type = 'bar', loading = false, classNam
                                     size: 10,
                                     lineHeight: 1,
                                 },
-                            
                             },
                             grid: {
                                 borderDash: [2],
@@ -108,10 +108,11 @@ export function Sparkline({ labels, data,type = 'bar', loading = false, classNam
                                 tickLength: 0,
                             },
                             alignToPixels: true,
-                            afterFit: (axis) => { // Remove unneccessary padding
+                            afterFit: (axis) => {
+                                // Remove unneccessary padding
                                 axis.paddingTop = 1 // 1px and not 0 to avoid clipping of the grid
                                 axis.paddingBottom = 1
-                            }
+                            },
                         },
                     },
                     plugins: {
@@ -136,7 +137,7 @@ export function Sparkline({ labels, data,type = 'bar', loading = false, classNam
                                             datasetIndex: 0,
                                             label: dp.dataset.label,
                                             color: dp.dataset.borderColor as string,
-                                            count: dp.dataset.data?.[dp.dataIndex] as number || 0,
+                                            count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
                                         }))}
                                         renderSeries={(value) => value}
                                         renderCount={(count) => humanFriendlyNumber(count)}
@@ -159,23 +160,23 @@ export function Sparkline({ labels, data,type = 'bar', loading = false, classNam
         }
     }, [labels, data])
 
-
     const dataPointCount = adjustedData[0].values.length
-    const finalClassName = clsx(dataPointCount > 16 ? "w-64" : dataPointCount > 8 ? "w-48" : dataPointCount > 4 ? "w-32" : "w-24", "h-8", className)
+    const finalClassName = clsx(
+        dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
+        'h-8',
+        className
+    )
 
     return !loading ? (
         <div className={finalClassName}>
             <canvas ref={canvasRef} />
-            <Popover
-                visible={isTooltipShown}
-                overlay={popoverContent}
-                placement="bottom-start"
-                padded={false}
-            >
+            <Popover visible={isTooltipShown} overlay={popoverContent} placement="bottom-start" padded={false}>
                 <div ref={tooltipRef} />
             </Popover>
         </div>
-    ) : <LemonSkeleton className={finalClassName} />
+    ) : (
+        <LemonSkeleton className={finalClassName} />
+    )
 }
 
 function isSparkLineTimeSeries(data: number[] | SparkLineTimeSeries[]): data is SparkLineTimeSeries[] {

@@ -1,12 +1,4 @@
-import {
-    LemonButton,
-    LemonDivider,
-    LemonTable,
-    LemonTableColumn,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -220,10 +212,18 @@ function DestinationSparkLine({ destination }: { destination: DestinationType })
         return (
             <Sparkline
                 loading={appMetricsResponse === null}
-                labels={appMetricsResponse? appMetricsResponse.metrics.dates : []}
+                labels={appMetricsResponse ? appMetricsResponse.metrics.dates : []}
                 data={[
-                    { color: 'success', name: 'Events sent', values: appMetricsResponse ? appMetricsResponse.metrics.successes : [] },
-                    { color: 'danger', name: 'Events dropped', values: appMetricsResponse ? appMetricsResponse.metrics.failures : [] },
+                    {
+                        color: 'success',
+                        name: 'Events sent',
+                        values: appMetricsResponse ? appMetricsResponse.metrics.successes : [],
+                    },
+                    {
+                        color: 'danger',
+                        name: 'Events dropped',
+                        values: appMetricsResponse ? appMetricsResponse.metrics.failures : [],
+                    },
                 ]}
             />
         )

@@ -1,5 +1,6 @@
 import './InsightTooltip.scss'
 
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { IconHandClick } from 'lib/lemon-ui/icons'
@@ -20,7 +21,6 @@ import {
     ROW_CUTOFF,
     SeriesDatum,
 } from './insightTooltipUtils'
-import clsx from 'clsx'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -173,7 +173,7 @@ export function InsightTooltip({
         }
 
         return (
-            <div className={clsx("InsightTooltip", embedded && "InsightTooltip--embedded")}>
+            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -234,7 +234,7 @@ export function InsightTooltip({
     })
 
     return (
-        <div className={clsx("InsightTooltip", embedded && "InsightTooltip--embedded")}>
+        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}

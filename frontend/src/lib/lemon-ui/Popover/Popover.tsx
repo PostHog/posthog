@@ -252,7 +252,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             onMouseLeave={onMouseLeaveInside}
                             aria-level={currentPopoverLevel}
                         >
-                            <div className={clsx( "Popover__box", !padded && 'p-0')}>
+                            <div className={clsx('Popover__box', !padded && 'p-0')}>
                                 {showArrow && isAttached && (
                                     // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
                                     <div
