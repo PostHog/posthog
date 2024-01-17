@@ -156,6 +156,7 @@ class TrendsQueryRunner(QueryRunner):
                 if is_parallel:
                     from django.db import connection
 
+                    # This will only close the DB connection for the newly spawned thread and not the whole app
                     connection.close()
 
         # This exists so that we're not spawning threads during unit tests. We can't do
