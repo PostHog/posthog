@@ -262,7 +262,6 @@ posthog/hogql/resolver.py:0: error: Argument 1 to "get_child" of "Type" has inco
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "Alias")  [assignment]
 posthog/hogql/resolver.py:0: error: Argument "alias" to "Alias" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/hogql/resolver.py:0: error: Argument 1 to "join" of "str" has incompatible type "list[str | int]"; expected "Iterable[str]"  [arg-type]
-ee/tasks/subscriptions/__init__.py:0: error: Incompatible import of "settings" (imported name has type Module, local name has type "LazySettings")  [assignment]
 posthog/temporal/data_imports/external_data_job.py:0: error: Argument 2 to "DataImportPipeline" has incompatible type "DltSource"; expected "DltResource"  [arg-type]
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
