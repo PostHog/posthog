@@ -591,7 +591,7 @@ describe('PropertyDefinitionsManager()', () => {
                 {
                     propertyKey: 'unix timestamp in milliseconds as a string',
                     date: '1234567890123',
-                    expectedPropertyType: PropertyType.String,
+                    expectedPropertyType: PropertyType.DateTime,
                 },
             ].flatMap((testcase) => {
                 const toEdit = testcase

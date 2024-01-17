@@ -108,8 +108,6 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
                 return true
             }
         })
-
-        detectUnixTimestamps()
     }
 
     if (
