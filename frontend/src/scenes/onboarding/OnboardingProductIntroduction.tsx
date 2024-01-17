@@ -1,3 +1,5 @@
+import { Spinner } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { onboardingLogic } from './onboardingLogic'
@@ -8,5 +10,15 @@ export const scene: SceneExport = {
 }
 
 export function OnboardingProductIntroduction(): JSX.Element | null {
-    return <p>haiiiii</p>
+    const { product, productKey } = useValues(onboardingLogic)
+    return product ? (
+        <p>
+            type {product?.type}
+            key {productKey}
+        </p>
+    ) : (
+        <div className="w-full text-center text-3xl mt-12">
+            <Spinner />
+        </div>
+    )
 }

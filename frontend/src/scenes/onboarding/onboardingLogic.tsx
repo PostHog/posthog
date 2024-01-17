@@ -251,7 +251,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
+        '/onboarding/:productKey(/intro)': ({ productKey }, { success, upgraded, step }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
