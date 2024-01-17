@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any, cast
+from typing import Any, cast, TypedDict
 
 import posthoganalytics
 import structlog
@@ -167,6 +167,16 @@ class HogQLSelectQueryField(serializers.Field):
         return parsed_query
 
 
+class BatchExportsField(TypedDict):
+    expression: str
+    alias: str
+
+
+class BatchExportsSchema(TypedDict):
+    fields: list[BatchExportsField]
+    values: dict[str, str]
+
+
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
@@ -192,7 +202,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "latest_runs",
             "hogql_query",
         ]
-        read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs"]
+        read_only_fields = [
+            "id",
+            "team_id",
+            "created_at",
+            "last_updated_at",
+            "latest_runs",
+        ]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -230,13 +246,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
             except errors.ResolverException as e:
                 raise serializers.ValidationError(f"Invalid HogQL query: {e}") from e
 
-            batch_export_schema = {
+            batch_export_schema: BatchExportsSchema = {
                 "fields": [],
                 "values": {},
             }
             for field in prepared_select_query.select:
                 expression = print_prepared_ast(
-                    field.expr,
+                    field.expr,  # type: ignore
                     context=context,
                     dialect="clickhouse",
                 )
@@ -246,8 +262,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 else:
                     alias = expression
 
-                batch_export_field = {"expression": expression, "alias": alias}
-                validated_data["schema"]["fields"].append(batch_export_field)
+                batch_export_field: BatchExportsField = {
+                    "expression": expression,
+                    "alias": alias,
+                }
+                batch_export_schema["fields"].append(batch_export_field)
 
             batch_export_schema["values"] = context.values
             validated_data["schema"] = batch_export_schema
@@ -279,7 +298,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if parsed.select_from is None:
             raise serializers.ValidationError("Query must SELECT FROM events")
 
-        if parsed.select_from.table.chain != ["events"]:
+        # Not sure how to make mypy understand this works, hence the ignore comment.
+        # And if it doesn't, it's still okay as it could mean an unsupported query.
+        # We would come back with the example to properly type this.
+        if parsed.select_from.table.chain != ["events"]:  # type: ignore
             raise serializers.ValidationError("Query must only SELECT FROM events")
 
         if parsed.select_from.next_join is not None:
@@ -412,7 +434,10 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         try:
             batch_export_delete_schedule(temporal, str(instance.pk))
         except BatchExportServiceScheduleNotFound as e:
-            logger.warning("The Schedule %s could not be deleted as it was not found", e.schedule_id)
+            logger.warning(
+                "The Schedule %s could not be deleted as it was not found",
+                e.schedule_id,
+            )
 
         instance.save()
 

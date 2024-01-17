@@ -2,10 +2,6 @@ import typing
 from abc import ABC, abstractmethod
 
 
-class PostHogInputsProtocol(typing.Protocol):
-    team_id: int
-
-
 class PostHogWorkflow(ABC):
     """Base class for Temporal Workflows that can be executed in PostHog."""
 
@@ -27,7 +23,7 @@ class PostHogWorkflow(ABC):
 
     @staticmethod
     @abstractmethod
-    def parse_inputs(inputs: list[str]) -> PostHogInputsProtocol:
+    def parse_inputs(inputs: list[str]) -> typing.Any:
         """Parse inputs from the management command CLI.
 
         If a workflow is to be executed via the CLI it must know how to parse its
