@@ -51,7 +51,6 @@ pub enum WebhookCleanerError {
 type Result<T, E = WebhookCleanerError> = std::result::Result<T, E>;
 
 pub struct WebhookCleaner {
-    queue_name: String,
     pg_pool: PgPool,
     kafka_producer: FutureProducer<KafkaContext>,
     app_metrics_topic: String,
@@ -149,19 +148,16 @@ struct CleanupStats {
 
 impl WebhookCleaner {
     pub fn new(
-        queue_name: &str,
         database_url: &str,
         kafka_producer: FutureProducer<KafkaContext>,
         app_metrics_topic: String,
     ) -> Result<Self> {
-        let queue_name = queue_name.to_owned();
         let pg_pool = PgPoolOptions::new()
             .acquire_timeout(Duration::from_secs(10))
             .connect_lazy(database_url)
             .map_err(|error| WebhookCleanerError::PoolCreationError { error })?;
 
         Ok(Self {
-            queue_name,
             pg_pool,
             kafka_producer,
             app_metrics_topic,
@@ -170,15 +166,11 @@ impl WebhookCleaner {
 
     #[allow(dead_code)] // This is used in tests.
     pub fn new_from_pool(
-        queue_name: &str,
         pg_pool: PgPool,
         kafka_producer: FutureProducer<KafkaContext>,
         app_metrics_topic: String,
     ) -> Result<Self> {
-        let queue_name = queue_name.to_owned();
-
         Ok(Self {
-            queue_name,
             pg_pool,
             kafka_producer,
             app_metrics_topic,
@@ -199,12 +191,10 @@ impl WebhookCleaner {
             COALESCE(MIN(CASE WHEN attempt > 0 THEN created_at END), now()) AS oldest_created_at_retries,
             COALESCE(SUM(CASE WHEN attempt > 0 THEN 1 ELSE 0 END), 0) AS count_retries
         FROM job_queue
-        WHERE status = 'available'
-          AND queue = $1;
+        WHERE status = 'available';
         "#;
 
         let row = sqlx::query_as::<_, QueueDepth>(base_query)
-            .bind(&self.queue_name)
             .fetch_one(&mut *conn)
             .await
             .map_err(|e| WebhookCleanerError::GetQueueDepthError { error: e })?;
@@ -240,12 +230,10 @@ impl WebhookCleaner {
     ) -> Result<u64> {
         let base_query = r#"
             SELECT count(*) FROM job_queue
-            WHERE queue = $1
-              AND status = $2::job_status;
+            WHERE status = $1::job_status;
             "#;
 
         let count: i64 = sqlx::query(base_query)
-            .bind(&self.queue_name)
             .bind(status)
             .fetch_one(&mut *tx.0)
             .await
@@ -266,13 +254,11 @@ impl WebhookCleaner {
                 count(*) as successes
             FROM job_queue
             WHERE status = 'completed'
-              AND queue = $1
             GROUP BY hour, team_id, plugin_config_id
             ORDER BY hour, team_id, plugin_config_id;
         "#;
 
         let rows = sqlx::query_as::<_, CompletedRow>(base_query)
-            .bind(&self.queue_name)
             .fetch_all(&mut *tx.0)
             .await
             .map_err(|e| WebhookCleanerError::GetCompletedRowsError { error: e })?;
@@ -289,13 +275,11 @@ impl WebhookCleaner {
                    count(*) as failures
             FROM job_queue
             WHERE status = 'failed'
-              AND queue = $1
             GROUP BY hour, team_id, plugin_config_id, last_error
             ORDER BY hour, team_id, plugin_config_id, last_error;
         "#;
 
         let rows = sqlx::query_as::<_, FailedRow>(base_query)
-            .bind(&self.queue_name)
             .fetch_all(&mut *tx.0)
             .await
             .map_err(|e| WebhookCleanerError::GetFailedRowsError { error: e })?;
@@ -352,11 +336,9 @@ impl WebhookCleaner {
         let base_query = r#"
             DELETE FROM job_queue
             WHERE status IN ('failed', 'completed')
-              AND queue = $1;
         "#;
 
         let result = sqlx::query(base_query)
-            .bind(&self.queue_name)
             .execute(&mut *tx.0)
             .await
             .map_err(|e| WebhookCleanerError::DeleteRowsError { error: e })?;
@@ -577,22 +559,17 @@ mod tests {
             .expect("failed to create mock consumer");
         consumer.subscribe(&[APP_METRICS_TOPIC]).unwrap();
 
-        let webhook_cleaner = WebhookCleaner::new_from_pool(
-            &"webhooks",
-            db,
-            mock_producer,
-            APP_METRICS_TOPIC.to_owned(),
-        )
-        .expect("unable to create webhook cleaner");
+        let webhook_cleaner =
+            WebhookCleaner::new_from_pool(db, mock_producer, APP_METRICS_TOPIC.to_owned())
+                .expect("unable to create webhook cleaner");
 
         let cleanup_stats = webhook_cleaner
             .cleanup_impl()
             .await
             .expect("webbook cleanup_impl failed");
 
-        // Rows from other queues and rows that are not 'completed' or 'failed' should not be
-        // processed.
-        assert_eq!(cleanup_stats.rows_processed, 11);
+        // Rows that are not 'completed' or 'failed' should not be processed.
+        assert_eq!(cleanup_stats.rows_processed, 13);
 
         let mut received_app_metrics = Vec::new();
         for _ in 0..(cleanup_stats.completed_agg_row_count + cleanup_stats.failed_agg_row_count) {
@@ -609,7 +586,7 @@ mod tests {
                 plugin_config_id: 2,
                 job_id: None,
                 category: AppMetricCategory::Webhook,
-                successes: 2,
+                successes: 3,
                 successes_on_retry: 0,
                 failures: 0,
                 error_uuid: None,
@@ -682,7 +659,7 @@ mod tests {
                 category: AppMetricCategory::Webhook,
                 successes: 0,
                 successes_on_retry: 0,
-                failures: 2,
+                failures: 3,
                 error_uuid: Some(Uuid::parse_str("018c8935-d038-714a-957c-0df43d42e377").unwrap()),
                 error_type: Some(ErrorType::TimeoutError),
                 error_details: Some(ErrorDetails {
@@ -799,13 +776,9 @@ mod tests {
     #[sqlx::test(migrations = "../migrations", fixtures("webhook_cleanup"))]
     async fn test_serializable_isolation(db: PgPool) {
         let (_, mock_producer) = create_mock_kafka().await;
-        let webhook_cleaner = WebhookCleaner::new_from_pool(
-            &"webhooks",
-            db.clone(),
-            mock_producer,
-            APP_METRICS_TOPIC.to_owned(),
-        )
-        .expect("unable to create webhook cleaner");
+        let webhook_cleaner =
+            WebhookCleaner::new_from_pool(db.clone(), mock_producer, APP_METRICS_TOPIC.to_owned())
+                .expect("unable to create webhook cleaner");
 
         let queue = PgQueue::new_from_pool("webhooks", db.clone())
             .await
@@ -813,14 +786,13 @@ mod tests {
 
         async fn get_count_from_new_conn(db: &PgPool, status: &str) -> i64 {
             let mut conn = db.acquire().await.unwrap();
-            let count: i64 = sqlx::query(
-                "SELECT count(*) FROM job_queue WHERE queue = 'webhooks' AND status = $1::job_status",
-            )
-            .bind(&status)
-            .fetch_one(&mut *conn)
-            .await
-            .unwrap()
-            .get(0);
+            let count: i64 =
+                sqlx::query("SELECT count(*) FROM job_queue WHERE status = $1::job_status")
+                    .bind(&status)
+                    .fetch_one(&mut *conn)
+                    .await
+                    .unwrap()
+                    .get(0);
             count
         }
 
@@ -832,10 +804,10 @@ mod tests {
             .unwrap();
         webhook_cleaner.get_failed_agg_rows(&mut tx).await.unwrap();
 
-        // All 13 rows in the queue are visible from outside the txn.
-        // The 11 the cleaner will process, plus 1 available and 1 running.
-        assert_eq!(get_count_from_new_conn(&db, "completed").await, 5);
-        assert_eq!(get_count_from_new_conn(&db, "failed").await, 6);
+        // All 15 rows in the DB are visible from outside the txn.
+        // The 13 the cleaner will process, plus 1 available and 1 running.
+        assert_eq!(get_count_from_new_conn(&db, "completed").await, 6);
+        assert_eq!(get_count_from_new_conn(&db, "failed").await, 7);
         assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
         assert_eq!(get_count_from_new_conn(&db, "running").await, 1);
 
@@ -896,15 +868,15 @@ mod tests {
         }
 
         // There are now 2 more completed rows (jobs added above) than before, visible from outside the txn.
-        assert_eq!(get_count_from_new_conn(&db, "completed").await, 7);
+        assert_eq!(get_count_from_new_conn(&db, "completed").await, 8);
         assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
 
         let rows_processed = webhook_cleaner.delete_observed_rows(&mut tx).await.unwrap();
-        // The 11 rows that were in the queue when the txn started should be deleted.
-        assert_eq!(rows_processed, 11);
+        // The 13 rows in the DB when the txn started should be deleted.
+        assert_eq!(rows_processed, 13);
 
         // We haven't committed, so the rows are still visible from outside the txn.
-        assert_eq!(get_count_from_new_conn(&db, "completed").await, 7);
+        assert_eq!(get_count_from_new_conn(&db, "completed").await, 8);
         assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
 
         webhook_cleaner.commit_txn(tx).await.unwrap();

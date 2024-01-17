@@ -11,9 +11,6 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:15432/test_database")]
     pub database_url: String,
 
-    #[envconfig(default = "default")]
-    pub queue_name: String,
-
     #[envconfig(default = "30")]
     pub cleanup_interval_secs: u64,
 
