@@ -34,7 +34,6 @@ import { ActivityScope, NotebookNodeType, PersonsTabType, PersonType, PropertyDe
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PersonDashboard } from './PersonDashboard'
-import { PersonDisplay } from './PersonDisplay'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -91,9 +90,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             </div>
             <div>
                 <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
-                <Link
-                    to={'https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user'}
-                >
+                <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
                     <Tooltip
                         title={
                             <>
@@ -137,7 +134,6 @@ export function PersonScene(): JSX.Element | null {
     return (
         <>
             <PageHeader
-                title={<PersonDisplay person={person} noLink withIcon={'lg'} noPopover />}
                 caption={<PersonCaption person={person} />}
                 notebookProps={
                     url

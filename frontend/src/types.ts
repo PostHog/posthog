@@ -27,6 +27,7 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -92,6 +93,7 @@ export enum AvailableFeature {
     SURVEYS_STYLING = 'surveys_styling',
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
+    DATA_PIPELINES = 'data_pipelines',
     SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
     RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
     FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
@@ -523,17 +525,24 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum PipelineTabs {
+export enum PipelineTab {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
     AppsManagement = 'apps-management',
 }
 
-export enum PipelineAppTabs {
+export enum PipelineAppKind {
+    Filter = 'filter',
+    Transformation = 'transformation',
+    Destination = 'destination',
+}
+
+export enum PipelineAppTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
+    History = 'history',
 }
 
 export enum ProgressStatus {
@@ -1518,7 +1527,7 @@ export interface PluginType {
     url?: string
     tag?: string
     icon?: string
-    latest_tag?: string
+    latest_tag?: string // apps management page: The latest git hash for the repo behind the url
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
@@ -1596,6 +1605,7 @@ export interface PluginConfigTypeNew {
     description?: string
     updated_at: string
     delivery_rate_24h?: number | null
+    config: Record<string, any>
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
@@ -1631,20 +1641,12 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum BatchExportLogEntryLevel {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warning = 'WARNING',
-    Error = 'ERROR',
-}
-
 export interface BatchExportLogEntry {
     team_id: number
     batch_export_id: number
     run_id: number
     timestamp: string
-    level: BatchExportLogEntryLevel
+    level: PipelineAppLogLevel
     message: string
 }
 
@@ -3616,4 +3618,5 @@ export enum SidePanelTab {
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
     Discussion = 'discussion',
+    Status = 'status',
 }

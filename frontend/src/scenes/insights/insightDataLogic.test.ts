@@ -68,7 +68,7 @@ describe('insightDataLogic', () => {
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
-                            breakdown: {
+                            breakdownFilter: {
                                 breakdown: '$geoip_country_code',
                                 breakdown_type: 'event',
                             },

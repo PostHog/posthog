@@ -1,5 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -36,7 +38,7 @@ describe('insightSceneLogic', () => {
         await expectLogic(router)
             .delay(1)
             .toMatchValues({
-                location: partial({ pathname: urls.insightNew() }),
+                location: partial({ pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID) }),
             })
     })
 
@@ -47,7 +49,11 @@ describe('insightSceneLogic', () => {
         await expectLogic(router)
             .delay(1)
             .toMatchValues({
-                location: partial({ pathname: urls.insightNew(), search: '', hash: '' }),
+                location: partial({
+                    pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID),
+                    search: '',
+                    hash: '',
+                }),
             })
 
         expect(logic.values.insightLogicRef?.logic.values.filters.insight).toEqual(InsightType.FUNNELS)

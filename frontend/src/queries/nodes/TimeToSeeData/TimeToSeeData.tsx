@@ -37,7 +37,7 @@ export function TimeToSeeData(props: { query: TimeToSeeDataNode; cachedResults?:
                     {({ height }) => (
                         <CodeEditor
                             className="border"
-                            language={'json'}
+                            language="json"
                             value={JSON.stringify(response, null, 2)}
                             height={Math.max(height, 300)}
                         />

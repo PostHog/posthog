@@ -173,7 +173,8 @@ $_lifecycle_dormant: $_danger;
     --bg-bridge: #ebece8;
 
     // Non-color vars
-    --radius: 0.25rem;
+    --radius: 0.375rem;
+    --radius-sm: 0.25rem;
     --shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
     --opacity-disabled: 0.6;
     --font-medium: 500;
@@ -250,11 +251,11 @@ $_lifecycle_dormant: $_danger;
     --z-definition-popover: 1064;
     --z-popover: 1063;
     --z-graph-tooltip: 1062;
-    --z-annotation-popover: 1061;
     --z-modal: 1060;
     --z-ant-modal-wrap: 1060;
     --z-hedgehog-buddy: 1059;
     --z-ant-modal-mask: 1050;
+    --z-annotation-popover: 1049;
     --z-drawer: 950;
     --z-notifications-popover: 949; // below the TZ aware popover but over the main-nav
     --z-main-nav: 948;
@@ -422,5 +423,4 @@ $_lifecycle_dormant: $_danger;
     --data-color-1: #1d4aff;
     --data-color-1-hover: #1a3cf6;
     --data-color-10: #35416b;
-    --radius: 0.375rem;
 }

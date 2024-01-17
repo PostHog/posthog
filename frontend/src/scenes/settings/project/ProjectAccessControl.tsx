@@ -53,7 +53,7 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
 
     const levelButton = disallowedReason ? (
         <div className="border rounded px-3 py-2 flex inline-flex items-center">
-            {member.level === OrganizationMembershipLevel.Owner && <CrownFilled className={'mr-2'} />}
+            {member.level === OrganizationMembershipLevel.Owner && <CrownFilled className="mr-2" />}
             {levelName}
         </div>
     ) : (

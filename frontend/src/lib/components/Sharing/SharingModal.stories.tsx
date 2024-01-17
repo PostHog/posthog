@@ -131,5 +131,5 @@ export const InsightSharingLicensed = (): JSX.Element => {
 }
 
 export const RecordingSharingLicensed = (): JSX.Element => {
-    return <Template title="Share Recording" recordingId={'fake-id'} licensed previewIframe />
+    return <Template title="Share Recording" recordingId="fake-id" licensed previewIframe />
 }

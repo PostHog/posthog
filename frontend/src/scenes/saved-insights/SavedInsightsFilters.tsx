@@ -26,23 +26,25 @@ export function SavedInsightsFilters(): JSX.Element {
                 value={search || ''}
             />
             <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                    <span>On dashboard:</span>
-                    <LemonSelect
-                        size="small"
-                        options={nameSortedDashboards.map((nsd) => ({
-                            value: nsd.id,
-                            label: nsd.name,
-                        }))}
-                        value={dashboardId}
-                        onChange={(newValue) => {
-                            setSavedInsightsFilters({ dashboardId: newValue })
-                        }}
-                        dropdownMatchSelectWidth={false}
-                        data-attr="insight-on-dashboard"
-                        allowClear={true}
-                    />
-                </div>
+                {nameSortedDashboards.length > 0 && (
+                    <div className="flex items-center gap-2">
+                        <span>On dashboard:</span>
+                        <LemonSelect
+                            size="small"
+                            options={nameSortedDashboards.map((nsd) => ({
+                                value: nsd.id,
+                                label: nsd.name,
+                            }))}
+                            value={dashboardId}
+                            onChange={(newValue) => {
+                                setSavedInsightsFilters({ dashboardId: newValue })
+                            }}
+                            dropdownMatchSelectWidth={false}
+                            data-attr="insight-on-dashboard"
+                            allowClear={true}
+                        />
+                    </div>
+                )}
                 <div className="flex items-center gap-2">
                     <span>Type:</span>
                     <LemonSelect

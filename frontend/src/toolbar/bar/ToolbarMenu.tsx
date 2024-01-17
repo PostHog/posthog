@@ -1,5 +1,5 @@
 export function ToolbarMenu({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className={'w-full h-full flex flex-col overflow-hidden'}>{children}</div>
+    return <div className="w-full h-full flex flex-col overflow-hidden">{children}</div>
 }
 
 ToolbarMenu.Header = function ToolbarMenuHeader({ children }: { children: React.ReactNode }): JSX.Element {

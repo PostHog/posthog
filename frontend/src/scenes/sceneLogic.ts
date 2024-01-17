@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
@@ -195,6 +196,14 @@ export const sceneLogic = kea<sceneLogicType>([
                 return
             }
 
+            // Redirect to the scene's canonical pathname if needed
+            const currentPathname = router.values.location.pathname
+            const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
+            if (currentPathname !== canonicalPathname) {
+                router.actions.replace(canonicalPathname, router.values.searchParams, router.values.hashParams)
+                return
+            }
+
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
@@ -223,10 +232,9 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        !location.pathname.startsWith('/ingestion') &&
-                        !location.pathname.startsWith('/onboarding') &&
-                        !location.pathname.startsWith('/products') &&
-                        !location.pathname.startsWith('/settings')
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.onboarding('')) &&
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
+                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
                         if (
                             !teamLogic.values.currentTeam.completed_snippet_onboarding &&

@@ -257,12 +257,12 @@ def create_event_definitions_sql(
 
         ee_model = EnterpriseEventDefinition
     else:
-        ee_model = EventDefinition  # type: ignore
+        ee_model = EventDefinition
 
     event_definition_fields = {
-        f'"{f.column}"'  # type: ignore
+        f'"{f.column}"'
         for f in ee_model._meta.get_fields()
-        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
     }
 
     enterprise_join = (
@@ -296,7 +296,7 @@ def create_event_definitions_sql(
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
-        UUID(key)  # type: ignore
+        UUID(key)
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)

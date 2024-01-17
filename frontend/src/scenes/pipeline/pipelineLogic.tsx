@@ -3,32 +3,19 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineTabs } from '~/types'
+import { Breadcrumb, PipelineTab } from '~/types'
 
 import type { pipelineLogicType } from './pipelineLogicType'
 
-export const singularName = (tab: PipelineTabs): string => {
+export const humanFriendlyTabName = (tab: PipelineTab): string => {
     switch (tab) {
-        case PipelineTabs.Filters:
-            return 'filter'
-        case PipelineTabs.Transformations:
-            return 'transformation'
-        case PipelineTabs.Destinations:
-            return 'destination'
-        default:
-            return ''
-    }
-}
-
-export const humanFriendlyTabName = (tab: PipelineTabs): string => {
-    switch (tab) {
-        case PipelineTabs.Filters:
+        case PipelineTab.Filters:
             return 'Filters'
-        case PipelineTabs.Transformations:
+        case PipelineTab.Transformations:
             return 'Transformations'
-        case PipelineTabs.Destinations:
+        case PipelineTab.Destinations:
             return 'Destinations'
-        case PipelineTabs.AppsManagement:
+        case PipelineTab.AppsManagement:
             return 'Apps management'
     }
 }
@@ -36,11 +23,11 @@ export const humanFriendlyTabName = (tab: PipelineTabs): string => {
 export const pipelineLogic = kea<pipelineLogicType>([
     path(['scenes', 'pipeline', 'pipelineLogic']),
     actions({
-        setCurrentTab: (tab: PipelineTabs = PipelineTabs.Destinations) => ({ tab }),
+        setCurrentTab: (tab: PipelineTab = PipelineTab.Destinations) => ({ tab }),
     }),
     reducers({
         currentTab: [
-            PipelineTabs.Destinations as PipelineTabs,
+            PipelineTab.Destinations as PipelineTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
             },
@@ -68,7 +55,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
     urlToAction(({ actions, values }) => ({
         '/pipeline/:tab': ({ tab }) => {
             if (tab !== values.currentTab) {
-                actions.setCurrentTab(tab as PipelineTabs)
+                actions.setCurrentTab(tab as PipelineTab)
             }
         },
     })),

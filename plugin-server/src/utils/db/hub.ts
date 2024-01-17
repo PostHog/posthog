@@ -26,6 +26,7 @@ import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
 import { status } from '../status'
 import { createRedisPool, UUIDT } from '../utils'
@@ -141,6 +142,11 @@ export async function createHub(
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
+    const rustyHook = new RustyHook(
+        buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
+        serverConfig.RUSTY_HOOK_URL,
+        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    )
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -185,11 +191,11 @@ export async function createHub(
         organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
+        rustyHook,
         conversionBufferEnabledTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),
         poeWritesExcludeTeams: buildIntegerMatcher(process.env.POE_WRITES_EXCLUDE_TEAMS, false),
-        rustyHookForTeams: buildIntegerMatcher(process.env.RUSTY_HOOK_FOR_TEAMS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
     }
 

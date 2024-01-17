@@ -14,10 +14,9 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @import 'fonts';
 @import 'functions';
 @import 'mixins';
-@import 'utility-legacy';
-@import 'colors';
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss/components'; // NOTE: The components layer must be before utilities for correct specificity
+@import 'utilities';
+@import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
 :root {
     @include root-variables;
@@ -359,15 +358,15 @@ input::-ms-clear {
         cursor: pointer;
 
         div:nth-child(1) {
-            background: var(--primary-3000);
-        }
-
-        div:nth-child(2) {
             background: var(--brand-blue);
         }
 
+        div:nth-child(2) {
+            background: var(--brand-red);
+        }
+
         div:nth-child(3) {
-            background: var(--warning);
+            background: var(--brand-yellow);
         }
 
         span {
@@ -729,4 +728,8 @@ body {
     .ant-empty-img-simple-ellipse {
         fill: var(--border-3000);
     }
+}
+
+.ligatures-none {
+    font-variant-ligatures: none;
 }

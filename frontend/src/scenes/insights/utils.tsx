@@ -2,7 +2,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { KEY_MAPPING } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
-import { getCurrentTeamId } from 'lib/utils/logics'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -277,7 +277,11 @@ export function formatBreakdownLabel(
             ? 'None'
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
-        return breakdown_value.join('::')
+        return breakdown_value
+            .map((v) =>
+                formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, v, breakdown, breakdown_type, isHistogram)
+            )
+            .join('::')
     } else {
         return ''
     }

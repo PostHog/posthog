@@ -42,7 +42,7 @@ export function PathItemFilters({
         <BindLogic logic={propertyFilterLogic} props={logicProps}>
             {filtersWithNew?.map((filter: AnyPropertyFilter, index: number) => {
                 return (
-                    <div key={index} className={'mb-2'}>
+                    <div key={index} className="mb-2">
                         <PathItemSelector
                             pathItem={filter.value as string | undefined}
                             onChange={(pathItem) =>
