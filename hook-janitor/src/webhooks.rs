@@ -752,13 +752,9 @@ mod tests {
             .expect("failed to create mock consumer");
         consumer.subscribe(&[APP_METRICS_TOPIC]).unwrap();
 
-        let webhook_cleaner = WebhookCleaner::new_from_pool(
-            &"webhooks",
-            db,
-            mock_producer,
-            APP_METRICS_TOPIC.to_owned(),
-        )
-        .expect("unable to create webhook cleaner");
+        let webhook_cleaner =
+            WebhookCleaner::new_from_pool(db, mock_producer, APP_METRICS_TOPIC.to_owned())
+                .expect("unable to create webhook cleaner");
 
         let cleanup_stats = webhook_cleaner
             .cleanup_impl()

@@ -70,6 +70,5 @@ pub struct RetryPolicyConfig {
     #[envconfig(default = "100000")]
     pub maximum_interval: EnvMsDuration,
 
-    #[envconfig(default = "default")]
-    pub retry_queue_name: String,
+    pub retry_queue_name: Option<String>,
 }

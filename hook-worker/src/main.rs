@@ -23,13 +23,17 @@ async fn main() -> Result<(), WorkerError> {
         .register("worker".to_string(), time::Duration::seconds(60)) // TODO: compute the value from worker params
         .await;
 
-    let retry_policy = RetryPolicy::build(
+    let mut retry_policy_builder = RetryPolicy::build(
         config.retry_policy.backoff_coefficient,
         config.retry_policy.initial_interval.0,
     )
-    .maximum_interval(config.retry_policy.maximum_interval.0)
-    .queue(&config.retry_policy.retry_queue_name)
-    .provide();
+    .maximum_interval(config.retry_policy.maximum_interval.0);
+
+    retry_policy_builder = match &config.retry_policy.retry_queue_name {
+        Some(retry_queue_name) => retry_policy_builder.queue(retry_queue_name),
+        _ => retry_policy_builder,
+    };
+
     let queue = PgQueue::new(&config.queue_name, &config.database_url)
         .await
         .expect("failed to initialize queue");
@@ -40,7 +44,7 @@ async fn main() -> Result<(), WorkerError> {
         config.poll_interval.0,
         config.request_timeout.0,
         config.max_concurrent_jobs,
-        retry_policy,
+        retry_policy_builder.provide(),
         worker_liveness,
     );
 
