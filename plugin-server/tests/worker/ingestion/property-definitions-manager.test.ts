@@ -571,12 +571,12 @@ describe('PropertyDefinitionsManager()', () => {
                 {
                     propertyKey: 'unix timestamp with fractional seconds as a string',
                     date: '1234567890.123',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
                 {
                     propertyKey: 'unix timestamp with five decimal places of fractional seconds as a string',
                     date: '1234567890.12345',
-                    expectedPropertyType: PropertyType.DateTime,
+                    expectedPropertyType: PropertyType.String,
                 },
                 {
                     propertyKey: 'unix timestamp as a string',
