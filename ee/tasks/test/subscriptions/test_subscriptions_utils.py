@@ -34,7 +34,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
         self.subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
 
     def test_generate_assets_for_insight(self, mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
-        with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
+        with self.settings(PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
             insights, assets = generate_assets(self.subscription)
 
             assert insights == [self.insight]
@@ -44,7 +44,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
     def test_generate_assets_for_dashboard(self, mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
-        with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
+        with self.settings(PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
             insights, assets = generate_assets(subscription)
 
         assert len(insights) == len(self.tiles)
@@ -54,7 +54,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
     def test_raises_if_missing_resource(self, _mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         subscription = create_subscription(team=self.team, created_by=self.user)
 
-        with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1), pytest.raises(Exception) as e:
+        with self.settings(PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1), pytest.raises(Exception) as e:
             generate_assets(subscription)
 
         assert str(e.value) == "There are no insights to be sent for this Subscription"
@@ -68,7 +68,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
             current_tile.insight.save()
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
-        with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
+        with self.settings(PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
             insights, assets = generate_assets(subscription)
 
             assert len(insights) == 1
@@ -90,7 +90,7 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
         mock_running_exports.children = [running_export_task]
         mock_running_exports.ready = mock_ready
 
-        with self.settings(ASSET_GENERATION_MAX_TIMEOUT_MINUTES=0.01), pytest.raises(Exception) as e:
+        with self.settings(PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES=0.01), pytest.raises(Exception) as e:
             generate_assets(self.subscription)
 
         assert str(e.value) == "Timed out waiting for celery task to finish"
