@@ -307,14 +307,11 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        # filter = PathFilter(team=self.team, data={"path_type": "custom_event"})
-        # response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
-
         r = PathsQueryRunner(
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    "path_type": "custom_event",
+                    "include_event_types": ["custom_event"],
                 },
             },
             team=self.team,
@@ -424,14 +421,17 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        filter = PathFilter(
-            data={
-                "path_type": "hogql",
-                "paths_hogql_expression": "event || properties.a",
+        r = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "include_event_types": ["hogql"],
+                    "paths_hogql_expression": "event || properties.a",
+                },
             },
             team=self.team,
-        )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        ).run()
+        response = r.results
 
         self.assertEqual(response[0]["source"], "1_custom_event_1!", response)
         self.assertEqual(response[0]["target"], "2_custom_event_2!")
@@ -528,8 +528,17 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        filter = PathFilter(team=self.team, data={"path_type": "$screen"})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        r = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "include_event_types": ["$screen"],
+                },
+            },
+            team=self.team,
+        ).run()
+        response = r.results
+
         self.assertEqual(response[0]["source"], "1_/", response)
         self.assertEqual(response[0]["target"], "2_/pricing")
         self.assertEqual(response[0]["value"], 2)
@@ -625,12 +634,30 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        filter = PathFilter(
+        r = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {},
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$browser",
+                                    "operator": "exact",
+                                    "type": "event",
+                                    "value": ["Chrome"],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
             team=self.team,
-            data={"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]},
-        )
-
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        ).run()
+        response = r.results
 
         self.assertEqual(response[0]["source"], "1_/")
         self.assertEqual(response[0]["target"], "2_/about")
@@ -764,12 +791,17 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/path/?type=%24pageview&start=%2Fpricing"
-        ).json()
-
-        filter = PathFilter(team=self.team, data={"path_type": "$pageview", "start_point": "/pricing"})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        r = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    # "include_event_types": ["$pageview"],
+                    "start_point": "/pricing",
+                },
+            },
+            team=self.team,
+        ).run()
+        response = r.results
 
         self.assertEqual(len(response), 5)
 
