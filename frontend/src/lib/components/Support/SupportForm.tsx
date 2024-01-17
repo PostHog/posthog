@@ -1,4 +1,4 @@
-import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, lemonToast } from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, lemonToast, Link } from '@posthog/lemon-ui'
 import { useActions, useSelector, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
@@ -94,6 +94,10 @@ export function SupportForm(): JSX.Element | null {
                     }))}
                 />
             </Field>
+            <span className="text-muted cursor-pointer">
+                Checkout the{' '}
+                <Link to="https://posthog.com/docs/support-options#severity-levels">severity level definitions</Link>
+            </span>
             <Field name="target_area" label="What area does this best relate to?">
                 <LemonSelect
                     fullWidth
