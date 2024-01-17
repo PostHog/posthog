@@ -1445,6 +1445,8 @@ export interface DashboardBasicType {
 
 export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
+    // matches on template name, description, and tags
+    search?: string
 }
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'

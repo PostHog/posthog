@@ -97,7 +97,7 @@ def prepare_ast_for_printing(
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
+        context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
 
     if context.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
         with context.timings.measure("resolve_in_cohorts_conjoined"):

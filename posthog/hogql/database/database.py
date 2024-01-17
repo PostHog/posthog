@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Dict, List, Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 
@@ -49,6 +49,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 class Database(BaseModel):
@@ -121,7 +125,9 @@ class Database(BaseModel):
             setattr(self, f_name, f_def)
 
 
-def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers] = None) -> Database:
+def create_hogql_database(
+    team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
+) -> Database:
     from posthog.models import Team
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.warehouse.models import (
@@ -130,7 +136,7 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
         DataWarehouseViewLink,
     )
 
-    team = Team.objects.get(pk=team_id)
+    team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 

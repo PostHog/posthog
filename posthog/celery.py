@@ -401,8 +401,8 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@app.task(ignore_result=True, bind=True)
-def process_query_task(self, team_id, query_id, query_json, limit_context=None, refresh_requested=False):
+@app.task(ignore_result=True, queue="analytics_queries")
+def process_query_task(team_id, query_id, query_json, limit_context=None, refresh_requested=False):
     """
     Kick off query
     Once complete save results to redis
@@ -822,7 +822,7 @@ def clear_clickhouse_deleted_person():
     remove_deleted_person_data()
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=True, queue="email")
 def redis_celery_queue_depth():
     try:
         with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:

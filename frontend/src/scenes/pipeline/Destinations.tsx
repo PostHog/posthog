@@ -1,20 +1,11 @@
-import {
-    LemonButton,
-    LemonDivider,
-    LemonSkeleton,
-    LemonTable,
-    LemonTableColumn,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
+import { Sparkline, SparklineTimeSeries } from 'lib/lemon-ui/Sparkline'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
@@ -218,17 +209,26 @@ function DestinationSparkLine({ destination }: { destination: DestinationType })
         const logic = pipelineAppMetricsLogic({ pluginConfigId: destination.id })
         const { appMetricsResponse } = useValues(logic)
 
-        if (appMetricsResponse === null) {
-            return <LemonSkeleton className="w-full h-9" />
+        const displayData: SparklineTimeSeries[] = [
+            {
+                color: 'success',
+                name: 'Events sent',
+                values: appMetricsResponse ? appMetricsResponse.metrics.successes : [],
+            },
+        ]
+        if (appMetricsResponse?.metrics.failures.some((failure) => failure > 0)) {
+            displayData.push({
+                color: 'danger',
+                name: 'Events dropped',
+                values: appMetricsResponse ? appMetricsResponse.metrics.failures : [],
+            })
         }
 
         return (
             <Sparkline
-                labels={appMetricsResponse.metrics.dates}
-                data={[
-                    { color: 'danger', name: 'failures', values: appMetricsResponse.metrics.failures },
-                    { color: 'success', name: 'sucesses', values: appMetricsResponse.metrics.successes },
-                ]}
+                loading={appMetricsResponse === null}
+                labels={appMetricsResponse ? appMetricsResponse.metrics.dates : []}
+                data={displayData}
             />
         )
     }
