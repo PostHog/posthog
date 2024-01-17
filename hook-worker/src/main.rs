@@ -29,12 +29,13 @@ async fn main() -> Result<(), WorkerError> {
     )
     .maximum_interval(config.retry_policy.maximum_interval.0);
 
-    retry_policy_builder = match &config.retry_policy.retry_queue_name {
-        Some(retry_queue_name) => retry_policy_builder.queue(retry_queue_name),
-        _ => retry_policy_builder,
+    retry_policy_builder = if let Some(retry_queue_name) = &config.retry_policy.retry_queue_name {
+        retry_policy_builder.queue(retry_queue_name.as_str())
+    } else {
+        retry_policy_builder
     };
 
-    let queue = PgQueue::new(&config.queue_name, &config.database_url)
+    let queue = PgQueue::new(config.queue_name.as_str(), &config.database_url)
         .await
         .expect("failed to initialize queue");
 

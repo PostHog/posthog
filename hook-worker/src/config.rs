@@ -18,7 +18,7 @@ pub struct Config {
     pub worker_name: String,
 
     #[envconfig(default = "default")]
-    pub queue_name: String,
+    pub queue_name: NonEmptyString,
 
     #[envconfig(default = "100")]
     pub poll_interval: EnvMsDuration,
@@ -70,5 +70,29 @@ pub struct RetryPolicyConfig {
     #[envconfig(default = "100000")]
     pub maximum_interval: EnvMsDuration,
 
-    pub retry_queue_name: Option<String>,
+    pub retry_queue_name: Option<NonEmptyString>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NonEmptyString(pub String);
+
+impl NonEmptyString {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StringIsEmptyError;
+
+impl FromStr for NonEmptyString {
+    type Err = StringIsEmptyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            Err(StringIsEmptyError)
+        } else {
+            Ok(NonEmptyString(s.to_owned()))
+        }
+    }
 }
