@@ -306,9 +306,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectStmtWithParens) {
-    auto select_stmt_ctx = ctx->selectStmtWithPlaceholder();
+    auto select_stmt_ctx = ctx->selectStmt();
     if (select_stmt_ctx) {
       return visit(select_stmt_ctx);
+    }
+
+    auto placeholder_ctx = ctx->placeholder();
+    if (placeholder_ctx) {
+      return visitAsPyObject(placeholder_ctx);
     }
     
     return visit(ctx->selectUnionStmt());
@@ -1755,15 +1760,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TableExprSubquery) { return visit(ctx->selectUnionStmt()); }
 
   VISIT(TableExprPlaceholder) { return visitAsPyObject(ctx->placeholder()); }
-
-  VISIT(SelectStmtWithPlaceholder) { 
-    auto placeholder_ctx = ctx->placeholder();
-    if (placeholder_ctx) {
-      return visitAsPyObject(placeholder_ctx);
-    }
-
-    return visit(ctx->selectStmt());
-  }
 
   VISIT(TableExprAlias) {
     auto alias_ctx = ctx->alias();

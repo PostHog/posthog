@@ -9,8 +9,7 @@ options {
 select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectStmtWithParens: selectStmtWithPlaceholder | LPAREN selectUnionStmt RPAREN;
-selectStmtWithPlaceholder: selectStmt | placeholder;
+selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder;
 
 selectStmt:
     with=withClause?

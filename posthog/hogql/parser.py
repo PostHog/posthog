@@ -181,7 +181,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.SelectUnionQuery(select_queries=flattened_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
-        return self.visit(ctx.selectStmtWithPlaceholder() or ctx.selectUnionStmt())
+        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt() or ctx.placeholder())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
@@ -832,12 +832,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitTableExprTag(self, ctx: HogQLParser.TableExprTagContext):
         return self.visit(ctx.hogqlxTagElement())
-
-    def visitSelectStmtWithPlaceholder(self, ctx: HogQLParser.SelectStmtWithPlaceholderContext):
-        if ctx.placeholder():
-            return self.visit(ctx.placeholder())
-
-        return self.visit(ctx.selectStmt())
 
     def visitTableFunctionExpr(self, ctx: HogQLParser.TableFunctionExprContext):
         name = self.visit(ctx.identifier())

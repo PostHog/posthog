@@ -62,24 +62,24 @@ public:
 
   enum {
     RuleSelect = 0, RuleSelectUnionStmt = 1, RuleSelectStmtWithParens = 2, 
-    RuleSelectStmtWithPlaceholder = 3, RuleSelectStmt = 4, RuleWithClause = 5, 
-    RuleTopClause = 6, RuleFromClause = 7, RuleArrayJoinClause = 8, RuleWindowClause = 9, 
-    RulePrewhereClause = 10, RuleWhereClause = 11, RuleGroupByClause = 12, 
-    RuleHavingClause = 13, RuleOrderByClause = 14, RuleProjectionOrderByClause = 15, 
-    RuleLimitAndOffsetClause = 16, RuleOffsetOnlyClause = 17, RuleSettingsClause = 18, 
-    RuleJoinExpr = 19, RuleJoinOp = 20, RuleJoinOpCross = 21, RuleJoinConstraintClause = 22, 
-    RuleSampleClause = 23, RuleOrderExprList = 24, RuleOrderExpr = 25, RuleRatioExpr = 26, 
-    RuleSettingExprList = 27, RuleSettingExpr = 28, RuleWindowExpr = 29, 
-    RuleWinPartitionByClause = 30, RuleWinOrderByClause = 31, RuleWinFrameClause = 32, 
-    RuleWinFrameExtend = 33, RuleWinFrameBound = 34, RuleExpr = 35, RuleColumnTypeExpr = 36, 
-    RuleColumnExprList = 37, RuleColumnExpr = 38, RuleColumnArgList = 39, 
-    RuleColumnArgExpr = 40, RuleColumnLambdaExpr = 41, RuleHogqlxTagElement = 42, 
-    RuleHogqlxTagAttribute = 43, RuleWithExprList = 44, RuleWithExpr = 45, 
-    RuleColumnIdentifier = 46, RuleNestedIdentifier = 47, RuleTableExpr = 48, 
-    RuleTableFunctionExpr = 49, RuleTableIdentifier = 50, RuleTableArgList = 51, 
-    RuleDatabaseIdentifier = 52, RuleFloatingLiteral = 53, RuleNumberLiteral = 54, 
-    RuleLiteral = 55, RuleInterval = 56, RuleKeyword = 57, RuleKeywordForAlias = 58, 
-    RuleAlias = 59, RuleIdentifier = 60, RuleEnumValue = 61, RulePlaceholder = 62
+    RuleSelectStmt = 3, RuleWithClause = 4, RuleTopClause = 5, RuleFromClause = 6, 
+    RuleArrayJoinClause = 7, RuleWindowClause = 8, RulePrewhereClause = 9, 
+    RuleWhereClause = 10, RuleGroupByClause = 11, RuleHavingClause = 12, 
+    RuleOrderByClause = 13, RuleProjectionOrderByClause = 14, RuleLimitAndOffsetClause = 15, 
+    RuleOffsetOnlyClause = 16, RuleSettingsClause = 17, RuleJoinExpr = 18, 
+    RuleJoinOp = 19, RuleJoinOpCross = 20, RuleJoinConstraintClause = 21, 
+    RuleSampleClause = 22, RuleOrderExprList = 23, RuleOrderExpr = 24, RuleRatioExpr = 25, 
+    RuleSettingExprList = 26, RuleSettingExpr = 27, RuleWindowExpr = 28, 
+    RuleWinPartitionByClause = 29, RuleWinOrderByClause = 30, RuleWinFrameClause = 31, 
+    RuleWinFrameExtend = 32, RuleWinFrameBound = 33, RuleExpr = 34, RuleColumnTypeExpr = 35, 
+    RuleColumnExprList = 36, RuleColumnExpr = 37, RuleColumnArgList = 38, 
+    RuleColumnArgExpr = 39, RuleColumnLambdaExpr = 40, RuleHogqlxTagElement = 41, 
+    RuleHogqlxTagAttribute = 42, RuleWithExprList = 43, RuleWithExpr = 44, 
+    RuleColumnIdentifier = 45, RuleNestedIdentifier = 46, RuleTableExpr = 47, 
+    RuleTableFunctionExpr = 48, RuleTableIdentifier = 49, RuleTableArgList = 50, 
+    RuleDatabaseIdentifier = 51, RuleFloatingLiteral = 52, RuleNumberLiteral = 53, 
+    RuleLiteral = 54, RuleInterval = 55, RuleKeyword = 56, RuleKeywordForAlias = 57, 
+    RuleAlias = 58, RuleIdentifier = 59, RuleEnumValue = 60, RulePlaceholder = 61
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -102,7 +102,6 @@ public:
   class SelectContext;
   class SelectUnionStmtContext;
   class SelectStmtWithParensContext;
-  class SelectStmtWithPlaceholderContext;
   class SelectStmtContext;
   class WithClauseContext;
   class TopClauseContext;
@@ -201,23 +200,10 @@ public:
   public:
     SelectStmtWithParensContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    SelectStmtWithPlaceholderContext *selectStmtWithPlaceholder();
+    SelectStmtContext *selectStmt();
     antlr4::tree::TerminalNode *LPAREN();
     SelectUnionStmtContext *selectUnionStmt();
     antlr4::tree::TerminalNode *RPAREN();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  SelectStmtWithParensContext* selectStmtWithParens();
-
-  class  SelectStmtWithPlaceholderContext : public antlr4::ParserRuleContext {
-  public:
-    SelectStmtWithPlaceholderContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    SelectStmtContext *selectStmt();
     PlaceholderContext *placeholder();
 
 
@@ -225,7 +211,7 @@ public:
    
   };
 
-  SelectStmtWithPlaceholderContext* selectStmtWithPlaceholder();
+  SelectStmtWithParensContext* selectStmtWithParens();
 
   class  SelectStmtContext : public antlr4::ParserRuleContext {
   public:

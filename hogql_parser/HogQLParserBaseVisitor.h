@@ -27,10 +27,6 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitSelectStmtWithPlaceholder(HogQLParser::SelectStmtWithPlaceholderContext *ctx) override {
-    return visitChildren(ctx);
-  }
-
   virtual std::any visitSelectStmt(HogQLParser::SelectStmtContext *ctx) override {
     return visitChildren(ctx);
   }
