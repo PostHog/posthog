@@ -138,7 +138,6 @@ export const supportLogic = kea<supportLogicType>([
         openSupportForm: (values: Partial<SupportFormFields>) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
         updateUrlParams: true,
-        updateSeverityBasedOnTicketKind: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -186,6 +185,7 @@ export const supportLogic = kea<supportLogicType>([
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
         ],
+        kind: [(s) => [s.sendSupportRequest ?? null], (sendSupportRequest) => sendSupportRequest.kind],
     }),
     listeners(({ actions, props, values }) => ({
         updateUrlParams: async () => {
@@ -311,15 +311,6 @@ export const supportLogic = kea<supportLogicType>([
 
         setSendSupportRequestValue: () => {
             actions.updateUrlParams()
-            actions.updateSeverityBasedOnTicketKind()
-        },
-
-        updateSeverityBasedOnTicketKind: async () => {
-            if (values.sendSupportRequest.kind === 'bug') {
-                values.sendSupportRequest.severity_level = 'medium'
-            } else {
-                values.sendSupportRequest.severity_level = 'low'
-            }
         },
     })),
 

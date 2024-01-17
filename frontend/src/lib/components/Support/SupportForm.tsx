@@ -1,5 +1,5 @@
 import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, lemonToast } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions, useSelector, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
@@ -7,7 +7,7 @@ import { IconBugReport, IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -43,6 +43,7 @@ export function SupportForm(): JSX.Element | null {
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
+    const supportRequestKind = useSelector(supportLogic.selectors.kind)
 
     const dropRef = useRef<HTMLDivElement>(null)
 
@@ -54,6 +55,14 @@ export function SupportForm(): JSX.Element | null {
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
+
+    useEffect(() => {
+        if (supportRequestKind === 'bug') {
+            setSendSupportRequestValue('severity_level', 'medium')
+        } else {
+            setSendSupportRequestValue('severity_level', 'low')
+        }
+    }, [supportRequestKind])
 
     return (
         <Form
