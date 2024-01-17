@@ -5,6 +5,7 @@ from math import ceil
 from operator import itemgetter
 import threading
 from typing import List, Optional, Any, Dict
+from django.conf import settings
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -133,30 +134,51 @@ class TrendsQueryRunner(QueryRunner):
 
         res_matrix: List[List[Any] | Any | None] = [None] * len(queries)
         timings_matrix: List[List[QueryTiming] | None] = [None] * len(queries)
+        errors: List[Exception] = []
 
-        def run_parallel(index: int, query: ast.SelectQuery):
-            series_with_extra = self.series[index]
+        def run(index: int, query: ast.SelectQuery | ast.SelectUnionQuery, is_parallel: bool):
+            try:
+                series_with_extra = self.series[index]
 
-            response = execute_hogql_query(
-                query_type="TrendsQuery",
-                query=query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-            )
+                response = execute_hogql_query(
+                    query_type="TrendsQuery",
+                    query=query,
+                    team=self.team,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                )
 
-            timings_matrix[index] = response.timings
-            res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
+                timings_matrix[index] = response.timings
+                res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
+            except Exception as e:
+                errors.append(e)
+            finally:
+                if is_parallel:
+                    from django.db import connection
 
-        jobs = [threading.Thread(target=run_parallel, args=(index, query)) for index, query in enumerate(queries)]
+                    connection.close()
 
-        # Start the threads
-        for j in jobs:
-            j.start()
+        # This exists so that we're not spawning threads during unit tests. We can't do
+        # this right now due to the lack of multithreaded support of Django
+        if settings.IN_UNIT_TESTING:  # type: ignore
+            for index, query in enumerate(queries):
+                run(index, query, False)
+        elif len(queries) == 1:
+            run(0, queries[0], False)
+        else:
+            jobs = [threading.Thread(target=run, args=(index, query, True)) for index, query in enumerate(queries)]
 
-        # Ensure all of the threads have finished
-        for j in jobs:
-            j.join()
+            # Start the threads
+            for j in jobs:
+                j.start()
+
+            # Ensure all of the threads have finished
+            for j in jobs:
+                j.join()
+
+        # Raise any errors raised in a seperate thread
+        if len(errors) > 0:
+            raise errors[0]
 
         # Flatten res and timings
         res = []
