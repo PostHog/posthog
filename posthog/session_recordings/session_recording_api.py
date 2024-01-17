@@ -18,6 +18,7 @@ from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
@@ -507,17 +508,28 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
-        summary = summarize_recording(recording, user, self.team)
-        timings = summary.pop("timings", None)
-        cache.set(cache_key, summary, timeout=30)
+        timings: Dict[str, float] = {}
+        try:
+            summary = summarize_recording(recording, user, self.team)
+            timings = summary.pop("timings", None)
+            cache.set(cache_key, summary, timeout=30)
 
-        # let the browser cache for half the time we cache on the server
-        r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings:
-            r.headers["Server-Timing"] = ", ".join(
-                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-            )
-        return r
+            # let the browser cache for half the time we cache on the server
+            response = Response(summary, headers={"Cache-Control": "max-age=15"})
+            if timings:
+                response.headers["Server-Timing"] = ", ".join(
+                    f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+                )
+            return response
+        except Exception as e:
+            error_response = Response({"error": str(e)}, status=500)
+            error_response.headers["Cache-Control"] = "no-cache"
+            if timings:
+                error_response.headers["Server-Timing"] = ", ".join(
+                    f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+                )
+            capture_exception(e, tags={"session_id": recording.session_id})
+            return error_response
 
 
 def list_recordings(
