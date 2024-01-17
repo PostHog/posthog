@@ -149,9 +149,14 @@ impl<'p> WebhookWorker<'p> {
     /// Run this worker to continuously process any jobs that become available.
     pub async fn run(&self, transactional: bool) -> Result<(), WorkerError> {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
+        let report_semaphore_utilization = || {
+            metrics::gauge!("webhook_worker_saturation_percent")
+                .set(1f64 - semaphore.available_permits() as f64 / self.max_concurrent_jobs as f64);
+        };
 
         if transactional {
             loop {
+                report_semaphore_utilization();
                 let webhook_job = self.wait_for_job_tx().await?;
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
@@ -163,6 +168,7 @@ impl<'p> WebhookWorker<'p> {
             }
         } else {
             loop {
+                report_semaphore_utilization();
                 let webhook_job = self.wait_for_job().await?;
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
