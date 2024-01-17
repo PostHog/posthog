@@ -8,7 +8,7 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { LemonSkeleton } from './LemonSkeleton'
 
-interface SparkLineTimeSeries {
+export interface SparklineTimeSeries {
     name: string
     values: number[]
     /** Check vars.scss for available colors. @default 'muted' */
@@ -19,22 +19,31 @@ interface SparklineProps {
     /** Optional labels for the X axis. */
     labels?: string[]
     /** Either a list of numbers for a muted graph or an array of time series */
-    data: number[] | SparkLineTimeSeries[]
+    data: number[] | SparklineTimeSeries[]
     /** @default 'bar' */
     type?: 'bar' | 'line'
+    /** Whether the Y-axis maximum should be indicated in the graph. @default true */
+    maximumIndicator?: boolean
     /** A skeleton is shown during loading. */
     loading?: boolean
     className?: string
 }
 
-export function Sparkline({ labels, data, type = 'bar', loading = false, className }: SparklineProps): JSX.Element {
+export function Sparkline({
+    labels,
+    data,
+    type = 'bar',
+    maximumIndicator = true,
+    loading = false,
+    className,
+}: SparklineProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
 
-    const adjustedData: SparkLineTimeSeries[] = !isSparkLineTimeSeries(data)
+    const adjustedData: SparklineTimeSeries[] = !isSparkLineTimeSeries(data)
         ? [{ name: 'Data', color: 'muted', values: data }]
         : data
 
@@ -57,11 +66,10 @@ export function Sparkline({ labels, data, type = 'bar', loading = false, classNa
                             label: timeseries.name,
                             data: timeseries.values,
                             minBarLength: 0,
-                            categoryPercentage: 1, // Increases width of bars
+                            categoryPercentage: 0.9, // Slightly tighter bar spacing than the default 0.8
                             backgroundColor: color,
                             borderColor: color,
                             borderWidth: type === 'line' ? 2 : 0,
-                            borderRadius: 2,
                             pointRadius: 0,
                         }
                     }),
@@ -69,7 +77,8 @@ export function Sparkline({ labels, data, type = 'bar', loading = false, classNa
                 options: {
                     scales: {
                         x: {
-                            display: true,
+                            // X axis not needed in line charts without indicators
+                            display: type === 'bar' || maximumIndicator,
                             bounds: 'data',
                             stacked: true,
                             ticks: {
@@ -82,9 +91,10 @@ export function Sparkline({ labels, data, type = 'bar', loading = false, classNa
                             alignToPixels: true,
                         },
                         y: {
-                            display: true,
+                            // We use the Y axis for the maximum indicator
+                            display: maximumIndicator,
                             bounds: 'data',
-                            min: 0,
+                            min: 0, // Always starting at 0
                             suggestedMax: 1,
                             stacked: true,
                             ticks: {
@@ -179,6 +189,6 @@ export function Sparkline({ labels, data, type = 'bar', loading = false, classNa
     )
 }
 
-function isSparkLineTimeSeries(data: number[] | SparkLineTimeSeries[]): data is SparkLineTimeSeries[] {
+function isSparkLineTimeSeries(data: number[] | SparklineTimeSeries[]): data is SparklineTimeSeries[] {
     return typeof data[0] !== 'number'
 }
