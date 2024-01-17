@@ -29,7 +29,12 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
     path((key) => ['scenes', 'funnels', 'funnelPersonsModalLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['isInDashboardContext'], funnelDataLogic(props), ['steps', 'funnelsFilter']],
+        values: [
+            insightLogic(props),
+            ['isInDashboardContext', 'isInExperimentContext'],
+            funnelDataLogic(props),
+            ['steps', 'funnelsFilter'],
+        ],
     })),
 
     actions({
