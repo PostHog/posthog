@@ -57,7 +57,7 @@ test.concurrent.each([[2], [2.1234], ['2'], ['2.1234']])(
             expect(propertyDefinitions).toContainEqual(
                 expect.objectContaining({
                     name: 'property',
-                    is_numerical: true,
+                    is_numerical: typeof numberValue === 'number',
                     property_type: typeof numberValue === 'number' ? 'Numeric' : 'String',
                 })
             )
