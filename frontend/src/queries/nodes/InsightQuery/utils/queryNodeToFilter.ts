@@ -10,6 +10,7 @@ import {
     LifecycleFilterLegacy,
     NodeKind,
     PathsFilterLegacy,
+    RetentionFilterLegacy,
     StickinessFilterLegacy,
     TrendsFilterLegacy,
 } from '~/queries/schema'
@@ -154,6 +155,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     // replace camel cased props with the snake cased variant
     const camelCasedTrendsProps: TrendsFilterLegacy = {}
+    const camelCasedRetentionProps: RetentionFilterLegacy = {}
     const camelCasedPathsProps: PathsFilterLegacy = {}
     const camelCasedStickinessProps: StickinessFilterLegacy = {}
     const camelCasedLifecycleProps: LifecycleFilterLegacy = {}
@@ -176,6 +178,17 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.showPercentStackView
         delete queryCopy.trendsFilter?.showLegend
         delete queryCopy.trendsFilter?.showValuesOnSeries
+    } else if (isRetentionQuery(queryCopy)) {
+        camelCasedRetentionProps.retention_reference = queryCopy.retentionFilter?.retentionReference
+        camelCasedRetentionProps.retention_type = queryCopy.retentionFilter?.retentionType
+        camelCasedRetentionProps.returning_entity = queryCopy.retentionFilter?.returningEntity
+        camelCasedRetentionProps.target_entity = queryCopy.retentionFilter?.targetEntity
+        camelCasedRetentionProps.total_intervals = queryCopy.retentionFilter?.totalIntervals
+        delete queryCopy.retentionFilter?.retentionReference
+        delete queryCopy.retentionFilter?.retentionType
+        delete queryCopy.retentionFilter?.returningEntity
+        delete queryCopy.retentionFilter?.targetEntity
+        delete queryCopy.retentionFilter?.totalIntervals
     } else if (isPathsQuery(queryCopy)) {
         camelCasedPathsProps.edge_limit = queryCopy.pathsFilter?.edgeLimit
         camelCasedPathsProps.paths_hogql_expression = queryCopy.pathsFilter?.pathsHogQLExpression
