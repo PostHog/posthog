@@ -43,7 +43,7 @@ export function Sparkline({ labels, data }: SparklineProps): JSX.Element {
                 type: 'bar',
                 data: {
                     labels: labels || adjustedData[0].values.map((_, i) => `Entry ${i}`),
-                                        datasets: adjustedData.map((timeseries) => ({
+                    datasets: adjustedData.map((timeseries) => ({
                         data: timeseries.values,
                         minBarLength: 0,
                         backgroundColor: getColorVar(timeseries.color),
