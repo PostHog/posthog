@@ -100,7 +100,6 @@ const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
     help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
     buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
 })
-}
 
 type PartitionMetrics = {
     lastMessageTimestamp?: number
