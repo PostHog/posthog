@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { AddInsightFromDashboardModal } from 'lib/components/AddInsightFromDashboard/AddInsightFromDashboardModal'
+import { AddInsightFromDashboard } from 'lib/components/AddInsightFromDashboard/AddInsightFromDashboard'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -17,7 +17,6 @@ import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useState } from 'react'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
@@ -36,10 +35,14 @@ import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
+interface DashboardHeaderProps {
+    setAddInsightFromDashboardModalOpen: (open: boolean) => void
+}
+
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
-export function DashboardHeader(): JSX.Element | null {
+export function DashboardHeader({ setAddInsightFromDashboardModalOpen }: DashboardHeaderProps): JSX.Element | null {
     const {
         dashboard,
         dashboardLoading,
@@ -66,8 +69,6 @@ export function DashboardHeader(): JSX.Element | null {
     const { tags } = useValues(tagsModel)
 
     const { push } = useActions(router)
-
-    const [addInsightFromDashboardModalOpen, setAddInsightFromDashboardModalOpen] = useState<boolean>(false)
 
     const exportOptions: ExportButtonItem[] = [
         {
@@ -115,12 +116,6 @@ export function DashboardHeader(): JSX.Element | null {
                                 onClose={() => push(urls.dashboard(dashboard.id))}
                                 dashboard={dashboard}
                                 textTileId={textTileId}
-                            />
-                            <AddInsightFromDashboardModal
-                                isOpen={addInsightFromDashboardModalOpen}
-                                closeModal={() => setAddInsightFromDashboardModalOpen(false)}
-                                dashboard={dashboard}
-                                canEditDashboard={canEditDashboard}
                             />
                         </>
                     )}
@@ -280,37 +275,13 @@ export function DashboardHeader(): JSX.Element | null {
                                     </LemonButton>
                                 </>
                             )}
-                            {dashboard ? (
-                                <LemonButton
-                                    onClick={() => setAddInsightFromDashboardModalOpen(true)}
-                                    // to={urls.insightNew(undefined, dashboard.id)}
-                                    type="primary"
-                                    data-attr="dashboard-add-graph-header"
+                            {dashboard && (
+                                <AddInsightFromDashboard
+                                    setAddInsightFromDashboardModalOpen={setAddInsightFromDashboardModalOpen}
+                                    dashboard={dashboard}
                                     disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <>
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                        }}
-                                                        data-attr="add-text-tile-to-dashboard"
-                                                    >
-                                                        Add text card
-                                                    </LemonButton>
-                                                </>
-                                            ),
-                                        },
-                                        disabled: false,
-                                        'data-attr': 'dashboard-add-dropdown',
-                                    }}
-                                >
-                                    Add insight
-                                </LemonButton>
-                            ) : null}
+                                />
+                            )}
                         </>
                     )
                 }

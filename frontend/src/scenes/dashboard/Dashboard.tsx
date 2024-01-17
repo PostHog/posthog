@@ -1,13 +1,14 @@
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { AddInsightFromDashboardModal } from 'lib/components/AddInsightFromDashboard/AddInsightFromDashboardModal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
@@ -59,6 +60,8 @@ function DashboardScene(): JSX.Element {
         useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const [addInsightFromDashboardModalOpen, setAddInsightFromDashboardModalOpen] = useState<boolean>(false)
+
     useEffect(() => {
         reportDashboardViewed()
         return () => {
@@ -102,12 +105,18 @@ function DashboardScene(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {placement == DashboardPlacement.Dashboard && (
+                <DashboardHeader setAddInsightFromDashboardModalOpen={setAddInsightFromDashboardModalOpen} />
+            )}
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
-                <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
+                <EmptyDashboardComponent
+                    loading={itemsLoading}
+                    canEdit={canEditDashboard}
+                    setAddInsightFromDashboardModalOpen={setAddInsightFromDashboardModalOpen}
+                />
             ) : (
                 <div>
                     <div className="flex gap-2 items-center justify-between flex-wrap">
@@ -169,6 +178,14 @@ function DashboardScene(): JSX.Element {
                     </div>
                     <DashboardItems />
                 </div>
+            )}
+            {dashboard && (
+                <AddInsightFromDashboardModal
+                    isOpen={addInsightFromDashboardModalOpen}
+                    closeModal={() => setAddInsightFromDashboardModalOpen(false)}
+                    dashboard={dashboard}
+                    canEditDashboard={canEditDashboard}
+                />
             )}
         </div>
     )

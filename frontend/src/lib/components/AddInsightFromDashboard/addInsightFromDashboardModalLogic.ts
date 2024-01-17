@@ -1,9 +1,7 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -13,48 +11,57 @@ import type { addInsightFromDashboardModalLogicType } from './addInsightFromDash
 
 export interface AddInsightFromDashboardModalLogicProps {
     dashboard: DashboardType
-    insight?: Partial<InsightModel>
 }
 
 export interface Fuse extends FuseClass<any> {}
 
 export const addInsightFromDashboardModalLogic = kea<addInsightFromDashboardModalLogicType>([
     props({} as AddInsightFromDashboardModalLogicProps),
-    key(({ dashboard, insight }) => {
+    key(({ dashboard }) => {
         if (!dashboard.id) {
             throw Error('must provide a dashboard id')
         }
-        return `${dashboard.id}/${insight?.short_id}`
+        return dashboard.id
     }),
     path(['lib', 'components', 'AddInsightFromDashboard', 'saveInsightFromDashboardModalLogic']),
     connect((props: AddInsightFromDashboardModalLogicProps) => ({
         actions: [
             dashboardLogic({ id: props.dashboard.id }),
-            ['refreshAllDashboardItems'],
+            ['addInsightTile', 'removeTile', 'loadDashboardItemsSuccess'],
             eventUsageLogic,
             ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard'],
-            insightLogic({ dashboardItemId: props?.insight?.short_id, cachedInsight: props?.insight }),
-            ['updateInsight'],
+            dashboardsModel,
+            ['tileRemovedFromDashboard', 'tileAddedToDashboard'],
         ],
-        values: [savedInsightsLogic, ['insights']],
+        values: [savedInsightsLogic, ['insights'], dashboardLogic({ id: props.dashboard.id }), ['tiles']],
     })),
     actions({
         addNewInsight: true,
         setInsightId: (short_id: InsightShortId) => ({ short_id }),
         setSearchQuery: (query: string) => ({ query }),
         setScrollIndex: (index: number) => ({ index }),
-        addToDashboard: true,
-        removeFromDashboard: true,
+        addToDashboard: (insight: InsightModel) => ({ insight }),
+        removeFromDashboard: (insight: InsightModel) => ({ insight }),
     }),
-    reducers(() => ({
+    reducers(({ props }) => ({
         _insightId: ['', { setInsightId: (_, { short_id }) => short_id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
+        insightWithActiveAPICall: [
+            null as InsightShortId | null,
+            {
+                addToDashboard: (_, { insight }) => insight.short_id,
+                removeFromDashboard: (_, { insight }) => insight.short_id,
+                tileRemovedFromDashboard: (curr, { dashboardId }) => (dashboardId === props.dashboard.id ? null : curr),
+                tileAddedToDashboard: (curr, { dashboardId }) => (dashboardId === props.dashboard.id ? null : curr),
+            },
+        ],
     })),
+
     selectors({
         insightId: [(s) => [s._insightId], (_insightId) => _insightId],
         insightsFuse: [
-            () => [savedInsightsLogic.selectors.insights],
+            (s) => [s.insights],
             (insights): Fuse => {
                 return new FuseClass(insights.results || [], {
                     keys: ['name', 'description', 'tags'],
@@ -63,38 +70,39 @@ export const addInsightFromDashboardModalLogic = kea<addInsightFromDashboardModa
             },
         ],
         filteredInsights: [
-            (s) => [s.searchQuery, s.insightsFuse, savedInsightsLogic.selectors.insights],
+            (s) => [s.searchQuery, s.insightsFuse, s.insights],
             (searchQuery, insightsFuse, insights): InsightModel[] =>
                 searchQuery.length
                     ? insightsFuse.search(searchQuery).map((r: FuseClass.FuseResult<InsightModel>) => r.item)
                     : insights.results,
         ],
     }),
-    listeners(({ props, actions }) => ({
-        addToDashboard: async (): Promise<void> => {
-            actions.updateInsight(
-                { ...props.insight, dashboards: [...(props?.insight?.dashboards || []), props.dashboard.id] },
-                () => {
-                    actions.reportSavedInsightToDashboard()
-                    dashboardsModel.actions.tileAddedToDashboard(props.dashboard.id)
-                    lemonToast.success('Insight added to dashboard')
-                }
-            )
+    listeners(({ props, actions, values }) => ({
+        addToDashboard: async ({ insight }) => {
+            // Tricky: update insight to include dashboard from dashboard uses api's deprecated dashboads field
+            if (insight.dashboards) {
+                insight.dashboards = [...insight.dashboards, props.dashboard.id]
+            } else {
+                insight.dashboards = [props.dashboard.id]
+            }
+
+            actions.addInsightTile(insight, () => {
+                dashboardsModel.actions.tileAddedToDashboard(props.dashboard.id)
+                actions.reportSavedInsightToDashboard()
+            })
         },
-        removeFromDashboard: async (): Promise<void> => {
-            actions.updateInsight(
-                {
-                    ...props.insight,
-                    dashboards: (props?.insight?.dashboards || []).filter((d) => d !== props.dashboard.id),
-                    dashboard_tiles: (props?.insight?.dashboard_tiles || []).filter(
-                        (dt) => dt.dashboard_id !== props.dashboard.id
-                    ),
-                },
-                () => {
-                    actions.reportRemovedInsightFromDashboard()
-                    lemonToast.success('Insight removed from dashboard')
-                }
-            )
+        removeFromDashboard: async ({ insight }) => {
+            const tile = values.tiles.find((tile) => tile?.insight?.short_id === insight.short_id)
+            if (!tile) {
+                return
+            }
+            actions.removeTile(tile, () => {
+                dashboardsModel.actions.tileRemovedFromDashboard({
+                    tile: tile,
+                    dashboardId: props.dashboard.id,
+                })
+                actions.reportRemovedInsightFromDashboard()
+            })
         },
     })),
 ])

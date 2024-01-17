@@ -313,6 +313,9 @@ export const insightLogic = kea<insightLogicType>([
                 }
                 return state
             },
+            [dashboardsModel.actionTypes.tileAddedToDashboard]: (state, { dashboardId }) => {
+                return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
+            },
             [dashboardsModel.actionTypes.deleteDashboardSuccess]: (state, { dashboard }) => {
                 const { id } = dashboard
                 return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }

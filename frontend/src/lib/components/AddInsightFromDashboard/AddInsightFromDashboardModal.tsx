@@ -1,4 +1,5 @@
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CSSProperties } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -28,40 +29,49 @@ interface InsightRelationRowProps {
 const InsightRelationRow = ({
     dashboard,
     insight,
-    // canEditDashboard,
-    // isHighlighted,
+    canEditDashboard,
+    isHighlighted,
     isAlreadyOnDashboard,
     style,
 }: InsightRelationRowProps): JSX.Element => {
     const logic = addInsightFromDashboardModalLogic({
         dashboard: dashboard,
-        insight: insight,
     })
 
     const { addToDashboard, removeFromDashboard } = useActions(logic)
+
+    const { insightWithActiveAPICall } = useValues(logic)
 
     return (
         <div
             data-attr="dashboard-list-item"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
-            className="flex items-center space-x-2"
+            className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
         >
             <Link
                 to={urls.insightEdit(insight.short_id)}
                 className="overflow-hidden text-ellipsis whitespace-nowrap"
                 title={insight.name}
             >
-                {insight.name || 'Untitled'}
+                {insight.name || insight.derived_name || 'Untitled'}
             </Link>
             <span className="grow" />
             <LemonButton
                 type="secondary"
                 status={isAlreadyOnDashboard ? 'danger' : 'default'}
                 size="small"
+                loading={insightWithActiveAPICall === insight.short_id || false}
+                disabledReason={
+                    !canEditDashboard
+                        ? "You don't have permission to edit this dashboard"
+                        : insightWithActiveAPICall
+                        ? 'Loading...'
+                        : ''
+                }
                 onClick={(e) => {
                     e.preventDefault()
-                    isAlreadyOnDashboard ? removeFromDashboard() : addToDashboard()
+                    isAlreadyOnDashboard ? removeFromDashboard(insight) : addToDashboard(insight)
                 }}
             >
                 {isAlreadyOnDashboard ? 'Remove from dashboard' : 'Add to dashboard'}
@@ -91,7 +101,7 @@ export function AddInsightFromDashboardModal({
 
         return (
             <InsightRelationRow
-                key={rowIndex}
+                key={filteredInsights[rowIndex].id}
                 dashboard={dashboard}
                 insight={filteredInsights[rowIndex]}
                 canEditDashboard={canEditDashboard}
@@ -108,11 +118,14 @@ export function AddInsightFromDashboardModal({
             isOpen={isOpen}
             title="Add Insights to Dashboard"
             footer={
-                <>
+                <div className="w-full flex justify-between">
+                    <LemonButton to={urls.insightNew(undefined, dashboard.id)} type="secondary">
+                        Create New Insight
+                    </LemonButton>
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
-                </>
+                </div>
             }
         >
             <div className="space-y-2 w-192 max-w-full">

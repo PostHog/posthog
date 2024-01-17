@@ -1,11 +1,9 @@
 import './EmptyDashboardComponent.scss'
 
 import { useValues } from 'kea'
-import { IconPlus } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { AddInsightFromDashboard } from 'lib/components/AddInsightFromDashboard/AddInsightFromDashboard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React from 'react'
-import { urls } from 'scenes/urls'
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
@@ -78,7 +76,15 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
     )
 }
 
-export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
+export function EmptyDashboardComponent({
+    loading,
+    canEdit,
+    setAddInsightFromDashboardModalOpen,
+}: {
+    loading: boolean
+    canEdit: boolean
+    setAddInsightFromDashboardModalOpen: (open: boolean) => void
+}): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
 
     return (
@@ -87,19 +93,15 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                 <div className="EmptyDashboard__cta">
                     <h3 className="l3">Dashboard empty</h3>
                     <p>This dashboard sure would look better with some graphs!</p>
-                    <div className="mt-4 text-center">
-                        <LemonButton
-                            data-attr="dashboard-add-graph-header"
-                            to={urls.insightNew(undefined, dashboard?.id)}
-                            type="primary"
-                            icon={<IconPlus />}
-                            center
-                            fullWidth
-                            disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-                        >
-                            Add insight
-                        </LemonButton>
-                    </div>
+                    {dashboard && (
+                        <div className="mt-4 text-center">
+                            <AddInsightFromDashboard
+                                setAddInsightFromDashboardModalOpen={setAddInsightFromDashboardModalOpen}
+                                dashboard={dashboard}
+                                disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
+                            />
+                        </div>
+                    )}
                 </div>
             )}
             {/*  eslint-disable-next-line react/forbid-dom-props */}
