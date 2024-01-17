@@ -168,12 +168,12 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete insightFilter.showPercentStackView
         delete insightFilter.showLegend
         delete insightFilter.showValuesOnSeries
-    } else if (isStickinessFilter(query)) {
+    } else if (isStickinessQuery(query)) {
         legacyProps.show_legend = insightFilter.showLegend
         legacyProps.show_values_on_series = insightFilter.showValuesOnSeries
         delete insightFilter.showLegend
         delete insightFilter.showValuesOnSeries
-    } else if (isLifecycleFilter(query)) {
+    } else if (isLifecycleQuery(query)) {
         legacyProps.show_values_on_series = insightFilter.showValuesOnSeries
         delete insightFilter.showValuesOnSeries
     }
