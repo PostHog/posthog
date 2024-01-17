@@ -40,6 +40,8 @@ EXPORT_TIMER = Histogram(
     retry_backoff=True,
     acks_late=True,
     ignore_result=False,
+    soft_time_limit=30,
+    time_limit=60,
 )
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
