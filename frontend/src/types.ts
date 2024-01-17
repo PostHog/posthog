@@ -1245,10 +1245,12 @@ export interface BillingProductV2Type {
     type: string
     usage_key: string | null
     name: string
+    headline: string
     description: string
     price_description?: string | null
     icon_key?: string | null
     image_url?: string | null
+    screenshot_url: string | null
     docs_url: string | null
     free_allocation?: number | null
     subscribed: boolean | null
