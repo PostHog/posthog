@@ -8,6 +8,7 @@ from sentry_sdk import capture_exception, capture_message
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
 from ee.tasks.subscriptions.subscription_utils import generate_assets
+from posthog import settings
 from posthog.celery import app
 from posthog.models.subscription import Subscription
 
@@ -144,7 +145,10 @@ def schedule_all_subscriptions() -> None:
         deliver_subscription_report.delay(subscription.id)
 
 
-@app.task(soft_time_limit=30, time_limit=40)
+report_timeout = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
+
+
+@app.task(soft_time_limit=report_timeout, timeout=report_timeout + 10)
 def deliver_subscription_report(subscription_id: int) -> None:
     return _deliver_subscription_report(subscription_id)
 
