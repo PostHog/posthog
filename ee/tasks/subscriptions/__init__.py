@@ -146,7 +146,8 @@ def schedule_all_subscriptions() -> None:
 
 @app.task()
 def deliver_subscription_report(subscription_id: int) -> None:
-    return _deliver_subscription_report(subscription_id)
+    return
+    # return _deliver_subscription_report(subscription_id)
 
 
 @app.task()
