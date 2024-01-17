@@ -60,7 +60,7 @@ def generate_assets(
 
         wait_for_parallel_celery_group(
             parallel_job,
-            max_timeout=timedelta(minutes=settings.ASSET_GENERATION_MAX_TIMEOUT_MINUTES),
+            max_timeout=timedelta(seconds=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES),
         )
 
         return insights, assets

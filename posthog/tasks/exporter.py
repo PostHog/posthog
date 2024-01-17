@@ -2,6 +2,7 @@ from typing import Optional
 
 from prometheus_client import Counter, Histogram
 
+from posthog import settings
 from posthog.celery import app
 from posthog.models import ExportedAsset
 
@@ -40,8 +41,7 @@ EXPORT_TIMER = Histogram(
     retry_backoff=True,
     acks_late=True,
     ignore_result=False,
-    soft_time_limit=30,
-    time_limit=60,
+    time_limit=settings.ASSET_GENERATION_MAX_TIMEOUT_SECONDS,
 )
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
