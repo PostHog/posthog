@@ -522,7 +522,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 )
             return response
         except Exception as e:
-            error_response = Response({"error": str(e)}, status=500)
+            error_response = Response({"error": "error summarizing session"}, status=500)
             error_response.headers["Cache-Control"] = "no-cache"
             if timings:
                 error_response.headers["Server-Timing"] = ", ".join(
