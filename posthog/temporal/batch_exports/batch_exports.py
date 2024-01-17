@@ -8,13 +8,13 @@ import typing
 import uuid
 from string import Template
 
-import orjson
 import brotli
+import orjson
+import pyarrow as pa
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
-import pyarrow as pa
 
 from posthog.batch_exports.service import (
     create_batch_export_backfill,
@@ -22,12 +22,12 @@ from posthog.batch_exports.service import (
     update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -47,6 +47,7 @@ SELECT_QUERY_TEMPLATE = Template(
     """
 )
 
+
 TIMESTAMP_PREDICATES = """
 -- These 'timestamp' checks are a heuristic to exploit the sort key.
 -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
@@ -57,7 +58,7 @@ AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 
 
 async def get_rows_count(
-    client,
+    client: ClickHouseClient,
     team_id: int,
     interval_start: str,
     interval_end: str,
@@ -112,7 +113,7 @@ async def get_rows_count(
     return int(count)
 
 
-class Field(typing.TypedDict):
+class BatchExportField(typing.TypedDict):
     """A field to be queried from ClickHouse.
 
     Attributes:
@@ -124,20 +125,28 @@ class Field(typing.TypedDict):
     alias: str
 
 
-def default_fields() -> list[Field]:
+class BatchExportSchema(typing.TypedDict):
+    fields: list[BatchExportField]
+    values: dict[str, str]
+
+
+def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
     return [
-        Field(expression="toString(uuid)", alias="uuid"),
-        Field(expression="team_id", alias="team_id"),
-        Field(expression="timestamp", alias="timestamp"),
-        Field(expression="COALESCE(inserted_at, _timestamp)", alias="inserted_at"),
-        Field(expression="created_at", alias="created_at"),
-        Field(expression="event", alias="event"),
-        Field(expression="nullIf(properties, '')", alias="properties"),
-        Field(expression="toString(distinct_id)", alias="distinct_id"),
-        Field(expression="toString(person_id)", alias="person_id"),
-        Field(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set"),
-        Field(expression="nullIf(JSONExtractString(properties, '$set_once'), '')", alias="set_once"),
+        BatchExportField(expression="toString(uuid)", alias="uuid"),
+        BatchExportField(expression="team_id", alias="team_id"),
+        BatchExportField(expression="timestamp", alias="timestamp"),
+        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="inserted_at"),
+        BatchExportField(expression="created_at", alias="created_at"),
+        BatchExportField(expression="event", alias="event"),
+        BatchExportField(expression="nullIf(properties, '')", alias="properties"),
+        BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
+        BatchExportField(expression="toString(person_id)", alias="person_id"),
+        BatchExportField(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set"),
+        BatchExportField(
+            expression="nullIf(JSONExtractString(properties, '$set_once'), '')",
+            alias="set_once",
+        ),
     ]
 
 
@@ -148,7 +157,7 @@ def iter_records(
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
-    fields: list[Field] | None = None,
+    fields: list[BatchExportField] | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
 ) -> typing.Generator[tuple[dict[str, typing.Any], pa.Schema], None, None]:
     """Iterate over Arrow batch records for a batch export.
@@ -563,7 +572,9 @@ class CreateBatchExportBackfillInputs:
 
 
 @activity.defn
-async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
+async def create_batch_export_backfill_model(
+    inputs: CreateBatchExportBackfillInputs,
+) -> str:
     """Activity that creates an BatchExportBackfill.
 
     Intended to be used in all batch export backfill workflows, usually at the start, to create a
@@ -598,7 +609,9 @@ class UpdateBatchExportBackfillStatusInputs:
 
 
 @activity.defn
-async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs):
+async def update_batch_export_backfill_model_status(
+    inputs: UpdateBatchExportBackfillStatusInputs,
+):
     """Activity that updates the status of an BatchExportRun."""
     backfill = await sync_to_async(update_batch_export_backfill_status)(
         backfill_id=uuid.UUID(inputs.id), status=inputs.status
