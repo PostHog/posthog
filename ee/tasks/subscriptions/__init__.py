@@ -145,10 +145,10 @@ def schedule_all_subscriptions() -> None:
         deliver_subscription_report.delay(subscription.id)
 
 
-report_timeout = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
+report_timeout_seconds = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 60 * 1.5
 
 
-@app.task(soft_time_limit=report_timeout, timeout=report_timeout + 10)
+@app.task(soft_time_limit=report_timeout_seconds, timeout=report_timeout_seconds + 10)
 def deliver_subscription_report(subscription_id: int) -> None:
     return _deliver_subscription_report(subscription_id)
 
