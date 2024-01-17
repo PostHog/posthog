@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, List, Literal, Optional, Type
+from typing import Any, List, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from posthog.hogql_queries.query_runner import (
     QueryResponse,
     QueryRunner,
-    RunnableQueryNode,
 )
 from posthog.models.team.team import Team
 from posthog.schema import HogQLQueryModifiers, MaterializationMode, HogQLQuery
@@ -23,12 +22,10 @@ class TestQuery(BaseModel):
 
 
 class TestQueryRunner(BaseTest):
-    def setup_test_query_runner_class(self, query_class: Type[RunnableQueryNode] = TestQuery):
+    def setup_test_query_runner_class(self):
         """Setup required methods and attributes of the abstract base class."""
 
         class TestQueryRunner(QueryRunner):
-            query_type = query_class
-
             def calculate(self) -> QueryResponse:
                 return QueryResponse(results=list())
 

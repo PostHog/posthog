@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, cast
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -23,6 +23,8 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PathsQueryResponse,
     PathCleaningFilter,
+    PathsFilter,
+    PathType,
 )
 from posthog.schema import PathsQuery
 
@@ -44,6 +46,10 @@ class PathsQueryRunner(QueryRunner):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+
+        if not self.query.pathsFilter:
+            self.query.pathsFilter = PathsFilter()
+
         self.event_in_session_limit = self.query.pathsFilter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT
 
         self.regex_groupings: list[str] = []
@@ -56,17 +62,20 @@ class PathsQueryRunner(QueryRunner):
     def group_type_index(self) -> int | None:
         return self.query.aggregation_group_type_index
 
-    def _get_event_query(self) -> Optional[ast.Expr]:
-        conditions = []
-        or_conditions = []
+    def _get_event_query(self) -> list[ast.Expr]:
+        conditions: list[ast.Expr] = []
+        or_conditions: list[ast.Expr] = []
 
-        if PAGEVIEW_EVENT in self.query.pathsFilter.include_event_types:
+        if not self.query.pathsFilter.include_event_types:
+            return []
+
+        if PathType.field_pageview in self.query.pathsFilter.include_event_types:
             or_conditions.append(parse_expr(f"event = '{PAGEVIEW_EVENT}'"))
 
-        if SCREEN_EVENT in self.query.pathsFilter.include_event_types:
+        if PathType.field_screen in self.query.pathsFilter.include_event_types:
             or_conditions.append(parse_expr(f"event = '{SCREEN_EVENT}'"))
 
-        if "custom_event" in self.query.pathsFilter.include_event_types:
+        if PathType.custom_event in self.query.pathsFilter.include_event_types:
             or_conditions.append(parse_expr("NOT startsWith(events.event, '$')"))
 
         if or_conditions:
@@ -82,15 +91,15 @@ class PathsQueryRunner(QueryRunner):
             )
 
         if conditions:
-            return ast.And(exprs=conditions)
+            return [ast.And(exprs=conditions)]
 
-        return None
+        return []
 
     def _should_query_event(self, event: str) -> bool:
         if not self.query.pathsFilter.include_event_types:  # TODO: include_custom_events ?
-            return event not in self.query.pathsFilter.exclude_events
+            return event not in (self.query.pathsFilter.exclude_events or [])
 
-        return event in self.query.pathsFilter.include_event_types
+        return event in (self.query.pathsFilter.include_event_types or [])
 
     def construct_event_hogql(self) -> str:
         event_hogql = "event"
@@ -195,14 +204,14 @@ class PathsQueryRunner(QueryRunner):
         query = ast.SelectQuery(
             select=fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=event_filters + [self._get_event_query()]),
+            where=ast.And(exprs=event_filters + self._get_event_query()),
             order_by=[
                 ast.OrderExpr(expr=ast.Field(chain=["person_id"])),
                 ast.OrderExpr(expr=ast.Field(chain=["timestamp"])),
             ],
         )
 
-        if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float):
+        if self.query.samplingFactor is not None and isinstance(self.query.samplingFactor, float) and query.select_from:
             query.select_from.sample = ast.SampleExpr(
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
@@ -241,10 +250,9 @@ class PathsQueryRunner(QueryRunner):
 
     def get_limited_path_ordering(self) -> list[ast.Expr]:
         fields_to_include = ["path", "timings"]
-        extra_fields = []
         return [
             parse_expr(f"arraySlice(filtered_{field}, 1, {self.event_in_session_limit}) as limited_{field}")
-            for field in fields_to_include + extra_fields
+            for field in fields_to_include
         ]
 
     def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
@@ -274,8 +282,10 @@ class PathsQueryRunner(QueryRunner):
             "extra_paths_tuple_elements": ast.Constant(value=None),
             "extra_group_array_select_statements": ast.Constant(value=None),
         }
-        select = parse_select(
-            """
+        select = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
                 SELECT
                     person_id,
                     path,
@@ -323,26 +333,29 @@ class PathsQueryRunner(QueryRunner):
                         arrayEnumerate(limited_path_timings) AS event_in_session_index
                 )
             """,
-            placeholders,
+                placeholders,
+            ),
         )
-        select.select_from.table.select.extend(filtered_paths + limited_paths)
+        assert select.select_from is not None
+        table = cast(ast.SelectQuery, select.select_from.table)
+        table.select.extend(filtered_paths + limited_paths)
 
         other_selects = [
             "arrayDifference(limited_timings) as timings_diff",
             "arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings",
             "concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key /* last path item */",
         ]
-        select.select_from.table.select.extend([parse_expr(select, placeholders) for select in other_selects])
+        table.select.extend([parse_expr(s, placeholders) for s in other_selects])
 
         if self.query.pathsFilter.end_point and self.query.pathsFilter.start_point:
-            select.select_from.table.where = parse_expr("start_target_index > 0 AND end_target_index > 0")
+            table.where = parse_expr("start_target_index > 0 AND end_target_index > 0")
         elif self.query.pathsFilter.end_point or self.query.pathsFilter.start_point:
-            select.select_from.table.where = parse_expr("target_index > 0")
+            table.where = parse_expr("target_index > 0")
 
         return select
 
     def get_edge_weight_exprs(self) -> list[ast.Expr]:
-        conditions = []
+        conditions: list[ast.Expr] = []
         if self.query.pathsFilter.min_edge_weight:
             conditions.append(
                 ast.CompareOperation(
@@ -362,12 +375,14 @@ class PathsQueryRunner(QueryRunner):
         return conditions
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        placeholders = {
+        placeholders: dict[str, ast.Expr] = {
             "paths_per_person_query": self.paths_per_person_query(),
         }
         with self.timings.measure("paths_query"):
-            paths_query = parse_select(
-                """
+            paths_query = cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
                     SELECT
                         last_path_key as source_event,
                         path_key as target_event,
@@ -381,8 +396,9 @@ class PathsQueryRunner(QueryRunner):
                             source_event,
                             target_event
                 """,
-                placeholders,
-                timings=self.timings,
+                    placeholders,
+                    timings=self.timings,
+                ),
             )
 
             conditions = self.get_edge_weight_exprs()
@@ -398,6 +414,7 @@ class PathsQueryRunner(QueryRunner):
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
+            interval=None,
             now=datetime.now(),
         )
 
@@ -437,6 +454,7 @@ class PathsQueryRunner(QueryRunner):
 
         # TODO: Validate results?
 
+        assert response.results is not None
         results = (
             {
                 "source": source,
@@ -448,44 +466,3 @@ class PathsQueryRunner(QueryRunner):
         )
 
         return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql)
-
-    def to_actors_query(self, interval: Optional[int] = None) -> ast.SelectQuery:
-        with self.timings.measure("paths_query"):
-            paths_query = parse_select(
-                """
-                    SELECT
-                        actor_id,
-                        groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
-                        arraySort(appearance_intervals) AS appearances
-
-                    FROM {actor_query} AS actor_activity
-
-                    GROUP BY actor_id
-                """,
-                placeholders={
-                    "actor_query": self.paths_per_person_query(),
-                },
-                timings=self.timings,
-            )
-            # We want to expose each interval as a separate column
-            for i in range(self.query_date_range.total_intervals - interval):
-                paths_query.select.append(
-                    ast.Alias(
-                        alias=f"{self.query_date_range.interval_name}_{i}",
-                        expr=ast.Call(
-                            name="arrayExists",
-                            args=[
-                                ast.Lambda(
-                                    args=["x"],
-                                    expr=ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["x"]),
-                                        right=ast.Constant(value=i),
-                                    ),
-                                ),
-                                ast.Field(chain=["appearance_intervals"]),
-                            ],
-                        ),
-                    )
-                )
-        return paths_query

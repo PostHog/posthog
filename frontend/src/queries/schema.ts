@@ -605,7 +605,7 @@ export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     response?: PathsQueryResponse
     /** Properties specific to the paths insight */
-    pathsFilter?: PathsFilter
+    pathsFilter: PathsFilter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params

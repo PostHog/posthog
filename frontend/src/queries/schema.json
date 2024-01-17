@@ -2285,7 +2285,7 @@
                     "type": ["number", "null"]
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "pathsFilter"],
             "type": "object"
         },
         "PathsQueryResponse": {
