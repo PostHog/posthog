@@ -7,6 +7,7 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -176,15 +177,23 @@ export function ReplayAuthorizedDomains(): JSX.Element {
     )
 }
 
-export function ReplayCostControl(): JSX.Element {
+export function ReplayCostControl(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const samplingControlFeatureEnabled = hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
-    const recordingDurationMinimumFeatureEnabled = hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
-    const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
+    const  { featureFlags } = useValues(featureFlagLogic)
 
-    return (
+    // some organisations have access to this by virtue of being in a flag
+    // other orgs have access by virtue of being on the correct plan
+    // having the flag enabled overrides the plan feature check
+    const flagIsEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING]
+    const samplingControlFeatureEnabled = flagIsEnabled || hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
+    const recordingDurationMinimumFeatureEnabled = flagIsEnabled || hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
+    const featureFlagRecordingFeatureEnabled = flagIsEnabled || hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
+
+    const canAccessAnyControl = samplingControlFeatureEnabled || recordingDurationMinimumFeatureEnabled || featureFlagRecordingFeatureEnabled
+
+    return canAccessAnyControl?(
         <>
             <p>
                 PostHog offers several tools to let you control the number of recordings you collect and which users you
@@ -355,5 +364,5 @@ export function ReplayCostControl(): JSX.Element {
                 </>
             )}
         </>
-    )
+    ) : null
 }
