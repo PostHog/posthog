@@ -1223,6 +1223,12 @@ export type BillingV2FeatureType = {
     limit?: number | null
     note?: string | null
     unit?: string | null
+    images?: {
+        light: string
+        dark: string
+    } | null
+    icon_key?: string | null
+    type?: 'primary' | 'secondary' | null
 }
 
 export interface BillingV2TierType {
@@ -1261,8 +1267,8 @@ export interface BillingProductV2Type {
     plans: BillingV2PlanType[]
     contact_support: boolean
     inclusion_only: any
+    features: BillingV2FeatureType[]
     addons: BillingProductV2AddonType[]
-
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
 }

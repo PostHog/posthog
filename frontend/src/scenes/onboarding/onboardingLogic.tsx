@@ -157,7 +157,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadBillingSuccess: () => {
-            if (window.location.pathname.startsWith('/onboarding')) {
+            if (window.location.pathname.includes('/onboarding')) {
                 actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
             }
         },

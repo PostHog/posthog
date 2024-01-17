@@ -1,0 +1,24 @@
+.unsubscribed-product-landing-page {
+    margin-right: -1rem;
+    margin-left: -1rem;
+
+    header {
+        background: var(--primary-alt-highlight);
+        border-top: solid 1px var(--border);
+        border-bottom: solid 1px var(--border);
+    }
+
+    .features {
+        border-top: solid 1px var(--border);
+    }
+
+    .text-green {
+        color: #45c93d;
+    }
+
+    .subfeatures {
+        li {
+            background: var(--primary-alt-highlight);
+        }
+    }
+}
