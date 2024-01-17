@@ -41,7 +41,7 @@ export function createTooltipData(
         data = data.filter(filterFn)
     }
     return data.map((s, id) => ({
-            ...s,
-            id,
-        }))
+        ...s,
+        id,
+    }))
 }

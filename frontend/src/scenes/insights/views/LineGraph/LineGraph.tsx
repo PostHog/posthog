@@ -475,7 +475,6 @@ export function LineGraph_({
 
                             tooltipRoot.render(
                                 <InsightTooltip
-                                
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
                                     seriesData={seriesData}

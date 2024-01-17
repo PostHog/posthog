@@ -215,7 +215,6 @@ export function PieChart({
 
                                 tooltipRoot.render(
                                     <InsightTooltip
-                                    
                                         seriesData={seriesData}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
                                         showHeader={false}
