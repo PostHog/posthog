@@ -529,10 +529,11 @@ test('capture new person', async () => {
             last_seen_at: expect.any(String),
         },
     ])
-    expect(await hub.db.fetchPropertyDefinitions())
-        .sort((a, b) => a.name.localeCompare(b.name) || a.type - b.type)
-        .toEqual(
-            expect.arrayContaining([
+    expect(
+        (await hub.db.fetchPropertyDefinitions()).sort((a, b) => a.name.localeCompare(b.name) || a.type - b.type)
+    ).toEqual(
+        expect.arrayContaining(
+            [
                 {
                     id: expect.any(String),
                     is_numerical: true,
@@ -821,8 +822,9 @@ test('capture new person', async () => {
                     group_type_index: null,
                     volume_30_day: null,
                 },
-            ])
+            ].sort((a, b) => a.name.localeCompare(b.name) || a.type - b.type)
         )
+    )
 })
 
 test('capture bad team', async () => {
