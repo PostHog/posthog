@@ -474,12 +474,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.reportedReplayerErrors.has(fingerprint)) {
                 return
             }
+            const extra = { fingerprint, recordingId: values.sessionRecordingId }
             captureException(errorEvent.error, {
-                extra: { fingerprint, recordingId: values.sessionRecordingId },
+                extra,
                 tags: { feature: 'replayer error swallowed' },
             })
             if (posthog.config.debug) {
-                posthog.capture('replayer error swallowed', { fingerprint })
+                posthog.capture('replayer error swallowed', extra)
             }
             actions.fingerprintReported(fingerprint)
         },
