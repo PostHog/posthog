@@ -115,17 +115,20 @@ impl<'p> WebhookWorker<'p> {
     }
 
     /// Wait until a job becomes available in our queue.
-    async fn wait_for_job<'a>(
-        &self,
-    ) -> Result<PgJob<WebhookJobParameters, WebhookJobMetadata>, WorkerError> {
+    async fn wait_for_job<'a>(&self) -> PgJob<WebhookJobParameters, WebhookJobMetadata> {
         let mut interval = tokio::time::interval(self.poll_interval);
 
         loop {
             interval.tick().await;
             self.liveness.report_healthy().await;
 
-            if let Some(job) = self.queue.dequeue(&self.name).await? {
-                return Ok(job);
+            match self.queue.dequeue(&self.name).await {
+                Ok(Some(job)) => return job,
+                Ok(None) => continue,
+                Err(error) => {
+                    error!("error while trying to dequeue job: {}", error);
+                    continue;
+                }
             }
         }
     }
@@ -133,21 +136,26 @@ impl<'p> WebhookWorker<'p> {
     /// Wait until a job becomes available in our queue in transactional mode.
     async fn wait_for_job_tx<'a>(
         &self,
-    ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, WorkerError> {
+    ) -> PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata> {
         let mut interval = tokio::time::interval(self.poll_interval);
 
         loop {
             interval.tick().await;
             self.liveness.report_healthy().await;
 
-            if let Some(job) = self.queue.dequeue_tx(&self.name).await? {
-                return Ok(job);
+            match self.queue.dequeue_tx(&self.name).await {
+                Ok(Some(job)) => return job,
+                Ok(None) => continue,
+                Err(error) => {
+                    error!("error while trying to dequeue_tx job: {}", error);
+                    continue;
+                }
             }
         }
     }
 
     /// Run this worker to continuously process any jobs that become available.
-    pub async fn run(&self, transactional: bool) -> Result<(), WorkerError> {
+    pub async fn run(&self, transactional: bool) {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
         let report_semaphore_utilization = || {
             metrics::gauge!("webhook_worker_saturation_percent")
@@ -157,7 +165,7 @@ impl<'p> WebhookWorker<'p> {
         if transactional {
             loop {
                 report_semaphore_utilization();
-                let webhook_job = self.wait_for_job_tx().await?;
+                let webhook_job = self.wait_for_job_tx().await;
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
                     semaphore.clone(),
@@ -169,7 +177,7 @@ impl<'p> WebhookWorker<'p> {
         } else {
             loop {
                 report_semaphore_utilization();
-                let webhook_job = self.wait_for_job().await?;
+                let webhook_job = self.wait_for_job().await;
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
                     semaphore.clone(),
@@ -542,10 +550,7 @@ mod tests {
             liveness,
         );
 
-        let consumed_job = worker
-            .wait_for_job()
-            .await
-            .expect("failed to wait and read job");
+        let consumed_job = worker.wait_for_job().await;
 
         assert_eq!(consumed_job.job.attempt, 1);
         assert!(consumed_job.job.attempted_by.contains(&worker_id));
