@@ -5,6 +5,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog import settings
 from posthog.models import ExportedAsset
+from posthog.tasks.utils import CeleryQueue
 
 EXPORT_QUEUED_COUNTER = Counter(
     "exporter_task_queued",
@@ -42,6 +43,7 @@ EXPORT_TIMER = Histogram(
     acks_late=True,
     ignore_result=False,
     time_limit=settings.ASSET_GENERATION_MAX_TIMEOUT_SECONDS,
+    queue=CeleryQueue.EXPORTS,
 )
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
