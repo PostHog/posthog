@@ -1,4 +1,5 @@
 from random import randrange
+from typing import Any
 
 from celery import Celery
 from celery.canvas import Signature
@@ -53,7 +54,7 @@ def add_periodic_task_with_expiry(
     schedule_seconds: int,
     task_signature: Signature,
     name: str | None = None,
-):
+) -> None:
     """
     If the workers get delayed in processing tasks, then tasks that fire every X seconds get queued multiple times
     And so, are processed multiple times. But they often only need to be processed once.
@@ -70,7 +71,7 @@ def add_periodic_task_with_expiry(
 
 
 @app.on_after_configure.connect
-def setup_periodic_tasks(sender: Celery, **kwargs):
+def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Monitoring tasks
     add_periodic_task_with_expiry(
         sender,

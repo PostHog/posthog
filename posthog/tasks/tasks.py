@@ -1,5 +1,5 @@
 import time
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from celery import shared_task
@@ -28,7 +28,9 @@ def redis_heartbeat() -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES)
-def process_query_task(team_id, query_id, query_json, limit_context=None, refresh_requested=False) -> None:
+def process_query_task(
+    team_id: str, query_id: str, query_json: Any, limit_context: Any = None, refresh_requested: bool = False
+) -> None:
     """
     Kick off query
     Once complete save results to redis
@@ -449,7 +451,7 @@ def clear_clickhouse_deleted_person() -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.STATS)
-def redis_celery_queue_depth():
+def redis_celery_queue_depth() -> None:
     try:
         with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:
             celery_task_queue_depth_gauge = Gauge(
@@ -585,7 +587,7 @@ def sync_all_organization_available_features() -> None:
 
 
 @shared_task(ignore_result=False, track_started=True, max_retries=0)
-def check_async_migration_health():
+def check_async_migration_health() -> None:
     from posthog.tasks.async_migrations import check_async_migration_health
 
     check_async_migration_health()
@@ -667,7 +669,7 @@ def schedule_all_subscriptions() -> None:
 
 
 @shared_task(ignore_result=True, retries=3)
-def clickhouse_send_license_usage():
+def clickhouse_send_license_usage() -> None:
     try:
         if not is_cloud():
             from ee.tasks.send_license_usage import send_license_usage
