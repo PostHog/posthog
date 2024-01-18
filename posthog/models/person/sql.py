@@ -279,7 +279,7 @@ _timestamp,
 _offset,
 _partition
 FROM {database}.kafka_{table_name}
-WHERE version > 0
+WHERE version > 0 -- only store updated rows, not newly inserted ones
 """.format(
     table_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
