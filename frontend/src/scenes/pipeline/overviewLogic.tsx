@@ -81,10 +81,10 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
         ],
     })),
     selectors({
-        loading: [
-            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s.transformationsLoading],
-            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, transformationsLoading) =>
-                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || transformationsLoading,
+        destinationsLoading: [
+            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading],
+            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading) =>
+                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading,
         ],
         destinations: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
@@ -107,12 +107,6 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                     id: pluginConfig.id,
                     plugin: plugins[pluginConfig.plugin],
                     app_source_code_url: plugins[pluginConfig.plugin].url,
-                    fullConfig: pluginConfig,
-
-                    // success_rates: {
-                    //     '24h': pluginConfig.delivery_rate_24h === undefined ? null : pluginConfig.delivery_rate_24h,
-                    //     '7d': null, // TODO: start populating real data for this
-                    // },
                 }))
                 const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
                     name: batchExport.name,
@@ -130,11 +124,6 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
 
                     backend: PipelineAppBackend.BatchExport,
                     id: batchExport.id,
-
-                    // success_rates: {
-                    //     '24h': [5, 17],
-                    //     '7d': [12, 100043],
-                    // },
                 }))
                 const enabledFirst = [...appDests, ...batchDests].sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst

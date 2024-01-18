@@ -1,4 +1,4 @@
-import { LemonCard, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -145,6 +145,14 @@ const PipelineStep = ({
     </LemonCard>
 )
 
+const PipelineStepSkeleton = (): JSX.Element => (
+    <LemonCard>
+        <LemonSkeleton className="h-5 w-1/3 mb-3" />
+        <LemonSkeleton className="h-4 w-3/4 mb-3" />
+        <LemonSkeleton className="h-4 w-1/2" />
+    </LemonCard>
+)
+
 type PipelineStepTransformationProps = {
     order?: number
     name: string
@@ -264,21 +272,21 @@ const PipelineStepDestination = ({ destination }: { destination: DestinationType
 }
 
 export function Overview(): JSX.Element {
-    const { transformations, destinations, loading } = useValues(pipelineOverviewLogic)
+    const { transformations, destinations, transformationsLoading, destinationsLoading } =
+        useValues(pipelineOverviewLogic)
 
     return (
         <div>
-            {loading && <Spinner />}
-
             <h2>Filters</h2>
             <p>
                 <i>Coming soon.</i>
             </p>
 
             <h2 className="mt-4">Transformations</h2>
-            {transformations && (
-                <div className="grid grid-cols-3 gap-4">
-                    {transformations.map((t) => (
+            <div className="grid grid-cols-3 gap-4">
+                {transformationsLoading && <PipelineStepSkeleton />}
+                {transformations &&
+                    transformations.map((t) => (
                         <PipelineStepTransformation
                             key={t.id}
                             name={t.name}
@@ -289,19 +297,15 @@ export function Overview(): JSX.Element {
                             moreOverlay={<TransformationsMoreOverlay pluginConfig={{}} />}
                         />
                     ))}
-                </div>
-            )}
-            {transformations && <pre>{JSON.stringify(transformations, null, 2)}</pre>}
+            </div>
+            {/* {transformations && <pre>{JSON.stringify(transformations, null, 2)}</pre>} */}
 
             <h2 className="mt-4">Destinations</h2>
-            {destinations && (
-                <div className="grid grid-cols-3 gap-4">
-                    {destinations.map((d) => (
-                        <PipelineStepDestination key={d.id} destination={d} />
-                    ))}
-                </div>
-            )}
-            {destinations && <pre>{JSON.stringify(destinations, null, 2)}</pre>}
+            <div className="grid grid-cols-3 gap-4">
+                {destinationsLoading && <PipelineStepSkeleton />}
+                {destinations && destinations.map((d) => <PipelineStepDestination key={d.id} destination={d} />)}
+            </div>
+            {/* {destinations && <pre>{JSON.stringify(destinations, null, 2)}</pre>} */}
         </div>
     )
 }
