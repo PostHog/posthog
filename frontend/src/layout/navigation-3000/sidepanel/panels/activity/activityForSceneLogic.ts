@@ -2,6 +2,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -18,7 +19,7 @@ export type ActivityFilters = {
 export const activityFiltersForScene = (sceneConfig: SceneConfig | null): ActivityFilters | null => {
     if (sceneConfig?.activityScope) {
         // NOTE: - HACKY, we are just parsing the item_id from the url optimistically...
-        const pathParts = router.values.currentLocation.pathname.split('/')
+        const pathParts = removeProjectIdIfPresent(router.values.currentLocation.pathname).split('/')
         const item_id = pathParts[2]
 
         return { scope: sceneConfig.activityScope, item_id }
