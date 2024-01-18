@@ -200,6 +200,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
     return tq
 
 
+@override_settings(IN_UNIT_TESTING=True)
 class TestTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 

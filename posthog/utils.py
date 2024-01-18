@@ -1033,7 +1033,7 @@ def _request_has_key_set(key: str, request: Request) -> bool:
 
 
 def str_to_bool(value: Any) -> bool:
-    """Return whether the provided string (or any value really) represents true. Otherwise false.
+    """Return whether the provided string (or any value really) represents true. Otherwise, false.
     Just like plugin server stringToBoolean.
     """
     if not value:

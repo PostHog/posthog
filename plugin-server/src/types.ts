@@ -17,6 +17,7 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { VM } from 'vm2'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
@@ -267,6 +268,7 @@ export interface Hub extends PluginsServerConfig {
     rootAccessManager: RootAccessManager
     eventsProcessor: EventsProcessor
     appMetrics: AppMetrics
+    rustyHook: RustyHook
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // diagnostics
@@ -280,7 +282,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
     poeWritesExcludeTeams: ValueMatcher<number>
-    rustyHookForTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }

@@ -17,7 +17,7 @@ BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compat
 class BreakdownValues:
     team: Team
     event_name: str
-    breakdown_field: Union[str, float]
+    breakdown_field: Union[str, float, List[Union[str, float]]]
     breakdown_type: str
     query_date_range: QueryDateRange
     events_filter: ast.Expr
@@ -31,7 +31,7 @@ class BreakdownValues:
         self,
         team: Team,
         event_name: str,
-        breakdown_field: Union[str, float],
+        breakdown_field: Union[str, float, List[Union[str, float]]],
         query_date_range: QueryDateRange,
         breakdown_type: str,
         events_filter: ast.Expr,
@@ -58,7 +58,10 @@ class BreakdownValues:
             if self.breakdown_field == "all":
                 return [0]
 
-            return [int(self.breakdown_field)]
+            if isinstance(self.breakdown_field, List):
+                return [value if isinstance(value, str) else int(value) for value in self.breakdown_field]
+
+            return [self.breakdown_field if isinstance(self.breakdown_field, str) else int(self.breakdown_field)]
 
         if self.breakdown_type == "hogql":
             select_field = ast.Alias(
@@ -70,8 +73,8 @@ class BreakdownValues:
                 alias="value",
                 expr=ast.Field(
                     chain=get_properties_chain(
-                        breakdown_type=self.breakdown_type,
-                        breakdown_field=self.breakdown_field,
+                        breakdown_type=self.breakdown_type,  # type: ignore
+                        breakdown_field=str(self.breakdown_field),
                         group_type_index=self.group_type_index,
                     )
                 ),

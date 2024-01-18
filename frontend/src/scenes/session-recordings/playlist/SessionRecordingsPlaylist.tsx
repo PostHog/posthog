@@ -92,6 +92,8 @@ function RecordingsLists(): JSX.Element {
         logicProps,
         showOtherRecordings,
         recordingsCount,
+        sessionSummaryLoading,
+        sessionBeingSummarized,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -102,6 +104,7 @@ function RecordingsLists(): JSX.Element {
         resetFilters,
         setShowAdvancedFilters,
         toggleShowOtherRecordings,
+        summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -110,6 +113,10 @@ function RecordingsLists(): JSX.Element {
 
     const onPropertyClick = (property: string, value?: string): void => {
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
+    }
+
+    const onSummarizeClick = (recording: SessionRecordingType): void => {
+        summarizeSession(recording.id)
     }
 
     const lastScrollPositionRef = useRef(0)
@@ -248,6 +255,10 @@ function RecordingsLists(): JSX.Element {
                                               onPropertyClick={onPropertyClick}
                                               isActive={activeSessionRecordingId === rec.id}
                                               pinned={false}
+                                              summariseFn={onSummarizeClick}
+                                              sessionSummaryLoading={
+                                                  sessionSummaryLoading && sessionBeingSummarized === rec.id
+                                              }
                                           />
                                       </div>
                                   ))

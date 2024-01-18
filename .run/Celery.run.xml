@@ -1,6 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Celery" type="PythonConfigurationType" factoryName="Python">
     <module name="posthog" />
+    <option name="ENV_FILES" value="$PROJECT_DIR$/bin/celery-queues.env" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
