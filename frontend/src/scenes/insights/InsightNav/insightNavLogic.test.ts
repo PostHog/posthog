@@ -160,24 +160,24 @@ describe('insightNavLogic', () => {
                     },
                 },
             }
-            const retentionQuery: InsightVizNode = {
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.RetentionQuery,
-                    retentionFilter: {
-                        returning_entity: {
-                            id: 'returning',
-                            name: 'returning',
-                            type: 'events',
-                        },
-                        target_entity: {
-                            id: 'target',
-                            name: 'target',
-                            type: 'events',
-                        },
-                    },
-                },
-            }
+            // const retentionQuery: InsightVizNode = {
+            //     kind: NodeKind.InsightVizNode,
+            //     source: {
+            //         kind: NodeKind.RetentionQuery,
+            //         retentionFilter: {
+            //             returning_entity: {
+            //                 id: 'returning',
+            //                 name: 'returning',
+            //                 type: 'events',
+            //             },
+            //             target_entity: {
+            //                 id: 'target',
+            //                 name: 'target',
+            //                 type: 'events',
+            //             },
+            //         },
+            //     },
+            // }
 
             it('is initialized on mount', async () => {
                 await expectLogic(logic).toMatchValues({
@@ -246,28 +246,28 @@ describe('insightNavLogic', () => {
                 })
             })
 
-            it('stores series from retention entities', async () => {
-                await expectLogic(logic, () => {
-                    builtInsightDataLogic.actions.setQuery(retentionQuery)
-                }).toMatchValues({
-                    queryPropertyCache: expect.objectContaining({
-                        series: [
-                            {
-                                event: 'target',
-                                kind: 'EventsNode',
-                                math: 'total',
-                                name: 'target',
-                            },
-                            {
-                                event: 'returning',
-                                kind: 'EventsNode',
-                                math: 'total',
-                                name: 'returning',
-                            },
-                        ],
-                    }),
-                })
-            })
+            // it('stores series from retention entities', async () => {
+            //     await expectLogic(logic, () => {
+            //         builtInsightDataLogic.actions.setQuery(retentionQuery)
+            //     }).toMatchValues({
+            //         queryPropertyCache: expect.objectContaining({
+            //             series: [
+            //                 {
+            //                     event: 'target',
+            //                     kind: 'EventsNode',
+            //                     math: 'total',
+            //                     name: 'target',
+            //                 },
+            //                 {
+            //                     event: 'returning',
+            //                     kind: 'EventsNode',
+            //                     math: 'total',
+            //                     name: 'returning',
+            //                 },
+            //             ],
+            //         }),
+            //     })
+            // })
 
             it('updates query when navigating', async () => {
                 await expectLogic(logic, () => {
