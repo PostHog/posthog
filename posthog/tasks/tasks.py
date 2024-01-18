@@ -536,11 +536,6 @@ def sync_insight_caching_state(
     sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
 
 
-@shared_task(ignore_result=True, bind=True)
-def debug_task(self):
-    print(f"Request: {self.request!r}")
-
-
 @shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
     from django.db.models import Q
