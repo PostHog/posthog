@@ -1,9 +1,7 @@
 import json
 from typing import Any, Dict, List
 
-from celery import shared_task
 from dateutil import parser
-from django.db import IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import exceptions, request, serializers, status, viewsets
@@ -14,7 +12,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
 from posthog.models.prompt import Prompt, PromptSequence, UserPromptState
-from posthog.models.user import User
+from posthog.tasks.prompts import trigger_prompt_for_user
 from posthog.utils_cors import cors_response
 
 
@@ -183,16 +181,6 @@ class WebhookSequenceSerializer(serializers.ModelSerializer):
             "requires_opt_in",
             "autorun",
         ]
-
-
-@shared_task()
-def trigger_prompt_for_user(email: str, sequence_id: int):
-    try:
-        sequence = PromptSequence.objects.get(pk=sequence_id)
-        user = User.objects.get(email=email)
-        UserPromptState.objects.get_or_create(user=user, sequence=sequence, step=None)
-    except (User.DoesNotExist, IntegrityError):
-        pass
 
 
 @csrf_exempt
