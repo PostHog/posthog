@@ -65,6 +65,7 @@ posthog/hogql/database/schema/persons.py:0: error: Argument "chain" to "Field" h
 posthog/hogql/database/schema/persons.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql/database/schema/persons.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql/parser.py:0: error: Key expression in dictionary comprehension has incompatible type "str"; expected type "Literal['expr', 'order_expr', 'select']"  [misc]
+posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/parser.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
 posthog/hogql/parser.py:0: error: "None" has no attribute "text"  [attr-defined]
