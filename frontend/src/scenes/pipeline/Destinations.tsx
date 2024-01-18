@@ -126,7 +126,6 @@ function DestinationsTable(): JSX.Element {
     )
 }
 
-<<<<<<< HEAD
 export const DestinationMoreOverlay = ({ destination }: { destination: DestinationType }): JSX.Element => {
     const { canConfigurePlugins } = useValues(pipelineDestinationsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
@@ -185,7 +184,8 @@ export const DestinationMoreOverlay = ({ destination }: { destination: Destinati
             )}
         </>
     )
-=======
+}
+
 function DestinationSparkLine({ destination }: { destination: DestinationType }): JSX.Element {
     if (destination.backend === PipelineAppBackend.BatchExport) {
         return <></> // TODO: not ready yet
@@ -216,5 +216,4 @@ function DestinationSparkLine({ destination }: { destination: DestinationType })
             />
         )
     }
->>>>>>> master
 }

@@ -4,9 +4,9 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { BatchExportConfiguration, PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, PluginType } from '~/types'
+import { BatchExportConfiguration, PipelineAppKind, PipelineAppTab, PluginConfigTypeNew, PluginType } from '~/types'
 
-import { DestinationType, DestinationTypeKind } from './destinationsLogic'
+import { DestinationType, PipelineAppBackend } from './destinationsLogic'
 import type { pipelineOverviewLogicType } from './overviewLogicType'
 
 export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
@@ -90,46 +90,50 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
             (pluginConfigs, plugins, batchExportConfigs): DestinationType[] => {
                 const appDests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
-                    type: DestinationTypeKind.Webhook,
-                    frequency: 'realtime',
-                    id: pluginConfig.id,
                     name: pluginConfig.name,
                     description: pluginConfig.description,
                     enabled: pluginConfig.enabled,
                     config_url: urls.pipelineApp(
-                        PipelineTabs.Destinations,
+                        PipelineAppKind.Destination,
                         pluginConfig.id,
-                        PipelineAppTabs.Configuration
+                        PipelineAppTab.Configuration
                     ),
-                    metrics_url: urls.pipelineApp(PipelineTabs.Destinations, pluginConfig.id, PipelineAppTabs.Metrics),
-                    logs_url: urls.pipelineApp(PipelineTabs.Destinations, pluginConfig.id, PipelineAppTabs.Logs),
-                    app_source_code_url: '',
-                    plugin: plugins[pluginConfig.plugin],
-                    success_rates: {
-                        '24h': pluginConfig.delivery_rate_24h === undefined ? null : pluginConfig.delivery_rate_24h,
-                        '7d': null, // TODO: start populating real data for this
-                    },
+                    metrics_url: urls.pipelineApp(PipelineAppKind.Destination, pluginConfig.id, PipelineAppTab.Metrics),
+                    logs_url: urls.pipelineApp(PipelineAppKind.Destination, pluginConfig.id, PipelineAppTab.Logs),
                     updated_at: pluginConfig.updated_at,
+                    frequency: 'realtime',
+
+                    backend: PipelineAppBackend.Plugin,
+                    id: pluginConfig.id,
+                    plugin: plugins[pluginConfig.plugin],
+                    app_source_code_url: '',
+
+                    // success_rates: {
+                    //     '24h': pluginConfig.delivery_rate_24h === undefined ? null : pluginConfig.delivery_rate_24h,
+                    //     '7d': null, // TODO: start populating real data for this
+                    // },
                 }))
                 const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
-                    type: DestinationTypeKind.BatchExport,
-                    frequency: batchExport.interval,
-                    id: batchExport.id,
                     name: batchExport.name,
                     description: `${batchExport.destination.type} batch export`, // TODO: add to backend
                     enabled: !batchExport.paused,
                     config_url: urls.pipelineApp(
-                        PipelineTabs.Destinations,
+                        PipelineAppKind.Destination,
                         batchExport.id,
-                        PipelineAppTabs.Configuration
+                        PipelineAppTab.Configuration
                     ),
-                    metrics_url: urls.pipelineApp(PipelineTabs.Destinations, batchExport.id, PipelineAppTabs.Metrics),
-                    logs_url: urls.pipelineApp(PipelineTabs.Destinations, batchExport.id, PipelineAppTabs.Logs),
-                    success_rates: {
-                        '24h': [5, 17],
-                        '7d': [12, 100043],
-                    },
+                    metrics_url: urls.pipelineApp(PipelineAppKind.Destination, batchExport.id, PipelineAppTab.Metrics),
+                    logs_url: urls.pipelineApp(PipelineAppKind.Destination, batchExport.id, PipelineAppTab.Logs),
                     updated_at: batchExport.created_at, // TODO: Add updated_at to batch exports in the backend
+                    frequency: batchExport.interval,
+
+                    backend: PipelineAppBackend.BatchExport,
+                    id: batchExport.id,
+
+                    // success_rates: {
+                    //     '24h': [5, 17],
+                    //     '7d': [12, 100043],
+                    // },
                 }))
                 const enabledFirst = [...appDests, ...batchDests].sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
