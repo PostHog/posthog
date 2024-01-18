@@ -56,7 +56,8 @@ def generate_assets(
         # Wait for all assets to be exported
         tasks = [exporter.export_asset.si(asset.id) for asset in assets]
         # run them one after the other, so we don't exhaust celery workers
-        parallel_job = chain(*tasks).apply_async()
+        exports_expire_seconds = (settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 60) + 10
+        parallel_job = chain(*tasks).apply_async(expires=exports_expire_seconds, retry=False)
 
         wait_for_parallel_celery_group(
             parallel_job,
