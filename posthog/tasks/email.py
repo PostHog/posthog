@@ -9,7 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from posthog.cloud_utils import is_cloud
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -19,18 +19,9 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.tasks.utils import CeleryQueue
 from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
-
-EMAIL_TASK_KWARGS = dict(
-    queue=CeleryQueue.EMAIL,
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
