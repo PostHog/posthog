@@ -82,7 +82,7 @@ echo
 
 ./bin/migrate-check
 
-SKIP_ASYNC_MIGRATIONS_SETUP=1 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker ${FLAGS[*]} &
+SKIP_ASYNC_MIGRATIONS_SETUP=0 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker ${FLAGS[*]} &
 
 # Exit if any processes exit, and exit with it's exit code
 wait -n
