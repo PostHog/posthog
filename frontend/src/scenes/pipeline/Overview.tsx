@@ -1,4 +1,4 @@
-import { LemonCard, LemonSegmentedButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -269,16 +269,6 @@ export function Overview(): JSX.Element {
     return (
         <div>
             {loading && <Spinner />}
-            <div className="absolute right-0">
-                <LemonSegmentedButton
-                    size="small"
-                    value="24h"
-                    options={[
-                        { value: '24h', label: '24h' },
-                        { value: '7d', label: '7d' },
-                    ]}
-                />
-            </div>
 
             <h2>Filters</h2>
             <p>
