@@ -161,7 +161,7 @@ export interface DataNode extends Node {
 export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
-    inCohortVia?: 'leftjoin' | 'subquery'
+    inCohortVia?: 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
 }
 
@@ -503,10 +503,27 @@ export interface InsightsQueryBase extends Node {
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type TrendsFilter = Omit<
+export type TrendsFilterLegacy = Omit<
     TrendsFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'shown_as'
 >
+
+export type TrendsFilter = {
+    smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
+    compare?: TrendsFilterLegacy['compare']
+    formula?: TrendsFilterLegacy['formula']
+    display?: TrendsFilterLegacy['display']
+    show_legend?: TrendsFilterLegacy['show_legend']
+    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
+    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
+}
 
 export interface TrendsQueryResponse extends QueryResponse {
     results: Record<string, any>[]
@@ -521,7 +538,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
-    breakdown?: BreakdownFilter
+    breakdownFilter?: BreakdownFilter
     response?: TrendsQueryResponse
 }
 
@@ -548,7 +565,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
-    breakdown?: BreakdownFilter
+    breakdownFilter?: BreakdownFilter
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */

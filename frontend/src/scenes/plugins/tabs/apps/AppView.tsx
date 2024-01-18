@@ -3,13 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconErrorOutline, IconLegend, IconLink, IconSettings } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES } from 'scenes/pipeline/utils'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { PluginType } from '~/types'
+import { AvailableFeature, PluginType } from '~/types'
 
 import { PluginTags } from './components'
 
@@ -20,6 +22,13 @@ export function AppView({
 }): JSX.Element {
     const { showAppMetricsForPlugin, sortableEnabledPlugins } = useValues(pluginsLogic)
     const { editPlugin, toggleEnabled, openReorderModal } = useActions(pluginsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+        // If the app isn't in the allowed apps list don't show it
+        if (!plugin.url || !PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES.has(plugin.url)) {
+            return <></>
+        }
+    }
 
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id

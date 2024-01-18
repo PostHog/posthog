@@ -573,17 +573,17 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 pass
             else:
-                enterprise_property = EnterprisePropertyDefinition.objects.filter(id=id).first()
+                enterprise_property = EnterprisePropertyDefinition.objects.filter(id=id, team_id=self.team_id).first()
                 if enterprise_property:
                     return enterprise_property
-                non_enterprise_property = PropertyDefinition.objects.get(id=id)
+                non_enterprise_property = PropertyDefinition.objects.get(id=id, team_id=self.team_id)
                 new_enterprise_property = EnterprisePropertyDefinition(
                     propertydefinition_ptr_id=non_enterprise_property.id, description=""
                 )
                 new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
                 new_enterprise_property.save()
                 return new_enterprise_property
-        return PropertyDefinition.objects.get(id=id)
+        return PropertyDefinition.objects.get(id=id, team_id=self.team_id)
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):

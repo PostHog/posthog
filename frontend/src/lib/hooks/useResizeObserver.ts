@@ -9,7 +9,7 @@ if (!window.ResizeObserver) {
 
 export const useResizeObserver = useResizeObserverImport
 
-export function useResizeBreakpoints<T>(
+export function useResizeBreakpoints<T extends string>(
     breakpoints: { [key: number]: T },
     options?: {
         ref?: RefObject<HTMLDivElement> | null | undefined

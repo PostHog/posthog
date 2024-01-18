@@ -234,6 +234,8 @@ future==0.18.3
     # via lzstring
 geoip2==4.6.0
     # via -r requirements.in
+gevent==23.9.1
+    # via -r requirements.in
 gitdb==4.0.11
     # via gitpython
 gitpython==3.1.40
@@ -263,6 +265,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via gevent
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -644,8 +648,9 @@ unicodecsv==0.14.1
     # via djangorestframework-csv
 uritemplate==4.1.1
     # via drf-spectacular
-urllib3[secure,socks]==1.26.13
+urllib3[secure,socks]==1.26.18
     # via
+    #   -r requirements.in
     #   botocore
     #   django-revproxy
     #   geoip2
@@ -654,6 +659,7 @@ urllib3[secure,socks]==1.26.13
     #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
+    #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
 vine==5.0.0
@@ -679,6 +685,10 @@ yarl==1.7.2
     # via aiohttp
 zipp==3.17.0
     # via importlib-metadata
+zope-event==5.0
+    # via gevent
+zope-interface==6.1
+    # via gevent
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

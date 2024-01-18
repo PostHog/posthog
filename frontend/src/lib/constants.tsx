@@ -191,8 +191,10 @@ export const FEATURE_FLAGS = {
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
     DISCUSSIONS: 'discussions', // owner: #team-replay
-    REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-ingestion-product-analytics-onboarding', // owner: @biancayang
+    REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-web-product-analytics-onboarding', // owner: @biancayang
     RECRUIT_ANDROID_MOBILE_BETA_TESTERS: 'recruit-android-mobile-beta-testers', // owner: #team-replay
+    SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
+    AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -225,6 +227,7 @@ export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>
     [AvailableFeature.SURVEYS_STYLING]: LicensePlan.Scale,
     [AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS]: LicensePlan.Scale,
     [AvailableFeature.SURVEYS_TEXT_HTML]: LicensePlan.Scale,
+    [AvailableFeature.DATA_PIPELINES]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
