@@ -38,12 +38,12 @@ const StatusMessage = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element 
     if (!metrics) {
         return (
             <span>
-                Enabled - <i>No events processed yet.</i>
+                Enabled - <i>No events processed in the last 7 days.</i>
             </span>
         )
     }
 
-    const failureRate = metrics ? metrics?.failures / metrics?.totals : null
+    const failureRate = metrics.failures / metrics.totals
 
     if (metrics.failures > 0) {
         return (
@@ -54,7 +54,7 @@ const StatusMessage = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element 
         )
     }
 
-    return <span>{metrics.totals} events processed without errors.</span>
+    return <span>{metrics.totals} events processed without errors in the last 7 days.</span>
 }
 
 const StatusIndicator = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element => {
