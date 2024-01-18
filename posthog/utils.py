@@ -1261,20 +1261,20 @@ def sleep_time_generator() -> Generator[float, None, None]:
 
 
 @async_to_sync
-async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
+async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.datetime] = None) -> Any:
     """
     Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
     For parallel tasks, this is the only way to await the entire group.
     """
-    if not max_timeout:
-        max_timeout = datetime.timedelta(minutes=5)
+    default_expires = datetime.timedelta(minutes=5)
 
-    start_time = timezone.now()
+    if not expires:
+        expires = datetime.datetime.now(tz=datetime.timezone.utc) + default_expires
 
     sleep_generator = sleep_time_generator()
 
     while not task.ready():
-        if timezone.now() - start_time > max_timeout:
+        if datetime.datetime.now(tz=datetime.timezone.utc) > expires:
             child_states = []
             child: AsyncResult
             children = task.children or []
@@ -1297,8 +1297,7 @@ async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[dateti
                 failed=task.failed(),
                 task_state=task.state,
                 child_states=child_states,
-                timeout=max_timeout,
-                start_time=start_time,
+                timeout=expires,
             )
             raise TimeoutError("Timed out waiting for celery task to finish")
 
