@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { percentage } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { PipelineAppKind, PipelineAppTab } from '~/types'
@@ -12,36 +13,85 @@ import { DestinationMoreOverlay } from './Destinations'
 import { DestinationType, PipelineAppBackend } from './destinationsLogic'
 import { DestinationSparkLine } from './DestinationSparkLine'
 import { pipelineOverviewLogic } from './overviewLogic'
+import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { TransformationsMoreOverlay } from './Transformations'
 import { humanFriendlyFrequencyName } from './utils'
 
-type StatusIndicatorProps = {
-    status: 'enabled' | 'disabled'
+const FAILURE_RATE_WARNING_THRESHOLD = 0
+const FAILURE_RATE_ERROR_THRESHOLD = 0.03
+
+type StatusMetrics = {
+    totals: number
+    failures: number
 }
 
-const StatusIndicator = ({ status }: StatusIndicatorProps): JSX.Element => (
-    <Tooltip title="xx events processed in the last 7 days" placement="right">
-        <div className="relative flex h-3 w-3">
-            <span
-                className={clsx('absolute inline-flex h-full w-full rounded-full opacity-75', {
-                    'bg-success animate-ping': status === 'enabled',
-                    'bg-border': status === 'disabled',
-                })}
-            />
-            <span
-                className={clsx('relative inline-flex rounded-full h-3 w-3', {
-                    'bg-success': status === 'enabled',
-                })}
-            />
-        </div>
-    </Tooltip>
-)
+type StatusIndicatorProps = {
+    enabled: boolean
+    metrics?: StatusMetrics
+}
+
+const StatusMessage = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element => {
+    if (!enabled) {
+        return <i>Disabled.</i>
+    }
+
+    if (!metrics) {
+        return (
+            <span>
+                Enabled - <i>No events processed yet.</i>
+            </span>
+        )
+    }
+
+    const failureRate = metrics ? metrics?.failures / metrics?.totals : null
+
+    if (metrics.failures > 0) {
+        return (
+            <span>
+                {metrics.totals} events processed with {percentage(failureRate)} failures (a total of {metrics.failures}{' '}
+                event(s)) in the last 7 days.
+            </span>
+        )
+    }
+
+    return <span>{metrics.totals} events processed without errors.</span>
+}
+
+const StatusIndicator = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element => {
+    const failureRate = metrics ? metrics?.failures / metrics?.totals : null
+
+    let statusColor: string = 'bg-success'
+    if (failureRate && failureRate > FAILURE_RATE_ERROR_THRESHOLD) {
+        statusColor = 'bg-danger'
+    } else if (failureRate && failureRate > FAILURE_RATE_WARNING_THRESHOLD) {
+        statusColor = 'bg-warning'
+    }
+
+    return (
+        <Tooltip title={<StatusMessage enabled={enabled} metrics={metrics} />} placement="right">
+            <div className="relative flex h-3 w-3 items-center justify-center">
+                <span
+                    className={clsx('absolute inline-flex h-3/4 w-3/4 rounded-full opacity-50', {
+                        [`${statusColor} animate-ping`]: enabled,
+                        'bg-border': !enabled,
+                    })}
+                />
+                <span
+                    className={clsx('relative inline-flex rounded-full h-3 w-3', {
+                        [`${statusColor}`]: enabled,
+                    })}
+                />
+            </div>
+        </Tooltip>
+    )
+}
 
 type PipelineStepProps = {
     order?: number
-    enabled?: boolean
+    enabled: boolean
     name: string
     to: string
+    metrics?: StatusMetrics
     description?: string
     headerInfo: JSX.Element
     additionalInfo?: JSX.Element
@@ -52,6 +102,7 @@ const PipelineStep = ({
     enabled,
     name,
     to,
+    metrics,
     description,
     headerInfo,
     additionalInfo,
@@ -77,7 +128,7 @@ const PipelineStep = ({
                         {name}
                     </Link>
                 </h3>
-                <StatusIndicator status={enabled ? 'enabled' : 'disabled'} />
+                <StatusIndicator enabled={enabled} metrics={metrics} />
             </div>
             <div className="flex items-center">{headerInfo}</div>
         </div>
@@ -170,12 +221,26 @@ const PipelineStepTransformation = ({
 )
 
 const PipelineStepDestination = ({ destination }: { destination: DestinationType }): JSX.Element => {
+    let metrics: StatusMetrics | undefined = undefined
+    if (destination.backend !== PipelineAppBackend.BatchExport) {
+        const logic = pipelineAppMetricsLogic({ pluginConfigId: destination.id })
+        const { appMetricsResponse } = useValues(logic)
+
+        if (appMetricsResponse) {
+            metrics = {
+                totals: appMetricsResponse.metrics.totals.successes + appMetricsResponse.metrics.totals.failures,
+                failures: appMetricsResponse.metrics.totals.failures,
+            }
+        }
+    }
+
     return (
         <PipelineStep
             name={destination.name}
             to={destination.config_url}
             description={destination.description}
             enabled={destination.enabled}
+            metrics={metrics}
             headerInfo={
                 <>
                     <DestinationSparkLine destination={destination} />
