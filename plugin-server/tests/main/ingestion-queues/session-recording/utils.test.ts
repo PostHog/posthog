@@ -68,7 +68,25 @@ describe('session-recording utils', () => {
             )
             expect(parsedMessage).toEqual({
                 distinct_id: String(numericId),
-                events: expect.any(Array),
+                events: [
+                    {
+                        data: {
+                            payload: {
+                                level: 'log',
+                                payload: ['"Hedgehog: Will \'jump\' for 2916.6666666666665ms"'],
+                                trace: [
+                                    'HedgehogActor.setAnimation (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105543:17)',
+                                    'HedgehogActor.setRandomAnimation (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105550:14)',
+                                    'HedgehogActor.update (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105572:16)',
+                                    'loop (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105754:15)',
+                                ],
+                            },
+                            plugin: 'rrweb/console@1',
+                        },
+                        timestamp: 1693422950693,
+                        type: 6,
+                    },
+                ],
                 metadata: {
                     offset: 1,
                     partition: 1,
@@ -79,6 +97,7 @@ describe('session-recording utils', () => {
                 session_id: '018a47c2-2f4a-70a8-b480-5e51d8b8d070',
                 team_id: 1,
                 window_id: '018a47c2-2f4a-70a8-b480-5e52f5480448',
+                snapshot_source: undefined,
             })
         })
 
