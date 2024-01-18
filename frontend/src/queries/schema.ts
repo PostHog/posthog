@@ -255,6 +255,7 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     /** The event or `null` for all events. */
     event?: string | null
+    /**  @asType integer */
     limit?: number
     /** Columns to order by */
     orderBy?: string[]
@@ -267,6 +268,7 @@ export interface EventsNode extends EntityNode {
 
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
+    /**  @asType integer */
     id: number
 }
 
@@ -339,13 +341,16 @@ export interface EventsQuery extends DataNode {
 export interface PersonsNode extends DataNode {
     kind: NodeKind.PersonsNode
     search?: string
+    /**  @asType integer */
     cohort?: number
     distinctId?: string
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    /**  @asType integer */
     limit?: number
+    /**  @asType integer */
     offset?: number
 }
 
@@ -891,7 +896,10 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     /** Date range for the query */
     dateRange?: DateRange
 
-    /** Project to filter on. Defaults to current project */
+    /**
+     * Project to filter on. Defaults to current project
+     *  @asType integer
+     */
     teamId?: number
 
     response?: TimeToSeeDataSessionsQueryResponse
@@ -914,7 +922,10 @@ export interface DatabaseSchemaQuery extends DataNode {
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
 
-    /** Project to filter on. Defaults to current project */
+    /**
+     * Project to filter on. Defaults to current project
+     * @asType integer
+     */
     teamId?: number
 
     /** Project to filter on. Defaults to current session */
