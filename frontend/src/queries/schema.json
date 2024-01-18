@@ -15,7 +15,7 @@
                     "type": "array"
                 },
                 "id": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "kind": {
                     "const": "ActionsNode",
@@ -334,16 +334,16 @@
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
-                    "type": ["number", "null"]
+                    "type": "integer"
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
                 },
                 "breakdown_histogram_bin_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown_limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -965,7 +965,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "math": {
                     "anyOf": [
@@ -2314,7 +2314,7 @@
             "additionalProperties": false,
             "properties": {
                 "cohort": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "distinctId": {
                     "type": "string"
@@ -2331,10 +2331,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "offset": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -3661,7 +3661,7 @@
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["kind"],
@@ -3684,7 +3684,7 @@
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["kind"],
