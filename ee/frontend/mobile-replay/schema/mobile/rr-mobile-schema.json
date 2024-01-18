@@ -124,14 +124,7 @@
             "additionalProperties": false,
             "properties": {
                 "data": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/MobileAddedNodeMutationData"
-                        },
-                        {
-                            "$ref": "#/definitions/MobileUpdatedNodeMutationData"
-                        }
-                    ],
+                    "$ref": "#/definitions/MobileNodeMutationData",
                     "description": "This sits alongside the RRWeb incremental snapshot event type, mobile replay can send any of the RRWeb incremental snapshot event types, which will be passed unchanged to the player - for example to send touch events. removed node mutations are passed unchanged to the player."
                 },
                 "delay": {
@@ -238,22 +231,6 @@
             "const": 0,
             "type": "number"
         },
-        "MobileAddedNodeMutationData": {
-            "additionalProperties": false,
-            "properties": {
-                "adds": {
-                    "items": {
-                        "$ref": "#/definitions/MobileNodeMutation"
-                    },
-                    "type": "array"
-                },
-                "source": {
-                    "$ref": "#/definitions/IncrementalSource.Mutation"
-                }
-            },
-            "required": ["source", "adds"],
-            "type": "object"
-        },
         "MobileNodeMutation": {
             "additionalProperties": false,
             "properties": {
@@ -265,6 +242,36 @@
                 }
             },
             "required": ["parentId", "wireframe"],
+            "type": "object"
+        },
+        "MobileNodeMutationData": {
+            "additionalProperties": false,
+            "properties": {
+                "adds": {
+                    "items": {
+                        "$ref": "#/definitions/MobileNodeMutation"
+                    },
+                    "type": "array"
+                },
+                "removes": {
+                    "description": "A mobile remove is identical to a web remove",
+                    "items": {
+                        "$ref": "#/definitions/removedNodeMutation"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "$ref": "#/definitions/IncrementalSource.Mutation"
+                },
+                "updates": {
+                    "description": "An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node",
+                    "items": {
+                        "$ref": "#/definitions/MobileNodeMutation"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["source"],
             "type": "object"
         },
         "MobileNodeType": {
@@ -315,21 +322,20 @@
             },
             "type": "object"
         },
-        "MobileUpdatedNodeMutationData": {
+        "removedNodeMutation": {
             "additionalProperties": false,
             "properties": {
-                "source": {
-                    "$ref": "#/definitions/IncrementalSource.Mutation"
+                "id": {
+                    "type": "number"
                 },
-                "updates": {
-                    "description": "An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node",
-                    "items": {
-                        "$ref": "#/definitions/MobileNodeMutation"
-                    },
-                    "type": "array"
+                "isShadow": {
+                    "type": "boolean"
+                },
+                "parentId": {
+                    "type": "number"
                 }
             },
-            "required": ["source", "updates"],
+            "required": ["parentId", "id"],
             "type": "object"
         },
         "wireframe": {

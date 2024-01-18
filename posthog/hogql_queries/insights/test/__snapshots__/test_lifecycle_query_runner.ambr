@@ -1,25 +1,26 @@
+# serializer version: 1
 # name: TestLifecycleQueryRunner.test_cohort_filter
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_cohort_filter.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_cohort_filter.2
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status
@@ -78,7 +79,7 @@
            WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), ifNull(in(person_id,
                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                              FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 4))
+                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 7))
                                                                                                                                                                                                                                                                                                                                                                                                              GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                                                              HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0), equals(events.event, '$pageview'))
            GROUP BY person_id)
@@ -92,10 +93,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_sampling
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(round(multiply(counts, divide(1, 0.1)))) AS total,
          status AS status
@@ -163,10 +164,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_timezones
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status
@@ -234,10 +235,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_timezones.1
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status
@@ -305,5 +306,5 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---

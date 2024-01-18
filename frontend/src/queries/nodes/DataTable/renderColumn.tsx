@@ -4,9 +4,9 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -83,7 +83,17 @@ export function renderColumn(
                         object[value[i]] = value[i + 1]
                     }
                     if ('results' in object && Array.isArray(object.results)) {
-                        return <TableCellSparkline data={object.results} />
+                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
+                        return (
+                            <Sparkline
+                                data={[
+                                    {
+                                        name: key.includes('__hogql_chart_type') ? 'Data' : key,
+                                        values: object.results.map((v: any) => Number(v)),
+                                    },
+                                ]}
+                            />
+                        )
                     }
                 }
 
@@ -250,8 +260,8 @@ export function renderColumn(
         const [parent, child] = key.split('.')
         return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
-        if (typeof value === 'object' && value !== null) {
-            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        if (typeof value === 'object') {
+            return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return String(value)
     }

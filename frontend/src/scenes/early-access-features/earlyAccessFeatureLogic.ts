@@ -129,7 +129,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     path: urls.earlyAccessFeatures(),
                 },
                 {
-                    key: earlyAccessFeature.id || 'new',
+                    key: [Scene.EarlyAccessFeature, earlyAccessFeature.id || 'new'],
                     name: earlyAccessFeature.name,
                 },
             ],

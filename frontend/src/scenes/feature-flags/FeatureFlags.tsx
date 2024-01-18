@@ -2,7 +2,6 @@ import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -30,7 +29,14 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { AnyPropertyFilter, AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
+import {
+    ActivityScope,
+    AnyPropertyFilter,
+    AvailableFeature,
+    FeatureFlagFilters,
+    FeatureFlagType,
+    ProductKey,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
@@ -367,7 +373,6 @@ export function FeatureFlags(): JSX.Element {
     return (
         <div className="feature_flags">
             <PageHeader
-                title="Feature Flags"
                 buttons={
                     <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
                         New feature flag

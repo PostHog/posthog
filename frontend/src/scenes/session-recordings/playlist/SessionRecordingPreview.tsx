@@ -1,12 +1,17 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconAutoAwesome, IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils'
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -22,6 +27,8 @@ export interface SessionRecordingPreviewProps {
     isActive?: boolean
     onClick?: () => void
     pinned?: boolean
+    summariseFn?: (recording: SessionRecordingType) => void
+    sessionSummaryLoading?: boolean
 }
 
 function RecordingDuration({
@@ -200,7 +207,7 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 
 function PinnedIndicator(): JSX.Element | null {
     return (
-        <Tooltip placement="topRight" title={`This recording is pinned to this list.`}>
+        <Tooltip placement="topRight" title="This recording is pinned to this list.">
             <IconPinFilled className="text-sm text-orange shrink-0" />
         </Tooltip>
     )
@@ -208,7 +215,7 @@ function PinnedIndicator(): JSX.Element | null {
 
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     return !props.viewed ? (
-        <Tooltip title={'Indicates the recording has not been watched yet'}>
+        <Tooltip title="Indicates the recording has not been watched yet">
             <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
     ) : null
@@ -228,10 +235,16 @@ export function SessionRecordingPreview({
     onClick,
     onPropertyClick,
     pinned,
+    summariseFn,
+    sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
     const iconClassnames = clsx('SessionRecordingPreview__property-icon text-base text-muted-alt')
+
+    const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
+
+    const [summaryButtonIsVisible, setSummaryButtonIsVisible] = useState<boolean>(false)
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -239,7 +252,44 @@ export function SessionRecordingPreview({
                 key={recording.id}
                 className={clsx('SessionRecordingPreview', isActive && 'SessionRecordingPreview--active')}
                 onClick={() => onClick?.()}
+                onMouseEnter={() => setSummaryButtonIsVisible(true)}
+                onMouseLeave={() => setSummaryButtonIsVisible(false)}
             >
+                <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
+                    {summariseFn && (
+                        <Popover
+                            showArrow={true}
+                            visible={summaryPopoverIsVisible && summaryButtonIsVisible}
+                            placement="right"
+                            onClickOutside={() => setSummaryPopoverIsVisible(false)}
+                            overlay={
+                                sessionSummaryLoading ? (
+                                    <Spinner />
+                                ) : (
+                                    <div className="text-xl max-w-auto lg:max-w-3/5">{recording.summary}</div>
+                                )
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                className={clsx(
+                                    summaryButtonIsVisible ? 'block' : 'hidden',
+                                    'absolute right-px top-px'
+                                )}
+                                icon={<IconAutoAwesome />}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setSummaryPopoverIsVisible(!summaryPopoverIsVisible)
+                                    if (!recording.summary) {
+                                        summariseFn(recording)
+                                    }
+                                }}
+                            />
+                        </Popover>
+                    )}
+                </FlaggedFeature>
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">

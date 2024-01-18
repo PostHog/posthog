@@ -42,9 +42,16 @@ FLAG_EVALUATION_COUNTER = Counter(
 def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     origin = parse_domain(request.headers.get("Origin"))
     referer = parse_domain(request.headers.get("Referer"))
-    return hostname_in_allowed_url_list(team.recording_domains, origin) or hostname_in_allowed_url_list(
-        team.recording_domains, referer
-    )
+    user_agent = request.META.get("HTTP_USER_AGENT")
+
+    is_authorized_web_client: bool = hostname_in_allowed_url_list(
+        team.recording_domains, origin
+    ) or hostname_in_allowed_url_list(team.recording_domains, referer)
+    # TODO this is a short term fix for beta testers
+    # TODO we will match on the app identifier in the origin instead and allow users to auth those
+    is_authorized_android_client: bool = user_agent is not None and "posthog-android" in user_agent
+
+    return is_authorized_web_client or is_authorized_android_client
 
 
 def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname: Optional[str]) -> bool:

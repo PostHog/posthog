@@ -1,18 +1,23 @@
+import fs from 'node:fs/promises'
+
+import autoprefixer from 'autoprefixer'
 import chokidar from 'chokidar'
 import cors from 'cors'
+import cssnano from 'cssnano'
 import { analyzeMetafile, context } from 'esbuild'
 import { lessLoader } from 'esbuild-plugin-less'
 import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
 import * as path from 'path'
+import postcss from 'postcss'
+import postcssPresetEnv from 'postcss-preset-env'
+import tailwindcss from 'tailwindcss'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
 
 export const isDev = process.argv.includes('--dev')
-
-export const lessPlugin = lessLoader({ javascriptEnabled: true })
 
 export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
@@ -20,6 +25,12 @@ export function copyPublicFolder(srcDir, destDir) {
             console.error(err)
         }
     })
+}
+
+/** Update the file's modified and accessed times to now. */
+async function touchFile(file) {
+    const now = new Date()
+    await fs.utimes(file, now, now)
 }
 
 export function copyIndexHtml(
@@ -112,6 +123,7 @@ export function createHashlessEntrypoints(absWorkingDir, entrypoints) {
     }
 }
 
+/** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
     sourcemap: true,
     minify: !isDev,
@@ -121,7 +133,20 @@ export const commonConfig = {
     chunkNames: '[name]-[hash]',
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
-    plugins: [sassPlugin(), lessPlugin],
+    plugins: [
+        sassPlugin({
+            async transform(source, resolveDir, filePath) {
+                // Sync the plugins list with postcss.config.js
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
+                if (!isDev) {
+                    plugins.push(cssnano({ preset: 'default' }))
+                }
+                const { css } = await postcss(plugins).process(source, { from: filePath })
+                return css
+            },
+        }),
+        lessLoader({ javascriptEnabled: true }),
+    ],
     tsconfig: isDev ? 'tsconfig.dev.json' : 'tsconfig.json',
     define: {
         global: 'globalThis',
@@ -226,7 +251,8 @@ export async function buildOrWatch(config) {
 
     let buildPromise = null
     let buildAgain = false
-    let inputFiles = new Set([])
+
+    let inputFiles = new Set()
 
     // The aim is to make sure that when we request a build, then:
     // - we only build one thing at a time
@@ -296,7 +322,6 @@ export async function buildOrWatch(config) {
             inputFiles = getInputFiles(buildResult)
 
             log({ success: true, name, time })
-
             return {
                 entrypoints: getBuiltEntryPoints(config, buildResult),
                 chunks: getChunks(buildResult),
@@ -308,16 +333,30 @@ export async function buildOrWatch(config) {
     }
 
     if (isDev) {
+        const tailwindConfigJsPath = path.resolve(absWorkingDir, '../tailwind.config.js')
+
         chokidar
-            .watch([path.resolve(absWorkingDir, 'src'), path.resolve(absWorkingDir, '../ee/frontend')], {
-                ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
-                ignoreInitial: true,
-            })
+            .watch(
+                [
+                    path.resolve(absWorkingDir, 'src'),
+                    path.resolve(absWorkingDir, '../ee/frontend'),
+                    tailwindConfigJsPath,
+                ],
+                {
+                    ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,
+                    ignoreInitial: true,
+                }
+            )
             .on('all', async (event, filePath) => {
                 if (inputFiles.size === 0) {
                     await buildPromise
                 }
-                if (inputFiles.has(filePath)) {
+                if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
+                    if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
+                        // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
+                        // in case any new utility classes are used. `touch`ing `utilities.scss` achieves this.
+                        await touchFile(path.resolve(absWorkingDir, 'src/styles/utilities.scss'))
+                    }
                     void debouncedBuild()
                 }
             })

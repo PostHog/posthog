@@ -17,6 +17,7 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { VM } from 'vm2'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
@@ -199,8 +200,8 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
-    POE_DEFERRED_WRITES_ENABLED: boolean
-    POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES: boolean
+    POE_WRITES_ENABLED_MAX_TEAM_ID: number
+    POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_URL: string
@@ -267,6 +268,7 @@ export interface Hub extends PluginsServerConfig {
     rootAccessManager: RootAccessManager
     eventsProcessor: EventsProcessor
     appMetrics: AppMetrics
+    rustyHook: RustyHook
     // geoip database, setup in workers
     mmdb?: ReaderModel
     // diagnostics
@@ -279,7 +281,7 @@ export interface Hub extends PluginsServerConfig {
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
-    rustyHookForTeams: ValueMatcher<number>
+    poeWritesExcludeTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }

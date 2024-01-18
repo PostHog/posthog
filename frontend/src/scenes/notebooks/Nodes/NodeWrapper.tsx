@@ -41,6 +41,7 @@ import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
 import { IconCopy, IconEllipsis, IconGear } from '@posthog/icons'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -64,8 +65,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
-    const { unregisterNodeLogic } = useActions(notebookLogic)
+    const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const logicProps: NotebookNodeLogicProps = {
         ...props,
@@ -74,7 +76,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { resizeable, expanded, actions, nodeId } = useValues(nodeLogic)
+    const { resizeable, expanded, actions, nodeId, sourceComment } = useValues(nodeLogic)
     const {
         setRef,
         setExpanded,
@@ -174,6 +176,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             : null,
 
         isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
+        isEditable && hasDiscussions
+            ? sourceComment
+                ? { label: 'Show comment', onClick: () => selectComment(nodeId) }
+                : { label: 'Comment', onClick: () => insertComment({ type: 'node', id: nodeId }) }
+            : null,
         isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconClose />, status: 'danger' } : null,
     ]
 

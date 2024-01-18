@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
 import {
     actions,
     afterMount,
@@ -16,7 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -41,17 +40,8 @@ import {
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isInsightActorsQuery,
-    isInsightQueryNode,
-    isLifecycleQuery,
-    isPersonsNode,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { isActorsQuery, isEventsQuery, isInsightActorsQuery, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
 
-import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
 export interface DataNodeLogicProps {
@@ -121,21 +111,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: async ({ refresh, queryId }, breakpoint) => {
                     if (props.doNotLoad) {
                         return props.cachedResults
-                    }
-                    if (
-                        isInsightQueryNode(props.query) &&
-                        !(values.hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(props.query)) &&
-                        !(values.hogQLInsightsTrendsFlagEnabled && isTrendsQuery(props.query)) &&
-                        props.cachedResults &&
-                        props.cachedResults['id'] &&
-                        props.cachedResults['filters'] &&
-                        equal(props.query, filtersToQueryNode(props.cachedResults['filters']))
-                    ) {
-                        const url = `api/projects/${values.currentTeamId}/insights/${props.cachedResults['id']}?refresh=true`
-                        const fetchResponse = await api.getResponse(url)
-                        const data = await getJSONOrThrow(fetchResponse)
-                        breakpoint()
-                        return data
                     }
 
                     if (props.cachedResults && !refresh) {
@@ -356,6 +331,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         hogQLInsightsTrendsFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
+        ],
+        hogQLInsightsStickinessFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [

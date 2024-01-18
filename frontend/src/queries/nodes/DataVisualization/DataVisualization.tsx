@@ -84,6 +84,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = (
             <DataTable
                 uniqueKey={props.uniqueKey}
+                dataNodeLogicKey={props.uniqueKey?.toString()}
                 query={{ kind: NodeKind.DataTableNode, source: query.source }}
                 cachedResults={props.cachedResults}
                 context={{

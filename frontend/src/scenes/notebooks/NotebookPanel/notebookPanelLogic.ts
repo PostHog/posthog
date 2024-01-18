@@ -7,25 +7,12 @@ import { NotebookNodeResource, SidePanelTab } from '~/types'
 
 import { EditorFocusPosition } from '../Notebook/utils'
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
-import { notebookPopoverLogic } from './notebookPopoverLogic'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
     connect({
-        values: [
-            sidePanelStateLogic,
-            ['sidePanelOpen', 'selectedTab'],
-            featureFlagLogic,
-            ['featureFlags'],
-            notebookPopoverLogic,
-            ['popoverVisibility'],
-        ],
-        actions: [
-            sidePanelStateLogic,
-            ['openSidePanel', 'closeSidePanel'],
-            notebookPopoverLogic,
-            ['setPopoverVisibility'],
-        ],
+        values: [sidePanelStateLogic, ['sidePanelOpen', 'selectedTab'], featureFlagLogic, ['featureFlags']],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     }),
     actions({
         selectNotebook: (id: string, options: { autofocus?: EditorFocusPosition; silent?: boolean } = {}) => ({
@@ -70,8 +57,8 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
 
     selectors(({ cache, actions }) => ({
         visibility: [
-            (s) => [s.selectedTab, s.sidePanelOpen, s.popoverVisibility],
-            (selectedTab, sidePanelOpen): 'hidden' | 'peek' | 'visible' => {
+            (s) => [s.selectedTab, s.sidePanelOpen],
+            (selectedTab, sidePanelOpen): 'hidden' | 'visible' => {
                 return selectedTab === SidePanelTab.Notebooks && sidePanelOpen ? 'visible' : 'hidden'
             },
         ],

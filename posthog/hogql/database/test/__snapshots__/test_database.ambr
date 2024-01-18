@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestDatabase.test_serialize_database_no_person_on_events
-  '
+  '''
   {
       "events": [
           {
@@ -762,10 +763,10 @@
           }
       ]
   }
-  '
----
+  '''
+# ---
 # name: TestDatabase.test_serialize_database_with_person_on_events_enabled
-  '
+  '''
   {
       "events": [
           {
@@ -1523,5 +1524,5 @@
           }
       ]
   }
-  '
----
+  '''
+# ---

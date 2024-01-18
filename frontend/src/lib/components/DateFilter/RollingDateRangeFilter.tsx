@@ -51,7 +51,7 @@ export function RollingDateRangeFilter({
                     <span
                         className="RollingDateRangeFilter__counter__step"
                         onClick={decreaseCounter}
-                        title={`Decrease rolling date range`}
+                        title="Decrease rolling date range"
                     >
                         -
                     </span>
@@ -66,7 +66,7 @@ export function RollingDateRangeFilter({
                     <span
                         className="RollingDateRangeFilter__counter__step"
                         onClick={increaseCounter}
-                        title={`Increase rolling date range`}
+                        title="Increase rolling date range"
                     >
                         +
                     </span>

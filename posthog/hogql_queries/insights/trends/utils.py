@@ -12,7 +12,7 @@ def get_properties_chain(
     breakdown_type: Union[Literal["person"], Literal["session"], Literal["group"], Literal["event"]],
     breakdown_field: str,
     group_type_index: Optional[float | int],
-) -> List[str]:
+) -> List[str | int]:
     if breakdown_type == "person":
         return ["person", "properties", breakdown_field]
 

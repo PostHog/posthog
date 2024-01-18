@@ -1,16 +1,18 @@
 import datetime
+
+import structlog
+from celery import shared_task
+
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     pause_external_data_schedule,
     unpause_external_data_schedule,
 )
-from posthog.warehouse.models import ExternalDataSource, ExternalDataJob
-from posthog.celery import app
-import structlog
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
-MONTHLY_LIMIT = 1_000_000
+MONTHLY_LIMIT = 5_000_000
 
 
 def check_synced_row_limits() -> None:
@@ -19,9 +21,11 @@ def check_synced_row_limits() -> None:
         check_synced_row_limits_of_team.delay(team_id)
 
 
-@app.task(ignore_result=True)
+@shared_task(ignore_result=True)
 def check_synced_row_limits_of_team(team_id: int) -> None:
     logger.info("Checking synced row limits of team", team_id=team_id)
+
+    # TODO: Can change this to be billing period based once billing is integrated
     start_of_month = datetime.datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     rows_synced_list = [
         x

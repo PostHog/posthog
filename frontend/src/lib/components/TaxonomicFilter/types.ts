@@ -1,6 +1,7 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 
+import { AnyDataNode } from '~/queries/schema'
 import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
 
 export interface SimpleOption {
@@ -23,7 +24,7 @@ export interface TaxonomicFilterProps {
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] } // only return properties in this list, currently only working for EventProperties
-    hogQLTable?: string
+    metadataSource?: AnyDataNode
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {

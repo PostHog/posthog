@@ -23,11 +23,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
     should_resume_from_activity_heartbeat,
@@ -85,6 +85,7 @@ class BigQueryInsertInputs:
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    use_json_type: bool = False
 
 
 @contextlib.contextmanager
@@ -161,13 +162,21 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
         )
+
+        if inputs.use_json_type is True:
+            json_type = "JSON"
+            json_string_columns = ["elements"]
+        else:
+            json_type = "STRING"
+            json_string_columns = ["properties", "elements", "set", "set_once"]
+
         table_schema = [
             bigquery.SchemaField("uuid", "STRING"),
             bigquery.SchemaField("event", "STRING"),
-            bigquery.SchemaField("properties", "STRING"),
+            bigquery.SchemaField("properties", json_type),
             bigquery.SchemaField("elements", "STRING"),
-            bigquery.SchemaField("set", "STRING"),
-            bigquery.SchemaField("set_once", "STRING"),
+            bigquery.SchemaField("set", json_type),
+            bigquery.SchemaField("set_once", json_type),
             bigquery.SchemaField("distinct_id", "STRING"),
             bigquery.SchemaField("team_id", "INT64"),
             bigquery.SchemaField("ip", "STRING"),
@@ -175,7 +184,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             bigquery.SchemaField("timestamp", "TIMESTAMP"),
             bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
         ]
-        json_columns = ("properties", "elements", "set", "set_once")
 
         result = None
 
@@ -219,7 +227,9 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
                 for result in results_iterator:
                     row = {
-                        field.name: json.dumps(result[field.name]) if field.name in json_columns else result[field.name]
+                        field.name: json.dumps(result[field.name])
+                        if field.name in json_string_columns
+                        else result[field.name]
                         for field in table_schema
                         if field.name != "bq_ingested_timestamp"
                     }
@@ -298,6 +308,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            use_json_type=inputs.use_json_type,
         )
 
         await execute_batch_export_insert_activity(

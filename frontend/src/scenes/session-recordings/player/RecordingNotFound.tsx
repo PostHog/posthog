@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 export function RecordingNotFound(): JSX.Element {
     return (
         <NotFound
-            object={'Recording'}
+            object="Recording"
             caption={
                 <>
                     The requested recording doesn't seem to exist. The recording may still be processing, deleted due to

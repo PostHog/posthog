@@ -9,7 +9,7 @@ import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect } from 'react'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
-import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
+import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
@@ -65,21 +65,20 @@ export function NotebooksTable(): JSX.Element {
         >,
         {
             render: function Render(_, notebook) {
+                if (notebook.is_template) {
+                    return null
+                }
                 return (
                     <LemonMenu
                         items={[
                             {
-                                items: [
-                                    {
-                                        label: 'Delete',
-                                        icon: <IconDelete />,
-                                        status: 'danger',
+                                label: 'Delete',
+                                icon: <IconDelete />,
+                                status: 'danger',
 
-                                        onClick: () => {
-                                            notebooksModel.actions.deleteNotebook(notebook.short_id, notebook?.title)
-                                        },
-                                    },
-                                ],
+                                onClick: () => {
+                                    notebooksModel.actions.deleteNotebook(notebook.short_id, notebook?.title)
+                                },
                             },
                         ]}
                         actionable
@@ -114,7 +113,7 @@ export function NotebooksTable(): JSX.Element {
                         setFilters({ search: s })
                     }}
                     value={filters.search}
-                    data-attr={'notebooks-search'}
+                    data-attr="notebooks-search"
                 />
                 <div className="flex items-center gap-4 flex-wrap">
                     <ContainsTypeFilters filters={filters} setFilters={setFilters} />
@@ -122,7 +121,7 @@ export function NotebooksTable(): JSX.Element {
                         <span>Created by:</span>
                         <MemberSelect
                             value={filters.createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.uuid || DEFAULT_FILTERS.createdBy })}
+                            onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                         />
                     </div>
                 </div>
@@ -135,7 +134,7 @@ export function NotebooksTable(): JSX.Element {
                 columns={columns}
                 loading={notebooksResponseLoading}
                 defaultSorting={{ columnKey: '-created_at', order: 1 }}
-                emptyState={`No notebooks matching your filters!`}
+                emptyState="No notebooks matching your filters!"
                 nouns={['notebook', 'notebooks']}
                 sorting={sortValue ? { columnKey: sortValue, order: sortValue.startsWith('-') ? -1 : 1 } : undefined}
                 onSort={(newSorting) =>

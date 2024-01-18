@@ -1,19 +1,20 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
-import { PipelineTabs } from '~/types'
-
-import { singularName } from './pipelineLogic'
+import { PipelineAppKind, PipelineAppTab } from '~/types'
 
 type NewButtonProps = {
-    tab: PipelineTabs
+    kind: PipelineAppKind
 }
 
-export function NewButton({ tab }: NewButtonProps): JSX.Element {
-    const singular = singularName(tab)
+export function NewButton({ kind }: NewButtonProps): JSX.Element {
     return (
-        <LemonButton data-attr={`new-${singular}`} to={urls.pipelineNew(tab)} type="primary">
-            New {singular}
+        <LemonButton
+            data-attr={`new-${kind}`}
+            to={urls.pipelineApp(kind, 'new', PipelineAppTab.Configuration)}
+            type="primary"
+        >
+            New {kind}
         </LemonButton>
     )
 }

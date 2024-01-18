@@ -12,10 +12,12 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
+import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { SidePanelWelcome } from './panels/SidePanelWelcome'
 import { sidePanelLogic } from './sidePanelLogic'
@@ -60,10 +62,20 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },
+    [SidePanelTab.Discussion]: {
+        label: 'Discussion',
+        Icon: SidePanelDiscussionIcon,
+        Content: SidePanelDiscussion,
+    },
     [SidePanelTab.Welcome]: {
         label: "What's new?",
         Icon: IconConfetti,
         Content: SidePanelWelcome,
+    },
+    [SidePanelTab.Status]: {
+        label: 'System status',
+        Icon: SidePanelStatusIcon,
+        Content: SidePanelStatus,
     },
 }
 
@@ -144,7 +156,7 @@ export function SidePanel(): JSX.Element | null {
                             return (
                                 <LemonButton
                                     key={tab}
-                                    icon={<Icon className="rotate-270 w-6" />}
+                                    icon={<Icon />}
                                     onClick={() =>
                                         activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
                                     }
@@ -167,7 +179,7 @@ export function SidePanel(): JSX.Element | null {
                     </div>
                 ) : null}
             </div>
-            <Resizer {...resizerLogicProps} offset={'3rem'} />
+            <Resizer {...resizerLogicProps} offset="3rem" />
 
             {PanelConent ? (
                 <div className="SidePanel3000__content">

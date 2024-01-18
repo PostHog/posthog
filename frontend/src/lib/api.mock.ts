@@ -240,6 +240,8 @@ export const MOCK_DEFAULT_PLUGIN: PluginType = {
     },
     metrics: {},
     public_jobs: {},
+    // urls are hard-coded in frontend/src/scenes/pipeline/utils.tsx so it must be one of those URLs for tests to work
+    url: 'https://github.com/PostHog/downsampling-plugin',
 }
 
 export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {

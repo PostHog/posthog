@@ -5,7 +5,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ReplayTabs } from '~/types'
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 
@@ -62,6 +63,17 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
                 })
 
                 return breadcrumbs
+            },
+        ],
+        activityFilters: [
+            () => [router.selectors.searchParams],
+            (searchParams): ActivityFilters | null => {
+                return searchParams.sessionRecordingId
+                    ? {
+                          scope: ActivityScope.REPLAY,
+                          item_id: searchParams.sessionRecordingId,
+                      }
+                    : null
             },
         ],
     })),
