@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Dict
 
 from celery import Celery
 from celery.signals import (
@@ -70,7 +71,7 @@ app.conf.broker_pool_limit = 0
 
 app.steps["worker"].add(DjangoStructLogInitStep)
 
-task_timings = {}
+task_timings: Dict[str, float] = {}
 
 
 @setup_logging.connect
@@ -128,7 +129,8 @@ def postrun_signal_handler(task_id, task, **kwargs):
 
     if task_id in task_timings:
         start_time = task_timings.pop(task_id, None)
-        CELERTY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(time.time() - start_time)
+        if start_time:
+            CELERTY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(time.time() - start_time)
 
     reset_query_tags()
 
