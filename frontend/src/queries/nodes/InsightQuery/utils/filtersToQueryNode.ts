@@ -73,7 +73,7 @@ export const actionsAndEventsToSeries = ({
                     id: f.id,
                     ...shared,
                 }
-            } else if (f.type === 'events') {
+            } else {
                 return {
                     kind: NodeKind.EventsNode,
                     event: f.id,
@@ -123,6 +123,14 @@ const cleanProperties = (parentProperties: FilterType['properties']): InsightsQu
             return {
                 ...filter,
                 operator: filter.operator ?? PropertyOperator.Exact,
+            }
+        }
+
+        // Some saved insights have `"operator": null` defined in the properties, this
+        // breaks HogQL trends and Pydantic validation
+        if (filter.type === PropertyFilterType.Cohort) {
+            if ('operator' in filter) {
+                delete filter.operator
             }
         }
 
@@ -227,14 +235,17 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             filters.breakdown_type = 'event'
         }
 
-        query.breakdown = objectCleanWithEmpty({
+        query.breakdownFilter = objectCleanWithEmpty({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
             breakdown_normalize_url: filters.breakdown_normalize_url,
             breakdowns: filters.breakdowns,
             breakdown_group_type_index: filters.breakdown_group_type_index,
             ...(isTrendsFilter(filters)
-                ? { breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count }
+                ? {
+                      breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
+                      breakdown_hide_other_aggregation: filters.breakdown_hide_other_aggregation,
+                  }
                 : {}),
         })
     }
@@ -247,17 +258,19 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // trends filter
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
         query.trendsFilter = objectCleanWithEmpty({
-            smoothing_intervals: filters.smoothing_intervals,
+            smoothingIntervals: filters.smoothing_intervals,
             show_legend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             compare: filters.compare,
-            aggregation_axis_format: filters.aggregation_axis_format,
-            aggregation_axis_prefix: filters.aggregation_axis_prefix,
-            aggregation_axis_postfix: filters.aggregation_axis_postfix,
+            aggregationAxisFormat: filters.aggregation_axis_format,
+            aggregationAxisPrefix: filters.aggregation_axis_prefix,
+            aggregationAxisPostfix: filters.aggregation_axis_postfix,
+            decimalPlaces: filters.decimal_places,
             formula: filters.formula,
             display: filters.display,
             show_values_on_series: filters.show_values_on_series,
-            show_percent_stack_view: filters.show_percent_stack_view,
+            showPercentStackView: filters.show_percent_stack_view,
+            showLabelsOnSeries: filters.show_labels_on_series,
         })
     }
 

@@ -47,7 +47,7 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
             </p>
             <div className="flex justify-center">
                 {nodeLogic && (
-                    <LemonButton type="primary" status="danger" onClick={() => nodeLogic.actions.deleteNode()}>
+                    <LemonButton type="secondary" status="danger" onClick={nodeLogic.actions.deleteNode}>
                         Remove from Notebook
                     </LemonButton>
                 )}

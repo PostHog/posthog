@@ -125,9 +125,8 @@ body:not(.posthog-3000) {
         .LemonButton:not(:hover) {
             background: var(--bg-3000);
 
-            .LemonButton__icon,
             .LemonButton__content {
-                opacity: 0.4;
+                opacity: var(--lemon-button-icon-opacity);
             }
         }
 
@@ -154,17 +153,15 @@ body:not(.posthog-3000) {
         }
 
         &:not(:last-child) {
-            .LemonButton {
+            .LemonButton__chrome {
                 border-right: none;
             }
         }
 
         &.LemonSegmentedButton__option--selected {
             .LemonButton {
-                .LemonButton__icon,
-                .LemonButton__content {
-                    opacity: 1;
-                }
+                --lemon-button-icon-opacity: 1;
+                --lemon-button-profile-picture-opacity: 1;
             }
 
             .LemonButton__chrome::after {

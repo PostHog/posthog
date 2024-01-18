@@ -8,29 +8,38 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.schema import ChartDisplayType
 
+BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
+BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
+
 
 class BreakdownValues:
     team: Team
     event_name: str
-    breakdown_field: Union[str, float]
+    breakdown_field: Union[str, float, List[Union[str, float]]]
     breakdown_type: str
     query_date_range: QueryDateRange
     events_filter: ast.Expr
     chart_display_type: ChartDisplayType
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
+    hide_other_aggregation: Optional[bool]
+    breakdown_limit: Optional[int]
 
     def __init__(
         self,
         team: Team,
         event_name: str,
-        breakdown_field: Union[str, float],
+        breakdown_field: Union[str, float, List[Union[str, float]]],
         query_date_range: QueryDateRange,
         breakdown_type: str,
         events_filter: ast.Expr,
         chart_display_type: ChartDisplayType,
-        histogram_bin_count: Optional[float] = None,
-        group_type_index: Optional[float] = None,
+        histogram_bin_count: Optional[int] = None,
+        group_type_index: Optional[int] = None,
+        hide_other_aggregation: Optional[bool] = False,
+        breakdown_limit: Optional[int] = None,
     ):
         self.team = team
         self.event_name = event_name
@@ -41,13 +50,18 @@ class BreakdownValues:
         self.chart_display_type = chart_display_type
         self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
         self.group_type_index = int(group_type_index) if group_type_index is not None else None
+        self.hide_other_aggregation = hide_other_aggregation
+        self.breakdown_limit = breakdown_limit
 
     def get_breakdown_values(self) -> List[str | int]:
         if self.breakdown_type == "cohort":
             if self.breakdown_field == "all":
                 return [0]
 
-            return [int(self.breakdown_field)]
+            if isinstance(self.breakdown_field, List):
+                return [value if isinstance(value, str) else int(value) for value in self.breakdown_field]
+
+            return [self.breakdown_field if isinstance(self.breakdown_field, str) else int(self.breakdown_field)]
 
         if self.breakdown_type == "hogql":
             select_field = ast.Alias(
@@ -59,12 +73,17 @@ class BreakdownValues:
                 alias="value",
                 expr=ast.Field(
                     chain=get_properties_chain(
-                        breakdown_type=self.breakdown_type,
-                        breakdown_field=self.breakdown_field,
+                        breakdown_type=self.breakdown_type,  # type: ignore
+                        breakdown_field=str(self.breakdown_field),
                         group_type_index=self.group_type_index,
                     )
                 ),
             )
+
+        if self.chart_display_type == ChartDisplayType.WorldMap:
+            breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
+        else:
+            breakdown_limit = self.breakdown_limit or BREAKDOWN_VALUES_LIMIT
 
         inner_events_query = parse_select(
             """
@@ -85,11 +104,7 @@ class BreakdownValues:
             placeholders={
                 "events_where": self.events_filter,
                 "select_field": select_field,
-                "breakdown_limit": ast.Constant(
-                    value=BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
-                    if self.chart_display_type == ChartDisplayType.WorldMap
-                    else BREAKDOWN_VALUES_LIMIT
-                ),
+                "breakdown_limit": ast.Constant(value=breakdown_limit),
             },
         )
 
@@ -113,10 +128,28 @@ class BreakdownValues:
 
         values: List[Any] = response.results[0][0]
 
-        if self.histogram_bin_count is None:
+        if len(values) == 0:
             values.insert(0, None)
+            return values
 
-        return values
+        # Add "other" value if "other" is not hidden and we're not bucketing numeric values
+        if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
+            all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
+            all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
+            all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
+
+            if all_values_are_ints_or_none or all_values_are_floats_or_none:
+                if all_values_are_ints_or_none:
+                    values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
+                    values.insert(0, BREAKDOWN_OTHER_NUMERIC_LABEL)
+                else:
+                    values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
+                    values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
+            elif all_values_are_string_or_none:
+                values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
+                values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
+
+        return values[:breakdown_limit]
 
     def _to_bucketing_expression(self) -> ast.Expr:
         assert isinstance(self.histogram_bin_count, int)

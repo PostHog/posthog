@@ -2,6 +2,7 @@ from datetime import datetime
 from freezegun import freeze_time
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.models.team import WeekStartDay
 from posthog.models.utils import UUIDT
 from posthog.schema import (
     DateRange,
@@ -12,6 +13,7 @@ from posthog.schema import (
     PropertyOperator,
     PersonPropertyFilter,
     ActionsNode,
+    CohortPropertyFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -21,7 +23,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from posthog.models import Action, ActionStep
+from posthog.models import Action, ActionStep, Cohort
 from posthog.models.instance_setting import get_instance_setting
 
 
@@ -38,7 +40,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         _create_person(
             properties={"sneaky_mail": "tim@posthog.com", "random_uuid": random_uuid},
             team=self.team,
@@ -941,7 +943,69 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_lifecycle_trend_weeks(self):
+    def test_lifecycle_trend_weeks_sunday(self):
+        self.team.week_start_day = WeekStartDay.SUNDAY
+        self.team.save()
+
+        # lifecycle weeks rounds the date to the nearest following week  2/5 -> 2/10
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-02-01T12:00:00Z",
+                        "2020-02-05T12:00:00Z",
+                        "2020-02-10T12:00:00Z",
+                        "2020-02-15T12:00:00Z",
+                        "2020-02-27T12:00:00Z",
+                        "2020-03-02T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-02-11T12:00:00Z", "2020-02-18T12:00:00Z"]),
+                ("p3", ["2020-02-12T12:00:00Z"]),
+                ("p4", ["2020-02-27T12:00:00Z"]),
+            ]
+        )
+
+        result = (
+            LifecycleQueryRunner(
+                team=self.team,
+                query=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
+                    interval=IntervalType.week,
+                    series=[EventsNode(event="$pageview")],
+                ),
+            )
+            .calculate()
+            .results
+        )
+
+        self.assertEqual(
+            result[0]["days"],
+            [
+                "2020-02-02",
+                "2020-02-09",
+                "2020-02-16",
+                "2020-02-23",
+                "2020-03-01",
+                "2020-03-08",
+            ],
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, 0, -2, -1, -1, -1]},
+                {"status": "new", "data": [0, 2, 0, 1, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 0]},
+                {"status": "returning", "data": [1, 1, 1, 0, 1, 0]},
+            ],
+        )
+
+    def test_lifecycle_trend_weeks_monday(self):
+        self.team.week_start_day = WeekStartDay.MONDAY
+        self.team.save()
+
         # lifecycle weeks rounds the date to the nearest following week  2/5 -> 2/10
         self._create_events(
             data=[
@@ -1109,7 +1173,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12", date_to="2020-01-19"),
                     interval=IntervalType.day,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1135,7 +1199,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12", date_to="2020-01-19"),
                     interval=IntervalType.day,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1188,6 +1252,55 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 samplingFactor=0.1,
             ),
         ).calculate()
+
+    @snapshot_clickhouse_queries
+    def test_cohort_filter(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": ["test@posthog.com"],
+                            "type": "person",
+                            "operator": "exact",
+                        }
+                    ]
+                }
+            ],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+        response = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                interval=IntervalType.day,
+                series=[EventsNode(event="$pageview")],
+                properties=[CohortPropertyFilter(value=cohort.pk)],
+            ),
+        ).calculate()
+        counts = [r["count"] for r in response.results]
+        assert counts == [0, 2, 3, -3]
 
 
 def assertLifecycleResults(results, expected):

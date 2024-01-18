@@ -2,10 +2,8 @@ import { captureException } from '@sentry/react'
 import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urlToAction } from 'kea-router'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -57,18 +55,20 @@ export const TARGET_AREA_TO_NAME = {
     apps: 'Apps',
     login: 'Authentication (Login / Sign-up / Invites)',
     billing: 'Billing',
+    onboarding: 'Onboarding',
     cohorts: 'Cohorts',
     data_integrity: 'Data Integrity',
     data_management: 'Data Management',
     data_warehouse: 'Data Warehouse',
     ingestion: 'Event Ingestion',
-    experiments: 'Experiments',
+    experiments: 'A/B Testing',
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
-    toolbar: 'Toolbar & heatmaps',
+    toolbar: 'Toolbar & Heatmaps',
     surveys: 'Surveys',
     web_analytics: 'Web Analytics',
+    'posthog-3000': 'PostHog 3000',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -122,16 +122,7 @@ export const supportLogic = kea<supportLogicType>([
     props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [
-            userLogic,
-            ['user'],
-            preflightLogic,
-            ['preflight'],
-            featureFlagLogic,
-            ['featureFlags'],
-            sidePanelStateLogic,
-            ['sidePanelAvailable'],
-        ],
+        values: [userLogic, ['user'], preflightLogic, ['preflight'], sidePanelStateLogic, ['sidePanelAvailable']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
@@ -333,19 +324,4 @@ export const supportLogic = kea<supportLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => {
-        return {
-            closeSupportForm: () => {
-                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
-                    return
-                }
-
-                const hashParams = router.values.hashParams
-                delete hashParams['supportModal'] // legacy value
-                delete hashParams['panel']
-
-                return [router.values.location.pathname, router.values.searchParams, hashParams]
-            },
-        }
-    }),
 ])

@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductUri } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,12 +34,11 @@ function OnboardingCompletedButton({
 
     return (
         <>
-            <LemonButton type="secondary" status="muted" to={productUrl}>
+            <LemonButton type="secondary" to={productUrl}>
                 Go to product
             </LemonButton>
             <LemonButton
                 type="tertiary"
-                status="muted"
                 onClick={() => {
                     onSelectProduct(productKey)
                     router.actions.push(onboardingUrl)
@@ -93,6 +93,7 @@ export function ProductCard({
     className?: string
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
     const vertical = orientation === 'vertical'
 
@@ -113,7 +114,7 @@ export function ProductCard({
             <div className={`flex gap-x-2 flex-0 items-center ${!vertical && 'justify-end'}`}>
                 {onboardingCompleted ? (
                     <OnboardingCompletedButton
-                        productUrl={getProductUri(product.type as ProductKey)}
+                        productUrl={getProductUri(product.type as ProductKey, featureFlags)}
                         onboardingUrl={urls.onboarding(product.type)}
                         productKey={product.type as ProductKey}
                     />
@@ -148,7 +149,7 @@ export function Products(): JSX.Element {
             </div>
             {products.length > 0 ? (
                 <>
-                    <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
+                    <div className="flex w-full max-w-300 justify-center gap-6 flex-wrap">
                         {products
                             .filter(
                                 (product) =>

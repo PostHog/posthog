@@ -3,13 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconErrorOutline, IconLegend, IconLink, IconSettings } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES } from 'scenes/pipeline/utils'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { SuccessRateBadge } from 'scenes/plugins/plugin/SuccessRateBadge'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { PluginType } from '~/types'
+import { AvailableFeature, PluginType } from '~/types'
 
 import { PluginTags } from './components'
 
@@ -20,9 +22,20 @@ export function AppView({
 }): JSX.Element {
     const { showAppMetricsForPlugin, sortableEnabledPlugins } = useValues(pluginsLogic)
     const { editPlugin, toggleEnabled, openReorderModal } = useActions(pluginsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id
+
+    // If pluginConfig is enabled always show it regardless of the feature availability
+    // So self-hosted users who were using the plugins in the past can continue to use them
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES) && !pluginConfig?.enabled) {
+        // If the app isn't in the allowed apps list don't show it
+        if (!plugin.url || !PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES.has(plugin.url)) {
+            return <></>
+        }
+    }
+
     const orderedIndex = sortableEnabledPlugins.indexOf(plugin as unknown as any) + 1
     const menuItems: LemonMenuItem[] = []
 
@@ -38,7 +51,7 @@ export function AppView({
     if (isConfigured) {
         menuItems.push({
             label: pluginConfig?.enabled ? 'Disable' : 'Enable',
-            status: pluginConfig.enabled ? 'danger' : 'primary',
+            status: pluginConfig.enabled ? 'danger' : 'default',
             onClick: () =>
                 toggleEnabled({
                     id: pluginConfig.id,
@@ -73,7 +86,7 @@ export function AppView({
                                 {orderedIndex ? (
                                     <LemonBadge.Number status="primary" count={orderedIndex} maxDigits={3} />
                                 ) : (
-                                    <LemonBadge status="primary" content={'-'} />
+                                    <LemonBadge status="primary" content="-" />
                                 )}
                             </LemonButton>
                         </Tooltip>

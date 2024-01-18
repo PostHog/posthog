@@ -116,7 +116,6 @@ export function ResourcePermission({
                                     <LemonButton
                                         icon={<IconSettings />}
                                         to={`${urls.settings('organization')}?tab=role_based_access`}
-                                        status="stealth"
                                         targetBlank
                                         size="small"
                                         noPadding
@@ -146,10 +145,8 @@ export function ResourcePermission({
                             <LemonButton
                                 icon={<IconDelete />}
                                 onClick={() => deleteAssociatedRole(role.id)}
-                                tooltip={'Remove custom role from feature flag'}
+                                tooltip="Remove custom role from feature flag"
                                 tooltipPlacement="bottomLeft"
-                                status="primary-alt"
-                                type="tertiary"
                                 size="small"
                             />
                         )}
@@ -175,7 +172,7 @@ export function ResourcePermission({
             {!shouldShowPermissionsTable && (
                 <>
                     {resourceLevel && <OrganizationResourcePermissionLabel resourceLevel={resourceLevel} />}
-                    {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
+                    <OrganizationResourcePermissionRoles roles={rolesWithAccess} />
                 </>
             )}
             {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
@@ -183,7 +180,7 @@ export function ResourcePermission({
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
-                        <div className="pb-2 rounded overflow-y-auto" style={{ maxHeight: 300 }}>
+                        <div className="pb-2 rounded overflow-y-auto max-h-80">
                             {roles.map((role) => {
                                 return (
                                     <RoleRow
@@ -215,16 +212,9 @@ export function ResourcePermission({
                                 options={roleLemonSelectOptions(addableRoles)}
                             />
                         </div>
-                        {
-                            <LemonButton
-                                type="primary"
-                                loading={false}
-                                disabled={rolesToAdd.length === 0}
-                                onClick={onAdd}
-                            >
-                                Add
-                            </LemonButton>
-                        }
+                        <LemonButton type="primary" loading={false} disabled={rolesToAdd.length === 0} onClick={onAdd}>
+                            Add
+                        </LemonButton>
                     </div>
                 </>
             )}
@@ -244,7 +234,6 @@ function OrganizationResourcePermissionLabel({
                     <LemonButton
                         icon={<IconSettings />}
                         to={`${urls.settings('organization')}?tab=role_based_access`}
-                        status="stealth"
                         targetBlank
                         size="small"
                         noPadding
@@ -282,10 +271,8 @@ function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: R
                 <LemonButton
                     icon={<IconDelete />}
                     onClick={() => deleteRole(role.id)}
-                    tooltip={'Remove role from permission'}
+                    tooltip="Remove role from permission"
                     tooltipPlacement="bottomLeft"
-                    status="primary-alt"
-                    type="tertiary"
                     size="small"
                 />
             )}

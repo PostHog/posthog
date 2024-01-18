@@ -3,7 +3,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { Breadcrumb, NotebookTarget } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import { notebookLogic } from './Notebook/notebookLogic'
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
@@ -36,7 +36,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                     path: urls.notebooks(),
                 },
                 {
-                    key: notebook?.short_id || 'new',
+                    key: [Scene.Notebook, notebook?.short_id || 'new'],
                     name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
                 },
             ],
@@ -44,9 +44,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        if (props.shortId === 'new') {
-            actions.createNotebook(NotebookTarget.Scene)
-        } else {
+        if (props.shortId !== 'new') {
             actions.loadNotebook()
         }
     }),

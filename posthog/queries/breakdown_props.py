@@ -50,7 +50,7 @@ def get_breakdown_prop_values(
     column_optimizer: Optional[ColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
-):
+) -> Tuple[List[Any], bool]:
     """
     Returns the top N breakdown prop values for event/person breakdown
 
@@ -164,7 +164,7 @@ def get_breakdown_prop_values(
             hogql_context=filter.hogql_context,
         )
 
-    value_expression = _to_value_expression(
+    breakdown_expression, breakdown_params = _to_value_expression(
         filter.breakdown_type,
         filter.breakdown,
         filter.breakdown_group_type_index,
@@ -185,7 +185,7 @@ def get_breakdown_prop_values(
         bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_histogram_bin_count))
         elements_query = HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL.format(
             bucketing_expression=bucketing_expression,
-            value_expression=value_expression,
+            breakdown_expression=breakdown_expression,
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             prop_filters=prop_filters,
@@ -199,7 +199,7 @@ def get_breakdown_prop_values(
         )
     else:
         elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
-            value_expression=value_expression,
+            breakdown_expression=breakdown_expression,
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             prop_filters=prop_filters,
@@ -212,16 +212,17 @@ def get_breakdown_prop_values(
             **entity_format_params,
         )
 
-    return insight_sync_execute(
+    response = insight_sync_execute(
         elements_query,
         {
             "key": filter.breakdown,
-            "limit": filter.breakdown_limit_or_default,
+            "limit": filter.breakdown_limit_or_default + 1,
             "team_id": team.pk,
             "offset": filter.offset,
             "timezone": team.timezone,
             **prop_filter_params,
             **entity_params,
+            **breakdown_params,
             **person_join_params,
             **groups_join_params,
             **sessions_join_params,
@@ -233,7 +234,14 @@ def get_breakdown_prop_values(
         query_type="get_breakdown_prop_values",
         filter=filter,
         team_id=team.pk,
-    )[0][0]
+    )
+
+    if filter.using_histogram:
+        return response[0][0], False
+    else:
+        return [row[0] for row in response[0 : filter.breakdown_limit_or_default]], len(
+            response
+        ) > filter.breakdown_limit_or_default
 
 
 def _to_value_expression(
@@ -244,7 +252,8 @@ def _to_value_expression(
     breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,
     cast_as_float: bool = False,
-) -> str:
+) -> Tuple[str, Dict]:
+    params: Dict[str, Any] = {}
     if breakdown_type == "session":
         if breakdown == "$session_duration":
             # Return the session duration expression right away because it's already an number,
@@ -253,7 +262,7 @@ def _to_value_expression(
         else:
             raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
     elif breakdown_type == "person":
-        value_expression = get_single_or_multi_property_string_expr(
+        value_expression, params = get_single_or_multi_property_string_expr(
             breakdown,
             query_alias=None,
             table="events" if direct_on_events else "person",
@@ -282,7 +291,7 @@ def _to_value_expression(
         else:
             value_expression = translate_hogql(cast(str, breakdown), hogql_context)
     else:
-        value_expression = get_single_or_multi_property_string_expr(
+        value_expression, params = get_single_or_multi_property_string_expr(
             breakdown,
             table="events",
             query_alias=None,
@@ -293,7 +302,7 @@ def _to_value_expression(
     if cast_as_float:
         value_expression = f"toFloat64OrNull(toString({value_expression}))"
 
-    return f"{value_expression} AS value"
+    return f"{value_expression} AS value", params
 
 
 def _to_bucketing_expression(bin_count: int) -> str:

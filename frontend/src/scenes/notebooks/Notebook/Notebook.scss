@@ -4,6 +4,12 @@
     flex-direction: column;
     width: 100%;
 
+    // overriding ::selection is necessary here because
+    // antd makes it invisible otherwise
+    span::selection {
+        color: var(--primary-3000);
+    }
+
     .NotebookEditor {
         position: relative;
         flex: 1;
@@ -85,11 +91,11 @@
 
             > ul,
             > ol {
-                padding-left: 1rem;
+                padding-left: 2rem;
 
                 ul,
                 ol {
-                    padding-left: 1rem;
+                    padding-left: 2rem;
                 }
 
                 li {
@@ -117,7 +123,7 @@
 
         .Backlink {
             padding: 0.125rem 0.25rem;
-            background-color: var(--white);
+            background-color: var(--bg-light);
             border: 1px solid var(--border);
             border-radius: var(--radius);
 
@@ -126,12 +132,11 @@
             }
 
             & svg {
-                color: var(--muted-dark);
+                color: var(--text-3000);
             }
 
             &.Backlink--selected {
-                outline-style: solid;
-                outline-color: var(--primary-bg-active);
+                border-color: var(--primary-3000);
             }
 
             &.Backlink--active {
@@ -141,6 +146,10 @@
 
                 & .Backlink__label,
                 & svg {
+                    color: var(--white);
+                }
+
+                span::selection {
                     color: var(--white);
                 }
             }
@@ -174,17 +183,14 @@
             transform: translateX(-100%);
         }
 
-        .NotebookScene &,
-        .NotebookPopover & {
+        .NotebookScene & {
             --notebook-sidebar-height: calc(100vh - 11rem);
 
             .NotebookColumn__padding {
                 // Account for fixed title
                 height: 4rem;
             }
-        }
 
-        .NotebookScene & {
             .NotebookColumn__content {
                 // Account for static header
                 top: 4rem;
@@ -277,10 +283,24 @@
         max-height: 22px;
     }
 
-    // overriding ::selection is necessary here because
-    // antd makes it invisible otherwise
-    span::selection {
-        color: var(--primary-3000);
+    .NotebookComment {
+        --notebook-comment-background-opacity: 0.25;
+
+        position: relative;
+        transform-style: preserve-3d;
+
+        &:hover {
+            --notebook-comment-background-opacity: 0.5;
+        }
+
+        &::after {
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            content: '';
+            background: var(--primary-3000);
+            opacity: var(--notebook-comment-background-opacity);
+        }
     }
 
     // Overrides for insight controls

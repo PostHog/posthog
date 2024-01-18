@@ -35,14 +35,14 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
               run: pnpm i -D chromatic
 
             - name: Publish to Chromatic
-              uses: chromaui/action@v1
+              uses: chromaui/action@v10
               id: publish
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
@@ -114,7 +114,7 @@ jobs:
             - name: Set up Node.js
               uses: buildjet/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -124,7 +124,7 @@ jobs:
               run: pnpm install http-server wait-on
 
             - name: Build Storybook
-              run: pnpm build-storybook --quiet # Silence since progress logging results in a massive wall of spam
+              run: pnpm build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
 
             - name: Serve Storybook in the background
               run: |
@@ -146,15 +146,7 @@ jobs:
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
-
-            - name: Run @playwright/test (legacy, Chromium-only)
-              if: matrix.browser == 'chromium' && matrix.shard == 1
-              env:
-                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
-                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
-              run: |
-                  pnpm test:visual-regression:legacy:ci:$VARIANT
+                  pnpm test:visual-regression:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
             - name: Archive failure screenshots
               if: ${{ failure() }}
@@ -180,12 +172,12 @@ jobs:
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
                     optipng -clobber -o4 -strip all
-                    
+
                     # we don't want to _always_ run OptiPNG
                     # so, we run it after checking for a diff
                     # but, the files we diffed might then be changed by OptiPNG
                     # and as a result they might no longer be different...
-                    
+
                     # we check again
                     git diff --name-status frontend/__snapshots__/ # For debugging
                     ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)

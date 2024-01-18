@@ -37,6 +37,7 @@ export function loadPostHogJS(): void {
                         posthog.opt_in_capturing()
                     }
                 },
+                scroll_root_selector: ['main', 'html'],
             })
         )
 

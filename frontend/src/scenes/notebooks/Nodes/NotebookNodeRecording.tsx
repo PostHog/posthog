@@ -142,7 +142,7 @@ type NotebookNodeRecordingAttributes = {
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    titlePlaceholder: 'Session replay',
+    titlePlaceholder: 'Session recording',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
@@ -157,7 +157,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         },
     },
     pasteOptions: {
-        find: urls.replaySingle('(.+)'),
+        find: urls.replaySingle('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'),
         getAttributes: async (match) => {
             return { id: match[1], noInspector: false }
         },

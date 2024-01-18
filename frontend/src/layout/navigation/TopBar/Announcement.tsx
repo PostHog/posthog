@@ -1,56 +1,30 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import './Announcement.scss'
+
 import { useActions, useValues } from 'kea'
-import { MOCK_NODE_PROCESS } from 'lib/constants'
-import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
-
-window.process = MOCK_NODE_PROCESS
+import { announcementLogic } from '~/layout/navigation/TopBar/announcementLogic'
 
 export function Announcement(): JSX.Element | null {
-    const { shownAnnouncementType, cloudAnnouncement, closable } = useValues(announcementLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { showAnnouncement, cloudAnnouncement } = useValues(announcementLogic)
     const { hideAnnouncement } = useActions(announcementLogic)
 
-    let message: JSX.Element | undefined
-    if (preflight?.demo) {
-        message = (
-            <b>
-                Welcome to PostHog's demo environment. To level up,{' '}
-                <Link to="https://posthog.com/signup" target="_blank">
-                    deploy your own PostHog instance, or sign up for PostHog Cloud
-                </Link>
-                .
-            </b>
-        )
-    } else if (shownAnnouncementType === AnnouncementType.AttentionRequired) {
-        message = (
-            <div>
-                <strong>Attention required!</strong> Your instance has uncompleted migrations that are required for the
-                next release.
-                <LemonButton to="/instance/async_migrations" data-attr="site-banner-async-migrations">
-                    Click here to fix
-                </LemonButton>
-            </div>
-        )
-    } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
-        message = <LemonMarkdown className="strong">{cloudAnnouncement}</LemonMarkdown>
-    } else if (shownAnnouncementType === AnnouncementType.NewFeature) {
-        message = <NewFeatureBanner />
+    if (!showAnnouncement) {
+        return null
     }
 
     return (
-        <div className={clsx('Announcement', !shownAnnouncementType && 'Announcement--hidden')}>
-            {message}
-            {closable && (
-                <div className="Announcement__close" onClick={() => hideAnnouncement(shownAnnouncementType)}>
+        <div className="Announcement h-12 p-3 px-4 font-bold bg-primary text-md">
+            <div className="relative w-full flex items-center">
+                <LemonMarkdown className="strong">{cloudAnnouncement as string}</LemonMarkdown>
+                <div
+                    className="Announcement__close w-8 h-8 flex items-center justify-center rounded cursor-pointer absolute right-0 text-lg border"
+                    onClick={hideAnnouncement}
+                >
                     <IconClose />
                 </div>
-            )}
+            </div>
         </div>
     )
 }

@@ -15,6 +15,12 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation);
 
+    &--embedded {
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
     .LemonRow {
         font-size: 0.8125rem;
     }
@@ -36,11 +42,6 @@
         .datum-column {
             padding-left: 0.5rem;
             overflow-wrap: anywhere;
-        }
-
-        .scrollable__inner {
-            width: 100%;
-            overflow: hidden;
         }
 
         .LemonTable__content > table > thead {

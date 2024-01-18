@@ -2,7 +2,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { PhonePairHogs } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
+import React from 'react'
 import { urls } from 'scenes/urls'
 
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
@@ -13,21 +16,33 @@ export const OnboardingStep = ({
     subtitle,
     children,
     showSkip = false,
+    showHelpButton = false,
     onSkip,
+    continueAction,
     continueOverride,
     backActionOverride,
+    hedgehog,
 }: {
     stepKey: OnboardingStepKey
     title: string
     subtitle?: string
     children: React.ReactNode
     showSkip?: boolean
+    showHelpButton?: boolean
     onSkip?: () => void
+    continueAction?: () => void
     continueOverride?: JSX.Element
     backActionOverride?: () => void
+    hedgehog?: JSX.Element
 }): JSX.Element => {
     const { hasNextStep, hasPreviousStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
+    const { openSupportForm } = useActions(supportLogic)
+
+    const hedgehogToRender = React.cloneElement(hedgehog || <PhonePairHogs />, {
+        className: 'h-full w-full',
+    })
+
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
     }
@@ -55,19 +70,27 @@ export const OnboardingStep = ({
                 </div>
             }
         >
-            <div className="max-w-md">
+            <div className="max-w-192">
+                {hedgehog && <div className="-mt-20 absolute right-4 h-16">{hedgehogToRender}</div>}
+
                 <h1 className="font-bold">{title}</h1>
                 <p>{subtitle}</p>
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
+                    {showHelpButton && (
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => openSupportForm({ kind: 'support', target_area: 'onboarding' })}
+                        >
+                            Need help?
+                        </LemonButton>
+                    )}
                     {showSkip && (
                         <LemonButton
-                            type="tertiary"
                             onClick={() => {
                                 onSkip && onSkip()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
-                            status="muted"
                         >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
@@ -77,7 +100,10 @@ export const OnboardingStep = ({
                     ) : (
                         <LemonButton
                             type="primary"
-                            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                            onClick={() => {
+                                continueAction && continueAction()
+                                !hasNextStep ? completeOnboarding() : goToNextStep()
+                            }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
                             {!hasNextStep ? 'Finish' : 'Continue'}

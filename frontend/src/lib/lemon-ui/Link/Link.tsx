@@ -1,14 +1,12 @@
 import './Link.scss'
 
 import clsx from 'clsx'
-import { useActions } from 'kea'
 import { router } from 'kea-router'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isExternalLink } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import React from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-
-import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
@@ -40,23 +38,25 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     subtle?: boolean
 }
 
-// Some URLs we want to enforce a full reload such as billing which is redirected by Django
-const FORCE_PAGE_LOAD = ['/billing/']
-
 const shouldForcePageLoad = (input: any): boolean => {
     if (!input || typeof input !== 'string') {
         return false
     }
-    return !!FORCE_PAGE_LOAD.find((x) => input.startsWith(x))
+
+    // If the link is to a different team, force a page load to ensure the proper team switch happens
+    const matches = input.match(/\/project\/(\d+)/)
+
+    return !!matches && matches[1] !== `${getCurrentTeamId()}`
 }
 
 const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
-const isPostHogComDomain = (url: string): boolean => {
-    return /^https:\/\/(www\.)?posthog\.com/.test(url)
-}
+// NOTE: Temporarily disabled - owner @corywatilo
+// const isPostHogComDocs = (url: string): boolean => {
+//     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
+// }
 
 /**
  * Link
@@ -87,8 +87,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const is3000 = useFeatureFlag('POSTHOG_3000')
-        const { openDocsPage } = useActions(sidePanelDocsLogic)
+        // NOTE: Temporarily disabled - owner @corywatilo
+        // const { openSidePanel } = useActions(sidePanelStateLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -103,11 +103,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && is3000 && isPostHogComDomain(to)) {
-                event.preventDefault()
-                openDocsPage(to)
-                return
-            }
+            // NOTE: Temporarily disabled - owner @corywatilo
+            // if (typeof to === 'string' && isPostHogComDocs(to)) {
+            //     event.preventDefault()
+            //     openSidePanel(SidePanelTab.Docs, to)
+            //     return
+            // }
 
             if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
@@ -122,6 +123,13 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         }
 
         const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
+        const href = to
+            ? typeof to === 'string'
+                ? to.includes('://')
+                    ? to
+                    : addProjectIdIfMissing(to)
+                : '#'
+            : undefined
 
         return to ? (
             // eslint-disable-next-line react/forbid-elements
@@ -129,7 +137,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 ref={ref as any}
                 className={clsx('Link', subtle && 'Link--subtle', className)}
                 onClick={onClick}
-                href={typeof to === 'string' ? to : '#'}
+                href={href}
                 target={target}
                 rel={target === '_blank' ? rel : undefined}
                 {...props}

@@ -28,10 +28,9 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, DEBUG
-from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
@@ -154,11 +153,34 @@ class AutoProjectMiddleware:
 
     def __call__(self, request: HttpRequest):
         if request.user.is_authenticated:
+            path_parts = request.path.strip("/").split("/")
+            project_id_in_url = None
+            if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
+                project_id_in_url = int(path_parts[1])
+            elif (
+                len(path_parts) >= 3
+                and path_parts[0] == "api"
+                and path_parts[1] == "project"
+                and path_parts[2].isdigit()
+            ):
+                project_id_in_url = int(path_parts[2])
+
+            if (
+                project_id_in_url is not None
+                and request.user.team is not None
+                and request.user.team.pk != project_id_in_url
+            ):
+                try:
+                    new_team = Team.objects.get(pk=project_id_in_url)
+                    self.switch_team_if_allowed(new_team, request)
+                except Team.DoesNotExist:
+                    pass
+                return self.get_response(request)
+
             target_queryset = self.get_target_queryset(request)
             if target_queryset is not None:
-                self.switch_team_if_needed_and_possible(request, target_queryset)
-        response = self.get_response(request)
-        return response
+                self.switch_team_if_needed_and_allowed(request, target_queryset)
+        return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
         path_parts = request.path.strip("/").split("/")
@@ -171,6 +193,9 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
                 return Insight.objects.filter(deleted=False, short_id=insight_short_id)
+            elif path_parts[0] == "notebooks":
+                notebook_short_id = path_parts[1]
+                return Notebook.objects.filter(deleted=False, short_id=notebook_short_id)
             elif path_parts[0] == "feature_flags":
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
@@ -185,23 +210,30 @@ class AutoProjectMiddleware:
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
 
-    def switch_team_if_needed_and_possible(self, request: HttpRequest, target_queryset: QuerySet):
+    def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):
         user = cast(User, request.user)
         current_team = user.team
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
-                actual_item_team = cast(Team, actual_item.team)
-                user_permissions = UserPermissions(user)
-                # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-                #   However this should be a rare operation!
-                if user_permissions.team(actual_item_team).effective_membership_level is not None:
-                    user.current_team = actual_item_team
-                    user.team = user.current_team  # Update cached property
-                    user.current_organization_id = actual_item_team.organization_id
-                    user.save()
-                    # Information for POSTHOG_APP_CONTEXT
-                    request.switched_team = current_team.id  # type: ignore
+                self.switch_team_if_allowed(actual_item.team, request)
+
+    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
+        user = cast(User, request.user)
+        user_permissions = UserPermissions(user)
+        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
+        #   However this should be a rare operation!
+        if user_permissions.team(new_team).effective_membership_level is None:
+            # Do something to indicate that they don't have access to the team...
+            return
+
+        old_team_id = user.current_team_id
+        user.team = new_team
+        user.current_team = new_team
+        user.current_organization_id = new_team.organization_id
+        user.save()
+        # Information for POSTHOG_APP_CONTEXT
+        request.switched_team = old_team_id  # type: ignore
 
 
 class CHQueries:
@@ -368,13 +400,6 @@ class CaptureMiddleware:
 
         # List of middlewares we want to run, that would've been shortcircuited otherwise
         self.CAPTURE_MIDDLEWARE = middlewares
-
-        if STATSD_HOST is not None:
-            # import here to avoid log-spew about failure to connect to statsd,
-            # as this connection is created on import
-            from django_statsd.middleware import StatsdMiddlewareTimer
-
-            self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
 
     def __call__(self, request: HttpRequest):
         if request.path in (

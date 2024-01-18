@@ -1,0 +1,24 @@
+@import '../../../styles/mixins';
+
+.Announcement {
+    position: relative;
+    color: var(--text-secondary);
+
+    .Link {
+        color: var(--default);
+
+        &:hover {
+            color: var(--default);
+            text-decoration: underline;
+        }
+    }
+}
+
+.Announcement__close {
+    border-color: var(--primary-bg-hover);
+
+    &:hover,
+    &:active {
+        background-color: var(--primary-bg-hover);
+    }
+}

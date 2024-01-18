@@ -23,6 +23,7 @@ from posthog.models.feature_flag import (
     get_feature_flags_for_team_in_cache,
     FeatureFlagDashboards,
 )
+from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.util import create_group
@@ -1125,7 +1126,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(FuzzyInt(10, 11)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1140,7 +1141,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(FuzzyInt(10, 11)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -3620,6 +3621,47 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
+
+    def test_cant_update_early_access_flag_with_group(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            filters={
+                "aggregation_group_type_index": None,
+                "groups": [{"properties": [], "rollout_percentage": None}],
+            },
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+        )
+
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="earlyAccessFeature",
+            description="early access feature",
+            stage="alpha",
+            feature_flag=feature_flag,
+        )
+
+        update_data = {
+            "filters": {
+                "aggregation_group_type_index": 2,
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            }
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag.id}/", update_data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Cannot change this flag to a group-based when linked to an Early Access Feature.",
+            },
+            response.json(),
+        )
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):

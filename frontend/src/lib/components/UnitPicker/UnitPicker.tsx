@@ -29,7 +29,7 @@ export function UnitPicker(): JSX.Element {
     const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
 
     const [isVisible, setIsVisible] = useState(false)
-    const [localAxisFormat, setLocalAxisFormat] = useState(trendsFilter?.aggregation_axis_format || undefined)
+    const [localAxisFormat, setLocalAxisFormat] = useState(trendsFilter?.aggregationAxisFormat || undefined)
     const [customUnitModal, setCustomUnitModal] = useState<'prefix' | 'postfix' | null>(null)
 
     const customUnitModalRef = useRef<HTMLDivElement | null>(null)
@@ -50,9 +50,9 @@ export function UnitPicker(): JSX.Element {
         setLocalAxisFormat(format)
 
         updateInsightFilter({
-            aggregation_axis_format: format,
-            aggregation_axis_prefix: prefix,
-            aggregation_axis_postfix: postfix,
+            aggregationAxisFormat: format,
+            aggregationAxisPrefix: prefix,
+            aggregationAxisPostfix: postfix,
         })
 
         reportAxisUnitsChanged({
@@ -72,17 +72,17 @@ export function UnitPicker(): JSX.Element {
         if (localAxisFormat) {
             displayValue = aggregationDisplayMap[localAxisFormat]
         }
-        if (trendsFilter?.aggregation_axis_prefix?.length) {
-            displayValue = `Prefix: ${trendsFilter?.aggregation_axis_prefix}`
+        if (trendsFilter?.aggregationAxisPrefix?.length) {
+            displayValue = `Prefix: ${trendsFilter?.aggregationAxisPrefix}`
         }
-        if (trendsFilter?.aggregation_axis_postfix?.length) {
-            displayValue = `Postfix: ${trendsFilter?.aggregation_axis_postfix}`
+        if (trendsFilter?.aggregationAxisPostfix?.length) {
+            displayValue = `Postfix: ${trendsFilter?.aggregationAxisPostfix}`
         }
         return displayValue
     }, [localAxisFormat, trendsFilter])
 
     return (
-        <div className="flex flex-1 pt-1.5 pb-2 pr-2">
+        <div className="flex-1 mb-2.5 mx-2">
             <CustomUnitModal
                 formativeElement={customUnitModal}
                 isOpen={customUnitModal !== null}
@@ -92,12 +92,11 @@ export function UnitPicker(): JSX.Element {
                 overlayRef={(ref) => (customUnitModalRef.current = ref)}
             />
             <LemonButtonWithDropdown
-                className="flex flex-1 ml-2"
                 onClick={() => setIsVisible(!isVisible)}
-                size={'small'}
-                type={'secondary'}
-                status="stealth"
+                size="small"
+                type="secondary"
                 data-attr="chart-aggregation-axis-format"
+                fullWidth
                 dropdown={{
                     onClickOutside: () => setIsVisible(false),
                     additionalRefs: [customUnitModalRef],
@@ -108,7 +107,6 @@ export function UnitPicker(): JSX.Element {
                                 <LemonButton
                                     key={index}
                                     onClick={() => handleChange({ format: value })}
-                                    status="stealth"
                                     active={value === localAxisFormat}
                                     fullWidth
                                 >
@@ -120,24 +118,22 @@ export function UnitPicker(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('prefix')}
-                                    status="stealth"
-                                    active={!!trendsFilter?.aggregation_axis_prefix}
+                                    active={!!trendsFilter?.aggregationAxisPrefix}
                                     fullWidth
                                 >
                                     Custom prefix
-                                    {trendsFilter?.aggregation_axis_prefix
-                                        ? `: ${trendsFilter?.aggregation_axis_prefix}...`
+                                    {trendsFilter?.aggregationAxisPrefix
+                                        ? `: ${trendsFilter?.aggregationAxisPrefix}...`
                                         : '...'}
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('postfix')}
-                                    status="stealth"
-                                    active={!!trendsFilter?.aggregation_axis_postfix}
+                                    active={!!trendsFilter?.aggregationAxisPostfix}
                                     fullWidth
                                 >
                                     Custom postfix
-                                    {trendsFilter?.aggregation_axis_postfix
-                                        ? `: ${trendsFilter?.aggregation_axis_postfix}...`
+                                    {trendsFilter?.aggregationAxisPostfix
+                                        ? `: ${trendsFilter?.aggregationAxisPostfix}...`
                                         : '...'}
                                 </LemonButton>
                             </>

@@ -2,7 +2,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { KEY_MAPPING } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
-import { getCurrentTeamId } from 'lib/utils/logics'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -214,6 +214,20 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
+// NB! Sync this with breakdown.py
+export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
+export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
+export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
+export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
+
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
+}
+
+export function isNullBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_NULL_STRING_LABEL || breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL
+}
+
 export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
@@ -249,13 +263,25 @@ export function formatBreakdownLabel(
         }
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
-        return formatPropertyValueForDisplay
+        return isOtherBreakdown(breakdown_value)
+            ? 'Other'
+            : isNullBreakdown(breakdown_value)
+            ? 'None'
+            : formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
-            : breakdown_value.toString()
+            : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
+        return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
+            ? 'Other'
+            : isNullBreakdown(breakdown_value) || breakdown_value === ''
+            ? 'None'
+            : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
-        return breakdown_value.join('::')
+        return breakdown_value
+            .map((v) =>
+                formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, v, breakdown, breakdown_type, isHistogram)
+            )
+            .join('::')
     } else {
         return ''
     }

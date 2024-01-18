@@ -211,13 +211,13 @@ BATCH_EXPORT_ID = str(uuid.uuid4())
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -262,13 +262,13 @@ async def test_batch_exports_logger_binds_activity_context(
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -324,13 +324,13 @@ def log_entries_table():
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -399,9 +399,9 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         if iterations > 10:
             raise TimeoutError("Timedout waiting for logs")
 
-    assert len(results) == 1  # type: ignore
+    assert len(results) == 1
 
-    row = results[0]  # type: ignore
+    row = results[0]
     assert row[0] == activity_environment.info.workflow_run_id
     assert row[1] == "info"
     assert row[2] == expected_log_source

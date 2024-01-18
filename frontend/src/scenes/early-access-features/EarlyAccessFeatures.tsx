@@ -36,14 +36,6 @@ export function EarlyAccessFeatures(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={
-                    <div className="flex items-center gap-2">
-                        Early Access Management
-                        <LemonTag type="warning" className="uppercase">
-                            Beta
-                        </LemonTag>
-                    </div>
-                }
                 caption={
                     !showIntro && (
                         <>
@@ -62,7 +54,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 }
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
-                        Create feature
+                        New feature
                     </LemonButton>
                 }
                 delimited

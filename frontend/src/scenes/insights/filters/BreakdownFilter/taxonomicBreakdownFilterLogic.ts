@@ -23,7 +23,7 @@ export type TaxonomicBreakdownFilterLogicProps = {
     breakdownFilter: BreakdownFilter
     display?: ChartDisplayType | null
     isTrends: boolean
-    updateBreakdown: ((breakdown: BreakdownFilter) => void) | null
+    updateBreakdownFilter: ((breakdownFilter: BreakdownFilter) => void) | null
     updateDisplay: ((display: ChartDisplayType | undefined) => void) | null
 }
 
@@ -42,6 +42,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             taxonomicGroup,
         }),
         removeBreakdown: (breakdown: string | number) => ({ breakdown }),
+        setBreakdownLimit: (value: number | undefined) => ({ value }),
         setHistogramBinsUsed: (value: boolean) => ({ value }),
         setHistogramBinCount: (count: number | undefined) => ({ count }),
         setNormalizeBreakdownURL: (normalizeBreakdownURL: boolean) => ({
@@ -53,6 +54,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             10 as number | undefined,
             {
                 setHistogramBinCount: (_, { count }) => count,
+            },
+        ],
+        localBreakdownLimit: [
+            25 as number | undefined,
+            {
+                setBreakdownLimit: (_, { value }) => value ?? 25,
             },
         ],
     }),
@@ -91,6 +98,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (breakdownFilter, localHistogramBinCount) =>
                 localHistogramBinCount || breakdownFilter?.breakdown_histogram_bin_count,
         ],
+        breakdownLimit: [
+            (s) => [s.breakdownFilter, s.localBreakdownLimit],
+            (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
+        ],
     }),
     listeners(({ props, values }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
@@ -98,7 +109,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
             const isHistogramable = !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical
 
-            if (!props.updateBreakdown || !breakdownType) {
+            if (!props.updateBreakdownFilter || !breakdownType) {
                 return
             }
 
@@ -115,7 +126,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     ? (Array.from(new Set([...values.breakdownCohortArray, breakdown])) as (string | number)[])
                     : ([breakdown] as (string | number)[])
 
-            props.updateBreakdown({
+            props.updateBreakdownFilter({
                 breakdown_type: breakdownType,
                 breakdown:
                     taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers ? cohortBreakdown : breakdown,
@@ -125,19 +136,23 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             })
         },
         removeBreakdown: ({ breakdown }) => {
-            if (!props.updateBreakdown) {
+            if (!props.updateBreakdownFilter) {
                 return
             }
 
             if (isCohortBreakdown(breakdown)) {
                 const newParts = values.breakdownCohortArray.filter((cohort) => cohort !== breakdown)
                 if (newParts.length === 0) {
-                    props.updateBreakdown({ ...props.breakdownFilter, breakdown: null, breakdown_type: null })
+                    props.updateBreakdownFilter({ ...props.breakdownFilter, breakdown: null, breakdown_type: null })
                 } else {
-                    props.updateBreakdown({ ...props.breakdownFilter, breakdown: newParts, breakdown_type: 'cohort' })
+                    props.updateBreakdownFilter({
+                        ...props.breakdownFilter,
+                        breakdown: newParts,
+                        breakdown_type: 'cohort',
+                    })
                 }
             } else {
-                props.updateBreakdown({
+                props.updateBreakdownFilter({
                     ...props.breakdownFilter,
                     breakdown: undefined,
                     breakdown_type: undefined,
@@ -151,18 +166,18 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             }
         },
         setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {
-            props.updateBreakdown?.({
+            props.updateBreakdownFilter?.({
                 breakdown_normalize_url: normalizeBreakdownURL,
             })
         },
         setHistogramBinsUsed: ({ value }) => {
-            props.updateBreakdown?.({
+            props.updateBreakdownFilter?.({
                 breakdown_histogram_bin_count: value ? values.histogramBinCount : undefined,
             })
         },
         setHistogramBinCount: async ({ count }, breakpoint) => {
             await breakpoint(1000)
-            props.updateBreakdown?.({
+            props.updateBreakdownFilter?.({
                 breakdown_histogram_bin_count: values.histogramBinsUsed ? count : undefined,
             })
         },

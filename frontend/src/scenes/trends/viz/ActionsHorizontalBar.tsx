@@ -3,7 +3,7 @@ import { getSeriesColor } from 'lib/colors'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -35,7 +35,9 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
 
         setData([
             {
-                labels: _data.map((item) => item.label),
+                labels: _data.map((item) =>
+                    isOtherBreakdown(item.label) ? 'Other' : isNullBreakdown(item.label) ? 'None' : item.label
+                ),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 personsValues: _data.map((item) => item.persons),
@@ -90,7 +92,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
 
                           const dataset = points.referencePoint.dataset
                           const label = dataset.labels?.[point.index]
-                          const urls = urlsForDatasets(crossDataset, index)
+                          const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
                           const selectedUrl = urls[index]?.value
 
                           if (selectedUrl) {

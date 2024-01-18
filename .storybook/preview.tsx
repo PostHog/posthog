@@ -114,11 +114,10 @@ const preview: Preview = {
     globalTypes: {
         theme: {
             description: '',
-            defaultValue: 'legacy',
+            defaultValue: 'light',
             toolbar: {
                 title: 'Theme',
                 items: [
-                    { value: 'legacy', icon: 'faceneutral', title: 'Legacy' },
                     { value: 'light', icon: 'sun', title: 'Light' },
                     { value: 'dark', icon: 'moon', title: 'Dark' },
                 ],

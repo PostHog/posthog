@@ -34,7 +34,7 @@ export function AppManagementView({
                 <div>
                     <div className="flex gap-2 items-center">
                         <span className="font-semibold truncate">
-                            <Link to={plugin.url} target={'blank'}>
+                            <Link to={plugin.url} target="blank">
                                 {plugin.name}
                             </Link>
                         </span>
@@ -69,7 +69,7 @@ export function AppManagementView({
                             className="Plugins__Popconfirm"
                         >
                             <LemonButton
-                                type="primary"
+                                type="secondary"
                                 status="danger"
                                 size="small"
                                 icon={<IconDelete />}

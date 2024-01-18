@@ -1,14 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, TeamBasicType } from '~/types'
 
@@ -68,7 +69,7 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
     const { push } = useActions(router)
 
     return isAuthenticatedTeam(currentTeam) ? (
-        <LemonButtonWithSideAction
+        <LemonButton
             active
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
@@ -79,36 +80,37 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
                 },
             }}
             title={`Switch to project ${currentTeam.name}`}
-            status="stealth"
             fullWidth
         >
             <ProjectName team={currentTeam} />
-        </LemonButtonWithSideAction>
+        </LemonButton>
     ) : null
 }
 
-function OtherProjectButton({ team, onClickInside }: { team: TeamBasicType; onClickInside?: () => void }): JSX.Element {
-    const { updateCurrentTeam } = useActions(userLogic)
+function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () => void }): JSX.Element {
+    const { location } = useValues(router)
+
+    const relativeOtherProjectPath = useMemo(() => {
+        // NOTE: There is a tradeoff here - because we choose keep the whole path it could be that the
+        // project switch lands on something like insight/abc that won't exist.
+        // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
+        // and after switching is on a different page than before.
+        const route = removeProjectIdIfPresent(location.pathname)
+        return urls.project(team.id, route)
+    }, [location.pathname])
 
     return (
-        <LemonButtonWithSideAction
-            onClick={() => {
-                onClickInside?.()
-                updateCurrentTeam(team.id, '/')
-            }}
+        <LemonButton
+            to={relativeOtherProjectPath}
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
-                onClick: () => {
-                    onClickInside?.()
-                    updateCurrentTeam(team.id, '/settings')
-                },
+                to: urls.project(team.id, urls.settings()),
             }}
             title={`Switch to project ${team.name}`}
-            status="stealth"
             fullWidth
         >
             <ProjectName team={team} />
-        </LemonButtonWithSideAction>
+        </LemonButton>
     )
 }

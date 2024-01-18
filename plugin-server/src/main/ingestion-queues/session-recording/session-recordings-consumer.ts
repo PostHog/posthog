@@ -90,6 +90,17 @@ const counterKafkaMessageReceived = new Counter({
     labelNames: ['partition'],
 })
 
+const counterCommitSkippedDueToPotentiallyBlockingSession = new Counter({
+    name: 'recording_blob_ingestion_commit_skipped_due_to_potentially_blocking_session',
+    help: 'The number of times we skipped committing due to a potentially blocking session',
+})
+
+const histogramActiveSessionsWhenCommitIsBlocked = new Histogram({
+    name: 'recording_blob_ingestion_active_sessions_when_commit_is_blocked',
+    help: 'The number of active sessions on a partition when we skip committing due to a potentially blocking session',
+    buckets: [0, 1, 2, 3, 4, 5, 10, 20, 50, 100, 1000, 10000, Infinity],
+})
+
 type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
@@ -118,12 +129,19 @@ export class SessionRecordingIngester {
     totalNumPartitions = 0
 
     private promises: Set<Promise<any>> = new Set()
+    // if ingestion is lagging on a single partition it is often hard to identify _why_,
+    // this allows us to output more information for that partition
+    private debugPartition: number | undefined = undefined
 
     constructor(
         globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage
     ) {
+        this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
+            ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
+            : undefined
+
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
@@ -206,7 +224,15 @@ export class SessionRecordingIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { offset } = event.metadata
+        const { offset, partition } = event.metadata
+        if (this.debugPartition === partition) {
+            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
+                team_id,
+                session_id,
+                partition,
+                offset,
+            })
+        }
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
@@ -244,7 +270,8 @@ export class SessionRecordingIngester {
                 team_id,
                 session_id,
                 partition,
-                topic
+                topic,
+                this.debugPartition === partition
             )
         }
 
@@ -423,11 +450,6 @@ export class SessionRecordingIngester {
             status.error('🔥', 'blob_ingester_consumer - rebalancing error', { err })
             captureException(err)
             // TODO: immediately die? or just keep going?
-        })
-
-        // Make sure to disconnect the producer after we've finished consuming.
-        this.batchConsumer.join().finally(() => {
-            status.debug('🔁', 'blob_ingester_consumer - batch consumer has finished')
         })
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
@@ -637,9 +659,11 @@ export class SessionRecordingIngester {
 
                 let potentiallyBlockingSession: SessionManager | undefined
 
+                let activeSessionsOnThisPartition = 0
                 for (const sessionManager of blockingSessions) {
                     if (sessionManager.partition === partition) {
                         const lowestOffset = sessionManager.getLowestOffset()
+                        activeSessionsOnThisPartition++
                         if (
                             lowestOffset !== null &&
                             lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
@@ -657,14 +681,24 @@ export class SessionRecordingIngester {
                     : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
 
                 if (!highestOffsetToCommit) {
-                    status.debug('🤔', 'blob_ingester_consumer - no highestOffsetToCommit for partition', {
-                        blockingSession: potentiallyBlockingSession?.sessionId,
-                        blockingSessionTeamId: potentiallyBlockingSession?.teamId,
-                        partition: partition,
-                        // committedHighOffset,
-                        lastMessageOffset: metrics.lastMessageOffset,
-                        highestOffsetToCommit,
-                    })
+                    const partitionDebug = this.debugPartition === partition
+                    const logMethod = partitionDebug ? status.info : status.debug
+                    logMethod(
+                        '🤔',
+                        `[blob_ingester_consumer]${
+                            partitionDebug ? ' - [PARTITION DEBUG] - ' : ' - '
+                        }no highestOffsetToCommit for partition`,
+                        {
+                            blockingSession: potentiallyBlockingSession?.sessionId,
+                            blockingSessionTeamId: potentiallyBlockingSession?.teamId,
+                            partition: partition,
+                            // committedHighOffset,
+                            lastMessageOffset: metrics.lastMessageOffset,
+                            highestOffsetToCommit,
+                        }
+                    )
+                    counterCommitSkippedDueToPotentiallyBlockingSession.inc()
+                    histogramActiveSessionsWhenCommitIsBlocked.observe(activeSessionsOnThisPartition)
                     return
                 }
 

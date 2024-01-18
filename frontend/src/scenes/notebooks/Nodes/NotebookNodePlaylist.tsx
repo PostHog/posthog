@@ -8,7 +8,6 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
-import { fromParamsGivenUrl } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -86,7 +85,8 @@ const Component = ({
                           icon: <IconComment />,
                           onClick: () => {
                               if (activeSessionRecording.id) {
-                                  insertReplayCommentByTimestamp(0, activeSessionRecording.id)
+                                  const time = getReplayLogic(activeSessionRecording.id)?.values.currentPlayerTime
+                                  insertReplayCommentByTimestamp(time ?? 0, activeSessionRecording.id)
                               }
                           },
                       },
@@ -163,13 +163,6 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         },
         pinned: {
             default: undefined,
-        },
-    },
-    pasteOptions: {
-        find: urls.replay() + '(.+)',
-        getAttributes: async (match) => {
-            const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
-            return { filters: searchParams.filters }
         },
     },
     Settings,

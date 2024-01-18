@@ -66,13 +66,14 @@ class RetentionEventsQuery(EventQuery):
                     "properties" if self._person_on_events_mode == PersonOnEventsMode.DISABLED else "person_properties"
                 )
 
-            breakdown_values_expression = get_single_or_multi_property_string_expr(
+            breakdown_values_expression, breakdown_values_params = get_single_or_multi_property_string_expr(
                 breakdown=[breakdown["property"] for breakdown in self._filter.breakdowns],
                 table=cast(Union[Literal["events"], Literal["person"]], table),
                 query_alias=None,
                 column=column,
                 materialised_table_column=materalised_table_column,
             )
+            self.params.update(breakdown_values_params)
 
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [f"argMin({breakdown_values_expression}, e.timestamp) AS breakdown_values"]
@@ -114,7 +115,12 @@ class RetentionEventsQuery(EventQuery):
                     ] as breakdown_values
                     """
                 ]
-            self.params.update({"start_date": self._filter.date_from, "period": self._filter.period})
+            self.params.update(
+                {
+                    "start_date": self._filter.date_from.strftime("%Y-%m-%d %H:%M:%S"),
+                    "period": self._filter.period,
+                }
+            )
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)

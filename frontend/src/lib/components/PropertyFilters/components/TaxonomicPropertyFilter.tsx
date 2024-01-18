@@ -42,7 +42,7 @@ export function TaxonomicPropertyFilter({
     orFiltering,
     addText = 'Add filter',
     hasRowOperator,
-    hogQLTable,
+    metadataSource,
     propertyAllowList,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
@@ -105,7 +105,7 @@ export function TaxonomicPropertyFilter({
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
-            hogQLTable={hogQLTable}
+            metadataSource={metadataSource}
             eventNames={eventNames}
             propertyAllowList={propertyAllowList}
         />
@@ -167,9 +167,9 @@ export function TaxonomicPropertyFilter({
                         >
                             <LemonButton
                                 type="secondary"
-                                status={!valuePresent ? 'primary' : 'stealth'}
                                 icon={!valuePresent ? <IconPlusMini /> : undefined}
                                 data-attr={'property-select-toggle-' + index}
+                                sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                             >
                                 {filter?.type === 'cohort' ? (

@@ -1,14 +1,6 @@
 import './SidePanel.scss'
 
-import {
-    IconEllipsis,
-    IconFeatures,
-    IconGear,
-    IconInfo,
-    IconNotebook,
-    IconNotification,
-    IconSupport,
-} from '@posthog/icons'
+import { IconConfetti, IconEllipsis, IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -19,16 +11,19 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 import { SidePanelTab } from '~/types'
 
-import { SidePanelActivity } from './panels/activity/SidePanelActivity'
+import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
+import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
+import { SidePanelWelcome } from './panels/SidePanelWelcome'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
-export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
+export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',
         Icon: IconNotebook,
@@ -55,17 +50,36 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         Icon: IconGear,
         Content: SidePanelSettings,
     },
+
     [SidePanelTab.FeaturePreviews]: {
-        label: 'Previews',
+        label: 'Feature previews',
         Icon: IconFeatures,
         Content: SidePanelFeaturePreviews,
     },
+
     [SidePanelTab.Activity]: {
         label: 'Activity',
-        Icon: IconNotification,
+        Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },
+    [SidePanelTab.Discussion]: {
+        label: 'Discussion',
+        Icon: SidePanelDiscussionIcon,
+        Content: SidePanelDiscussion,
+    },
+    [SidePanelTab.Welcome]: {
+        label: "What's new?",
+        Icon: IconConfetti,
+        Content: SidePanelWelcome,
+    },
+    [SidePanelTab.Status]: {
+        label: 'System status',
+        Icon: SidePanelStatusIcon,
+        Content: SidePanelStatus,
+    },
 }
+
+const DEFAULT_WIDTH = 512
 
 export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
@@ -74,7 +88,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab ? SidePanelTabs[activeTab]?.Content : null
+    const PanelConent = activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -109,7 +123,7 @@ export function SidePanel(): JSX.Element | null {
               {
                   title: 'Open in side panel',
                   items: extraTabs.map((tab) => {
-                      const { Icon, label } = SidePanelTabs[tab]
+                      const { Icon, label } = SIDE_PANEL_TABS[tab]
 
                       return {
                           label: label,
@@ -131,7 +145,7 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredWidth ?? undefined : undefined,
+                width: sidePanelOpenAndAvailable ? desiredWidth ?? DEFAULT_WIDTH : undefined,
             }}
         >
             <Resizer {...resizerLogicProps} />
@@ -139,18 +153,18 @@ export function SidePanel(): JSX.Element | null {
                 <div className="SidePanel3000__tabs">
                     <div className="SidePanel3000__tabs-content">
                         {visibleTabs.map((tab: SidePanelTab) => {
-                            const { Icon, label } = SidePanelTabs[tab]
+                            const { Icon, label } = SIDE_PANEL_TABS[tab]
                             return (
                                 <LemonButton
                                     key={tab}
-                                    icon={<Icon className="rotate-270 w-6" />}
+                                    icon={<Icon />}
                                     onClick={() =>
                                         activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
                                     }
                                     data-attr={`sidepanel-tab-${tab}`}
                                     active={activeTab === tab}
                                     type="secondary"
-                                    stealth={true}
+                                    status="alt"
                                 >
                                     {label}
                                 </LemonButton>
@@ -161,12 +175,12 @@ export function SidePanel(): JSX.Element | null {
                 {menuOptions ? (
                     <div className="shrink-0 flex items-center m-2">
                         <LemonMenu items={menuOptions}>
-                            <LemonButton size="small" status="stealth" icon={<IconEllipsis />} />
+                            <LemonButton size="small" icon={<IconEllipsis />} />
                         </LemonMenu>
                     </div>
                 ) : null}
             </div>
-            <Resizer {...resizerLogicProps} offset={'3rem'} />
+            <Resizer {...resizerLogicProps} offset="3rem" />
 
             {PanelConent ? (
                 <div className="SidePanel3000__content">

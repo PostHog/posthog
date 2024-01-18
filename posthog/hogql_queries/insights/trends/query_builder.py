@@ -13,7 +13,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery
 
 
 class TrendsQueryBuilder:
@@ -22,6 +22,7 @@ class TrendsQueryBuilder:
     query_date_range: QueryDateRange
     series: EventsNode | ActionsNode
     timings: HogQLTimings
+    modifiers: HogQLQueryModifiers
 
     def __init__(
         self,
@@ -30,12 +31,14 @@ class TrendsQueryBuilder:
         query_date_range: QueryDateRange,
         series: EventsNode | ActionsNode,
         timings: HogQLTimings,
+        modifiers: HogQLQueryModifiers,
     ):
         self.query = trends_query
         self.team = team
         self.query_date_range = query_date_range
         self.series = series
         self.timings = timings
+        self.modifiers = modifiers
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self._trends_display.should_aggregate_values():
@@ -55,6 +58,7 @@ class TrendsQueryBuilder:
         event_query = self._get_events_subquery(True)
 
         event_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
+        event_query.distinct = True
         event_query.group_by = None
 
         return event_query
@@ -299,6 +303,34 @@ class TrendsQueryBuilder:
             ),
         )
 
+        if (
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.smoothingIntervals is not None
+            and self.query.trendsFilter.smoothingIntervals > 1
+        ):
+            rolling_average = ast.Alias(
+                alias="count",
+                expr=ast.Call(
+                    name="floor",
+                    args=[
+                        ast.WindowFunction(
+                            name="avg",
+                            args=[ast.Call(name="sum", args=[ast.Field(chain=["total"])])],
+                            over_expr=ast.WindowExpr(
+                                order_by=[ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC")],
+                                frame_method="ROWS",
+                                frame_start=ast.WindowFrameExpr(
+                                    frame_type="PRECEDING",
+                                    frame_value=int(self.query.trendsFilter.smoothingIntervals - 1),
+                                ),
+                                frame_end=ast.WindowFrameExpr(frame_type="CURRENT ROW"),
+                            ),
+                        )
+                    ],
+                ),
+            )
+            query.select = [rolling_average]
+
         query.group_by = []
         query.order_by = []
 
@@ -419,6 +451,7 @@ class TrendsQueryBuilder:
             series=self.series,
             query_date_range=self.query_date_range,
             timings=self.timings,
+            modifiers=self.modifiers,
             events_filter=self._events_filter(ignore_breakdowns=True),
         )
 

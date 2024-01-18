@@ -57,9 +57,9 @@ export interface CommonInsightFilter
         Partial<LifecycleFilter> {}
 
 export interface QueryPropertyCache
-    extends Omit<Partial<TrendsQuery>, 'kind'>,
+    extends Omit<Partial<TrendsQuery>, 'kind' | 'response'>,
         Omit<Partial<FunnelsQuery>, 'kind'>,
-        Omit<Partial<RetentionQuery>, 'kind'>,
+        Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
         Omit<Partial<PathsQuery>, 'kind'>,
         Omit<Partial<StickinessQuery>, 'kind'>,
         Omit<Partial<LifecycleQuery>, 'kind'> {
@@ -316,9 +316,9 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         mergedQuery.interval = cache.interval
     }
 
-    // breakdown
-    if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdown) {
-        mergedQuery.breakdown = cache.breakdown
+    // breakdown filter
+    if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdownFilter) {
+        mergedQuery.breakdownFilter = cache.breakdownFilter
     }
 
     // insight specific filter

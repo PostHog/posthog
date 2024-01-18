@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: ClickhouseTestTrends.test_insight_trends_aggregate
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(*) AS total
   FROM events e
@@ -7,10 +8,10 @@
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -36,10 +37,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_basic
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -69,10 +70,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -98,10 +99,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -125,10 +126,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -156,10 +157,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -182,10 +183,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -211,28 +212,26 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.10
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.11
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -266,7 +265,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id, timestamp, transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -278,8 +277,7 @@
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
               GROUP BY person_id,
                        breakdown_value) AS pdi
            GROUP BY day_start,
@@ -290,10 +288,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.12
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -321,10 +319,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -358,10 +356,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -387,28 +385,26 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.4
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.5
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -436,13 +432,12 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -451,10 +446,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -482,49 +477,47 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.7
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(DISTINCT pdi.person_id) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
-                    AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(DISTINCT pdi.person_id) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
+                 AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
+          AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.8
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -567,7 +560,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS breakdown_value
+                        transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -610,10 +603,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -655,10 +648,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -688,10 +681,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -721,10 +714,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -754,10 +747,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -787,10 +780,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -815,10 +808,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT $group_0 AS actor_id,
          count() AS actor_value
@@ -838,10 +831,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -864,10 +857,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -894,5 +887,5 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---

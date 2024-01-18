@@ -4,9 +4,9 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -18,10 +18,10 @@ import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButt
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import {
+    isActorsQuery,
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
-    isPersonsQuery,
     isTimeToSeeDataSessionsQuery,
     trimQuotes,
 } from '~/queries/utils'
@@ -83,7 +83,17 @@ export function renderColumn(
                         object[value[i]] = value[i + 1]
                     }
                     if ('results' in object && Array.isArray(object.results)) {
-                        return <TableCellSparkline data={object.results} />
+                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
+                        return (
+                            <Sparkline
+                                data={[
+                                    {
+                                        name: key.includes('__hogql_chart_type') ? 'Data' : key,
+                                        values: object.results.map((v: any) => Number(v)),
+                                    },
+                                ]}
+                            />
+                        )
                     }
                 }
 
@@ -206,7 +216,6 @@ export function renderColumn(
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
     } else if (key === 'person') {
         const personRecord = record as PersonType
-
         const displayProps: PersonDisplayProps = {
             withIcon: true,
             person: record as PersonType,
@@ -222,19 +231,22 @@ export function renderColumn(
             displayProps.href = urls.personByDistinctId(personRecord.distinct_ids[0])
         }
 
-        if (isPersonsQuery(query.source)) {
-            displayProps.href = urls.personByUUID(personRecord.id ?? '-')
+        if (isActorsQuery(query.source) && value) {
+            displayProps.person = value
+            displayProps.href = value.id
+                ? urls.personByUUID(value.id)
+                : urls.personByDistinctId(value.distinct_ids?.[0] ?? '-')
         }
 
         return <PersonDisplay {...displayProps} />
-    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
+    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? <Component record={record} columnName={columnName} value={value} query={query} /> : ''
-    } else if (key === 'id' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
+    } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
@@ -248,8 +260,8 @@ export function renderColumn(
         const [parent, child] = key.split('.')
         return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
-        if (typeof value === 'object' && value !== null) {
-            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        if (typeof value === 'object') {
+            return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return String(value)
     }

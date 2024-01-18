@@ -1,6 +1,5 @@
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     IconGauge,
     IconInfo,
@@ -37,7 +36,6 @@ export function PlayerInspectorControls(): JSX.Element {
     const { showOnlyMatching, timestampMode, miniFilters, syncScroll, searchQuery } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll, setSearchQuery } =
         useActions(playerSettingsLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -73,7 +71,6 @@ export function PlayerInspectorControls(): JSX.Element {
                                         )
                                     ) : undefined
                                 }
-                                status={tab === tabId ? 'primary' : 'primary-alt'}
                                 active={tab === tabId}
                                 onClick={() => setTab(tabId)}
                             >
@@ -85,7 +82,7 @@ export function PlayerInspectorControls(): JSX.Element {
 
                 <div className="flex items-center gap-2 flex-1">
                     <LemonInput
-                        className="min-w-40"
+                        className="min-w-[10rem]"
                         size="small"
                         onChange={(e) => setSearchQuery(e)}
                         placeholder="Search..."
@@ -132,14 +129,13 @@ export function PlayerInspectorControls(): JSX.Element {
             <div className="flex items-center gap-2 justify-between">
                 <div
                     className="flex items-center gap-1 flex-wrap font-medium text-primary-alt"
-                    data-attr={'mini-filters'}
+                    data-attr="mini-filters"
                 >
                     {miniFilters.map((filter) => (
                         <LemonButton
                             key={filter.key}
                             size="small"
                             noPadding
-                            status="primary-alt"
                             active={filter.enabled}
                             onClick={() => {
                                 // "alone" should always be a select-to-true action
@@ -156,7 +152,6 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonButton
                         size="small"
                         noPadding
-                        status="primary-alt"
                         onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
                         tooltipPlacement="left"
                         tooltip={
@@ -174,9 +169,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonButton
                         size="small"
                         noPadding
-                        status="primary-alt"
-                        active={is3000 && syncScroll}
-                        type={is3000 ? 'tertiary' : syncScroll ? 'primary' : 'tertiary'}
+                        active={syncScroll}
                         onClick={() => {
                             // If the user has syncScrolling on but it is paused due to interacting with the Inspector, we want to resume it
                             if (syncScroll && syncScrollingPaused) {

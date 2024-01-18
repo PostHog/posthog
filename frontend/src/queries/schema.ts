@@ -46,7 +46,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
-    PersonsQuery = 'PersonsQuery',
+    ActorsQuery = 'ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
@@ -62,7 +62,7 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
-    InsightPersonsQuery = 'InsightPersonsQuery',
+    InsightActorsQuery = 'InsightActorsQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -85,8 +85,8 @@ export type AnyDataNode =
     | PersonsNode // old persons API endpoint
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
-    | PersonsQuery
-    | InsightPersonsQuery
+    | ActorsQuery
+    | InsightActorsQuery
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
@@ -94,9 +94,24 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebTopClicksQuery
 
+/**
+ * @discriminator kind
+ */
 export type QuerySchema =
     // Data nodes (see utils.ts)
-    | AnyDataNode
+    | EventsNode // never queried directly
+    | ActionsNode // old actions API endpoint
+    | PersonsNode // old persons API endpoint
+    | TimeToSeeDataSessionsQuery // old API
+    | EventsQuery
+    | ActorsQuery
+    | InsightActorsQuery
+    | SessionsTimelineQuery
+    | HogQLQuery
+    | HogQLMetadata
+    | WebOverviewQuery
+    | WebStatsTableQuery
+    | WebTopClicksQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -113,8 +128,15 @@ export type QuerySchema =
     | LifecycleQuery
 
     // Misc
-    | TimeToSeeDataSessionsQuery
     | DatabaseSchemaQuery
+
+// Keep this, because QuerySchema itself will be collapsed as it is used in other models
+export type QuerySchemaRoot = QuerySchema
+
+// Dynamically make a union type out of all the types in all `response` fields in QuerySchema
+type QueryResponseType<T> = T extends { response: infer R } ? { response: R } : never
+type QueryAllResponses = QueryResponseType<QuerySchema>
+export type QueryResponseAlternative = QueryAllResponses[keyof QueryAllResponses]
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -139,7 +161,7 @@ export interface DataNode extends Node {
 export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
-    inCohortVia?: 'leftjoin' | 'subquery'
+    inCohortVia?: 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
 }
 
@@ -208,6 +230,8 @@ export interface HogQLMetadata extends DataNode {
     select?: string
     /** HogQL expression to validate (use `select` or `expr`, but not both) */
     expr?: string
+    /** Query within which "expr" is validated. Defaults to "select * from events" */
+    exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
     filters?: HogQLFilters
@@ -231,6 +255,7 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     /** The event or `null` for all events. */
     event?: string | null
+    /**  @asType integer */
     limit?: number
     /** Columns to order by */
     orderBy?: string[]
@@ -243,6 +268,7 @@ export interface EventsNode extends EntityNode {
 
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
+    /**  @asType integer */
     id: number
 }
 
@@ -259,6 +285,10 @@ export interface EventsQueryResponse {
     hogql: string
     hasMore?: boolean
     timings?: QueryTiming[]
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -311,13 +341,16 @@ export interface EventsQuery extends DataNode {
 export interface PersonsNode extends DataNode {
     kind: NodeKind.PersonsNode
     search?: string
+    /**  @asType integer */
     cohort?: number
     distinctId?: string
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    /**  @asType integer */
     limit?: number
+    /**  @asType integer */
     offset?: number
 }
 
@@ -332,7 +365,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | EventsNode
         | EventsQuery
         | PersonsNode
-        | PersonsQuery
+        | ActorsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
         | WebOverviewQuery
@@ -345,9 +378,19 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
     hiddenColumns?: HogQLExpression[]
 }
 
+export interface GoalLine {
+    label: string
+    value: number
+}
+
+export interface ChartAxis {
+    column: string
+}
+
 interface ChartSettings {
-    xAxisIndex?: number[]
-    yAxisIndex?: number[]
+    xAxis?: ChartAxis
+    yAxis?: ChartAxis[]
+    goalLines?: GoalLine[]
 }
 
 export interface DataVisualizationNode extends Node {
@@ -454,7 +497,10 @@ export interface InsightsQueryBase extends Node {
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
-    /** Groups aggregation */
+    /**
+     * Groups aggregation
+     * @asType integer
+     **/
     aggregation_group_type_index?: number
     /** Sampling rate */
     samplingFactor?: number | null
@@ -462,10 +508,27 @@ export interface InsightsQueryBase extends Node {
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type TrendsFilter = Omit<
+export type TrendsFilterLegacy = Omit<
     TrendsFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'shown_as'
 >
+
+export type TrendsFilter = {
+    smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
+    compare?: TrendsFilterLegacy['compare']
+    formula?: TrendsFilterLegacy['formula']
+    display?: TrendsFilterLegacy['display']
+    show_legend?: TrendsFilterLegacy['show_legend']
+    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
+    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
+}
 
 export interface TrendsQueryResponse extends QueryResponse {
     results: Record<string, any>[]
@@ -480,7 +543,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
-    breakdown?: BreakdownFilter
+    breakdownFilter?: BreakdownFilter
     response?: TrendsQueryResponse
 }
 
@@ -507,15 +570,32 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
-    breakdown?: BreakdownFilter
+    breakdownFilter?: BreakdownFilter
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
+
+export interface RetentionValue {
+    /** @asType integer */
+    count: number
+}
+
+export interface RetentionResult {
+    values: RetentionValue[]
+    label: string
+    /** @format date-time */
+    date: string
+}
+
+export interface RetentionQueryResponse extends QueryResponse {
+    results: RetentionResult[]
+}
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
+    response?: RetentionQueryResponse
     /** Properties specific to the retention insight */
-    retentionFilter?: RetentionFilter
+    retentionFilter: RetentionFilter
 }
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -535,6 +615,11 @@ export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
+
+export interface StickinessQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
+
 export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -550,6 +635,35 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'show
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
+
+export interface QueryRequest {
+    /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
+    client_query_id?: string
+    refresh?: boolean
+    /**
+     * (Experimental)
+     * Whether to run the query asynchronously. Defaults to False.
+     * If True, the `id` of the query can be used to check the status and to cancel it.
+     * @example true
+     */
+    async?: boolean
+    /**
+     * Submit a JSON string representing a query for PostHog data analysis,
+     * for example a HogQL query.
+     *
+     * Example payload:
+     *
+     * ```
+     *
+     * {"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
+     *
+     * ```
+     *
+     * For more details on HogQL queries,
+     * see the [PostHog HogQL documentation](/docs/hogql#api-access).
+     */
+    query: QuerySchema
+}
 
 export interface QueryResponse {
     results: unknown[]
@@ -597,26 +711,34 @@ export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_gro
     response?: LifecycleQueryResponse
 }
 
-export interface PersonsQueryResponse {
+export interface ActorsQueryResponse {
     results: any[][]
     columns: any[]
     types: string[]
     hogql: string
     timings?: QueryTiming[]
     hasMore?: boolean
+    /** @asType integer */
+    limit: number
+    /** @asType integer */
+    offset: number
+    /** @asType integer */
+    missing_actors_count?: number
 }
 
-export interface PersonsQuery extends DataNode {
-    kind: NodeKind.PersonsQuery
-    source?: InsightPersonsQuery | HogQLQuery
+export interface ActorsQuery extends DataNode {
+    kind: NodeKind.ActorsQuery
+    source?: InsightActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
     fixedProperties?: AnyPropertyFilter[]
     orderBy?: string[]
+    /** @asType integer */
     limit?: number
+    /** @asType integer */
     offset?: number
-    response?: PersonsQueryResponse
+    response?: ActorsQueryResponse
 }
 
 export interface TimelineEntry {
@@ -684,6 +806,7 @@ export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
     // ExitPage = 'ExitPage'
+    InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
@@ -701,6 +824,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     response?: WebStatsTableQueryResponse
+    includeScrollDepth?: boolean
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -716,6 +840,11 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+/**
+ * @discriminator kind
+ */
+export type InsightQuerySource = InsightQueryNode
 export type InsightNodeKind = InsightQueryNode['kind']
 export type InsightFilterProperty =
     | 'trendsFilter'
@@ -732,14 +861,22 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
 
-export interface InsightPersonsQuery {
-    kind: NodeKind.InsightPersonsQuery
-    source: InsightQueryNode
-    day?: string
+/** @asType integer */
+export type Day = number
+
+export interface InsightActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+    source: InsightQuerySource
+    day?: string | Day
     status?: string
+    /**
+     * An interval selected out of available intervals in source query
+     * @asType integer
+     */
+    interval?: number
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
-    response?: PersonsQueryResponse
+    response?: ActorsQueryResponse
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
@@ -759,7 +896,10 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     /** Date range for the query */
     dateRange?: DateRange
 
-    /** Project to filter on. Defaults to current project */
+    /**
+     * Project to filter on. Defaults to current project
+     *  @asType integer
+     */
     teamId?: number
 
     response?: TimeToSeeDataSessionsQueryResponse
@@ -782,7 +922,10 @@ export interface DatabaseSchemaQuery extends DataNode {
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
 
-    /** Project to filter on. Defaults to current project */
+    /**
+     * Project to filter on. Defaults to current project
+     * @asType integer
+     */
     teamId?: number
 
     /** Project to filter on. Defaults to current session */
@@ -817,11 +960,16 @@ export interface DateRange {
 export interface BreakdownFilter {
     // TODO: unclutter
     breakdown_type?: BreakdownType | null
+    /** @asType integer */
+    breakdown_limit?: number
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
+    /** @asType integer */
     breakdown_group_type_index?: number | null
+    /** @asType integer */
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 
 export interface DashboardFilter {

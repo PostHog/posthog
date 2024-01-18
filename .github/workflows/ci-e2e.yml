@@ -79,7 +79,6 @@ jobs:
         outputs:
             tag: ${{ steps.build.outputs.tag }}
             build-id: ${{ steps.build.outputs.build-id }}
-            unit-build-id: ${{ steps.build.outputs.unit-build-id }}
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -124,7 +123,7 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
 
             - name: Get pnpm cache directory path
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -171,7 +170,7 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: depot/pull-action@v1
               with:
-                  build-id: ${{ needs.container.outputs.unit-build-id }}
+                  build-id: ${{ needs.container.outputs.build-id }}
                   tags: ${{ needs.container.outputs.tag }}
 
             - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
@@ -184,7 +183,7 @@ jobs:
                   DISABLE_SECURE_SSL_REDIRECT=1
                   SECURE_COOKIES=0
                   OPT_OUT_CAPTURE=0
-                  SELF_CAPTURE=0
+                  SELF_CAPTURE=1
                   E2E_TESTING=1
                   SKIP_SERVICE_VERSION_REQUIREMENTS=1
                   EMAIL_HOST=email.test.posthog.net

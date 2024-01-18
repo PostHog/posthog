@@ -7,6 +7,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, Bil
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT = 500
 
@@ -104,7 +105,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
-                return billing?.custom_limits_usd?.[product.type] || billing?.custom_limits_usd?.[product.usage_key]
+                return (
+                    billing?.custom_limits_usd?.[product.type] ||
+                    (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : '')
+                )
             },
         ],
         currentAndUpgradePlans: [
@@ -160,42 +164,38 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         billingGaugeItems: [
             (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
-            (product, freeTier, billingLimitAsUsage) => {
+            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
                 return [
-                    freeTier
-                        ? {
-                              text: 'Free tier limit',
-                              color: 'success-light',
-                              value: freeTier,
-                              top: true,
-                          }
-                        : undefined,
-                    {
-                        text: 'Current',
-                        color: product.percentage_usage
-                            ? product.percentage_usage <= 1
-                                ? 'success'
-                                : 'danger'
-                            : 'success',
-                        value: product.current_usage || 0,
-                        top: false,
-                    },
-                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
-                        ? {
-                              text: 'Projected',
-                              color: 'border',
-                              value: product.projected_usage || 0,
-                              top: false,
-                          }
-                        : undefined,
                     billingLimitAsUsage
                         ? {
+                              type: BillingGaugeItemKind.BillingLimit,
                               text: 'Billing limit',
-                              color: 'primary-alt-light',
                               top: true,
                               value: billingLimitAsUsage || 0,
                           }
                         : (undefined as any),
+                    freeTier
+                        ? {
+                              type: BillingGaugeItemKind.FreeTier,
+                              text: 'Free tier limit',
+                              value: freeTier,
+                              top: true,
+                          }
+                        : undefined,
+                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
+                        ? {
+                              type: BillingGaugeItemKind.ProjectedUsage,
+                              text: 'Projected',
+                              value: product.projected_usage || 0,
+                              top: false,
+                          }
+                        : undefined,
+                    {
+                        type: BillingGaugeItemKind.CurrentUsage,
+                        text: 'Current',
+                        value: product.current_usage || 0,
+                        top: false,
+                    },
                 ].filter(Boolean)
             },
         ],

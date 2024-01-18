@@ -1,10 +1,11 @@
 import './PropertiesTable.scss'
 
-import { IconPencil } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
+import { IconPencil, IconWarning } from '@posthog/icons'
+import { LemonCheckbox, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
@@ -12,9 +13,10 @@ import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
 import { isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
+import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyDefinitionType } from '~/types'
+import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
@@ -104,6 +106,10 @@ function ValueDisplay({
         </span>
     )
 
+    const isTypeMismatched =
+        (propertyType === PropertyType.String && valueType === 'number') ||
+        (propertyType === PropertyType.Numeric && valueType === 'string')
+
     return (
         <div className="properties-table-value">
             {!editing ? (
@@ -135,7 +141,31 @@ function ValueDisplay({
                     ) : (
                         valueComponent
                     )}
-                    <div className="property-value-type">{propertyType || valueType}</div>
+                    <Tooltip
+                        title={
+                            isTypeMismatched
+                                ? `This value is of type "${valueType}", which is incompatible with the property's defined type "${propertyType}". Click to update the property definition.`
+                                : null
+                        }
+                        delayMs={0}
+                    >
+                        <Link
+                            to={
+                                isTypeMismatched
+                                    ? combineUrl(urls.propertyDefinitions(), { property: rootKey }).url
+                                    : undefined
+                            }
+                        >
+                            <LemonTag
+                                className="font-mono uppercase ml-1"
+                                type={isTypeMismatched ? 'danger' : 'muted'}
+                                icon={isTypeMismatched ? <IconWarning /> : undefined}
+                            >
+                                {valueType}
+                                {isTypeMismatched && ' (mismatched)'}
+                            </LemonTag>
+                        </Link>
+                    </Tooltip>
                 </>
             ) : (
                 <EditTextValueComponent value={value} onChange={handleValueChange} />
@@ -194,7 +224,9 @@ export function PropertiesTable({
                         />
                     ))
                 ) : (
-                    <div className="property-value-type">ARRAY (EMPTY)</div>
+                    <LemonTag type="muted" className="font-mono uppercase">
+                        Array (empty)
+                    </LemonTag>
                 )}
             </div>
         )

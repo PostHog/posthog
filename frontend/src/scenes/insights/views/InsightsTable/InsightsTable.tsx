@@ -58,7 +58,7 @@ export function InsightsTable({
         isTrends,
         display,
         interval,
-        breakdown,
+        breakdownFilter,
         trendsFilter,
         isSingleSeries,
     } = useValues(trendsDataLogic(insightProps))
@@ -129,7 +129,7 @@ export function InsightsTable({
         },
     })
 
-    if (breakdown?.breakdown) {
+    if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
             formatBreakdownLabel(
                 cohorts,
@@ -141,7 +141,7 @@ export function InsightsTable({
             )
 
         columns.push({
-            title: <BreakdownColumnTitle breakdownFilter={breakdown} />,
+            title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
             render: (_, item) => (
                 <BreakdownColumnItem
                     item={item}
@@ -153,6 +153,9 @@ export function InsightsTable({
             ),
             key: 'breakdown',
             sorter: (a, b) => {
+                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                    return a.breakdown_value - b.breakdown_value
+                }
                 const labelA = formatItemBreakdownLabel(a)
                 const labelB = formatItemBreakdownLabel(b)
                 return labelA.localeCompare(labelB)

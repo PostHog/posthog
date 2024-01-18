@@ -490,8 +490,8 @@ describe('hooks', () => {
                 {} as any,
                 {} as any,
                 {} as any,
+                { enqueueIfEnabledForTeam: async () => Promise.resolve(false) },
                 { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
-                undefined,
                 20000
             )
         })

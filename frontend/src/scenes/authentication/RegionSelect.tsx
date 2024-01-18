@@ -32,7 +32,7 @@ const sections = [
 function WhyCloudModal({ setOpen, open }: { setOpen: (open: boolean) => void; open: boolean }): JSX.Element {
     return (
         <LemonModal title="Which region would you like to choose?" isOpen={open} onClose={() => setOpen(false)}>
-            <div className="bg-bg-light w-full max-w-lg h-full ml-auto relative z-10 overflow-auto">
+            <div className="bg-bg-light w-full max-w-248 h-full ml-auto relative z-10 overflow-auto">
                 <h3 className="text-lg text-semibold opacity-50 m-0">
                     A particular region can have advantages, but you can migrate regions at any time for free.
                 </h3>

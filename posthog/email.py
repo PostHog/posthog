@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 
 import lxml
 import toronado
+from celery import shared_task
 from django.conf import settings
 from django.core import exceptions, mail
 from django.core.mail.backends.smtp import EmailBackend
@@ -12,7 +13,6 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from sentry_sdk import capture_exception
 
-from posthog.celery import app
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 
@@ -41,7 +41,7 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     )
 
 
-@app.task(ignore_result=True, max_retries=3)
+@shared_task(max_retries=3)
 def _send_email(
     campaign_key: str,
     to: List[Dict[str, str]],

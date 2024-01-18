@@ -107,11 +107,11 @@ export const SubscriptionsEmpty = (): JSX.Element => {
 }
 
 export const SubscriptionsNew = (): JSX.Element => {
-    return <Template subscriptionId={'new'} />
+    return <Template subscriptionId="new" />
 }
 
 export const SubscriptionNoIntegrations = (): JSX.Element => {
-    return <Template subscriptionId={'new'} noIntegrations={true} />
+    return <Template subscriptionId="new" noIntegrations={true} />
 }
 
 export const SubscriptionsEdit = (): JSX.Element => {

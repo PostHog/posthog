@@ -1,5 +1,4 @@
 import './BoldNumber.scss'
-import './BoldNumber.scss'
 
 import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -44,9 +43,6 @@ function useBoldNumberTooltip({
 
     useLayoutEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-        if (isTooltipShown) {
-            tooltipEl.style.display = 'initial'
-        }
 
         const seriesResult = insightData?.result?.[0]
 
@@ -74,10 +70,10 @@ function useBoldNumberTooltip({
     useEffect(() => {
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (divRect) {
-            const desiredTop = window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
-            const desiredLeft = divRect.left + divRect.width / 2 - tooltipRect.width / 2
-            tooltipEl.style.top = `${Math.min(desiredTop, window.innerHeight)}px`
-            tooltipEl.style.left = `${Math.min(desiredLeft, window.innerWidth)}px`
+            tooltipEl.style.top = `${
+                window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+            }px`
+            tooltipEl.style.left = `${divRect.left + divRect.width / 2 - tooltipRect.width / 2}px`
         }
     })
 

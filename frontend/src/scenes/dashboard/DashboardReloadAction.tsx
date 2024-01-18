@@ -1,4 +1,4 @@
-import { LemonButtonWithSideAction, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { Radio, RadioChangeEvent } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -33,10 +33,9 @@ export function DashboardReloadAction(): JSX.Element {
 
     return (
         <>
-            <LemonButtonWithSideAction
+            <LemonButton
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
-                status="muted"
                 icon={itemsLoading ? <Spinner textColored /> : <IconRefresh />}
                 size="small"
                 data-attr="dashboard-items-action-refresh"
@@ -53,7 +52,7 @@ export function DashboardReloadAction(): JSX.Element {
                         overlay: (
                             <>
                                 <div
-                                    className={'flex flex-col px-2 py-1'}
+                                    className="flex flex-col px-2 py-1"
                                     data-attr="auto-refresh-picker"
                                     id="auto-refresh-picker"
                                 >
@@ -64,14 +63,14 @@ export function DashboardReloadAction(): JSX.Element {
                                         <div>
                                             <LemonSwitch
                                                 onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
-                                                label={'Auto refresh'}
+                                                label="Auto refresh"
                                                 checked={autoRefresh.enabled}
                                                 fullWidth={true}
                                             />
                                         </div>
                                     </Tooltip>
                                     <LemonDivider />
-                                    <div className={'flex flex-col'}>
+                                    <div className="flex flex-col">
                                         <div role="heading" className="text-muted mb-2">
                                             Refresh interval
                                         </div>
@@ -117,7 +116,7 @@ export function DashboardReloadAction(): JSX.Element {
                         <LastRefreshText />
                     )}
                 </span>
-            </LemonButtonWithSideAction>
+            </LemonButton>
         </>
     )
 }

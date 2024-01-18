@@ -18,7 +18,7 @@ from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
-from posthog.hogql.visitor import CloningVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, clone_expr, TraversingVisitor
 from posthog.models.utils import UUIDT
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.s3_table import S3Table
@@ -60,6 +60,16 @@ def resolve_types(
     scopes: Optional[List[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
+
+
+class AliasCollector(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.aliases: List[str] = []
+
+    def visit_alias(self, node: ast.Alias):
+        self.aliases.append(node.alias)
+        return node
 
 
 class Resolver(CloningVisitor):
@@ -121,9 +131,19 @@ class Resolver(CloningVisitor):
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
+
+        # Array joins (pass 1 - so we can use aliases from the array join in columns)
         new_node.array_join_op = node.array_join_op
+        ac = AliasCollector()
+        array_join_aliases = []
         if node.array_join_list:
-            new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
+            for expr in node.array_join_list:
+                ac.visit(expr)
+            array_join_aliases = ac.aliases
+            for key in array_join_aliases:
+                if key in node_type.aliases:
+                    raise ResolverException(f"Cannot redefine an alias with the name: {key}")
+                node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
@@ -140,6 +160,8 @@ class Resolver(CloningVisitor):
             if isinstance(new_expr.type, ast.FieldAliasType):
                 alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
+                alias = new_expr.type.name
+            elif isinstance(new_expr.type, ast.ExpressionFieldType):
                 alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
                 alias = new_expr.alias
@@ -158,6 +180,14 @@ class Resolver(CloningVisitor):
 
             # add the column to the new select query
             new_node.select.append(new_expr)
+
+        # Array joins (pass 2 - so we can use aliases from columns in the array join)
+        if node.array_join_list:
+            for key in array_join_aliases:
+                if key in node_type.aliases:
+                    # delete the keys we added in the first pass to avoid "can't redefine" errors
+                    del node_type.aliases[key]
+            new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
@@ -444,6 +474,7 @@ class Resolver(CloningVisitor):
             raise ResolverException(f"Unable to resolve field: {name}")
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
+        field_name = node.chain[-1]
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
@@ -484,7 +515,7 @@ class Resolver(CloningVisitor):
 
         if isinstance(node.type, ast.FieldType):
             return ast.Alias(
-                alias=node.type.name,
+                alias=field_name or node.type.name,
                 expr=node,
                 hidden=True,
                 type=ast.FieldAliasType(alias=node.type.name, type=node.type),

@@ -38,12 +38,14 @@ const config: StorybookConfig = {
 
     framework: {
         name: '@storybook/react-webpack5',
-        options: {},
+        options: { builder: { useSWC: true } },
     },
 
     docs: {
         autodocs: 'tag',
     },
+
+    typescript: { reactDocgen: 'react-docgen' }, // Shouldn't be needed in Storybook 8
 }
 
 export default config

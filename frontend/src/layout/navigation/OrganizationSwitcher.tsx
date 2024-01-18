@@ -36,7 +36,6 @@ export function OtherOrganizationButton({
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark index={index} name={organization.name} />}
-            status="stealth"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
@@ -87,7 +86,6 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
             {currentOrganization && (
                 <LemonButton
                     icon={<Lettermark name={currentOrganization.name} />}
-                    status="stealth"
                     title={`Switch to organization ${currentOrganization.name}`}
                     fullWidth
                 >

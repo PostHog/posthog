@@ -79,7 +79,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" status="danger" loading={loading} onClick={saveInstanceConfig}>
+                    <LemonButton type="secondary" status="danger" loading={loading} onClick={saveInstanceConfig}>
                         Apply {changeNoun}
                     </LemonButton>
                 </>

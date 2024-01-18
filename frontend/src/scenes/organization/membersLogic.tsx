@@ -3,7 +3,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -31,7 +31,7 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: [] as OrganizationMemberType[],
             loadMembers: async () => {
-                return (await api.get('api/organizations/@current/members/?limit=200')).results
+                return (await api.get('api/organizations/@current/members/?limit=250')).results
             },
             removeMember: async (member: OrganizationMemberType) => {
                 await api.delete(`api/organizations/@current/members/${member.user.uuid}/`)

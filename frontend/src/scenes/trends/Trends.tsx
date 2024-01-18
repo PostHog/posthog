@@ -21,10 +21,9 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps, showPersonsModal } = useValues(insightLogic)
 
-    const { display, series, breakdown, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
-        trendsDataLogic(insightProps)
-    )
-    const { loadMoreBreakdownValues } = useActions(trendsDataLogic(insightProps))
+    const { display, series, breakdownFilter, loadMoreBreakdownUrl, hasBreakdownOther, breakdownValuesLoading } =
+        useValues(trendsDataLogic(insightProps))
+    const { loadMoreBreakdownValues, updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -65,14 +64,22 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
         <>
             {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
-                breakdown &&
-                loadMoreBreakdownUrl && (
-                    <div className="my-4 flex flex-col items-center">
-                        <div className="text-muted mb-2">
-                            For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
+                breakdownFilter &&
+                (hasBreakdownOther || loadMoreBreakdownUrl) && (
+                    <div className="my-4 flex flex-col items-center px-2">
+                        <div className="text-muted text-center mb-2">
+                            For readability, <b>not all breakdown values are displayed</b>. Click below to load more.
                         </div>
                         <LemonButton
-                            onClick={loadMoreBreakdownValues}
+                            onClick={
+                                hasBreakdownOther
+                                    ? () =>
+                                          updateBreakdownFilter({
+                                              ...breakdownFilter,
+                                              breakdown_limit: (breakdownFilter.breakdown_limit || 25) * 2,
+                                          })
+                                    : loadMoreBreakdownValues
+                            }
                             loading={breakdownValuesLoading}
                             size="small"
                             type="secondary"

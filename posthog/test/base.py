@@ -10,6 +10,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
 
 import freezegun
+
+# we have to import pendulum for the side effect of importing it
+# freezegun.FakeDateTime and pendulum don't play nicely otherwise
+import pendulum  # noqa F401
 import pytest
 import sqlparse
 from django.apps import apps
@@ -30,6 +34,13 @@ from posthog.cloud_utils import (
     is_cloud,
 )
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models.channel_type.sql import (
+    CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_DATA_SQL,
+)
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -839,6 +850,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
                 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
                 TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -847,6 +860,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_TABLE_SQL(),
+                CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -854,6 +869,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 
@@ -867,6 +883,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DROP_CHANNEL_DEFINITION_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
 
@@ -876,6 +894,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_TABLE_SQL(),
+                CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -883,6 +903,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 

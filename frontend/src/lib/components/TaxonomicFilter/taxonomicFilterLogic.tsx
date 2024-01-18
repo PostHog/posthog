@@ -26,6 +26,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { AnyDataNode, NodeKind } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -134,7 +135,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
-        hogQLTable: [() => [(_, props) => props.hogQLTable], (hogQLTable) => hogQLTable ?? 'events'],
+        metadataSource: [
+            () => [(_, props) => props.metadataSource],
+            (metadataSource): AnyDataNode =>
+                metadataSource ?? { kind: NodeKind.HogQLQuery, query: 'select event from events' },
+        ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => excludedProperties ?? {},
@@ -149,7 +154,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
-                s.hogQLTable,
+                s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
             ],
@@ -158,7 +163,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                hogQLTable,
+                metadataSource,
                 excludedProperties,
                 propertyAllowList
             ): TaxonomicFilterGroup[] => {
@@ -447,7 +452,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
-                        componentProps: { hogQLTable },
+                        componentProps: { metadataSource },
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

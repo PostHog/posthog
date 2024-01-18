@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
@@ -443,6 +444,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
+        reportFeatureFlagCopySuccess: true,
+        reportFeatureFlagCopyFailure: (error) => ({ error }),
+        reportFeatureFlagScheduleSuccess: true,
+        reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
@@ -486,9 +491,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         // onboarding
-        reportOnboardingProductSelected: (productKey: string) => ({ productKey }),
+        reportOnboardingProductSelected: (
+            productKey: string,
+            includeFirstOnboardingProductOnUserProperties: boolean
+        ) => ({
+            productKey,
+            includeFirstOnboardingProductOnUserProperties,
+        }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        // command bar
+        reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
+        reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
+        reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
+        reportCommandBarActionSearch: (query: string) => ({ query }),
+        reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
     }),
     listeners(({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1048,6 +1065,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
+        reportFeatureFlagCopySuccess: () => {
+            posthog.capture('feature flag copied')
+        },
+        reportFeatureFlagCopyFailure: ({ error }) => {
+            posthog.capture('feature flag copy failure', { error })
+        },
+        reportFeatureFlagScheduleSuccess: () => {
+            posthog.capture('feature flag scheduled')
+        },
+        reportFeatureFlagScheduleFailure: ({ error }) => {
+            posthog.capture('feature flag schedule failure', { error })
+        },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
         },
@@ -1177,9 +1206,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         // onboarding
-        reportOnboardingProductSelected: ({ productKey }) => {
+        reportOnboardingProductSelected: ({ productKey, includeFirstOnboardingProductOnUserProperties }) => {
             posthog.capture('onboarding product selected', {
                 product_key: productKey,
+                $set_once: {
+                    first_onboarding_product_selected: includeFirstOnboardingProductOnUserProperties
+                        ? productKey
+                        : undefined,
+                },
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
@@ -1191,6 +1225,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('subscribed during onboarding', {
                 product_key: productKey,
             })
+        },
+        // command bar
+        reportCommandBarStatusChanged: ({ status }) => {
+            posthog.capture('command bar status changed', { status })
+        },
+        reportCommandBarSearch: ({ queryLength }) => {
+            posthog.capture('command bar search', { queryLength })
+        },
+        reportCommandBarSearchResultOpened: ({ type }) => {
+            posthog.capture('command bar search result opened', { type })
+        },
+        reportCommandBarActionSearch: ({ query }) => {
+            posthog.capture('command bar action search', { query })
+        },
+        reportCommandBarActionResultExecuted: ({ resultDisplay }) => {
+            posthog.capture('command bar search result executed', { resultDisplay })
         },
     })),
 ])

@@ -1,11 +1,17 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconAutoAwesome, IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils'
+import { Fragment, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -21,6 +27,8 @@ export interface SessionRecordingPreviewProps {
     isActive?: boolean
     onClick?: () => void
     pinned?: boolean
+    summariseFn?: (recording: SessionRecordingType) => void
+    sessionSummaryLoading?: boolean
 }
 
 function RecordingDuration({
@@ -58,26 +66,28 @@ function RecordingDuration({
 interface GatheredProperty {
     property: string
     value: string | undefined
+    label: string | undefined
     tooltipValue: string
 }
 
 const browserIconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
 const mobileIconPropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
 
-function gatherIconProperties(
+export function gatherIconProperties(
     recordingProperties: Record<string, any> | undefined,
-    recording: SessionRecordingType
+    recording?: SessionRecordingType
 ): GatheredProperty[] {
     const iconProperties =
         recordingProperties && Object.keys(recordingProperties).length > 0
             ? recordingProperties
-            : recording.person?.properties || {}
+            : recording?.person?.properties || {}
 
     const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
     const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
 
-    return iconPropertyKeys.map((property) => {
+    return iconPropertyKeys.flatMap((property) => {
         let value = iconProperties?.[property]
+        let label = value
         if (property === '$device_type') {
             value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
         }
@@ -85,16 +95,21 @@ function gatherIconProperties(
         let tooltipValue = value
         if (property === '$geoip_country_code') {
             tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
+            label = [iconProperties?.['$geoip_city_name'], iconProperties?.['$geoip_subdivision_1_code']]
+                .filter(Boolean)
+                .join(', ')
         }
-        return { property, value, tooltipValue }
+        return { property, value, tooltipValue, label }
     })
 }
 
 export interface PropertyIconsProps {
     recordingProperties: GatheredProperty[]
-    loading: boolean
+    loading?: boolean
     onPropertyClick?: (property: string, value?: string) => void
-    iconClassnames: string
+    iconClassnames?: string
+    showTooltip?: boolean
+    showLabel?: (key: string) => boolean
 }
 
 export function PropertyIcons({
@@ -102,35 +117,40 @@ export function PropertyIcons({
     loading,
     onPropertyClick,
     iconClassnames,
+    showTooltip = true,
+    showLabel = undefined,
 }: PropertyIconsProps): JSX.Element {
     return (
-        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
-            {!loading ? (
-                recordingProperties.map(({ property, value, tooltipValue }) => {
+        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture items-center">
+            {loading ? (
+                <LemonSkeleton className="w-18 h-4 my-1" />
+            ) : (
+                recordingProperties.map(({ property, value, tooltipValue, label }) => {
                     return (
-                        <PropertyIcon
-                            key={property}
-                            onClick={(e) => {
-                                if (e.altKey) {
-                                    e.stopPropagation()
-                                    onPropertyClick?.(property, value)
-                                }
-                            }}
-                            className={iconClassnames}
-                            property={property}
-                            value={value}
-                            tooltipTitle={() => (
-                                <div className="text-center">
-                                    <code>Alt + Click</code> to filter for
-                                    <br />
-                                    <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
-                                </div>
-                            )}
-                        />
+                        <Fragment key={property}>
+                            <PropertyIcon
+                                onClick={(e) => {
+                                    if (e.altKey) {
+                                        e.stopPropagation()
+                                        onPropertyClick?.(property, value)
+                                    }
+                                }}
+                                className={iconClassnames}
+                                property={property}
+                                value={value}
+                                noTooltip={!showTooltip}
+                                tooltipTitle={() => (
+                                    <div className="text-center">
+                                        <code>Alt + Click</code> to filter for
+                                        <br />
+                                        <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
+                                    </div>
+                                )}
+                            />
+                            {showLabel?.(property) && <span className="text-xs text-muted-alt">{label || value}</span>}
+                        </Fragment>
                     )
                 })
-            ) : (
-                <LemonSkeleton className="w-18 h-4 my-1" />
             )}
         </div>
     )
@@ -187,7 +207,7 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 
 function PinnedIndicator(): JSX.Element | null {
     return (
-        <Tooltip placement="topRight" title={`This recording is pinned to this list.`}>
+        <Tooltip placement="topRight" title="This recording is pinned to this list.">
             <IconPinFilled className="text-sm text-orange shrink-0" />
         </Tooltip>
     )
@@ -195,7 +215,7 @@ function PinnedIndicator(): JSX.Element | null {
 
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     return !props.viewed ? (
-        <Tooltip title={'Indicates the recording has not been watched yet'}>
+        <Tooltip title="Indicates the recording has not been watched yet">
             <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
     ) : null
@@ -215,10 +235,16 @@ export function SessionRecordingPreview({
     onClick,
     onPropertyClick,
     pinned,
+    summariseFn,
+    sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
     const iconClassnames = clsx('SessionRecordingPreview__property-icon text-base text-muted-alt')
+
+    const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
+
+    const [summaryButtonIsVisible, setSummaryButtonIsVisible] = useState<boolean>(false)
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -226,7 +252,44 @@ export function SessionRecordingPreview({
                 key={recording.id}
                 className={clsx('SessionRecordingPreview', isActive && 'SessionRecordingPreview--active')}
                 onClick={() => onClick?.()}
+                onMouseEnter={() => setSummaryButtonIsVisible(true)}
+                onMouseLeave={() => setSummaryButtonIsVisible(false)}
             >
+                <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
+                    {summariseFn && (
+                        <Popover
+                            showArrow={true}
+                            visible={summaryPopoverIsVisible && summaryButtonIsVisible}
+                            placement="right"
+                            onClickOutside={() => setSummaryPopoverIsVisible(false)}
+                            overlay={
+                                sessionSummaryLoading ? (
+                                    <Spinner />
+                                ) : (
+                                    <div className="text-xl max-w-auto lg:max-w-3/5">{recording.summary}</div>
+                                )
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                className={clsx(
+                                    summaryButtonIsVisible ? 'block' : 'hidden',
+                                    'absolute right-px top-px'
+                                )}
+                                icon={<IconAutoAwesome />}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setSummaryPopoverIsVisible(!summaryPopoverIsVisible)
+                                    if (!recording.summary) {
+                                        summariseFn(recording)
+                                    }
+                                }}
+                            />
+                        </Popover>
+                    )}
+                </FlaggedFeature>
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">

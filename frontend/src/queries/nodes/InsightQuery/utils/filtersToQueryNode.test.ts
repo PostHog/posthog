@@ -72,6 +72,14 @@ describe('actionsAndEventsToSeries', () => {
         expect(result[1].name).toEqual('item1')
         expect(result[2].name).toEqual('item2')
     })
+
+    it('assumes typeless series is an event series', () => {
+        const events: ActionFilter[] = [{ id: '$pageview', order: 0, name: 'item1' } as any]
+
+        const result = actionsAndEventsToSeries({ events })
+
+        expect(result[0].kind === NodeKind.EventsNode)
+    })
 })
 
 describe('cleanHiddenLegendIndexes', () => {
@@ -167,7 +175,7 @@ describe('filtersToQueryNode', () => {
             const query: InsightQueryNode = {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: true,
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -212,7 +220,7 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -231,7 +239,7 @@ describe('filtersToQueryNode', () => {
                     date_to: '2021-12-08',
                     date_from: '2021-12-08',
                 },
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
     })
@@ -303,10 +311,12 @@ describe('filtersToQueryNode', () => {
                 aggregation_axis_format: 'numeric',
                 aggregation_axis_prefix: '£',
                 aggregation_axis_postfix: '%',
+                decimal_places: 8,
                 breakdown_histogram_bin_count: 1,
                 formula: 'A+B',
                 shown_as: ShownAsValue.VOLUME,
                 display: ChartDisplayType.ActionsAreaGraph,
+                show_percent_stack_view: true,
             }
 
             const result = filtersToQueryNode(filters)
@@ -314,17 +324,19 @@ describe('filtersToQueryNode', () => {
             const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 trendsFilter: {
-                    smoothing_intervals: 1,
+                    smoothingIntervals: 1,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
                     compare: true,
-                    aggregation_axis_format: 'numeric',
-                    aggregation_axis_prefix: '£',
-                    aggregation_axis_postfix: '%',
+                    aggregationAxisFormat: 'numeric',
+                    aggregationAxisPrefix: '£',
+                    aggregationAxisPostfix: '%',
+                    decimalPlaces: 8,
                     formula: 'A+B',
                     display: ChartDisplayType.ActionsAreaGraph,
+                    showPercentStackView: true,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown_histogram_bin_count: 1,
                 },
                 series: [],
@@ -401,8 +413,8 @@ describe('filtersToQueryNode', () => {
                 retention_type: 'retention_first_time',
                 retention_reference: 'total',
                 total_intervals: 2,
-                returning_entity: [{ a: 1 }],
-                target_entity: [{ b: 1 }],
+                returning_entity: { id: '1' },
+                target_entity: { id: '1' },
                 period: RetentionPeriod.Day,
             }
 
@@ -414,8 +426,8 @@ describe('filtersToQueryNode', () => {
                     retention_type: 'retention_first_time',
                     retention_reference: 'total',
                     total_intervals: 2,
-                    returning_entity: [{ a: 1 }],
-                    target_entity: [{ b: 1 }],
+                    returning_entity: { id: '1' },
+                    target_entity: { id: '1' },
                     period: RetentionPeriod.Day,
                 },
             }
@@ -557,6 +569,53 @@ describe('filtersToQueryNode', () => {
                                     type: PropertyFilterType.Event,
                                     value: 'value',
                                     operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+
+        it('converts properties with the correct cohort structure', () => {
+            const properties: any = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: 'id',
+                                type: PropertyFilterType.Cohort,
+                                value: 6,
+                                operator: null,
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            const filters: Partial<FilterType> = {
+                insight: InsightType.TRENDS,
+                properties,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.TrendsQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'id',
+                                    type: PropertyFilterType.Cohort,
+                                    value: 6,
                                 },
                             ],
                         },
@@ -880,7 +939,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     display: ChartDisplayType.ActionsTable,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown: '$current_url',
                     breakdown_type: 'event',
                     breakdown_normalize_url: true,
@@ -1319,7 +1378,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     display: ChartDisplayType.WorldMap,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown: '$geoip_country_code',
                     breakdown_type: 'event',
                 },

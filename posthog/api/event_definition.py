@@ -28,6 +28,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
 )
 from posthog.settings import EE_AVAILABLE
+from loginas.utils import is_impersonated_session
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
@@ -148,11 +149,11 @@ class EventDefinitionViewSet(
         ):
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
+            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id, team_id=self.team_id).first()
             if enterprise_event:
                 return enterprise_event
 
-            non_enterprise_event = EventDefinition.objects.get(id=id)
+            non_enterprise_event = EventDefinition.objects.get(id=id, team_id=self.team_id)
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )
@@ -160,7 +161,7 @@ class EventDefinitionViewSet(
             new_enterprise_event.save()
             return new_enterprise_event
 
-        return EventDefinition.objects.get(id=id)
+        return EventDefinition.objects.get(id=id, team_id=self.team_id)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
@@ -187,6 +188,7 @@ class EventDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=user,
+            was_impersonated=is_impersonated_session(request),
             item_id=instance_id,
             scope="EventDefinition",
             activity="deleted",

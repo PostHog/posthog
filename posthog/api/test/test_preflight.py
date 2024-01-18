@@ -29,6 +29,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "db": True,
             "initiated": True,
             "cloud": False,
+            "data_warehouse_integrations": {"hubspot": {"client_id": None}},
             "demo": False,
             "clickhouse": True,
             "kafka": True,

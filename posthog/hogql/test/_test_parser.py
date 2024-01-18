@@ -1467,7 +1467,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             query = "SELEC 2"
             with self.assertRaisesMessage(
                 SyntaxException,
-                "mismatched input 'SELEC' expecting {SELECT, WITH, '(', '<'}",
+                "mismatched input 'SELEC' expecting {SELECT, WITH, '{', '(', '<'}",
             ) as e:
                 self._select(query)
             self.assertEqual(e.exception.start, 0)
@@ -1561,7 +1561,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_visit_hogqlx_tag_source(self):
             query = """
                 select id, email from (
-                    <PersonsQuery
+                    <ActorsQuery
                         select={['id', 'properties.email as email']}
                         source={
                             <HogQLQuery query='select distinct person_id from events' />
@@ -1572,7 +1572,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node = self._select(query)
             table_node = cast(ast.SelectQuery, node).select_from.table
             assert table_node == ast.HogQLXTag(
-                kind="PersonsQuery",
+                kind="ActorsQuery",
                 attributes=[
                     ast.HogQLXAttribute(
                         name="select",

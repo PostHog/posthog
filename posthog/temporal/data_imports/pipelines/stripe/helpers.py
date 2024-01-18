@@ -1,48 +1,15 @@
 """Stripe analytics source helpers"""
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Iterable, Tuple
 
 import stripe
+import dlt
 from dlt.common import pendulum
+from dlt.sources import DltResource
 from pendulum import DateTime
-from asgiref.sync import sync_to_async
+from posthog.temporal.data_imports.pipelines.helpers import limit_paginated_generator
 
 stripe.api_version = "2022-11-15"
-
-
-async def stripe_pagination(
-    api_key: str,
-    endpoint: str,
-    start_date: Optional[Any] = None,
-    end_date: Optional[Any] = None,
-    starting_after: Optional[str] = None,
-):
-    """
-    Retrieves data from an endpoint with pagination.
-
-    Args:
-        endpoint (str): The endpoint to retrieve data from.
-        start_date (Optional[Any]): An optional start date to limit the data retrieved. Defaults to None.
-        end_date (Optional[Any]): An optional end date to limit the data retrieved. Defaults to None.
-
-    Returns:
-        Iterable[TDataItem]: Data items retrieved from the endpoint.
-    """
-    while True:
-        response = await stripe_get_data(
-            api_key,
-            endpoint,
-            start_date=start_date,
-            end_date=end_date,
-            starting_after=starting_after,
-        )
-
-        if len(response["data"]) > 0:
-            starting_after = response["data"][-1]["id"]
-        yield response["data"], starting_after
-
-        if not response["has_more"]:
-            break
 
 
 def transform_date(date: Union[str, DateTime, int]) -> int:
@@ -54,7 +21,7 @@ def transform_date(date: Union[str, DateTime, int]) -> int:
     return date
 
 
-async def stripe_get_data(
+def stripe_get_data(
     api_key: str,
     resource: str,
     start_date: Optional[Any] = None,
@@ -70,10 +37,64 @@ async def stripe_get_data(
         kwargs.update({"status": "all"})
 
     _resource = getattr(stripe, resource)
-    resource_dict = await sync_to_async(_resource.list)(
+
+    resource_dict = _resource.list(
         api_key=api_key,
         created={"gte": start_date, "lt": end_date},
         limit=100,
-        **kwargs,  # type: ignore
+        **kwargs,
     )
-    return dict(resource_dict)
+    response = dict(resource_dict)
+
+    return response
+
+
+@limit_paginated_generator
+def stripe_pagination(
+    api_key: str,
+    endpoint: str,
+    starting_after: Optional[str] = None,
+):
+    """
+    Retrieves data from an endpoint with pagination.
+
+    Args:
+        endpoint (str): The endpoint to retrieve data from.
+        start_date (Optional[Any]): An optional start date to limit the data retrieved. Defaults to None.
+        end_date (Optional[Any]): An optional end date to limit the data retrieved. Defaults to None.
+
+    Returns:
+        Iterable[TDataItem]: Data items retrieved from the endpoint.
+    """
+
+    while True:
+        response = stripe_get_data(
+            api_key,
+            endpoint,
+            starting_after=starting_after,
+        )
+
+        if len(response["data"]) > 0:
+            starting_after = response["data"][-1]["id"]
+        yield response["data"]
+
+        if not response["has_more"]:
+            break
+
+
+@dlt.source(max_table_nesting=0)
+def stripe_source(
+    api_key: str, endpoints: Tuple[str, ...], job_id: str, team_id: int, starting_after: Optional[str] = None
+) -> Iterable[DltResource]:
+    for endpoint in endpoints:
+        yield dlt.resource(
+            stripe_pagination,
+            name=endpoint,
+            write_disposition="append",
+        )(
+            api_key=api_key,
+            endpoint=endpoint,
+            job_id=job_id,
+            team_id=team_id,
+            starting_after=starting_after,
+        )

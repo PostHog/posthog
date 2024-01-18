@@ -6,8 +6,9 @@ import { routerPlugin } from 'kea-router'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -73,6 +74,15 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 // :TRICKY: What chars to allow in named segment values i.e. ":key"
                 // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
                 segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|",
+            },
+            pathFromRoutesToWindow: (path) => {
+                return addProjectIdIfMissing(path)
+            },
+            transformPathInActions: (path) => {
+                return addProjectIdIfMissing(path)
+            },
+            pathFromWindowToRoutes: (path) => {
+                return removeProjectIdIfPresent(path)
             },
         }),
         formsPlugin,

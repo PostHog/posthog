@@ -30,6 +30,7 @@ import { sanitizeHTML } from './utils'
 
 export enum SurveyEditSection {
     Steps = 'steps',
+    Widget = 'widget',
     Presentation = 'presentation',
     Appearance = 'appearance',
     Customization = 'customization',
@@ -580,7 +581,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     name: 'Surveys',
                     path: urls.surveys(),
                 },
-                { key: survey?.id || 'new', name: survey.name },
+                { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
             ],
         ],
         dataTableQuery: [
@@ -675,9 +676,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 name: !name && 'Please enter a name.',
                 questions: questions.map((question) => ({
                     question: !question.question && 'Please enter a question.',
-                    ...(question.type === SurveyQuestionType.Link
-                        ? { link: !question.link && 'Please enter a url for the link.' }
-                        : {}),
                     ...(question.type === SurveyQuestionType.Rating
                         ? {
                               display: !question.display && 'Please choose a display type.',

@@ -58,12 +58,6 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
             bufferSleep: jest.fn(),
             pluginsServer: {
                 INGESTION_CONCURRENCY: 4,
-                statsd: {
-                    timing: jest.fn(),
-                    increment: jest.fn(),
-                    histogram: jest.fn(),
-                    gauge: jest.fn(),
-                },
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },

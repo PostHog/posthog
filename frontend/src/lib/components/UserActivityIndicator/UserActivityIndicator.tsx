@@ -22,13 +22,12 @@ export function UserActivityIndicator({
 }: UserActivityIndicatorProps): JSX.Element | null {
     return at || by ? (
         <div className={clsx('UserActivityIndicator', className)}>
-            <div>
-                {prefix}
-                {at && ' '}
+            <div className="flex gap-x-1">
+                <span>{prefix}</span>
                 {at && <TZLabel time={at} />}
-                {by && ' by'}
+                {by && <span> by</span>}
             </div>
-            {by && <ProfilePicture name={by.first_name} email={by.email} showName size="md" />}
+            {by && <ProfilePicture user={by} showName size="md" />}
         </div>
     ) : null
 }

@@ -4,7 +4,7 @@ import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay, flattenObject, toParams } from 'lib/utils'
-import { getCurrentTeamId } from 'lib/utils/logics'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import {
     filterTrendsClientSideParams,
@@ -21,6 +21,7 @@ import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
 import {
+    isActorsQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isEventsQuery,
@@ -29,7 +30,8 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isPersonsNode,
-    isPersonsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
     isTimeToSeeDataSessionsQuery,
@@ -51,7 +53,7 @@ export function queryExportContext<N extends DataNode = DataNode>(
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isEventsQuery(query) || isPersonsQuery(query)) {
+    } else if (isEventsQuery(query) || isActorsQuery(query)) {
         return {
             source: query,
         }
@@ -106,7 +108,7 @@ async function executeQuery<N extends DataNode = DataNode>(
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
     const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata', 'EventsQuery', 'DataVisualizationNode']
+    const excludedKinds = ['HogQLMetadata', 'EventsQuery']
     const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
     const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
 
@@ -148,8 +150,14 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsLifecycleFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
     )
+    const hogQLInsightsRetentionFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
+    )
     const hogQLInsightsTrendsFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
+    )
+    const hogQLInsightsStickinessFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]
     )
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
@@ -193,7 +201,9 @@ export async function query<N extends DataNode = DataNode>(
         } else if (isInsightQueryNode(queryNode)) {
             if (
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
-                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode))
+                (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
+                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
+                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
                     let legacyResponse
@@ -211,14 +221,24 @@ export async function query<N extends DataNode = DataNode>(
                         res1.sort((a: any, b: any) => order[a.status] - order[b.status])
                         res2.sort((a: any, b: any) => order[a.status] - order[b.status])
                     } else if (isTrendsQuery(queryNode)) {
-                        res1 = res1?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
-                        res2 = res2?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
+                        res1 = res1?.map((n: any) => ({
+                            ...n,
+                            filter: undefined,
+                            action: undefined,
+                            persons: undefined,
+                        }))
+                        res2 = res2?.map((n: any) => ({
+                            ...n,
+                            filter: undefined,
+                            action: undefined,
+                            persons: undefined,
+                        }))
                     }
 
                     const results = flattenObject(res1)
                     const legacyResults = flattenObject(res2)
                     const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
-                        .filter((key) => !key.includes('.persons_urls.'))
+                        .filter((key) => !key.includes('.persons_urls.') && !key.includes('.people_url'))
                         .sort()
                     const tableData = [['', 'key', 'HOGQL', 'LEGACY']]
                     let matchCount = 0
@@ -257,6 +277,12 @@ export async function query<N extends DataNode = DataNode>(
                     console.table(tableData)
                     // eslint-disable-next-line no-console
                     console.groupEnd()
+
+                    posthog.capture('hogql_compare', {
+                        query: queryNode,
+                        equal: mismatchCount === 0,
+                        mismatch_count: mismatchCount,
+                    })
                 } else {
                     response = await api.query(queryNode, methodOptions, queryId, refresh)
                 }

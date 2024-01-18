@@ -36,27 +36,25 @@ export function NotebookPanel(): JSX.Element | null {
             {!droppedResource ? (
                 <>
                     <SidePanelPaneHeader>
-                        <span className="flex-1">
-                            <NotebookListMini
-                                selectedNotebookId={selectedNotebook}
-                                onSelectNotebook={(notebook) => {
-                                    selectNotebook(notebook.short_id)
-                                }}
-                            />
-                        </span>
+                        <NotebookListMini
+                            selectedNotebookId={selectedNotebook}
+                            onSelectNotebook={(notebook) => {
+                                selectNotebook(notebook.short_id)
+                            }}
+                        />
+                        <div className="flex-1" />
                         {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
                         <LemonButton
                             size="small"
                             to={urls.notebook(selectedNotebook)}
                             onClick={() => closeSidePanel()}
-                            status="primary-alt"
                             icon={<IconOpenInNew />}
                             tooltip="Open as main focus"
                             tooltipPlacement="left"
                         />
 
-                        {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
+                        {contentWidthHasEffect && <NotebookExpandButton size="small" />}
 
                         <NotebookMenu shortId={selectedNotebook} />
                     </SidePanelPaneHeader>

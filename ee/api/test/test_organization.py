@@ -8,9 +8,9 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from posthog.celery import sync_all_organization_available_features
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.tasks.tasks import sync_all_organization_available_features
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -274,3 +274,20 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.organization.refresh_from_db()
             self.assertFalse(self.organization.is_feature_available("whatever"))
         License.PLANS = current_plans
+
+    def test_get_organization_restricted_teams_hidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        Team.objects.create(
+            organization=self.organization,
+            name="FORBIDDEN",
+            access_control=True,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertListEqual(
+            [team["name"] for team in response.json()["teams"]],
+            [self.team.name],  # "FORBIDDEN" excluded
+        )

@@ -3,7 +3,7 @@ import './LemonTag.scss'
 import clsx from 'clsx'
 import { IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton'
 
 export type LemonTagType =
     | 'primary'
@@ -59,7 +59,6 @@ export function LemonTag({
             {popover?.overlay && (
                 <LemonButtonWithDropdown
                     dropdown={popover}
-                    status="stealth"
                     size="small"
                     className="LemonTag__right-button"
                     icon={<IconEllipsis />}
@@ -72,7 +71,6 @@ export function LemonTag({
                 <LemonButton
                     icon={<IconClose className="h-3.5 w-3.5" />}
                     onClick={onClose}
-                    status="primary"
                     size="xsmall"
                     className="LemonTag__right-button"
                 />

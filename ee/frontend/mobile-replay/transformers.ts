@@ -1,21 +1,59 @@
-import { EventType, fullSnapshotEvent, incrementalSnapshotEvent, metaEvent } from '@rrweb/types'
+import {
+    addedNodeMutation,
+    customEvent,
+    EventType,
+    fullSnapshotEvent,
+    incrementalSnapshotEvent,
+    IncrementalSource,
+    metaEvent,
+    mutationData,
+    removedNodeMutation,
+} from '@rrweb/types'
+import { captureMessage } from '@sentry/react'
+import { isObject } from 'lib/utils'
 
 import {
+    attributes,
+    documentNode,
+    elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
-    incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
+    keyboardEvent,
     metaEvent as MobileMetaEvent,
+    MobileIncrementalSnapshotEvent,
+    MobileNodeMutation,
+    MobileNodeType,
     NodeType,
     serializedNodeWithId,
+    textNode,
     wireframe,
+    wireframeButton,
+    wireframeCheckBox,
     wireframeDiv,
     wireframeImage,
+    wireframeInputComponent,
+    wireframePlaceholder,
+    wireframeProgress,
+    wireframeRadio,
+    wireframeRadioGroup,
     wireframeRectangle,
+    wireframeSelect,
     wireframeText,
+    wireframeToggle,
 } from './mobile.types'
-import { makeBodyStyles, makeHTMLStyles, makePositionStyles, makeStylesString, makeSvgBorder } from './wireframeStyle'
+import {
+    makeBodyStyles,
+    makeColorStyles,
+    makeDeterminateProgressStyles,
+    makeHTMLStyles,
+    makeIndeterminateProgressStyles,
+    makeMinimalStyles,
+    makePositionStyles,
+    makeStylesString,
+    StyleOverride,
+} from './wireframeStyle'
 
-const PLACEHOLDER_IMAGE =
-    'data:image/png;base64,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'
+const BACKGROUND = '#f3f4ef'
+const FOREGROUND = '#35373e'
 
 /**
  * generates a sequence of ids
@@ -37,9 +75,91 @@ function* ids(): Generator<number> {
         yield i++
     }
 }
+
+// TODO this is shared for the lifetime of the page, so a very, very long-lived session could exhaust the ids
 const idSequence = ids()
 
+// there are some fixed ids that we need to use for fixed elements or artificial mutations
+const DOCUMENT_ID = 1
+const HTML_DOC_TYPE_ID = 2
+const HTML_ELEMENT_ID = 3
+const HEAD_ID = 4
 const BODY_ID = 5
+const KEYBOARD_ID = 6
+
+function isKeyboardEvent(x: unknown): x is keyboardEvent {
+    return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
+}
+
+export const makeCustomEvent = (
+    mobileCustomEvent: (customEvent | keyboardEvent) & {
+        timestamp: number
+        delay?: number
+    }
+): (customEvent | incrementalSnapshotEvent) & {
+    timestamp: number
+    delay?: number
+} => {
+    if (isKeyboardEvent(mobileCustomEvent)) {
+        // keyboard events are handled as incremental snapshots to add or remove a keyboard from the DOM
+        // TODO eventually we can pass something to makeIncrementalEvent here
+        const adds: addedNodeMutation[] = []
+        const removes = []
+        if (mobileCustomEvent.data.payload.open) {
+            const shouldAbsolutelyPosition =
+                _isPositiveInteger(mobileCustomEvent.data.payload.x) ||
+                _isPositiveInteger(mobileCustomEvent.data.payload.y)
+            const styleOverride: StyleOverride | undefined = shouldAbsolutelyPosition ? undefined : { bottom: true }
+            const keyboardPlaceHolder = makePlaceholderElement(
+                {
+                    id: KEYBOARD_ID,
+                    type: 'placeholder',
+                    label: 'keyboard',
+                    height: mobileCustomEvent.data.payload.height,
+                    width: _isPositiveInteger(mobileCustomEvent.data.payload.width)
+                        ? mobileCustomEvent.data.payload.width
+                        : '100vw',
+                },
+                [],
+                styleOverride
+            )
+            if (keyboardPlaceHolder) {
+                adds.push({
+                    parentId: BODY_ID,
+                    nextId: null,
+                    node: keyboardPlaceHolder,
+                })
+                // mutations seem not to want a tree of nodes to add
+                // so even though `keyboardPlaceholder` is a tree with content
+                // we have to add the text content as well
+                adds.push({
+                    parentId: keyboardPlaceHolder.id,
+                    nextId: null,
+                    node: {
+                        type: NodeType.Text,
+                        id: idSequence.next().value,
+                        textContent: 'keyboard',
+                    },
+                })
+            } else {
+                captureMessage('Failed to create keyboard placeholder', { extra: { mobileCustomEvent } })
+            }
+        } else {
+            removes.push({
+                parentId: BODY_ID,
+                id: KEYBOARD_ID,
+            })
+        }
+        const mutation: mutationData = { adds, attributes: [], removes, source: IncrementalSource.Mutation, texts: [] }
+        return {
+            type: EventType.IncrementalSnapshot,
+            data: mutation,
+            timestamp: mobileCustomEvent.timestamp,
+        }
+    } else {
+        return mobileCustomEvent
+    }
+}
 
 export const makeMetaEvent = (
     mobileMetaEvent: MobileMetaEvent & {
@@ -59,7 +179,7 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-function _isPositiveInteger(id: unknown): boolean {
+function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
 }
 
@@ -70,6 +190,7 @@ function makeDivElement(wireframe: wireframeDiv, children: serializedNodeWithId[
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+            'data-rrweb-id': _id,
         },
         id: _id,
         childNodes: children,
@@ -84,18 +205,62 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 
     // because we might have to style the text, we always wrap it in a div
     // and apply styles to that
+    const id = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+            'data-rrweb-id': wireframe.id,
         },
-        id: idSequence.next().value,
+        id: wireframe.id,
         childNodes: [
             {
                 type: NodeType.Text,
                 textContent: wireframe.text,
-                id: wireframe.id,
+                // since the text node is wrapped, we assign it a synthetic id
+                id: id,
+            },
+            ...children,
+        ],
+    }
+}
+
+function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    const labelledWireframe: wireframePlaceholder = { ...wireframe } as wireframePlaceholder
+    if ('url' in wireframe) {
+        labelledWireframe.label = wireframe.url
+    }
+
+    return makePlaceholderElement(labelledWireframe, children)
+}
+
+function makePlaceholderElement(
+    wireframe: wireframe,
+    children: serializedNodeWithId[],
+    styleOverride?: StyleOverride
+): serializedNodeWithId | null {
+    const txt = 'label' in wireframe && wireframe.label ? wireframe.label : wireframe.type || 'PLACEHOLDER'
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            style: makeStylesString(wireframe, {
+                verticalAlign: 'center',
+                horizontalAlign: 'center',
+                backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+                color: wireframe.style?.color || FOREGROUND,
+                ...styleOverride,
+            }),
+            'data-rrweb-id': wireframe.id,
+        },
+        id: wireframe.id,
+        childNodes: [
+            {
+                type: NodeType.Text,
+                // since the text node is wrapped, we assign it a synthetic id
+                id: idSequence.next().value,
+                textContent: txt,
             },
             ...children,
         ],
@@ -103,7 +268,10 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 }
 
 function makeImageElement(wireframe: wireframeImage, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    let src = wireframe.base64 || PLACEHOLDER_IMAGE
+    if (!wireframe.base64) {
+        return makePlaceholderElement(wireframe, children)
+    }
+    let src = wireframe.base64
     if (!src.startsWith('data:image/')) {
         src = 'data:image/png;base64,' + src
     }
@@ -115,9 +283,486 @@ function makeImageElement(wireframe: wireframeImage, children: serializedNodeWit
             width: wireframe.width,
             height: wireframe.height,
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: children,
+    }
+}
+
+function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attributes {
+    const attributes = {
+        style: makeStylesString(wireframe),
+        type: wireframe.inputType,
+        ...(wireframe.disabled ? { disabled: wireframe.disabled } : {}),
+        'data-rrweb-id': wireframe.id,
+    }
+
+    switch (wireframe.inputType) {
+        case 'checkbox':
+            return {
+                ...attributes,
+                style: null, // checkboxes are styled by being combined with a label
+                ...(wireframe.checked ? { checked: wireframe.checked } : {}),
+            }
+        case 'toggle':
+            return {
+                ...attributes,
+                style: null, // toggle are styled by being combined with a label
+                ...(wireframe.checked ? { checked: wireframe.checked } : {}),
+            }
+        case 'radio':
+            return {
+                ...attributes,
+                style: null, // radio buttons are styled by being combined with a label
+                ...(wireframe.checked ? { checked: wireframe.checked } : {}),
+                // radio value defaults to the string "on" if not specified
+                // we're not really submitting the form, so it doesn't matter 🤞
+                // radio name is used to correctly uncheck values when one is checked
+                // mobile doesn't really have it, and we will be checking based on snapshots,
+                // so we can ignore it for now
+            }
+        case 'button':
+            return {
+                ...attributes,
+            }
+        case 'text_area':
+            return {
+                ...attributes,
+                value: wireframe.value || '',
+            }
+        case 'progress':
+            return {
+                ...attributes,
+                // indeterminate when omitted
+                value: wireframe.value || null,
+                // defaults to 1 when omitted
+                max: wireframe.max || null,
+                type: null, // progress has no type attribute
+            }
+        default:
+            return {
+                ...attributes,
+                value: wireframe.value || '',
+            }
+    }
+}
+
+function makeButtonElement(wireframe: wireframeButton, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    const buttonText: textNode | null = wireframe.value
+        ? {
+              type: NodeType.Text,
+              textContent: wireframe.value,
+          }
+        : null
+
+    return {
+        type: NodeType.Element,
+        tagName: 'button',
+        attributes: inputAttributes(wireframe),
+        id: wireframe.id,
+        childNodes: buttonText ? [{ ...buttonText, id: idSequence.next().value }, ...children] : children,
+    }
+}
+
+function makeSelectOptionElement(option: string, selected: boolean): serializedNodeWithId {
+    const optionId = idSequence.next().value
+    return {
+        type: NodeType.Element,
+        tagName: 'option',
+        attributes: {
+            ...(selected ? { selected: selected } : {}),
+            'data-rrweb-id': optionId,
+        },
+        id: optionId,
+        childNodes: [
+            {
+                type: NodeType.Text,
+                textContent: option,
+                id: idSequence.next().value,
+            },
+        ],
+    }
+}
+
+function makeSelectElement(wireframe: wireframeSelect, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    return {
+        type: NodeType.Element,
+        tagName: 'select',
+        attributes: inputAttributes(wireframe),
+        id: wireframe.id,
+        childNodes: [
+            ...(wireframe.options?.map((option) => makeSelectOptionElement(option, wireframe.value === option)) || []),
+            ...children,
+        ],
+    }
+}
+
+function groupRadioButtons(children: serializedNodeWithId[], radioGroupName: string): serializedNodeWithId[] {
+    return children.map((child) => {
+        if (child.type === NodeType.Element && child.tagName === 'input' && child.attributes.type === 'radio') {
+            return {
+                ...child,
+                attributes: {
+                    ...child.attributes,
+                    name: radioGroupName,
+                    'data-rrweb-id': child.id,
+                },
+            }
+        }
+        return child
+    })
+}
+
+function makeRadioGroupElement(
+    wireframe: wireframeRadioGroup,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
+    const radioGroupName = 'radio_group_' + wireframe.id
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
+        },
+        id: wireframe.id,
+        childNodes: groupRadioButtons(children, radioGroupName),
+    }
+}
+
+function makeStar(title: string, path: string): serializedNodeWithId {
+    const svgId = idSequence.next().value
+    const titleId = idSequence.next().value
+    const pathId = idSequence.next().value
+    return {
+        type: NodeType.Element,
+        tagName: 'svg',
+        isSVG: true,
+        attributes: {
+            style: 'height: 100%;overflow-clip-margin: content-box;overflow:hidden',
+            viewBox: '0 0 24 24',
+            fill: 'currentColor',
+            'data-rrweb-id': svgId,
+        },
+        id: svgId,
+        childNodes: [
+            {
+                type: NodeType.Element,
+                tagName: 'title',
+                isSVG: true,
+                attributes: {
+                    'data-rrweb-id': titleId,
+                },
+                id: titleId,
+                childNodes: [
+                    {
+                        type: NodeType.Text,
+                        textContent: title,
+                        id: idSequence.next().value,
+                    },
+                ],
+            },
+            {
+                type: NodeType.Element,
+                tagName: 'path',
+                isSVG: true,
+                attributes: {
+                    d: path,
+                    'data-rrweb-id': pathId,
+                },
+                id: pathId,
+                childNodes: [],
+            },
+        ],
+    }
+}
+
+function filledStar(): serializedNodeWithId {
+    return makeStar(
+        'filled star',
+        'M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z'
+    )
+}
+
+function halfStar(): serializedNodeWithId {
+    return makeStar(
+        'half-filled star',
+        'M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+    )
+}
+
+function emptyStar(): serializedNodeWithId {
+    return makeStar(
+        'empty star',
+        'M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+    )
+}
+
+function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    // max is the number of stars... and value is the number of stars to fill
+
+    // deliberate double equals, because we want to allow null and undefined
+    if (wireframe.value == null || wireframe.max == null) {
+        return makePlaceholderElement(wireframe, children)
+    }
+
+    const numberOfFilledStars = Math.floor(wireframe.value)
+    const numberOfHalfStars = wireframe.value - numberOfFilledStars > 0 ? 1 : 0
+    const numberOfEmptyStars = wireframe.max - numberOfFilledStars - numberOfHalfStars
+
+    const filledStars = Array(numberOfFilledStars)
+        .fill(undefined)
+        .map(() => filledStar())
+    const halfStars = Array(numberOfHalfStars)
+        .fill(undefined)
+        .map(() => halfStar())
+    const emptyStars = Array(numberOfEmptyStars)
+        .fill(undefined)
+        .map(() => emptyStar())
+
+    const ratingBarId = idSequence.next().value
+    const ratingBar = {
+        type: NodeType.Element,
+        tagName: 'div',
+        id: ratingBarId,
+        attributes: {
+            style:
+                makeColorStyles(wireframe) +
+                'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+            'data-rrweb-id': ratingBarId,
+        },
+        childNodes: [...filledStars, ...halfStars, ...emptyStars],
+    } as serializedNodeWithId
+
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
+        },
+        id: wireframe.id,
+        childNodes: [ratingBar, ...children],
+    }
+}
+
+function makeProgressElement(
+    wireframe: wireframeProgress,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
+    if (wireframe.style?.bar === 'circular') {
+        // value needs to be expressed as a number between 0 and 100
+        const max = wireframe.max || 1
+        let value = wireframe.value || null
+        if (_isPositiveInteger(value) && value <= max) {
+            value = (value / max) * 100
+        } else {
+            value = null
+        }
+
+        const styleOverride = {
+            color: wireframe.style?.color || FOREGROUND,
+            backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+        }
+
+        // if not _isPositiveInteger(value) then we render a spinner,
+        // so we need to add a style element with the spin keyframe
+        const stylingChildren: serializedNodeWithId[] = _isPositiveInteger(value)
+            ? []
+            : [
+                  {
+                      type: NodeType.Element,
+                      tagName: 'style',
+                      attributes: {
+                          type: 'text/css',
+                      },
+                      id: idSequence.next().value,
+                      childNodes: [
+                          {
+                              type: NodeType.Text,
+                              textContent: `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`,
+                              id: idSequence.next().value,
+                          },
+                      ],
+                  },
+              ]
+
+        const wrappingDivId = idSequence.next().value
+        return {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeMinimalStyles(wireframe),
+                'data-rrweb-id': wireframe.id,
+            },
+            id: wireframe.id,
+            childNodes: [
+                {
+                    type: NodeType.Element,
+                    tagName: 'div',
+                    attributes: {
+                        // with no provided value we render a spinner
+                        style: _isPositiveInteger(value)
+                            ? makeDeterminateProgressStyles(wireframe, styleOverride)
+                            : makeIndeterminateProgressStyles(wireframe, styleOverride),
+                        'data-rrweb-id': wrappingDivId,
+                    },
+                    id: wrappingDivId,
+                    childNodes: stylingChildren,
+                },
+                ...children,
+            ],
+        }
+    } else if (wireframe.style?.bar === 'rating') {
+        return makeRatingBar(wireframe, children)
+    } else {
+        return {
+            type: NodeType.Element,
+            tagName: 'progress',
+            attributes: inputAttributes(wireframe),
+            id: wireframe.id,
+            childNodes: children,
+        }
+    }
+}
+
+function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
+    const togglePosition = wireframe.checked ? 'right' : 'left'
+    const defaultColor = wireframe.checked ? '#1d4aff' : BACKGROUND
+    const sliderPartId = idSequence.next().value
+    const handlePartId = idSequence.next().value
+    return [
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                'data-toggle-part': 'slider',
+                style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
+                    wireframe.style?.color || defaultColor
+                };opacity: 0.2;border-radius:7.5%;`,
+                'data-rrweb-id': sliderPartId,
+            },
+            id: sliderPartId,
+            childNodes: [],
+        },
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                'data-toggle-part': 'handle',
+                style: `position:absolute;top:1.5%;${togglePosition}:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:${
+                    wireframe.style?.color || defaultColor
+                };border:2px solid ${
+                    wireframe.style?.borderColor || wireframe.style?.color || defaultColor
+                };border-radius:50%;`,
+                'data-rrweb-id': handlePartId,
+            },
+            id: handlePartId,
+            childNodes: [],
+        },
+    ]
+}
+
+function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
+    const isLabelled = 'label' in wireframe
+    const wrappingDivId = idSequence.next().value
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            // if labelled take up available space, otherwise use provided positioning
+            style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
+            'data-rrweb-id': wireframe.id,
+        },
+        id: wireframe.id,
+        childNodes: [
+            {
+                type: NodeType.Element,
+                tagName: 'div',
+                attributes: {
+                    // relative position, fills parent
+                    style: 'position:relative;width:100%;height:100%;',
+                    'data-rrweb-id': wrappingDivId,
+                },
+                id: wrappingDivId,
+                childNodes: makeToggleParts(wireframe),
+            },
+        ],
+    }
+}
+
+function makeLabelledInput(
+    wireframe: wireframeCheckBox | wireframeRadio | wireframeToggle,
+    theInputElement: serializedNodeWithId
+): serializedNodeWithId {
+    const theLabel: serializedNodeWithId = {
+        type: NodeType.Text,
+        textContent: wireframe.label || '',
+        id: idSequence.next().value,
+    }
+
+    const orderedChildren = wireframe.inputType === 'toggle' ? [theLabel, theInputElement] : [theInputElement, theLabel]
+
+    const labelId = idSequence.next().value
+    return {
+        type: NodeType.Element,
+        tagName: 'label',
+        attributes: {
+            style: makeStylesString(wireframe),
+            'data-rrweb-id': labelId,
+        },
+        id: labelId,
+        childNodes: orderedChildren,
+    }
+}
+
+function makeInputElement(
+    wireframe: wireframeInputComponent,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
+    if (!wireframe.inputType) {
+        return null
+    }
+
+    if (wireframe.inputType === 'button') {
+        return makeButtonElement(wireframe, children)
+    }
+
+    if (wireframe.inputType === 'select') {
+        return makeSelectElement(wireframe, children)
+    }
+
+    if (wireframe.inputType === 'progress') {
+        return makeProgressElement(wireframe, children)
+    }
+
+    const theInputElement: serializedNodeWithId | null =
+        wireframe.inputType === 'toggle'
+            ? makeToggleElement(wireframe)
+            : {
+                  type: NodeType.Element,
+                  tagName: 'input',
+                  attributes: inputAttributes(wireframe),
+                  id: wireframe.id,
+                  childNodes: children,
+              }
+
+    if (!theInputElement) {
+        return null
+    }
+
+    if ('label' in wireframe) {
+        return makeLabelledInput(wireframe, theInputElement)
+    } else {
+        return {
+            ...theInputElement,
+            attributes: {
+                ...theInputElement.attributes,
+                // when labelled no styles are needed, when un-labelled as here - we add the styling in.
+                style: makeStylesString(wireframe),
+            },
+        }
     }
 }
 
@@ -127,28 +772,13 @@ function makeRectangleElement(
 ): serializedNodeWithId | null {
     return {
         type: NodeType.Element,
-        tagName: 'svg',
+        tagName: 'div',
         attributes: {
-            style: makePositionStyles(wireframe),
-            viewBox: `0 0 ${wireframe.width} ${wireframe.height}`,
+            style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
-        childNodes: [
-            {
-                type: NodeType.Element,
-                tagName: 'rect',
-                attributes: {
-                    x: 0,
-                    y: 0,
-                    width: wireframe.width,
-                    height: wireframe.height,
-                    fill: wireframe.style?.backgroundColor || 'transparent',
-                    ...makeSvgBorder(wireframe.style),
-                },
-                id: idSequence.next().value,
-                childNodes: children,
-            },
-        ],
+        childNodes: children,
     }
 }
 
@@ -156,31 +786,30 @@ function chooseConverter<T extends wireframe>(
     wireframe: T
 ): (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null {
     // in theory type is always present
-    // but since this is coming over the wire we can't really be sure
+    // but since this is coming over the wire we can't really be sure,
     // and so we default to div
-    const converterType = wireframe.type || 'div'
-    switch (converterType) {
-        case 'text':
-            return makeTextElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'image':
-            return makeImageElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'rectangle':
-            return makeRectangleElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'div':
-            return makeDivElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
+    const converterType: MobileNodeType = wireframe.type || 'div'
+    const converterMapping: Record<
+        MobileNodeType,
+        (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null
+    > = {
+        // KLUDGE: TS can't tell that the wireframe type of each function is safe based on the converter type
+        text: makeTextElement as any,
+        image: makeImageElement as any,
+        rectangle: makeRectangleElement as any,
+        div: makeDivElement as any,
+        input: makeInputElement as any,
+        radio_group: makeRadioGroupElement as any,
+        web_view: makeWebViewElement as any,
+        placeholder: makePlaceholderElement as any,
     }
+    return converterMapping[converterType]
+}
+
+function convertWireframe(wireframe: wireframe): serializedNodeWithId | null {
+    const children = convertWireframesFor(wireframe.childWireframes)
+    const converter = chooseConverter(wireframe)
+    return converter?.(wireframe, children) || null
 }
 
 function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNodeWithId[] {
@@ -189,13 +818,7 @@ function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNo
     }
 
     return wireframes.reduce((acc, wireframe) => {
-        const children = convertWireframesFor(wireframe.childWireframes)
-        const converter = chooseConverter(wireframe)
-        if (!converter) {
-            console.error(`No converter for wireframe type ${wireframe.type}`)
-            return acc
-        }
-        const convertedEl = converter(wireframe, children)
+        const convertedEl = convertWireframe(wireframe)
         if (convertedEl !== null) {
             acc.push(convertedEl)
         }
@@ -203,15 +826,116 @@ function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNo
     }, [] as serializedNodeWithId[])
 }
 
+function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSnapshotEvent {
+    const isIncrementalSnapshot = isObject(x) && 'type' in x && x.type === EventType.IncrementalSnapshot
+    if (!isIncrementalSnapshot) {
+        return false
+    }
+    const hasData = isObject(x) && 'data' in x
+    const data = hasData ? x.data : null
+
+    const hasMutationSource = isObject(data) && 'source' in data && data.source === IncrementalSource.Mutation
+
+    const adds = isObject(data) && 'adds' in data && Array.isArray(data.adds) ? data.adds : null
+    const updates = isObject(data) && 'updates' in data && Array.isArray(data.updates) ? data.updates : null
+
+    const hasUpdatedWireframe = !!updates && updates.length > 0 && isObject(updates[0]) && 'wireframe' in updates[0]
+    const hasAddedWireframe = !!adds && adds.length > 0 && isObject(adds[0]) && 'wireframe' in adds[0]
+
+    return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
+}
+
+function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation[] | null {
+    const converted = convertWireframe(add.wireframe)
+    if (!converted) {
+        return null
+    }
+
+    const addition: addedNodeMutation = {
+        parentId: add.parentId,
+        nextId: null,
+        node: converted,
+    }
+    const adds: addedNodeMutation[] = []
+    if (addition) {
+        const flattened = flattenMutationAdds(addition)
+        flattened.forEach((x) => adds.push(x))
+        return adds
+    } else {
+        return null
+    }
+}
+
 /**
- * We've not implemented mutations, until then this is almost an index function.
+ * When processing an update we remove the entire item, and then add it back in.
+ */
+function makeIncrementalRemoveForUpdate(update: MobileNodeMutation): removedNodeMutation {
+    return {
+        parentId: update.parentId,
+        id: update.wireframe.id,
+    }
+}
+
+function isNode(x: unknown): x is serializedNodeWithId {
+    // KLUDGE: really we should check that x.type is valid, but we're safe enough already
+    return isObject(x) && 'type' in x && 'id' in x
+}
+
+function isNodeWithChildren(x: unknown): x is elementNode | documentNode {
+    return isNode(x) && 'childNodes' in x && Array.isArray(x.childNodes)
+}
+
+/**
+ * when creating incremental adds we have to flatten the node tree structure
+ * there's no point, then keeping those child nodes in place
+ */
+function cloneWithoutChildren(converted: addedNodeMutation): addedNodeMutation {
+    const cloned = { ...converted }
+    const clonedNode: serializedNodeWithId = { ...converted.node }
+    if (isNodeWithChildren(clonedNode)) {
+        clonedNode.childNodes = []
+    }
+    cloned.node = clonedNode
+    return cloned
+}
+
+function flattenMutationAdds(converted: addedNodeMutation): addedNodeMutation[] {
+    const flattened: addedNodeMutation[] = []
+
+    flattened.push(cloneWithoutChildren(converted))
+
+    const node: unknown = converted.node
+    const newParentId = converted.node.id
+    if (isNodeWithChildren(node)) {
+        node.childNodes.forEach((child) => {
+            flattened.push(
+                cloneWithoutChildren({
+                    parentId: newParentId,
+                    nextId: null,
+                    node: child,
+                })
+            )
+            if (isNodeWithChildren(child)) {
+                flattened.push(...flattenMutationAdds({ parentId: newParentId, nextId: null, node: child }))
+            }
+        })
+    }
+    return flattened
+}
+
+/**
+ * We want to ensure that any events don't use id = 0.
+ * They must always represent a valid ID from the dom, so we swap in the body id when the id = 0.
  *
- * But, we want to ensure that any mouse/touch events don't use id = 0.
- * They must always represent a valid ID from the dom, so we swap in the body id.
+ * For "removes", we don't need to do anything, the id of the element to be removed remains valid. We won't try and remove other elements that we added during transformation in order to show that element.
+ *
+ * "adds" are converted from wireframes to nodes and converted to `incrementalSnapshotEvent.adds`
+ *
+ * "updates" are converted to a remove and an add.
  *
  */
 export const makeIncrementalEvent = (
-    mobileEvent: MobileIncrementalSnapshotEvent & {
+    mobileEvent: (MobileIncrementalSnapshotEvent | incrementalSnapshotEvent) & {
         timestamp: number
         delay?: number
     }
@@ -226,6 +950,35 @@ export const makeIncrementalEvent = (
     if ('id' in converted.data && converted.data.id === 0) {
         converted.data.id = BODY_ID
     }
+
+    if (isMobileIncrementalSnapshotEvent(mobileEvent)) {
+        const adds: addedNodeMutation[] = []
+        const removes: removedNodeMutation[] = mobileEvent.data.removes || []
+        if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
+            mobileEvent.data.adds.forEach((add) => {
+                makeIncrementalAdd(add)?.forEach((x) => adds.push(x))
+            })
+        }
+        if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
+            mobileEvent.data.updates.forEach((update) => {
+                const removal = makeIncrementalRemoveForUpdate(update)
+                if (removal) {
+                    removes.push(removal)
+                }
+                makeIncrementalAdd(update)?.forEach((x) => adds.push(x))
+            })
+        }
+
+        converted.data = {
+            source: IncrementalSource.Mutation,
+            attributes: [],
+            texts: [],
+            adds,
+            // TODO: this assumes that removes are processed before adds 🤞
+            removes,
+        }
+    }
+
     return converted
 }
 
@@ -257,40 +1010,32 @@ export const makeFullEvent = (
                         name: 'html',
                         publicId: '',
                         systemId: '',
-                        id: 2,
+                        id: HTML_DOC_TYPE_ID,
                     },
                     {
                         type: NodeType.Element,
                         tagName: 'html',
-                        attributes: { style: makeHTMLStyles() },
-                        id: 3,
+                        attributes: { style: makeHTMLStyles(), 'data-rrweb-id': HTML_ELEMENT_ID },
+                        id: HTML_ELEMENT_ID,
                         childNodes: [
                             {
                                 type: NodeType.Element,
                                 tagName: 'head',
-                                attributes: {},
-                                id: 4,
+                                attributes: { 'data-rrweb-id': HEAD_ID },
+                                id: HEAD_ID,
                                 childNodes: [],
                             },
                             {
                                 type: NodeType.Element,
                                 tagName: 'body',
-                                attributes: { style: makeBodyStyles() },
+                                attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: [
-                                    {
-                                        type: NodeType.Element,
-                                        tagName: 'div',
-                                        attributes: {},
-                                        id: idSequence.next().value,
-                                        childNodes: convertWireframesFor(mobileEvent.data.wireframes),
-                                    },
-                                ],
+                                childNodes: convertWireframesFor(mobileEvent.data.wireframes) || [],
                             },
                         ],
                     },
                 ],
-                id: 1,
+                id: DOCUMENT_ID,
             },
             initialOffset: {
                 top: 0,

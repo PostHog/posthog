@@ -70,8 +70,6 @@ export function CardMeta({
                                 <LemonButton
                                     icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                     onClick={() => setAreDetailsShown((state) => !state)}
-                                    type="tertiary"
-                                    status="muted"
                                     size="small"
                                 >
                                     {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}

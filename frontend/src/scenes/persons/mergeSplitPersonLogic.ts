@@ -2,7 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers } 
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { PersonType } from '~/types'

@@ -29,12 +29,12 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
                 backdropFilter: 'blur(var(--modal-backdrop-blur))',
             }}
         >
-            <div className="h-160 w-full max-w-lg">
+            <div className="w-full h-full max-h-160 max-w-248 overflow-hidden">
                 <div
                     data-attr="command-bar"
                     className={`w-full ${
-                        barStatus === BarStatus.SHOW_SEARCH && 'h-160'
-                    } bg-bg-3000 rounded overflow-hidden border shadow`}
+                        barStatus === BarStatus.SHOW_SEARCH && 'h-full'
+                    } bg-bg-3000 rounded overflow-hidden border`}
                     ref={ref}
                 >
                     {children}

@@ -25,7 +25,6 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     return (
         <Form logic={definitionEditLogic} props={props} formKey="definition">
             <PageHeader
-                title={`Edit ${isProperty ? 'Property' : 'Event'} Definition`}
                 buttons={
                     <>
                         <LemonButton
@@ -52,7 +51,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 }
             />
             <LemonDivider />
-            <div className={'DefinitionEdit--form my-4'}>
+            <div className="DefinitionEdit--form my-4">
                 <div>
                     <h1>{getPropertyLabel(definition.name) || ''}</h1>
                     <div className="definition-sent-as flex-wrap">
