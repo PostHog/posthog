@@ -36,6 +36,7 @@ import {
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isLifecycleQuery,
     isRetentionQuery,
 } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, InsightType } from '~/types'
@@ -259,7 +260,7 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     // set series (first two entries) from retention target and returning entity
     if (isRetentionQuery(query)) {
         const { target_entity, returning_entity } = query.retentionFilter || {}
-        const series = actionsAndEventsToSeries({
+        const seriesFromRetentionFilter = actionsAndEventsToSeries({
             events: [
                 ...(target_entity?.type === 'events' ? [target_entity as ActionFilter] : []),
                 ...(returning_entity?.type === 'events' ? [returning_entity as ActionFilter] : []),
@@ -269,12 +270,22 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
                 ...(returning_entity?.type === 'actions' ? [returning_entity as ActionFilter] : []),
             ],
         })
-        if (series.length > 0) {
+        if (seriesFromRetentionFilter.length > 0) {
+            const maxEntries = cache?.series?.length || 1 // cache only the first series entry if there aren't already more
+            const entriesFromRetentionFilter = seriesFromRetentionFilter.slice(0, maxEntries)
             newCache.series = [
-                ...series.slice(0, cache?.series?.length || 1), // cache only the first series entry if there aren't already two
-                ...(cache?.series ? cache.series.slice(series.length) : []),
+                ...entriesFromRetentionFilter,
+                ...(cache?.series ? cache.series.slice(entriesFromRetentionFilter.length - 1, maxEntries) : []),
             ]
         }
+    }
+
+    // set series (first entry) from lifecycle series, which supports only one entry
+    if (isLifecycleQuery(query)) {
+        newCache.series = [
+            ...query.series.slice(0, 1),
+            ...(cache?.series ? cache.series.slice(1, cache.series.length) : []),
+        ]
     }
 
     // store the insight specific filter in commonFilter
@@ -295,7 +306,12 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // series
     if (isInsightQueryWithSeries(mergedQuery)) {
         if (cache.series) {
-            mergedQuery.series = cache.series
+            if (isLifecycleQuery(mergedQuery)) {
+                // lifecycle supports only one series
+                mergedQuery.series = [cache.series[0]]
+            } else {
+                mergedQuery.series = cache.series
+            }
         } else if (cache.retentionFilter?.target_entity || cache.retentionFilter?.returning_entity) {
             mergedQuery.series = [
                 ...(cache.retentionFilter.target_entity
