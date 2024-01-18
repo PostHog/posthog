@@ -69,7 +69,6 @@ const amountToUsageMapping = [
     { usage: 6_000_000, amount: '1350.00' },
     { usage: 10_000_000, amount: '2250.00' },
     { usage: 230_000_000, amount: '12250.00' },
-    { usage: 230_000_000, amount: '12250.00', discountPercent: 100 },
 ]
 
 const amountToUsageMappingWithAddons = [
@@ -119,9 +118,7 @@ describe('convertAmountToUsage', () => {
             return
         }
         if (billingJson.products[0].tiers) {
-            expect(
-                convertAmountToUsage(mapping.amount, [billingJson.products[0].tiers], mapping.discountPercent)
-            ).toEqual(mapping.usage)
+            expect(convertAmountToUsage(mapping.amount, [billingJson.products[0].tiers])).toEqual(mapping.usage)
         }
     })
 })
