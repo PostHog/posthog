@@ -1,6 +1,6 @@
 from typing import Optional, TYPE_CHECKING
 
-from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode
+from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode, PersonsArgMaxVersion
 from posthog.utils import PersonOnEventsMode
 
 if TYPE_CHECKING:
@@ -19,10 +19,10 @@ def create_default_modifiers_for_team(
         modifiers.personsOnEventsMode = team.person_on_events_mode or PersonOnEventsMode.DISABLED
 
     if modifiers.personsArgMaxVersion is None:
-        modifiers.personsArgMaxVersion = "auto"
+        modifiers.personsArgMaxVersion = PersonsArgMaxVersion.auto
 
     if modifiers.inCohortVia is None:
-        modifiers.inCohortVia = InCohortVia.subquery
+        modifiers.inCohortVia = InCohortVia.auto
 
     if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.auto:
         modifiers.materializationMode = MaterializationMode.legacy_null_as_null

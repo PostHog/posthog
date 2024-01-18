@@ -63,6 +63,7 @@ class TrendsQueryRunner(QueryRunner):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        self.update_hogql_modifiers()
         self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):
@@ -381,6 +382,16 @@ class TrendsQueryRunner(QueryRunner):
             action = Action.objects.get(pk=int(series.id), team=self.team)
             return action.name
         return None
+
+    def update_hogql_modifiers(self) -> None:
+        if (
+            self.modifiers.inCohortVia == InCohortVia.auto
+            and self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+            and isinstance(self.query.breakdownFilter.breakdown, List)
+            and len(self.query.breakdownFilter.breakdown) > 1
+        ):
+            self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
 
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [
