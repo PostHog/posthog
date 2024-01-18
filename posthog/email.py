@@ -15,6 +15,7 @@ from sentry_sdk import capture_exception
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
+from posthog.tasks.utils import CeleryQueue
 
 
 def inline_css(value: str) -> str:
@@ -41,7 +42,7 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
     )
 
 
-@shared_task(max_retries=3)
+@shared_task(max_retries=3, queue=CeleryQueue.EMAIL)
 def _send_email(
     campaign_key: str,
     to: List[Dict[str, str]],
