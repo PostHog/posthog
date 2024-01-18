@@ -22,7 +22,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
@@ -57,6 +57,14 @@ CELERY_TASK_RETRY_COUNTER = Counter(
     "posthog_celery_task_retry",
     "task retry signal is dispatched when a task will be retried.",
     labelnames=["task_name"],
+)
+
+
+CELERTY_TASK_DURATION_HISTOGRAM = Histogram(
+    "posthog_celery_task_duration_seconds",
+    "Time spent running a task",
+    labelnames=["task_name"],
+    buckets=(1, 5, 10, 30, 60, 120, 600, 1200, float("inf")),
 )
 
 # Using a string here means the worker doesn't have to serialize
@@ -349,9 +357,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )
 
 
+task_timings = {}
+
+
 # Set up clickhouse query instrumentation
 @task_prerun.connect
-def pre_run_signal_handler(task_id, task, **kwargs):
+def prerun_signal_handler(task_id, task, **kwargs):
     from statshog.defaults.django import statsd
 
     from posthog.clickhouse.client.connection import (
@@ -364,7 +375,20 @@ def pre_run_signal_handler(task_id, task, **kwargs):
     tag_queries(kind="celery", id=task.name)
     set_default_clickhouse_workload_type(Workload.OFFLINE)
 
+    task_timings[task_id] = time.time()
+
     CELERY_TASK_PRE_RUN_COUNTER.labels(task_name=task.name).inc()
+
+
+@task_postrun.connect
+def postrun_signal_handler(task_id, task, **kwargs):
+    from posthog.clickhouse.query_tagging import reset_query_tags
+
+    if task_id in task_timings:
+        start_time = task_timings.pop(task_id, None)
+        CELERTY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(time.time() - start_time)
+
+    reset_query_tags()
 
 
 @task_success.connect
@@ -380,13 +404,6 @@ def failure_signal_handler(sender, **kwargs):
 @task_retry.connect
 def retry_signal_handler(sender, **kwargs):
     CELERY_TASK_RETRY_COUNTER.labels(task_name=sender.name).inc()
-
-
-@task_postrun.connect
-def teardown_instrumentation(task_id, task, **kwargs):
-    from posthog.clickhouse.query_tagging import reset_query_tags
-
-    reset_query_tags()
 
 
 @app.task(ignore_result=True)
