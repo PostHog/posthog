@@ -23,12 +23,12 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True)
-def redis_heartbeat():
+def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES)
-def process_query_task(team_id, query_id, query_json, limit_context=None, refresh_requested=False):
+def process_query_task(team_id, query_id, query_json, limit_context=None, refresh_requested=False) -> None:
     """
     Kick off query
     Once complete save results to redis
@@ -45,7 +45,7 @@ def process_query_task(team_id, query_id, query_json, limit_context=None, refres
 
 
 @shared_task(ignore_result=True)
-def pg_table_cache_hit_rate():
+def pg_table_cache_hit_rate() -> None:
     from statshog.defaults.django import statsd
 
     with connection.cursor() as cursor:
@@ -77,7 +77,7 @@ def pg_table_cache_hit_rate():
 
 
 @shared_task(ignore_result=True)
-def pg_plugin_server_query_timing():
+def pg_plugin_server_query_timing() -> None:
     from statshog.defaults.django import statsd
 
     with connection.cursor() as cursor:
@@ -120,7 +120,7 @@ POSTGRES_TABLES = ["posthog_personoverride", "posthog_personoverridemapping"]
 
 
 @shared_task(ignore_result=True)
-def pg_row_count():
+def pg_row_count() -> None:
     with pushed_metrics_registry("celery_pg_row_count") as registry:
         row_count_gauge = Gauge(
             "posthog_celery_pg_table_row_count",
@@ -153,7 +153,7 @@ if not is_cloud():
 
 
 @shared_task(ignore_result=True)
-def clickhouse_lag():
+def clickhouse_lag() -> None:
     from statshog.defaults.django import statsd
 
     from posthog.client import sync_execute
@@ -189,7 +189,7 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
 
 
 @shared_task(ignore_result=True)
-def ingestion_lag():
+def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
     from posthog.client import sync_execute
@@ -237,7 +237,7 @@ KNOWN_CELERY_TASK_IDENTIFIERS = {
 
 
 @shared_task(ignore_result=True)
-def graphile_worker_queue_size():
+def graphile_worker_queue_size() -> None:
     from django.db import connections
     from statshog.defaults.django import statsd
 
@@ -300,7 +300,7 @@ def graphile_worker_queue_size():
 
 
 @shared_task(ignore_result=True)
-def clickhouse_row_count():
+def clickhouse_row_count() -> None:
     from statshog.defaults.django import statsd
 
     from posthog.client import sync_execute
@@ -329,7 +329,7 @@ def clickhouse_row_count():
 
 
 @shared_task(ignore_result=True)
-def clickhouse_errors_count():
+def clickhouse_errors_count() -> None:
     """
     This task is used to track the recency of errors in ClickHouse.
     We can use this to alert on errors that are consistently being generated recently
@@ -364,7 +364,7 @@ def clickhouse_errors_count():
 
 
 @shared_task(ignore_result=True)
-def clickhouse_part_count():
+def clickhouse_part_count() -> None:
     from statshog.defaults.django import statsd
 
     from posthog.client import sync_execute
@@ -395,7 +395,7 @@ def clickhouse_part_count():
 
 
 @shared_task(ignore_result=True)
-def clickhouse_mutation_count():
+def clickhouse_mutation_count() -> None:
     from statshog.defaults.django import statsd
 
     from posthog.client import sync_execute
@@ -428,7 +428,7 @@ def clickhouse_mutation_count():
 
 
 @shared_task(ignore_result=True)
-def clickhouse_clear_removed_data():
+def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
     from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 
@@ -442,7 +442,7 @@ def clickhouse_clear_removed_data():
 
 
 @shared_task(ignore_result=True)
-def clear_clickhouse_deleted_person():
+def clear_clickhouse_deleted_person() -> None:
     from posthog.models.async_deletion.delete_person import remove_deleted_person_data
 
     remove_deleted_person_data()
@@ -466,7 +466,7 @@ def redis_celery_queue_depth():
 
 
 @shared_task(ignore_result=True)
-def update_event_partitions():
+def update_event_partitions() -> None:
     with connection.cursor() as cursor:
         cursor.execute(
             "DO $$ BEGIN IF (SELECT exists(select * from pg_proc where proname = 'update_partitions')) THEN PERFORM update_partitions(); END IF; END $$"
@@ -474,7 +474,7 @@ def update_event_partitions():
 
 
 @shared_task(ignore_result=True)
-def clean_stale_partials():
+def clean_stale_partials() -> None:
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
 
@@ -482,7 +482,7 @@ def clean_stale_partials():
 
 
 @shared_task(ignore_result=True)
-def monitoring_check_clickhouse_schema_drift():
+def monitoring_check_clickhouse_schema_drift() -> None:
     from posthog.tasks.check_clickhouse_schema_drift import (
         check_clickhouse_schema_drift,
     )
@@ -491,35 +491,35 @@ def monitoring_check_clickhouse_schema_drift():
 
 
 @shared_task(ignore_result=True)
-def calculate_cohort():
+def calculate_cohort() -> None:
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
 
 
 @shared_task(ignore_result=True)
-def process_scheduled_changes():
+def process_scheduled_changes() -> None:
     from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
     process_scheduled_changes()
 
 
 @shared_task(ignore_result=True)
-def sync_insight_cache_states_task():
+def sync_insight_cache_states_task() -> None:
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
     sync_insight_cache_states()
 
 
 @shared_task(ignore_result=True)
-def schedule_cache_updates_task():
+def schedule_cache_updates_task() -> None:
     from posthog.caching.insight_cache import schedule_cache_updates
 
     schedule_cache_updates()
 
 
 @shared_task(ignore_result=True)
-def update_cache_task(caching_state_id: UUID):
+def update_cache_task(caching_state_id: UUID) -> None:
     from posthog.caching.insight_cache import update_cache
 
     update_cache(caching_state_id)
@@ -530,7 +530,7 @@ def sync_insight_caching_state(
     team_id: int,
     insight_id: Optional[int] = None,
     dashboard_tile_id: Optional[int] = None,
-):
+) -> None:
     from posthog.caching.insight_caching_state import sync_insight_caching_state
 
     sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
@@ -554,7 +554,7 @@ def calculate_decide_usage() -> None:
 
 
 @shared_task(ignore_result=True)
-def find_flags_with_enriched_analytics():
+def find_flags_with_enriched_analytics() -> None:
     from datetime import datetime, timedelta
 
     from posthog.models.feature_flag.flag_analytics import (
@@ -568,7 +568,7 @@ def find_flags_with_enriched_analytics():
 
 
 @shared_task(ignore_result=True)
-def demo_reset_master_team():
+def demo_reset_master_team() -> None:
     from posthog.tasks.demo_reset_master_team import demo_reset_master_team
 
     if is_cloud() or settings.DEMO:
@@ -576,7 +576,7 @@ def demo_reset_master_team():
 
 
 @shared_task(ignore_result=True)
-def sync_all_organization_available_features():
+def sync_all_organization_available_features() -> None:
     from posthog.tasks.sync_all_organization_available_features import (
         sync_all_organization_available_features,
     )
@@ -592,7 +592,7 @@ def check_async_migration_health():
 
 
 @shared_task(ignore_result=True)
-def verify_persons_data_in_sync():
+def verify_persons_data_in_sync() -> None:
     from posthog.tasks.verify_persons_data_in_sync import (
         verify_persons_data_in_sync as verify,
     )
@@ -614,7 +614,7 @@ def recompute_materialized_columns_enabled() -> bool:
 
 
 @shared_task(ignore_result=True)
-def clickhouse_materialize_columns():
+def clickhouse_materialize_columns() -> None:
     if recompute_materialized_columns_enabled():
         try:
             from ee.clickhouse.materialized_columns.analyze import (
@@ -627,7 +627,7 @@ def clickhouse_materialize_columns():
 
 
 @shared_task(ignore_result=True)
-def clickhouse_mark_all_materialized():
+def clickhouse_mark_all_materialized() -> None:
     if recompute_materialized_columns_enabled():
         try:
             from ee.tasks.materialized_columns import mark_all_materialized
@@ -638,14 +638,14 @@ def clickhouse_mark_all_materialized():
 
 
 @shared_task(ignore_result=True)
-def send_org_usage_reports():
+def send_org_usage_reports() -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
     send_all_org_usage_reports.delay()
 
 
 @shared_task(ignore_result=True)
-def update_quota_limiting():
+def update_quota_limiting() -> None:
     try:
         from ee.billing.quota_limiting import update_all_org_billing_quotas
 
@@ -655,7 +655,7 @@ def update_quota_limiting():
 
 
 @shared_task(ignore_result=True)
-def schedule_all_subscriptions():
+def schedule_all_subscriptions() -> None:
     try:
         from ee.tasks.subscriptions import (
             schedule_all_subscriptions as _schedule_all_subscriptions,
@@ -678,7 +678,7 @@ def clickhouse_send_license_usage():
 
 
 @shared_task(ignore_result=True)
-def check_flags_to_rollback():
+def check_flags_to_rollback() -> None:
     try:
         from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
 
@@ -688,7 +688,7 @@ def check_flags_to_rollback():
 
 
 @shared_task(ignore_result=True)
-def ee_persist_single_recording(id: str, team_id: int):
+def ee_persist_single_recording(id: str, team_id: int) -> None:
     try:
         from ee.session_recordings.persistence_tasks import persist_single_recording
 
@@ -698,7 +698,7 @@ def ee_persist_single_recording(id: str, team_id: int):
 
 
 @shared_task(ignore_result=True)
-def ee_persist_finished_recordings():
+def ee_persist_finished_recordings() -> None:
     try:
         from ee.session_recordings.persistence_tasks import persist_finished_recordings
     except ImportError:
@@ -708,7 +708,7 @@ def ee_persist_finished_recordings():
 
 
 @shared_task(ignore_result=True)
-def check_data_import_row_limits():
+def check_data_import_row_limits() -> None:
     try:
         from posthog.tasks.warehouse import check_synced_row_limits
     except ImportError:

@@ -6,7 +6,7 @@ from posthog.models.user import User
 
 
 @shared_task()
-def trigger_prompt_for_user(email: str, sequence_id: int):
+def trigger_prompt_for_user(email: str, sequence_id: int) -> None:
     try:
         sequence = PromptSequence.objects.get(pk=sequence_id)
         user = User.objects.get(email=email)
