@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0385_switch_exception_autocapture_off_for_all"),
+        ("posthog", "0385_exception_autocapture_off_for_all"),
     ]
 
     operations = [
