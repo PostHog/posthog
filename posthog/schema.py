@@ -829,10 +829,10 @@ class BreakdownFilter(BaseModel):
         extra="forbid",
     )
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
+    breakdown_group_type_index: Optional[int] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_histogram_bin_count: Optional[float] = None
-    breakdown_limit: Optional[float] = None
+    breakdown_histogram_bin_count: Optional[int] = None
+    breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None

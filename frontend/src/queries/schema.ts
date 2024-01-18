@@ -949,11 +949,14 @@ export interface DateRange {
 export interface BreakdownFilter {
     // TODO: unclutter
     breakdown_type?: BreakdownType | null
+    /** @asType integer */
     breakdown_limit?: number
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
+    /** @asType integer */
     breakdown_group_type_index?: number | null
+    /** @asType integer */
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
