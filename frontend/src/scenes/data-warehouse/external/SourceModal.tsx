@@ -43,6 +43,14 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
             )
         }
 
+        if (config.name === 'Postgres') {
+            return (
+                <LemonButton onClick={onClick} className="w-100" center type="secondary">
+                    Postgres
+                </LemonButton>
+            )
+        }
+
         return <></>
     }
 

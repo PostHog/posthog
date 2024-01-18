@@ -69,6 +69,59 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
         fields: [],
         caption: '',
     },
+    Postgres: {
+        name: 'Postgres',
+        caption: (
+            <>
+                Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data
+                warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'host',
+                label: 'Host',
+                type: 'text',
+                required: true,
+                placeholder: 'localhost',
+            },
+            {
+                name: 'port',
+                label: 'Port',
+                type: 'number',
+                required: true,
+                placeholder: '5432',
+            },
+            {
+                name: 'database',
+                label: 'Database',
+                type: 'text',
+                required: true,
+                placeholder: 'postgres',
+            },
+            {
+                name: 'user',
+                label: 'User',
+                type: 'text',
+                required: true,
+                placeholder: 'postgres',
+            },
+            {
+                name: 'password',
+                label: 'Password',
+                type: 'password',
+                required: true,
+                placeholder: 'password',
+            },
+            {
+                name: 'schema',
+                label: 'Schema',
+                type: 'text',
+                required: true,
+                placeholder: 'public',
+            }
+        ]
+    }
 }
 
 const getPayloadDefaults = (sourceType: string): Record<string, any> => {

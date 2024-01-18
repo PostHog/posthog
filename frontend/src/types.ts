@@ -3382,7 +3382,7 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot'
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
