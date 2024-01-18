@@ -1292,6 +1292,7 @@ async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.d
 
             logger.error(
                 "Timed out waiting for celery task to finish",
+                task_id=task.id,
                 ready=task.ready(),
                 successful=task.successful(),
                 failed=task.failed(),
