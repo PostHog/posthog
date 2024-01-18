@@ -612,7 +612,7 @@ class TimeToSeeDataQuery(BaseModel):
     sessionStart: Optional[str] = Field(
         default=None, description="Session start time. Defaults to current time - 2 hours"
     )
-    teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
+    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
 
 class TimeToSeeDataSessionsQueryResponse(BaseModel):
@@ -829,10 +829,10 @@ class BreakdownFilter(BaseModel):
         extra="forbid",
     )
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
+    breakdown_group_type_index: Optional[int] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_histogram_bin_count: Optional[float] = None
-    breakdown_limit: Optional[float] = None
+    breakdown_histogram_bin_count: Optional[int] = None
+    breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
@@ -1230,7 +1230,7 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
     response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(default=None, description="Cached query response")
-    teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
+    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
 
 class WebAnalyticsQueryBase(BaseModel):
@@ -1396,7 +1396,7 @@ class EventsNode(BaseModel):
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["EventsNode"] = "EventsNode"
-    limit: Optional[float] = None
+    limit: Optional[int] = None
     math: Optional[
         Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
     ] = None
@@ -1525,7 +1525,7 @@ class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    cohort: Optional[float] = None
+    cohort: Optional[int] = None
     distinctId: Optional[str] = None
     fixedProperties: Optional[
         List[
@@ -1547,8 +1547,8 @@ class PersonsNode(BaseModel):
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["PersonsNode"] = "PersonsNode"
-    limit: Optional[float] = None
-    offset: Optional[float] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     properties: Optional[
         List[
             Union[
@@ -1692,7 +1692,7 @@ class ActionsNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    id: float
+    id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
         Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]

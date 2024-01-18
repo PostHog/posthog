@@ -45,7 +45,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                     if (!values.canConfigurePlugins) {
                         return values.pluginConfigsToDisable
                     }
-                    const response = await api.update(`api/plugin_config/${id}`, { enabled: false })
+                    const response = await api.update(`api/plugin_config/${id}`, { enabled: false, deleted: true })
                     return { ...values.pluginConfigsToDisable, [id]: response }
                 },
             },
