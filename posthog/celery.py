@@ -19,6 +19,7 @@ from prometheus_client import Counter, Histogram
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
+
 app = Celery("posthog")
 
 CELERY_TASK_PRE_RUN_COUNTER = Counter(
@@ -128,8 +129,6 @@ def postrun_signal_handler(task_id, task, **kwargs):
     if task_id in task_timings:
         start_time = task_timings.pop(task_id, None)
         CELERTY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(time.time() - start_time)
-
-        print("Celery task {} took {:.2f} seconds".format(task.name, time.time() - start_time))
 
     reset_query_tags()
 
