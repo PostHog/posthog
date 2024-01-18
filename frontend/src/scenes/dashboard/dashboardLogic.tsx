@@ -152,7 +152,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
-        addInsightTile: (insight: InsightModel, callback?: (insight: InsightModel) => void) => ({
+        addInsight: (insight: InsightModel, callback?: (insight: InsightModel) => void) => ({
             insight,
             callback,
         }),
@@ -264,16 +264,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return values.dashboard
                 },
-                addInsightTile: async ({ insight, callback }) => {
+                addInsight: async ({ insight, callback }) => {
                     try {
                         if (!props.id) {
                             throw new Error('Dashboard id not provided')
                         }
 
                         const refreshedInsight = (await api.update(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${insight.id}`,
+                            `api/projects/${values.currentTeamId}/insights/${insight.id}`,
                             insight
                         )) as InsightModel
+
+                        const updatedDashboard = await api.get(values.apiUrl())
 
                         updateExistingInsightState({
                             cachedInsight: insight,
@@ -281,26 +283,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             refreshedInsight: refreshedInsight,
                         })
 
-                        const tile = refreshedInsight.dashboard_tiles?.find((tile) => tile?.dashboard_id === props.id)
-
-                        if (!tile) {
-                            throw new Error('Could not create new tile in dashboard')
-                        }
+                        dashboardsModel.actions.tileAddedToDashboard(props.id)
 
                         callback?.(refreshedInsight)
 
-                        return {
-                            ...values.dashboard,
-                            tiles: [
-                                ...(values.dashboard?.tiles || []),
-                                {
-                                    ...tile,
-                                    insight: refreshedInsight,
-                                    deleted: false,
-                                    layouts: {},
-                                },
-                            ],
-                        } as DashboardType
+                        return updatedDashboard
                     } catch (e) {
                         lemonToast.error('Could not add insight to dashboard: ' + String(e))
                         return values.dashboard
@@ -312,33 +299,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             throw new Error('Dashboard ID not provided')
                         }
 
-                        await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                            tiles: [{ id: tile.id, deleted: true }],
-                        })
+                        const updatedDashboard = await api.update(
+                            `api/projects/${values.currentTeamId}/dashboards/${props.id}?`,
+                            {
+                                tiles: [{ id: tile.id, deleted: true }],
+                            }
+                        )
 
                         dashboardsModel.actions.tileRemovedFromDashboard({
                             tile: tile,
                             dashboardId: props.id,
                         })
 
-                        if (tile.insight) {
-                            updateExistingInsightState({
-                                cachedInsight: tile.insight,
-                                dashboardId: props.id,
-                                refreshedInsight: {
-                                    ...tile.insight,
-                                    dashboard_tiles:
-                                        tile.insight.dashboard_tiles?.filter((dt) => dt.id !== tile.id) || [],
-                                },
-                            })
-                        }
-
                         callback?.(tile)
 
-                        return {
-                            ...values.dashboard,
-                            tiles: values.tiles.filter((t) => t.id !== tile.id),
-                        } as DashboardType
+                        return updatedDashboard
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + String(e))
                         return values.dashboard

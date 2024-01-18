@@ -6,11 +6,11 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { urls } from 'scenes/urls'
 
-import { DashboardType, InsightModel, InsightShortId } from '~/types'
+import { DashboardType, InsightModel } from '~/types'
 
-import { addInsightFromDashboardModalLogic } from './addInsightFromDashboardModalLogic'
+import { addInsightsToDashboardModalLogic } from './addInsightsToDashboardModalLogic'
 
-interface AddInsightFromDashboardModalProps {
+interface AddInsightsToDashboardModalProps {
     isOpen: boolean
     closeModal: () => void
     dashboard: DashboardType
@@ -34,7 +34,7 @@ const InsightRelationRow = ({
     isAlreadyOnDashboard,
     style,
 }: InsightRelationRowProps): JSX.Element => {
-    const logic = addInsightFromDashboardModalLogic({
+    const logic = addInsightsToDashboardModalLogic({
         dashboard: dashboard,
     })
 
@@ -80,13 +80,13 @@ const InsightRelationRow = ({
     )
 }
 
-export function AddInsightFromDashboardModal({
+export function AddInsightsToDashboardModal({
     isOpen,
     closeModal,
     dashboard,
     canEditDashboard,
-}: AddInsightFromDashboardModalProps): JSX.Element | null {
-    const logic = addInsightFromDashboardModalLogic({
+}: AddInsightsToDashboardModalProps): JSX.Element | null {
+    const logic = addInsightsToDashboardModalLogic({
         dashboard: dashboard,
     })
 
@@ -95,18 +95,17 @@ export function AddInsightFromDashboardModal({
     const { setSearchQuery } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
-        const dashboardInsightIds = dashboard.tiles
-            .map((tile) => tile.insight?.short_id)
-            .filter((id) => id !== undefined) as InsightShortId[]
-
         return (
             <InsightRelationRow
-                key={filteredInsights[rowIndex].id}
+                key={filteredInsights[rowIndex].short_id}
                 dashboard={dashboard}
                 insight={filteredInsights[rowIndex]}
                 canEditDashboard={canEditDashboard}
                 isHighlighted={rowIndex === scrollIndex}
-                isAlreadyOnDashboard={dashboardInsightIds.some((id) => id == filteredInsights[rowIndex].short_id)}
+                isAlreadyOnDashboard={
+                    logic.values.tiles?.some((t) => t.insight?.short_id === filteredInsights[rowIndex].short_id) ||
+                    false
+                }
                 style={style}
             />
         )

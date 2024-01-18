@@ -1,7 +1,7 @@
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { AddInsightFromDashboardModal } from 'lib/components/AddInsightFromDashboard/AddInsightFromDashboardModal'
+import { AddInsightsToDashboardModal } from 'lib/components/AddInsightsToDashboard/AddInsightsToDashboardModal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -60,7 +60,7 @@ function DashboardScene(): JSX.Element {
         useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const [addInsightFromDashboardModalOpen, setAddInsightFromDashboardModalOpen] = useState<boolean>(false)
+    const [addInsightsToDashboardModalOpen, setAddInsightsToDashboardModalOpen] = useState<boolean>(false)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -106,7 +106,7 @@ function DashboardScene(): JSX.Element {
     return (
         <div className="dashboard">
             {placement == DashboardPlacement.Dashboard && (
-                <DashboardHeader setAddInsightFromDashboardModalOpen={setAddInsightFromDashboardModalOpen} />
+                <DashboardHeader setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen} />
             )}
 
             {receivedErrorsFromAPI ? (
@@ -115,7 +115,7 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent
                     loading={itemsLoading}
                     canEdit={canEditDashboard}
-                    setAddInsightFromDashboardModalOpen={setAddInsightFromDashboardModalOpen}
+                    setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen}
                 />
             ) : (
                 <div>
@@ -180,9 +180,9 @@ function DashboardScene(): JSX.Element {
                 </div>
             )}
             {dashboard && (
-                <AddInsightFromDashboardModal
-                    isOpen={addInsightFromDashboardModalOpen}
-                    closeModal={() => setAddInsightFromDashboardModalOpen(false)}
+                <AddInsightsToDashboardModal
+                    isOpen={addInsightsToDashboardModalOpen}
+                    closeModal={() => setAddInsightsToDashboardModalOpen(false)}
                     dashboard={dashboard}
                     canEditDashboard={canEditDashboard}
                 />

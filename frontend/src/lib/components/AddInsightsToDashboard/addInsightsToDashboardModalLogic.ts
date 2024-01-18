@@ -7,27 +7,27 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, InsightModel, InsightShortId } from '~/types'
 
-import type { addInsightFromDashboardModalLogicType } from './addInsightFromDashboardModalLogicType'
+import type { addInsightsToDashboardModalLogicType } from './addInsightsToDashboardModalLogicType'
 
-export interface AddInsightFromDashboardModalLogicProps {
+export interface AddInsightsToDashboardModalLogicProps {
     dashboard: DashboardType
 }
 
 export interface Fuse extends FuseClass<any> {}
 
-export const addInsightFromDashboardModalLogic = kea<addInsightFromDashboardModalLogicType>([
-    props({} as AddInsightFromDashboardModalLogicProps),
+export const addInsightsToDashboardModalLogic = kea<addInsightsToDashboardModalLogicType>([
+    props({} as AddInsightsToDashboardModalLogicProps),
     key(({ dashboard }) => {
         if (!dashboard.id) {
             throw Error('must provide a dashboard id')
         }
         return dashboard.id
     }),
-    path(['lib', 'components', 'AddInsightFromDashboard', 'saveInsightFromDashboardModalLogic']),
-    connect((props: AddInsightFromDashboardModalLogicProps) => ({
+    path(['lib', 'components', 'AddInsightsToDashboard', 'saveInsightsToDashboardModalLogic']),
+    connect((props: AddInsightsToDashboardModalLogicProps) => ({
         actions: [
             dashboardLogic({ id: props.dashboard.id }),
-            ['addInsightTile', 'removeTile', 'loadDashboardItemsSuccess'],
+            ['addInsight', 'removeTile', 'refreshAllDashboardItems'],
             eventUsageLogic,
             ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard'],
             dashboardsModel,
@@ -50,14 +50,13 @@ export const addInsightFromDashboardModalLogic = kea<addInsightFromDashboardModa
         insightWithActiveAPICall: [
             null as InsightShortId | null,
             {
-                addToDashboard: (_, { insight }) => insight.short_id,
-                removeFromDashboard: (_, { insight }) => insight.short_id,
+                addToDashboard: (_, { insight }) => insight?.short_id || null,
+                removeFromDashboard: (_, { insight }) => insight?.short_id || null,
                 tileRemovedFromDashboard: (curr, { dashboardId }) => (dashboardId === props.dashboard.id ? null : curr),
                 tileAddedToDashboard: (curr, { dashboardId }) => (dashboardId === props.dashboard.id ? null : curr),
             },
         ],
     })),
-
     selectors({
         insightId: [(s) => [s._insightId], (_insightId) => _insightId],
         insightsFuse: [
@@ -79,15 +78,13 @@ export const addInsightFromDashboardModalLogic = kea<addInsightFromDashboardModa
     }),
     listeners(({ props, actions, values }) => ({
         addToDashboard: async ({ insight }) => {
-            // Tricky: update insight to include dashboard from dashboard uses api's deprecated dashboads field
             if (insight.dashboards) {
                 insight.dashboards = [...insight.dashboards, props.dashboard.id]
             } else {
                 insight.dashboards = [props.dashboard.id]
             }
 
-            actions.addInsightTile(insight, () => {
-                dashboardsModel.actions.tileAddedToDashboard(props.dashboard.id)
+            actions.addInsight(insight, () => {
                 actions.reportSavedInsightToDashboard()
             })
         },
@@ -97,10 +94,6 @@ export const addInsightFromDashboardModalLogic = kea<addInsightFromDashboardModa
                 return
             }
             actions.removeTile(tile, () => {
-                dashboardsModel.actions.tileRemovedFromDashboard({
-                    tile: tile,
-                    dashboardId: props.dashboard.id,
-                })
                 actions.reportRemovedInsightFromDashboard()
             })
         },

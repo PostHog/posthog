@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { AddInsightFromDashboard } from 'lib/components/AddInsightFromDashboard/AddInsightFromDashboard'
+import { AddInsightsToDashboard } from 'lib/components/AddInsightsToDashboard/AddInsightsToDashboard'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -36,13 +36,15 @@ import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 interface DashboardHeaderProps {
-    setAddInsightFromDashboardModalOpen: (open: boolean) => void
+    setAddInsightsToDashboardModalOpen: (open: boolean) => void
 }
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
-export function DashboardHeader({ setAddInsightFromDashboardModalOpen }: DashboardHeaderProps): JSX.Element | null {
+export function DashboardHeader({
+    setAddInsightsToDashboardModalOpen: setAddInsightsToDashboardModalOpen,
+}: DashboardHeaderProps): JSX.Element | null {
     const {
         dashboard,
         dashboardLoading,
@@ -276,8 +278,8 @@ export function DashboardHeader({ setAddInsightFromDashboardModalOpen }: Dashboa
                                 </>
                             )}
                             {dashboard && (
-                                <AddInsightFromDashboard
-                                    setAddInsightFromDashboardModalOpen={setAddInsightFromDashboardModalOpen}
+                                <AddInsightsToDashboard
+                                    setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen}
                                     dashboard={dashboard}
                                     disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                 />

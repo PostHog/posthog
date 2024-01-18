@@ -803,6 +803,49 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('insight tiles', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('can add insight tiles', async () => {
+            expect(logic.values.insightTiles.filter((t) => t.insight?.id === 800)).toHaveLength(0)
+
+            await expectLogic(logic, () => {
+                logic.actions.addInsight({
+                    ...insight800(),
+                    dashboards: [5],
+                })
+            })
+                .toFinishAllListeners()
+                .toDispatchActions([
+                    dashboardsModel.actionTypes.tileAddedToDashboard,
+                    logic.actionTypes.addInsightSuccess,
+                ])
+
+            expect(logic.values.insightTiles.map((t) => t.insight?.id)).toContain(800)
+        })
+
+        it('can remove insight tiles', async () => {
+            const tileToRemove = tileFromInsight(insightOnDashboard(172, [5]), 217)
+
+            expect(logic.values.tiles?.filter((t) => t.id === 217)).toHaveLength(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(tileToRemove)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions([
+                    dashboardsModel.actionTypes.tileRemovedFromDashboard,
+                    logic.actionTypes.removeTileSuccess,
+                ])
+
+            expect(logic.values.tiles?.filter((t) => t.id === 217)).toHaveLength(0)
+        })
+    })
+
     it('can move an insight off a dashboard', async () => {
         const nineLogic = dashboardLogic({ id: 9 })
         nineLogic.mount()

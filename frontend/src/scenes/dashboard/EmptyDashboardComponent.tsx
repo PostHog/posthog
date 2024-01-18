@@ -1,7 +1,7 @@
 import './EmptyDashboardComponent.scss'
 
 import { useValues } from 'kea'
-import { AddInsightFromDashboard } from 'lib/components/AddInsightFromDashboard/AddInsightFromDashboard'
+import { AddInsightsToDashboard } from 'lib/components/AddInsightsToDashboard/AddInsightsToDashboard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import React from 'react'
 
@@ -79,11 +79,11 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
 export function EmptyDashboardComponent({
     loading,
     canEdit,
-    setAddInsightFromDashboardModalOpen,
+    setAddInsightsToDashboardModalOpen: setAddInsightsToDashboardModalOpen,
 }: {
     loading: boolean
     canEdit: boolean
-    setAddInsightFromDashboardModalOpen: (open: boolean) => void
+    setAddInsightsToDashboardModalOpen: (open: boolean) => void
 }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
 
@@ -95,8 +95,8 @@ export function EmptyDashboardComponent({
                     <p>This dashboard sure would look better with some graphs!</p>
                     {dashboard && (
                         <div className="mt-4 text-center">
-                            <AddInsightFromDashboard
-                                setAddInsightFromDashboardModalOpen={setAddInsightFromDashboardModalOpen}
+                            <AddInsightsToDashboard
+                                setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen}
                                 dashboard={dashboard}
                                 disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                             />
