@@ -270,7 +270,10 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
             ],
         })
         if (series.length > 0) {
-            newCache.series = [...series, ...(cache?.series ? cache.series.slice(series.length) : [])]
+            newCache.series = [
+                ...series.slice(0, cache?.series?.length || 1), // cache only the first series entry if there aren't already two
+                ...(cache?.series ? cache.series.slice(series.length) : []),
+            ]
         }
     }
 
@@ -328,6 +331,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         mergedQuery[filterKey] = {
             ...query[filterKey],
             ...cache[filterKey],
+            ...(isRetentionQuery(mergedQuery) ? mergedQuery.retentionFilter : {}),
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
             // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
