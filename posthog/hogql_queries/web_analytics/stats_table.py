@@ -33,6 +33,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                     "session_where": self.session_where(),
                     "session_having": self.session_having(),
                     "breakdown_by": self.bounce_breakdown(),
+                    "sample_rate": self._sample_ratio,
                 },
                 backend="cpp",
             )
@@ -43,6 +44,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 placeholders={
                     "counts_where": self.events_where(),
                     "breakdown_by": self.counts_breakdown(),
+                    "sample_rate": self._sample_ratio,
                 },
                 backend="cpp",
             )
@@ -54,6 +56,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                     placeholders={
                         "pathname_scroll_where": self.events_where(),
                         "breakdown_by": self.counts_breakdown(),
+                        "sample_rate": self._sample_ratio,
                     },
                     backend="cpp",
                 )
@@ -89,6 +92,7 @@ LIMIT 10
                     "bounce_rate_query": bounce_rate_query,
                     "scroll_depth_query": scroll_depth_query,
                     "where_breakdown": self.where_breakdown(),
+                    "sample_rate": self._sample_ratio,
                 },
                 backend="cpp",
             )
@@ -132,9 +136,23 @@ LIMIT 10
             modifiers=self.modifiers,
         )
 
+        def to_data(col_val, col_idx):
+            if col_idx == 0:  # breakdown_value
+                return col_val
+            elif col_idx == 1:  # views
+                return self._unsample(col_val)
+            elif col_idx == 2:  # visitors
+                return self._unsample(col_val)
+            elif col_idx == 3:  # bounce_rate
+                return col_val
+            else:
+                return col_val
+
+        results = [[to_data(c, i) for (i, c) in enumerate(r)] for r in response.results]
+
         return WebStatsTableQueryResponse(
             columns=response.columns,
-            results=response.results,
+            results=results,
             timings=response.timings,
             types=response.types,
             hogql=response.hogql,
@@ -288,6 +306,7 @@ FROM
             person.properties.$initial_gad_source AS initial_gad_source,
             person_id AS pid
         FROM events
+        SAMPLE {sample_rate}
         WHERE
             (event = '$pageview')
             AND ({counts_where})
