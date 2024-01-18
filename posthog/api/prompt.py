@@ -1,6 +1,7 @@
 import json
 from typing import Any, Dict, List
 
+from celery import shared_task
 from dateutil import parser
 from django.db import IntegrityError
 from django.http import JsonResponse
@@ -11,7 +12,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import get_token
-from posthog.celery import app
 from posthog.exceptions import generate_exception_response
 from posthog.models.prompt import Prompt, PromptSequence, UserPromptState
 from posthog.models.user import User
@@ -185,7 +185,7 @@ class WebhookSequenceSerializer(serializers.ModelSerializer):
         ]
 
 
-@app.task(ignore_result=True)
+@shared_task()
 def trigger_prompt_for_user(email: str, sequence_id: int):
     try:
         sequence = PromptSequence.objects.get(pk=sequence_id)

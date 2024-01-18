@@ -6,25 +6,25 @@ from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.utils import timezone
-from posthog.celery import clickhouse_clear_removed_data
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
-from posthog.schema import PropertyOperator
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.api.test.test_exports import TestExportMixin
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import FeatureFlag, Person
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
+from posthog.schema import PropertyOperator
+from posthog.tasks.calculate_cohort import calculate_cohort_from_list
+from posthog.tasks.tasks import clickhouse_clear_removed_data
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    QueryMatchingTest,
     _create_event,
     _create_person,
     flush_persons_and_events,
-    QueryMatchingTest,
     snapshot_clickhouse_queries,
 )
 

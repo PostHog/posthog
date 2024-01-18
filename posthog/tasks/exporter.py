@@ -1,9 +1,9 @@
 from typing import Optional
 
+from celery import shared_task
 from prometheus_client import Counter, Histogram
 
 from posthog import settings
-from posthog.celery import app
 from posthog.models import ExportedAsset
 
 EXPORT_QUEUED_COUNTER = Counter(
@@ -35,7 +35,7 @@ EXPORT_TIMER = Histogram(
 
 
 # export_asset is used in chords/groups and so must not ignore its results
-@app.task(
+@shared_task(
     autoretry_for=(Exception,),
     max_retries=5,
     retry_backoff=True,
