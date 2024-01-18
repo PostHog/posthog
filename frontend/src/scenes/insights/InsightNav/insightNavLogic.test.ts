@@ -155,8 +155,8 @@ describe('insightNavLogic', () => {
                         },
                     ],
                     funnelsFilter: {
-                        funnel_order_type: StepOrderValue.STRICT,
-                        funnel_viz_type: FunnelVizType.Steps,
+                        funnelOrderType: StepOrderValue.STRICT,
+                        funnelVizType: FunnelVizType.Steps,
                     },
                 },
             }

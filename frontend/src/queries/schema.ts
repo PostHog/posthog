@@ -9,6 +9,7 @@ import {
     EventPropertyFilter,
     EventType,
     FilterType,
+    FunnelExclusion,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -549,7 +550,7 @@ export interface TrendsQuery extends InsightsQueryBase {
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
-export type FunnelsFilter = Omit<
+export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
     | keyof FilterType
     | 'hidden_legend_keys'
@@ -561,6 +562,24 @@ export type FunnelsFilter = Omit<
     | 'funnel_step'
     | 'funnel_custom_steps'
 >
+
+export type FunnelsFilter = {
+    exclusions?: FunnelExclusion[]
+    layout?: FunnelsFilterLegacy['layout']
+    binCount?: FunnelsFilterLegacy['bin_count']
+    breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    breakdownAttributionValue?: FunnelsFilterLegacy['breakdown_attribution_value']
+    funnelAggregateByHogql?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    funnelToStep?: FunnelsFilterLegacy['funnel_to_step']
+    funnelFromStep?: FunnelsFilterLegacy['funnel_from_step']
+    funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    funnelWindowInterval?: FunnelsFilterLegacy['funnel_window_interval']
+    funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
+    hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
+    funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+}
+
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
