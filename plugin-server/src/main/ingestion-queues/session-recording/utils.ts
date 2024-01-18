@@ -2,6 +2,7 @@ import { captureException, captureMessage } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
+import { parse } from 'simdjson'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
@@ -176,8 +177,13 @@ export const parseKafkaMessage = async (
     let event: PipelineEvent
 
     try {
-        messagePayload = JSON.parse(message.value.toString())
-        event = JSON.parse(messagePayload.data)
+        // we only read distinct_id, team_id, token, and data from the message payload
+        // data is read into event
+        // TODO: simd json can lazily parse json, so if we could avoid parsing "events" from the data
+        // we'd get the biggest perf win, since that is the potentially large "blob" of data
+        // see: https://github.com/luizperes/simdjson_nodejs?tab=readme-ov-file#parsing-a-json-string-lazily
+        messagePayload = parse(message.value.toString())
+        event = parse(messagePayload.data)
     } catch (error) {
         return dropMessage('invalid_json', { error })
     }
