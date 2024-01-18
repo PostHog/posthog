@@ -37,3 +37,11 @@ def test_encode_clickhouse_data(data, expected):
     """Test data is encoded as expected."""
     result = encode_clickhouse_data(data)
     assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_stream_query_as_arrow(clickhouse_client):
+    query = "SELECT 1 AS the_one FORMAT ArrowStream"
+    records = [record_batch async for record_batch in clickhouse_client.stream_query_as_arrow(query)]
+
+    assert records[0].to_pylist() == [{"the_one": 1}]
