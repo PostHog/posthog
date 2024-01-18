@@ -9,7 +9,7 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
 import { appContextLogic } from './appContextLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
@@ -18,6 +18,13 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
+
+export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
+    [ProductKey.SESSION_REPLAY]: ['/replay'],
+    [ProductKey.FEATURE_FLAGS]: ['/feature_flags', '/early_access_features', '/experiments'],
+    [ProductKey.SURVEYS]: ['/surveys'],
+    [ProductKey.PRODUCT_ANALYTICS]: ['/insights'],
+}
 
 export const sceneLogic = kea<sceneLogicType>([
     props(
@@ -242,6 +249,27 @@ export const sceneLogic = kea<sceneLogicType>([
                         ) {
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
+                            return
+                        }
+
+                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key: string) =>
+                            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+                            (Object.values(productUrlMapping[key]) as string[]).some(
+                                (path: string) =>
+                                    removeProjectIdIfPresent(location.pathname).startsWith(path) &&
+                                    !path.startsWith('/projects')
+                            )
+                        )
+
+                        if (
+                            productKeyFromUrl &&
+                            teamLogic.values.currentTeam &&
+                            !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
+                        ) {
+                            console.warn(
+                                `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
+                            )
+                            router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
                             return
                         }
                     }

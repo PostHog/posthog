@@ -70,7 +70,7 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                             <p>{product.description}</p>
                             <GetStartedButton product={product} />
                         </div>
-                        <aside className="text-right">
+                        <aside className="text-right my-2">
                             <img src={product.image_url || undefined} className="max-w-full" />
                         </aside>
                     </div>
