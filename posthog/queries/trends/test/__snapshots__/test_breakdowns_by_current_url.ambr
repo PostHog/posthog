@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url
-  '
+  '''
   
   SELECT if(empty(trim(TRAILING '/?#'
                        from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
@@ -12,12 +13,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -61,10 +62,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
-  '
+  '''
   
   SELECT if(empty(trim(TRAILING '/?#'
                        from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
@@ -77,12 +78,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -126,5 +127,5 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---

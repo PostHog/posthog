@@ -2,12 +2,10 @@ import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 
-import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { columns, xData, yData } = useValues(dataVisualizationLogic)
-    const { responseLoading } = useValues(dataNodeLogic)
+    const { columns, xData, yData, responseLoading } = useValues(dataVisualizationLogic)
     const { updateXSeries, updateYSeries, addYSeries, deleteYSeries } = useActions(dataVisualizationLogic)
 
     const options = columns.map(({ name, label }) => ({
@@ -48,7 +46,7 @@ export const SeriesTab = (): JSX.Element => {
                     <LemonButton
                         key="delete"
                         icon={<IconDelete />}
-                        status="primary-alt"
+                        status="danger"
                         title="Delete Y-series"
                         noPadding
                         onClick={() => deleteYSeries(index)}

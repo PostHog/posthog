@@ -32,7 +32,6 @@ export function LemonEventName({
             disabled={disabled}
             value={value as string}
             type="secondary"
-            status="stealth"
             placeholder={placeholder}
             data-attr="event-name-box"
             renderValue={(v) => (v !== null ? <PropertyKeyInfo value={v} disablePopover /> : null)}

@@ -1,6 +1,7 @@
+# serializer version: 1
 # name: test_groups_join_query_filtering
-  <class 'tuple'> (
-    '
+  tuple(
+    '''
       
                       LEFT JOIN (
                           SELECT
@@ -12,16 +13,16 @@
                       ) groups_0
                       ON "$group_0" == groups_0.group_key
                       
-    ',
-    <class 'dict'> {
+    ''',
+    dict({
       'group_index_0': 0,
       'team_id': 2,
-    },
+    }),
   )
----
+# ---
 # name: test_groups_join_query_filtering_with_custom_key_names
-  <class 'tuple'> (
-    '
+  tuple(
+    '''
       
                       LEFT JOIN (
                           SELECT
@@ -44,11 +45,11 @@
                       ) groups_2
                       ON call_me_industry == groups_2.group_key
                       
-    ',
-    <class 'dict'> {
+    ''',
+    dict({
       'group_index_0': 0,
       'group_index_2': 2,
       'team_id': 2,
-    },
+    }),
   )
----
+# ---

@@ -1,35 +1,36 @@
+# serializer version: 1
 # name: TestTrends.test_action_filtering_with_cohort
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.2
-  '
+  '''
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -77,40 +78,40 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
-  '
+  '''
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -147,10 +148,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -169,12 +170,12 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -225,10 +226,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -256,10 +257,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -279,12 +280,12 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -336,10 +337,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
          count(*) as count
@@ -353,12 +354,12 @@
          AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -403,10 +404,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
          count(*) as count
@@ -420,20 +421,20 @@
          AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
-  '
+  '''
   SELECT [now()] AS date,
          [0] AS total,
          '' AS breakdown_value
   LIMIT 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
          count(DISTINCT pdi.person_id) as count
@@ -451,12 +452,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated.1
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total,
          transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'bor']), (['val', 'bor']), '$$_posthog_breakdown_other_$$') as breakdown_value
@@ -476,10 +477,10 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized
-  '
+  '''
   
   SELECT "mat_key" AS value,
          count(DISTINCT pdi.person_id) as count
@@ -497,12 +498,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.1
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total,
          transform(ifNull(nullIf("mat_key", ''), '$$_posthog_breakdown_null_$$'), (['val', 'bor']), (['val', 'bor']), '$$_posthog_breakdown_other_$$') as breakdown_value
@@ -522,10 +523,10 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
          count(DISTINCT pdi.person_id) as count
@@ -563,12 +564,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -660,10 +661,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
          count(*) as count
@@ -682,12 +683,12 @@
     AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -737,10 +738,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -751,10 +752,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'test_breakdown_d1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.1
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
          count(*) as count
@@ -780,12 +781,12 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -843,10 +844,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -857,12 +858,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -911,10 +912,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -925,12 +926,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -979,30 +980,30 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1044,30 +1045,30 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1092,10 +1093,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1135,10 +1136,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -1174,10 +1175,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1210,10 +1211,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
          count(DISTINCT pdi.person_id) as count
@@ -1244,12 +1245,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1334,10 +1335,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', '') AS value,
          count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) as count
@@ -1356,12 +1357,12 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1435,10 +1436,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_non_deterministic_timezones
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1461,10 +1462,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -1494,12 +1495,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1560,10 +1561,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -1593,12 +1594,12 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1660,10 +1661,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1705,10 +1706,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1750,10 +1751,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1777,10 +1778,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1822,10 +1823,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1849,10 +1850,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_materialized
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1894,10 +1895,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -1908,10 +1909,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1935,10 +1936,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1968,10 +1969,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -1982,10 +1983,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2015,10 +2016,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -2029,10 +2030,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2062,10 +2063,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -2076,10 +2077,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2109,10 +2110,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2135,10 +2136,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2168,10 +2169,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2217,10 +2218,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2243,10 +2244,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.4
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
          count(*) as count
@@ -2257,12 +2258,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -2311,10 +2312,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2337,10 +2338,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2370,10 +2371,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2419,10 +2420,10 @@
           AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2445,10 +2446,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.4
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
          count(*) as count
@@ -2459,12 +2460,12 @@
     AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -2513,10 +2514,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2539,10 +2540,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2572,10 +2573,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2621,10 +2622,10 @@
           AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2647,10 +2648,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.4
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
          count(*) as count
@@ -2661,12 +2662,12 @@
     AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -2715,10 +2716,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2748,10 +2749,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -2777,10 +2778,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2803,10 +2804,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2836,10 +2837,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -2865,10 +2866,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2891,10 +2892,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2924,10 +2925,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -2953,10 +2954,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2979,10 +2980,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3005,10 +3006,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3031,10 +3032,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3057,10 +3058,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_minus_utc.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3083,10 +3084,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3109,10 +3110,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_plus_utc.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3135,10 +3136,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3169,10 +3170,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -3199,10 +3200,10 @@
            actor_id DESC
   LIMIT 5
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -3229,10 +3230,10 @@
            actor_id DESC
   LIMIT 5
   OFFSET 5
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -3259,10 +3260,10 @@
            actor_id DESC
   LIMIT 5
   OFFSET 10
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
          count(*) as count
@@ -3297,12 +3298,12 @@
           OR (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3368,10 +3369,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
          count(*) as count
@@ -3407,12 +3408,12 @@
     AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3479,10 +3480,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3505,10 +3506,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3550,10 +3551,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
          count(*) as count
@@ -3578,12 +3579,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3639,10 +3640,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.4
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3681,10 +3682,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3723,10 +3724,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '') AS value,
          count(*) as count
@@ -3737,12 +3738,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.7
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3784,10 +3785,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_any_event_total_count
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3810,10 +3811,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_any_event_total_count.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3836,10 +3837,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -3850,12 +3851,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3912,10 +3913,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -3933,12 +3934,12 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3996,10 +3997,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          quantile(0.50)(session_duration) as count
@@ -4019,12 +4020,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total,
          breakdown_value
@@ -4053,10 +4054,10 @@
                        breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          quantile(0.50)(session_duration) as count
@@ -4076,12 +4077,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total,
          breakdown_value
@@ -4110,10 +4111,10 @@
                        breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4136,10 +4137,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4162,10 +4163,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4188,10 +4189,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_group_average_aggregated
-  '
+  '''
   
   SELECT avg(intermediate_count) AS total
   FROM
@@ -4203,10 +4204,10 @@
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
        AND "$group_0" != ''
      GROUP BY "$group_0") events
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_group_average_daily
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4233,10 +4234,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
-  '
+  '''
   
   SELECT avg(intermediate_count) AS total
   FROM
@@ -4260,10 +4261,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
      GROUP BY pdi.person_id) events
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_poe_v2
-  '
+  '''
   
   SELECT avg(intermediate_count) AS total
   FROM
@@ -4281,10 +4282,10 @@
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
        AND notEmpty(e.person_id)
      GROUP BY if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) events
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') AS value,
          count(*) as count
@@ -4308,12 +4309,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling.1
-  '
+  '''
   
   SELECT avg(intermediate_count) AS total,
          breakdown_value
@@ -4343,10 +4344,10 @@
               breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_daily
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4385,10 +4386,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_daily_poe_v2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4421,10 +4422,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_groups_per_day_cumulative
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4453,10 +4454,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_per_day_cumulative
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4479,10 +4480,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
          quantile(0.50)(session_duration) as count
@@ -4516,12 +4517,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total,
          breakdown_value
@@ -4564,10 +4565,10 @@
                        breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_hogql_math
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4590,10 +4591,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total
   FROM
@@ -4613,10 +4614,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY e."$session_id")
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total
   FROM
@@ -4636,10 +4637,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY e."$session_id")
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4674,10 +4675,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4712,10 +4713,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          quantile(0.50)(session_duration) as count
@@ -4735,12 +4736,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -4803,10 +4804,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          quantile(0.50)(session_duration) as count
@@ -4826,12 +4827,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -4894,10 +4895,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e
@@ -4912,10 +4913,10 @@
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 23:59:59', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e
@@ -4930,10 +4931,10 @@
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e SAMPLE 1.0
@@ -4948,10 +4949,10 @@
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4997,10 +4998,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5046,10 +5047,10 @@
           AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-19 23:59:59', 'America/Phoenix') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5095,10 +5096,10 @@
           AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_filtering
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5156,10 +5157,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5217,10 +5218,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_hourly
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5266,10 +5267,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_monthly
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5315,10 +5316,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_monthly_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5364,10 +5365,10 @@
           AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-02-29 23:59:59', 'America/Phoenix') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_monthly_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5413,10 +5414,10 @@
           AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5462,10 +5463,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5511,10 +5512,10 @@
           AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-18 23:59:59', 'America/Phoenix') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5560,5 +5561,5 @@
           AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---

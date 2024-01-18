@@ -30,16 +30,18 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
 )
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
-from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
+from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
+from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import MaterializationMode
+from posthog.schema import InCohortVia, MaterializationMode
 from posthog.utils import PersonOnEventsMode
 
 
@@ -56,12 +58,14 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     )
 
 
-def to_printed_hogql(query: ast.Expr, team_id: int) -> str:
+def to_printed_hogql(query: ast.Expr, team: Team) -> str:
     """Prints the HogQL query without mutating the node"""
     return print_ast(
         clone_expr(query),
         dialect="hogql",
-        context=HogQLContext(team_id=team_id, enable_select_queries=True),
+        context=HogQLContext(
+            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team)
+        ),
         pretty=True,
     )
 
@@ -93,11 +97,14 @@ def prepare_ast_for_printing(
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
+        context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
 
+    if context.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+        with context.timings.measure("resolve_in_cohorts_conjoined"):
+            resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
-    if context.modifiers.inCohortVia == "leftjoin":
+    if context.modifiers.inCohortVia == InCohortVia.leftjoin:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context)
     if dialect == "clickhouse":

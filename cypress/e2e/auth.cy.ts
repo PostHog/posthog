@@ -1,8 +1,6 @@
-import { urls } from 'scenes/urls'
-
 describe('Auth', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-menu-toggle]').click()
+        cy.get('[data-attr=menu-item-me]').click()
     })
 
     it('Logout', () => {
@@ -20,7 +18,7 @@ describe('Auth', () => {
 
         cy.get('[type=submit]').click()
         // Login should have succeeded
-        cy.location('pathname').should('eq', '/home')
+        cy.location('pathname').should('eq', '/')
     })
 
     it('Logout and verify that Google login button has correct link', () => {
@@ -48,7 +46,7 @@ describe('Auth', () => {
         cy.get('[data-attr=password]').clear().type('12345678')
         cy.get('[type=submit]').click()
         // Login should have succeeded
-        cy.location('pathname').should('eq', '/home')
+        cy.location('pathname').should('eq', '/')
     })
 
     it('Redirect to appropriate place after login', () => {
@@ -84,6 +82,6 @@ describe('Auth', () => {
 
     it('Cannot access signup page if authenticated', () => {
         cy.visit('/signup')
-        cy.location('pathname').should('eq', urls.projectHomepage())
+        cy.location('pathname').should('eq', '/project/1')
     })
 })

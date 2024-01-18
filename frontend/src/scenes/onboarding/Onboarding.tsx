@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
@@ -32,7 +32,6 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
@@ -65,10 +64,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
             steps = [...steps, OtherProductsStep]
         }
-        if (featureFlags[FEATURE_FLAGS.INVITE_TEAM_MEMBER_ONBOARDING] === 'test') {
-            const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
-            steps = [...steps, inviteTeammatesStep]
-        }
+        const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
+        steps = [...steps, inviteTeammatesStep]
         setAllSteps(steps)
     }
 
@@ -109,7 +106,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const configOptions: ProductConfigOption[] = [
         {
             type: 'toggle',
@@ -129,7 +126,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         },
     ]
 
-    if (featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] === true) {
+    if (hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)) {
         configOptions.push({
             type: 'select',
             title: 'Minimum session duration (seconds)',

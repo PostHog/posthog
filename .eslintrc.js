@@ -51,6 +51,11 @@ module.exports = {
         'import',
     ],
     rules: {
+        // PyCharm always adds curly braces, I guess vscode doesn't, PR reviewers often complain they are present on props that don't need them
+        // let's save the humans time and let the machines do the work
+        // "never" means if the prop does not need the curly braces, they will be removed/errored
+        // see https://github.com/jsx-eslint/eslint-plugin-react/blob/master/docs/rules/jsx-curly-brace-presence.md
+        'react/jsx-curly-brace-presence': ['error', { props: 'never', children: 'never', propElementValues: 'always' }],
         'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
         'no-only-tests/no-only-tests': 'error',
@@ -114,13 +119,8 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Tooltip'],
-                        message: 'Please use Tooltip from @posthog/lemon-ui instead.',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: ['Alert'],
-                        message: 'Please use LemonBanner from @posthog/lemon-ui instead.',
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip'],
+                        message: 'please use the Lemon equivalent instead',
                     },
                 ],
             },
@@ -142,21 +142,8 @@ module.exports = {
             {
                 forbid: [
                     {
-                        element: 'Row',
-                        message:
-                            'use flex utility classes instead, e.g. <Row align="middle"> could be <div className="flex items-center">',
-                    },
-                    {
-                        element: 'Col',
-                        message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
-                    },
-                    {
-                        element: 'Card',
-                        message: 'use utility classes instead',
                     },
                     {
                         element: 'Button',
@@ -208,6 +195,10 @@ module.exports = {
                     {
                         element: 'Badge',
                         message: 'use LemonBadge instead',
+                    },
+                    {
+                        element: 'InputNumber',
+                        message: 'use LemonInput with type="number" instead',
                     },
                     {
                         element: 'Collapse',

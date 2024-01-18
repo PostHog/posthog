@@ -854,9 +854,8 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
-            # matches '2m'
-            # TODO: Should this not match instead?
-            self.assertTrue(matched_person)
+            # needs an exact match
+            self.assertFalse(matched_person)
 
         filter = Filter(
             data={

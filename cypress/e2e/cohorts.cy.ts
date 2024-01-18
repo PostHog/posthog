@@ -10,9 +10,8 @@ describe('Cohorts', () => {
 
     it('Cohorts new and list', () => {
         // load an empty page
-        cy.get('h1').should('contain', 'People')
         cy.title().should('equal', 'Cohorts • People • PostHog')
-        cy.get('h2').should('contain', 'Create your first cohort')
+        cy.contains('Create your first cohort').should('exist')
         cy.get('[data-attr="product-introduction-docs-link"]').should('contain', 'Learn more')
 
         // go to create a new cohort
@@ -41,22 +40,7 @@ describe('Cohorts', () => {
         // back to cohorts
         goToCohorts()
         cy.get('tbody').contains('Test Cohort')
-        cy.get('h2').should('not.have.text', 'Create your first cohort')
-
-        it('Cohorts new and list', () => {
-            cy.get('[data-row-key]').first().click()
-            cy.get('[data-test-goto-person]').first().click()
-            cy.url().should('include', '/person/')
-
-            cy.get('[data-attr="persons-cohorts-tab"]').click()
-            cy.get('[data-row-key]').first().click()
-
-            cy.get('div:not(disabled) > [data-attr="persons-cohorts-tab"]').click()
-            cy.get('[data-row-key]').first().click()
-
-            cy.url().should('include', '/cohorts/')
-            cy.get('[data-attr="cohort-name"]').should('have.value', 'Test Cohort')
-        })
+        cy.contains('Create your first cohort').should('not.exist')
 
         // back into cohort
         cy.get('tbody').contains('Test Cohort').click()

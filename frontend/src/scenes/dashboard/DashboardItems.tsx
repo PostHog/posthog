@@ -111,7 +111,6 @@ export function DashboardItems(): JSX.Element {
                         moreButtons: canEditDashboard ? (
                             <LemonButton
                                 onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)}
-                                status="stealth"
                                 fullWidth
                             >
                                 Edit layout (E)

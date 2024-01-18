@@ -121,7 +121,7 @@ function CollaboratorRow({
 
     return (
         <div className="flex items-center justify-between mt-2 pl-2 h-8">
-            <ProfilePicture email={user.email} name={user.first_name} size="md" showName />
+            <ProfilePicture user={user} size="md" showName />
             <Tooltip
                 title={
                     !wasInvited
@@ -141,8 +141,6 @@ function CollaboratorRow({
                             icon={<IconDelete />}
                             onClick={() => deleteCollaborator(user.uuid)}
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
-                            status="primary-alt"
-                            type="tertiary"
                             size="small"
                         />
                     )}

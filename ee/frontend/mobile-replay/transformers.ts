@@ -7,16 +7,20 @@ import {
     IncrementalSource,
     metaEvent,
     mutationData,
+    removedNodeMutation,
 } from '@rrweb/types'
 import { captureMessage } from '@sentry/react'
+import { isObject } from 'lib/utils'
 
 import {
     attributes,
+    documentNode,
     elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
-    incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
     keyboardEvent,
     metaEvent as MobileMetaEvent,
+    MobileIncrementalSnapshotEvent,
+    MobileNodeMutation,
     MobileNodeType,
     NodeType,
     serializedNodeWithId,
@@ -84,15 +88,7 @@ const BODY_ID = 5
 const KEYBOARD_ID = 6
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
-    return (
-        typeof x === 'object' &&
-        x !== null &&
-        'data' in x &&
-        typeof x.data === 'object' &&
-        x.data !== null &&
-        'tag' in x.data &&
-        x.data.tag === 'keyboard'
-    )
+    return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
 }
 
 export const makeCustomEvent = (
@@ -132,6 +128,18 @@ export const makeCustomEvent = (
                     parentId: BODY_ID,
                     nextId: null,
                     node: keyboardPlaceHolder,
+                })
+                // mutations seem not to want a tree of nodes to add
+                // so even though `keyboardPlaceholder` is a tree with content
+                // we have to add the text content as well
+                adds.push({
+                    parentId: keyboardPlaceHolder.id,
+                    nextId: null,
+                    node: {
+                        type: NodeType.Text,
+                        id: idSequence.next().value,
+                        textContent: 'keyboard',
+                    },
                 })
             } else {
                 captureMessage('Failed to create keyboard placeholder', { extra: { mobileCustomEvent } })
@@ -182,6 +190,7 @@ function makeDivElement(wireframe: wireframeDiv, children: serializedNodeWithId[
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+            'data-rrweb-id': _id,
         },
         id: _id,
         childNodes: children,
@@ -196,18 +205,21 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 
     // because we might have to style the text, we always wrap it in a div
     // and apply styles to that
+    const id = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+            'data-rrweb-id': wireframe.id,
         },
-        id: idSequence.next().value,
+        id: wireframe.id,
         childNodes: [
             {
                 type: NodeType.Text,
                 textContent: wireframe.text,
-                id: wireframe.id,
+                // since the text node is wrapped, we assign it a synthetic id
+                id: id,
             },
             ...children,
         ],
@@ -240,11 +252,13 @@ function makePlaceholderElement(
                 color: wireframe.style?.color || FOREGROUND,
                 ...styleOverride,
             }),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: [
             {
                 type: NodeType.Text,
+                // since the text node is wrapped, we assign it a synthetic id
                 id: idSequence.next().value,
                 textContent: txt,
             },
@@ -269,6 +283,7 @@ function makeImageElement(wireframe: wireframeImage, children: serializedNodeWit
             width: wireframe.width,
             height: wireframe.height,
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: children,
@@ -280,6 +295,7 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
         style: makeStylesString(wireframe),
         type: wireframe.inputType,
         ...(wireframe.disabled ? { disabled: wireframe.disabled } : {}),
+        'data-rrweb-id': wireframe.id,
     }
 
     switch (wireframe.inputType) {
@@ -350,13 +366,15 @@ function makeButtonElement(wireframe: wireframeButton, children: serializedNodeW
 }
 
 function makeSelectOptionElement(option: string, selected: boolean): serializedNodeWithId {
+    const optionId = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'option',
         attributes: {
             ...(selected ? { selected: selected } : {}),
+            'data-rrweb-id': optionId,
         },
-        id: idSequence.next().value,
+        id: optionId,
         childNodes: [
             {
                 type: NodeType.Text,
@@ -388,6 +406,7 @@ function groupRadioButtons(children: serializedNodeWithId[], radioGroupName: str
                 attributes: {
                     ...child.attributes,
                     name: radioGroupName,
+                    'data-rrweb-id': child.id,
                 },
             }
         }
@@ -405,6 +424,7 @@ function makeRadioGroupElement(
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: groupRadioButtons(children, radioGroupName),
@@ -412,6 +432,9 @@ function makeRadioGroupElement(
 }
 
 function makeStar(title: string, path: string): serializedNodeWithId {
+    const svgId = idSequence.next().value
+    const titleId = idSequence.next().value
+    const pathId = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'svg',
@@ -420,15 +443,18 @@ function makeStar(title: string, path: string): serializedNodeWithId {
             style: 'height: 100%;overflow-clip-margin: content-box;overflow:hidden',
             viewBox: '0 0 24 24',
             fill: 'currentColor',
+            'data-rrweb-id': svgId,
         },
-        id: idSequence.next().value,
+        id: svgId,
         childNodes: [
             {
                 type: NodeType.Element,
                 tagName: 'title',
                 isSVG: true,
-                attributes: {},
-                id: idSequence.next().value,
+                attributes: {
+                    'data-rrweb-id': titleId,
+                },
+                id: titleId,
                 childNodes: [
                     {
                         type: NodeType.Text,
@@ -443,8 +469,9 @@ function makeStar(title: string, path: string): serializedNodeWithId {
                 isSVG: true,
                 attributes: {
                     d: path,
+                    'data-rrweb-id': pathId,
                 },
-                id: idSequence.next().value,
+                id: pathId,
                 childNodes: [],
             },
         ],
@@ -494,14 +521,16 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
         .fill(undefined)
         .map(() => emptyStar())
 
+    const ratingBarId = idSequence.next().value
     const ratingBar = {
         type: NodeType.Element,
         tagName: 'div',
-        id: idSequence.next().value,
+        id: ratingBarId,
         attributes: {
             style:
                 makeColorStyles(wireframe) +
                 'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+            'data-rrweb-id': ratingBarId,
         },
         childNodes: [...filledStars, ...halfStars, ...emptyStars],
     } as serializedNodeWithId
@@ -511,6 +540,7 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: [ratingBar, ...children],
@@ -558,11 +588,13 @@ function makeProgressElement(
                   },
               ]
 
+        const wrappingDivId = idSequence.next().value
         return {
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
                 style: makeMinimalStyles(wireframe),
+                'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
             childNodes: [
@@ -574,8 +606,9 @@ function makeProgressElement(
                         style: _isPositiveInteger(value)
                             ? makeDeterminateProgressStyles(wireframe, styleOverride)
                             : makeIndeterminateProgressStyles(wireframe, styleOverride),
+                        'data-rrweb-id': wrappingDivId,
                     },
-                    id: idSequence.next().value,
+                    id: wrappingDivId,
                     childNodes: stylingChildren,
                 },
                 ...children,
@@ -597,6 +630,8 @@ function makeProgressElement(
 function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
     const togglePosition = wireframe.checked ? 'right' : 'left'
     const defaultColor = wireframe.checked ? '#1d4aff' : BACKGROUND
+    const sliderPartId = idSequence.next().value
+    const handlePartId = idSequence.next().value
     return [
         {
             type: NodeType.Element,
@@ -606,8 +641,9 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
                 style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
                     wireframe.style?.color || defaultColor
                 };opacity: 0.2;border-radius:7.5%;`,
+                'data-rrweb-id': sliderPartId,
             },
-            id: idSequence.next().value,
+            id: sliderPartId,
             childNodes: [],
         },
         {
@@ -620,8 +656,9 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
                 };border:2px solid ${
                     wireframe.style?.borderColor || wireframe.style?.color || defaultColor
                 };border-radius:50%;`,
+                'data-rrweb-id': handlePartId,
             },
-            id: idSequence.next().value,
+            id: handlePartId,
             childNodes: [],
         },
     ]
@@ -629,12 +666,14 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
 
 function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
     const isLabelled = 'label' in wireframe
+    const wrappingDivId = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
             // if labelled take up available space, otherwise use provided positioning
             style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: [
@@ -644,8 +683,9 @@ function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: num
                 attributes: {
                     // relative position, fills parent
                     style: 'position:relative;width:100%;height:100%;',
+                    'data-rrweb-id': wrappingDivId,
                 },
-                id: idSequence.next().value,
+                id: wrappingDivId,
                 childNodes: makeToggleParts(wireframe),
             },
         ],
@@ -664,13 +704,15 @@ function makeLabelledInput(
 
     const orderedChildren = wireframe.inputType === 'toggle' ? [theLabel, theInputElement] : [theInputElement, theLabel]
 
+    const labelId = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'label',
         attributes: {
             style: makeStylesString(wireframe),
+            'data-rrweb-id': labelId,
         },
-        id: idSequence.next().value,
+        id: labelId,
         childNodes: orderedChildren,
     }
 }
@@ -733,6 +775,7 @@ function makeRectangleElement(
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: children,
@@ -763,19 +806,19 @@ function chooseConverter<T extends wireframe>(
     return converterMapping[converterType]
 }
 
+function convertWireframe(wireframe: wireframe): serializedNodeWithId | null {
+    const children = convertWireframesFor(wireframe.childWireframes)
+    const converter = chooseConverter(wireframe)
+    return converter?.(wireframe, children) || null
+}
+
 function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNodeWithId[] {
     if (!wireframes) {
         return []
     }
 
     return wireframes.reduce((acc, wireframe) => {
-        const children = convertWireframesFor(wireframe.childWireframes)
-        const converter = chooseConverter(wireframe)
-        if (!converter) {
-            console.error(`No converter for wireframe type ${wireframe.type}`)
-            return acc
-        }
-        const convertedEl = converter(wireframe, children)
+        const convertedEl = convertWireframe(wireframe)
         if (convertedEl !== null) {
             acc.push(convertedEl)
         }
@@ -783,15 +826,116 @@ function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNo
     }, [] as serializedNodeWithId[])
 }
 
+function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSnapshotEvent {
+    const isIncrementalSnapshot = isObject(x) && 'type' in x && x.type === EventType.IncrementalSnapshot
+    if (!isIncrementalSnapshot) {
+        return false
+    }
+    const hasData = isObject(x) && 'data' in x
+    const data = hasData ? x.data : null
+
+    const hasMutationSource = isObject(data) && 'source' in data && data.source === IncrementalSource.Mutation
+
+    const adds = isObject(data) && 'adds' in data && Array.isArray(data.adds) ? data.adds : null
+    const updates = isObject(data) && 'updates' in data && Array.isArray(data.updates) ? data.updates : null
+
+    const hasUpdatedWireframe = !!updates && updates.length > 0 && isObject(updates[0]) && 'wireframe' in updates[0]
+    const hasAddedWireframe = !!adds && adds.length > 0 && isObject(adds[0]) && 'wireframe' in adds[0]
+
+    return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
+}
+
+function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation[] | null {
+    const converted = convertWireframe(add.wireframe)
+    if (!converted) {
+        return null
+    }
+
+    const addition: addedNodeMutation = {
+        parentId: add.parentId,
+        nextId: null,
+        node: converted,
+    }
+    const adds: addedNodeMutation[] = []
+    if (addition) {
+        const flattened = flattenMutationAdds(addition)
+        flattened.forEach((x) => adds.push(x))
+        return adds
+    } else {
+        return null
+    }
+}
+
 /**
- * We've not implemented mutations, until then this is almost an index function.
+ * When processing an update we remove the entire item, and then add it back in.
+ */
+function makeIncrementalRemoveForUpdate(update: MobileNodeMutation): removedNodeMutation {
+    return {
+        parentId: update.parentId,
+        id: update.wireframe.id,
+    }
+}
+
+function isNode(x: unknown): x is serializedNodeWithId {
+    // KLUDGE: really we should check that x.type is valid, but we're safe enough already
+    return isObject(x) && 'type' in x && 'id' in x
+}
+
+function isNodeWithChildren(x: unknown): x is elementNode | documentNode {
+    return isNode(x) && 'childNodes' in x && Array.isArray(x.childNodes)
+}
+
+/**
+ * when creating incremental adds we have to flatten the node tree structure
+ * there's no point, then keeping those child nodes in place
+ */
+function cloneWithoutChildren(converted: addedNodeMutation): addedNodeMutation {
+    const cloned = { ...converted }
+    const clonedNode: serializedNodeWithId = { ...converted.node }
+    if (isNodeWithChildren(clonedNode)) {
+        clonedNode.childNodes = []
+    }
+    cloned.node = clonedNode
+    return cloned
+}
+
+function flattenMutationAdds(converted: addedNodeMutation): addedNodeMutation[] {
+    const flattened: addedNodeMutation[] = []
+
+    flattened.push(cloneWithoutChildren(converted))
+
+    const node: unknown = converted.node
+    const newParentId = converted.node.id
+    if (isNodeWithChildren(node)) {
+        node.childNodes.forEach((child) => {
+            flattened.push(
+                cloneWithoutChildren({
+                    parentId: newParentId,
+                    nextId: null,
+                    node: child,
+                })
+            )
+            if (isNodeWithChildren(child)) {
+                flattened.push(...flattenMutationAdds({ parentId: newParentId, nextId: null, node: child }))
+            }
+        })
+    }
+    return flattened
+}
+
+/**
+ * We want to ensure that any events don't use id = 0.
+ * They must always represent a valid ID from the dom, so we swap in the body id when the id = 0.
  *
- * But, we want to ensure that any mouse/touch events don't use id = 0.
- * They must always represent a valid ID from the dom, so we swap in the body id.
+ * For "removes", we don't need to do anything, the id of the element to be removed remains valid. We won't try and remove other elements that we added during transformation in order to show that element.
+ *
+ * "adds" are converted from wireframes to nodes and converted to `incrementalSnapshotEvent.adds`
+ *
+ * "updates" are converted to a remove and an add.
  *
  */
 export const makeIncrementalEvent = (
-    mobileEvent: MobileIncrementalSnapshotEvent & {
+    mobileEvent: (MobileIncrementalSnapshotEvent | incrementalSnapshotEvent) & {
         timestamp: number
         delay?: number
     }
@@ -806,6 +950,35 @@ export const makeIncrementalEvent = (
     if ('id' in converted.data && converted.data.id === 0) {
         converted.data.id = BODY_ID
     }
+
+    if (isMobileIncrementalSnapshotEvent(mobileEvent)) {
+        const adds: addedNodeMutation[] = []
+        const removes: removedNodeMutation[] = mobileEvent.data.removes || []
+        if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
+            mobileEvent.data.adds.forEach((add) => {
+                makeIncrementalAdd(add)?.forEach((x) => adds.push(x))
+            })
+        }
+        if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
+            mobileEvent.data.updates.forEach((update) => {
+                const removal = makeIncrementalRemoveForUpdate(update)
+                if (removal) {
+                    removes.push(removal)
+                }
+                makeIncrementalAdd(update)?.forEach((x) => adds.push(x))
+            })
+        }
+
+        converted.data = {
+            source: IncrementalSource.Mutation,
+            attributes: [],
+            texts: [],
+            adds,
+            // TODO: this assumes that removes are processed before adds 🤞
+            removes,
+        }
+    }
+
     return converted
 }
 
@@ -842,30 +1015,22 @@ export const makeFullEvent = (
                     {
                         type: NodeType.Element,
                         tagName: 'html',
-                        attributes: { style: makeHTMLStyles() },
+                        attributes: { style: makeHTMLStyles(), 'data-rrweb-id': HTML_ELEMENT_ID },
                         id: HTML_ELEMENT_ID,
                         childNodes: [
                             {
                                 type: NodeType.Element,
                                 tagName: 'head',
-                                attributes: {},
+                                attributes: { 'data-rrweb-id': HEAD_ID },
                                 id: HEAD_ID,
                                 childNodes: [],
                             },
                             {
                                 type: NodeType.Element,
                                 tagName: 'body',
-                                attributes: { style: makeBodyStyles() },
+                                attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: [
-                                    {
-                                        type: NodeType.Element,
-                                        tagName: 'div',
-                                        attributes: {},
-                                        id: idSequence.next().value,
-                                        childNodes: convertWireframesFor(mobileEvent.data.wireframes),
-                                    },
-                                ],
+                                childNodes: convertWireframesFor(mobileEvent.data.wireframes) || [],
                             },
                         ],
                     },

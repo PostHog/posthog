@@ -15,9 +15,6 @@ const meta: Meta<typeof LemonCalendar> = {
     },
     parameters: {
         mockDate: '2023-01-26',
-        testOptions: {
-            include3000: true,
-        },
     },
     tags: ['autodocs'],
 }
@@ -41,7 +38,6 @@ CustomStyles.args = {
         return {
             ...props,
             active: date.day() % 2 === 0,
-            status: date.date() % 10 === 0 ? 'primary' : 'stealth',
             type: date.date() % 10 === 0 ? 'primary' : undefined,
         }
     },

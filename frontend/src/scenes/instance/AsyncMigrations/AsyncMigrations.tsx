@@ -1,5 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
-import { Button, Progress } from 'antd'
+import { Progress } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
@@ -151,27 +151,22 @@ export function AsyncMigrations(): JSX.Element {
                 <div>
                     {status === AsyncMigrationStatus.NotStarted || status === AsyncMigrationStatus.FailedAtStartup ? (
                         <Tooltip title="Start">
-                            <Button
-                                type="link"
+                            <LemonButton
+                                size="small"
                                 icon={<IconPlayCircle />}
                                 onClick={() => triggerMigration(asyncMigration)}
                             >
                                 Run
-                            </Button>
+                            </LemonButton>
                         </Tooltip>
                     ) : status === AsyncMigrationStatus.Starting || status === AsyncMigrationStatus.Running ? (
                         <More
                             overlay={
                                 <>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => forceStopMigration(asyncMigration)}
-                                        fullWidth
-                                    >
+                                    <LemonButton onClick={() => forceStopMigration(asyncMigration)} fullWidth>
                                         Stop and rollback
                                     </LemonButton>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() => forceStopMigrationWithoutRollback(asyncMigration)}
                                         fullWidth
                                     >
@@ -186,18 +181,10 @@ export function AsyncMigrations(): JSX.Element {
                         <More
                             overlay={
                                 <>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => resumeMigration(asyncMigration)}
-                                        fullWidth
-                                    >
+                                    <LemonButton onClick={() => resumeMigration(asyncMigration)} fullWidth>
                                         Resume
                                     </LemonButton>
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => rollbackMigration(asyncMigration)}
-                                        fullWidth
-                                    >
+                                    <LemonButton onClick={() => rollbackMigration(asyncMigration)} fullWidth>
                                         Rollback
                                     </LemonButton>
                                 </>
@@ -206,7 +193,6 @@ export function AsyncMigrations(): JSX.Element {
                     ) : status === AsyncMigrationStatus.RolledBack ? (
                         <Tooltip title="Restart">
                             <LemonButton
-                                status="stealth"
                                 icon={<IconReplay />}
                                 onClick={() => triggerMigration(asyncMigration)}
                                 fullWidth
@@ -280,7 +266,6 @@ export function AsyncMigrations(): JSX.Element {
             {user?.is_staff ? (
                 <>
                     <PageHeader
-                        title="Async Migrations"
                         caption={
                             <>
                                 <p>Manage async migrations in your instance.</p>
@@ -335,7 +320,6 @@ export function AsyncMigrations(): JSX.Element {
                 </>
             ) : (
                 <PageHeader
-                    title="Async Migrations"
                     caption={
                         <>
                             <p>

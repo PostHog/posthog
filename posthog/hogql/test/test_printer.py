@@ -73,7 +73,7 @@ class TestPrinter(BaseTest):
 
     def test_to_printed_hogql(self):
         expr = parse_select("select 1 + 2, 3 from events")
-        repsponse = to_printed_hogql(expr, self.team.pk)
+        repsponse = to_printed_hogql(expr, self.team)
         self.assertEqual(repsponse, "SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT 10000")
 
     def test_literals(self):
@@ -578,6 +578,10 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select("select 1, a from events array join [1,2,3] as a"),
             f"SELECT 1, a FROM events ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        self.assertEqual(
+            self._select("select 1, a, [1,2,3] as nums from events array join nums as a"),
+            f"SELECT 1, a, [1, 2, 3] AS nums FROM events ARRAY JOIN nums AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             self._select("select 1, a from events left array join [1,2,3] as a"),

@@ -18,7 +18,7 @@ import { KeyboardShortcut, KeyboardShortcutProps } from './KeyboardShortcut'
 export interface NavbarButtonProps extends Pick<LemonButtonProps, 'onClick' | 'icon' | 'sideIcon' | 'to' | 'active'> {
     identifier: string
     icon: ReactElement
-    title?: string
+    title?: string | ReactElement
     shortTitle?: string
     forceTooltipOnHover?: boolean
     tag?: 'alpha' | 'beta' | 'new'
@@ -114,7 +114,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
                 fullWidth
                 type="secondary"
-                stealth={true}
+                status="alt"
                 {...buttonProps}
             >
                 {content}

@@ -45,26 +45,26 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
     return (
         <LemonBanner type="warning">
             <p>Cannot use these events to filter for session recordings:</p>
-            <li className={'my-1'}>
+            <li className="my-1">
                 {props.unusableEventsInFilter.map((event) => (
                     <span key={event}>"{event}"</span>
                 ))}
             </li>
             <p>
-                Events have to have a <PropertyKeyInfo value={'$session_id'} /> to be used to filter recordings. This is
+                Events have to have a <PropertyKeyInfo value="$session_id" /> to be used to filter recordings. This is
                 added automatically by{' '}
-                <Link to={'https://posthog.com/docs/libraries/js'} target={'_blank'}>
+                <Link to="https://posthog.com/docs/libraries/js" target="_blank">
                     the Web SDK
                 </Link>
                 <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE} match={true}>
                     ,{' '}
-                    <Link to={'https://posthog.com/docs/libraries/android'} target={'_blank'}>
+                    <Link to="https://posthog.com/docs/libraries/android" target="_blank">
                         the Android SDK
                     </Link>
                 </FlaggedFeature>
                 <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_IOS} match={true}>
                     and{' '}
-                    <Link to={'https://posthog.com/docs/libraries/ios'} target={'_blank'}>
+                    <Link to="https://posthog.com/docs/libraries/ios" target="_blank">
                         the iOS SDK
                     </Link>
                     .
@@ -92,6 +92,8 @@ function RecordingsLists(): JSX.Element {
         logicProps,
         showOtherRecordings,
         recordingsCount,
+        sessionSummaryLoading,
+        sessionBeingSummarized,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -102,6 +104,7 @@ function RecordingsLists(): JSX.Element {
         resetFilters,
         setShowAdvancedFilters,
         toggleShowOtherRecordings,
+        summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -110,6 +113,10 @@ function RecordingsLists(): JSX.Element {
 
     const onPropertyClick = (property: string, value?: string): void => {
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
+    }
+
+    const onSummarizeClick = (recording: SessionRecordingType): void => {
+        summarizeSession(recording.id)
     }
 
     const lastScrollPositionRef = useRef(0)
@@ -144,65 +151,59 @@ function RecordingsLists(): JSX.Element {
 
     return (
         <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r h-full')}>
-            {
-                <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
-                    <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
-                        <span className="px-2 py-1 flex flex-1 gap-2">
-                            {!notebookNode ? (
-                                <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
-                                    Recordings
-                                </span>
-                            ) : null}
-                            <Tooltip
-                                placement="bottom"
-                                title={
-                                    <>
-                                        Showing {recordingsCount} results.
-                                        <br />
-                                        Scrolling to the bottom or the top of the list will load older or newer
-                                        recordings respectively.
-                                    </>
-                                }
-                            >
-                                <span>
-                                    <CounterBadge>{Math.min(999, recordingsCount)}+</CounterBadge>
-                                </span>
-                            </Tooltip>
-                        </span>
-                        <LemonButton
-                            tooltip="Filter recordings"
-                            size="small"
-                            status={showFilters ? 'primary' : 'primary-alt'}
-                            type="tertiary"
-                            active={showFilters}
-                            icon={
-                                <IconWithCount count={totalFiltersCount}>
-                                    <IconFilter />
-                                </IconWithCount>
+            <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
+                <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
+                    <span className="px-2 py-1 flex flex-1 gap-2">
+                        {!notebookNode ? (
+                            <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
+                                Recordings
+                            </span>
+                        ) : null}
+                        <Tooltip
+                            placement="bottom"
+                            title={
+                                <>
+                                    Showing {recordingsCount} results.
+                                    <br />
+                                    Scrolling to the bottom or the top of the list will load older or newer recordings
+                                    respectively.
+                                </>
                             }
-                            onClick={() => {
-                                if (notebookNode) {
-                                    notebookNode.actions.toggleEditing()
-                                } else {
-                                    setShowFilters(!showFilters)
-                                }
-                            }}
                         >
-                            Filter
-                        </LemonButton>
-                        <LemonButton
-                            tooltip="Playlist settings"
-                            size="small"
-                            status={showSettings ? 'primary' : 'primary-alt'}
-                            type="tertiary"
-                            active={showSettings}
-                            icon={<IconSettings />}
-                            onClick={() => setShowSettings(!showSettings)}
-                        />
-                        <LemonTableLoader loading={sessionRecordingsResponseLoading} />
-                    </div>
-                </DraggableToNotebook>
-            }
+                            <span>
+                                <CounterBadge>{Math.min(999, recordingsCount)}+</CounterBadge>
+                            </span>
+                        </Tooltip>
+                    </span>
+                    <LemonButton
+                        tooltip="Filter recordings"
+                        size="small"
+                        active={showFilters}
+                        icon={
+                            <IconWithCount count={totalFiltersCount}>
+                                <IconFilter />
+                            </IconWithCount>
+                        }
+                        onClick={() => {
+                            if (notebookNode) {
+                                notebookNode.actions.toggleEditing()
+                            } else {
+                                setShowFilters(!showFilters)
+                            }
+                        }}
+                    >
+                        Filter
+                    </LemonButton>
+                    <LemonButton
+                        tooltip="Playlist settings"
+                        size="small"
+                        active={showSettings}
+                        icon={<IconSettings />}
+                        onClick={() => setShowSettings(!showSettings)}
+                    />
+                    <LemonTableLoader loading={sessionRecordingsResponseLoading} />
+                </div>
+            </DraggableToNotebook>
 
             <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
                 {!notebookNode && showFilters ? (
@@ -254,6 +255,10 @@ function RecordingsLists(): JSX.Element {
                                               onPropertyClick={onPropertyClick}
                                               isActive={activeSessionRecordingId === rec.id}
                                               pinned={false}
+                                              summariseFn={onSummarizeClick}
+                                              sessionSummaryLoading={
+                                                  sessionSummaryLoading && sessionBeingSummarized === rec.id
+                                              }
                                           />
                                       </div>
                                   ))
@@ -267,7 +272,7 @@ function RecordingsLists(): JSX.Element {
                                         <Spinner textColored /> Loading older recordings
                                     </>
                                 ) : hasNext ? (
-                                    <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
+                                    <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>
                                         Load more
                                     </LemonButton>
                                 ) : (
@@ -289,13 +294,13 @@ function RecordingsLists(): JSX.Element {
                         ) : unusableEventsInFilter.length ? (
                             <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                         ) : (
-                            <div className={'flex flex-col items-center space-y-2'}>
+                            <div className="flex flex-col items-center space-y-2">
                                 {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
                                     <>
                                         <span>No matching recordings found</span>
                                         <LemonButton
-                                            type={'secondary'}
-                                            data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
+                                            type="secondary"
+                                            data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
                                             onClick={() => {
                                                 setFilters({
                                                     date_from: '-30d',

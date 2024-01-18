@@ -1,17 +1,20 @@
 import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from 'scenes/retention/types'
 
 import { query } from '~/queries/query'
-import { NodeKind, PersonsQuery, RetentionQuery } from '~/queries/schema'
+import { ActorsQuery, NodeKind, RetentionQuery } from '~/queries/schema'
 
-export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): PersonsQuery {
+export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): ActorsQuery {
     const group = query.aggregation_group_type_index !== undefined
-    const select = group ? 'group' : 'person'
+    const selectActor = group ? 'group' : 'person'
+    const totalIntervals = (query.retentionFilter.total_intervals || 11) - selectedInterval
+    const periodName = query.retentionFilter.period?.toLowerCase() ?? 'day'
+    const selects = Array.from({ length: totalIntervals }, (_, intervalNumber) => `${periodName}_${intervalNumber}`)
     return {
-        kind: NodeKind.PersonsQuery,
-        select: [select, 'appearances'],
+        kind: NodeKind.ActorsQuery,
+        select: [selectActor, ...selects],
         orderBy: ['length(appearances) DESC', 'actor_id'],
         source: {
-            kind: NodeKind.InsightPersonsQuery,
+            kind: NodeKind.InsightActorsQuery,
             interval: selectedInterval,
             source: {
                 ...query,
@@ -25,13 +28,6 @@ export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: 
     }
 }
 
-function appearances_1s_0s(appearances: number[], totalIntervals: number, selectedInterval: number | null): number[] {
-    const newTotalIntervals = totalIntervals - (selectedInterval ?? 0)
-    return Array.from({ length: newTotalIntervals }, (_, intervalNumber) =>
-        appearances.includes(intervalNumber) ? 1 : 0
-    )
-}
-
 export async function queryForActors(
     retentionQuery: RetentionQuery,
     selectedInterval: number,
@@ -41,7 +37,7 @@ export async function queryForActors(
     const response = await query(actorsQuery)
     const results: RetentionTableAppearanceType[] = response.results.map((row) => ({
         person: row[0],
-        appearances: appearances_1s_0s(row[1], retentionQuery.retentionFilter.total_intervals || 11, selectedInterval),
+        appearances: row.slice(1, row.length),
     }))
     return {
         result: results,

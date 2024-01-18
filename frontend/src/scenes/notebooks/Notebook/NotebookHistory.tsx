@@ -12,8 +12,10 @@ import {
 import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, ActivityScope, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { useMemo } from 'react'
+
+import { ActivityScope } from '~/types'
 
 import { notebookLogic } from './notebookLogic'
 
@@ -51,10 +53,12 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                         const buttonContent = (
                             <span className="flex flex-1 gap-2 items-center p-2">
                                 <ProfilePicture
-                                    name={logItem.is_system ? name : undefined}
+                                    user={{
+                                        first_name: name,
+                                        email: logItem.user?.email ?? undefined,
+                                    }}
                                     type={logItem.is_system ? 'system' : 'person'}
-                                    email={logItem.user?.email ?? undefined}
-                                    size={'md'}
+                                    size="md"
                                 />
                                 <span className="flex-1">
                                     <b>{name}</b> {changedContent ? 'made changes' : 'created this'}

@@ -19,15 +19,16 @@ from posthog.models import Team
 from posthog.schema import (
     QueryTiming,
     SessionsTimelineQuery,
+    StickinessQuery,
     TrendsQuery,
     LifecycleQuery,
     WebTopClicksQuery,
     WebOverviewQuery,
-    PersonsQuery,
+    ActorsQuery,
     EventsQuery,
     WebStatsTableQuery,
     HogQLQuery,
-    InsightPersonsQuery,
+    InsightActorsQuery,
     DashboardFilter,
     HogQLQueryModifiers,
     RetentionQuery,
@@ -59,6 +60,8 @@ class QueryResponse(BaseModel, Generic[DataT]):
     columns: Optional[List[str]] = None
     hogql: Optional[str] = None
     hasMore: Optional[bool] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
 
 
 class CachedQueryResponse(QueryResponse):
@@ -76,14 +79,15 @@ RunnableQueryNode = Union[
     HogQLQuery,
     TrendsQuery,
     LifecycleQuery,
-    InsightPersonsQuery,
+    InsightActorsQuery,
     EventsQuery,
-    PersonsQuery,
+    ActorsQuery,
     RetentionQuery,
     SessionsTimelineQuery,
     WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
+    StickinessQuery,
 ]
 
 
@@ -98,7 +102,7 @@ def get_query_runner(
     if isinstance(query, dict):
         kind = query.get("kind", None)
     elif hasattr(query, "kind"):
-        kind = query.kind  # type: ignore
+        kind = query.kind
     else:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
@@ -117,6 +121,16 @@ def get_query_runner(
 
         return TrendsQueryRunner(
             query=cast(TrendsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "StickinessQuery":
+        from .insights.stickiness_query_runner import StickinessQueryRunner
+
+        return StickinessQueryRunner(
+            query=cast(StickinessQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -142,21 +156,21 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "PersonsQuery":
-        from .persons_query_runner import PersonsQueryRunner
+    if kind == "ActorsQuery":
+        from .actors_query_runner import ActorsQueryRunner
 
-        return PersonsQueryRunner(
-            query=cast(PersonsQuery | Dict[str, Any], query),
+        return ActorsQueryRunner(
+            query=cast(ActorsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "InsightPersonsQuery":
-        from .insights.insight_persons_query_runner import InsightPersonsQueryRunner
+    if kind == "InsightActorsQuery":
+        from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
-        return InsightPersonsQueryRunner(
-            query=cast(InsightPersonsQuery | Dict[str, Any], query),
+        return InsightActorsQueryRunner(
+            query=cast(InsightActorsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -218,7 +232,7 @@ class QueryRunner(ABC):
         self.limit_context = limit_context or LimitContext.QUERY
         self.modifiers = create_default_modifiers_for_team(team, modifiers)
         if isinstance(query, self.query_type):
-            self.query = query  # type: ignore
+            self.query = query
         else:
             self.query = self.query_type.model_validate(query)
 
@@ -258,10 +272,10 @@ class QueryRunner(ABC):
         return fresh_response
 
     @abstractmethod
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         raise NotImplementedError()
 
-    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 

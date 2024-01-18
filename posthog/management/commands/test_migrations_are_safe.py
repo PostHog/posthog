@@ -40,6 +40,7 @@ def validate_migration_sql(sql) -> bool:
         if (
             re.findall(r"(?<!DROP) (NOT NULL|DEFAULT .* NOT NULL)", operation_sql, re.M & re.I)
             and "CREATE TABLE" not in operation_sql
+            and "ADD CONSTRAINT" not in operation_sql
             and "-- not-null-ignore" not in operation_sql
         ):
             print(

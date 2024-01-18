@@ -2,13 +2,13 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 
-import { PersonsNode, PersonsQuery } from '~/queries/schema'
-import { isPersonsQuery } from '~/queries/utils'
+import { ActorsQuery, NodeKind, PersonsNode } from '~/queries/schema'
+import { isActorsQuery } from '~/queries/utils'
 import { PersonPropertyFilter } from '~/types'
 
 interface PersonPropertyFiltersProps {
-    query: PersonsNode | PersonsQuery
-    setQuery?: (query: PersonsNode | PersonsQuery) => void
+    query: PersonsNode | ActorsQuery
+    setQuery?: (query: PersonsNode | ActorsQuery) => void
 }
 
 let uniqueNode = 0
@@ -25,7 +25,7 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
             }}
             pageKey={`PersonPropertyFilters.${id}`}
             taxonomicGroupTypes={
-                isPersonsQuery(query)
+                isActorsQuery(query)
                     ? [
                           TaxonomicFilterGroupType.PersonProperties,
                           TaxonomicFilterGroupType.Cohorts,
@@ -33,7 +33,7 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
                       ]
                     : [TaxonomicFilterGroupType.PersonProperties]
             }
-            hogQLTable="persons"
+            metadataSource={{ kind: NodeKind.ActorsQuery }}
         />
     ) : (
         <div>Error: property groups are not supported.</div>

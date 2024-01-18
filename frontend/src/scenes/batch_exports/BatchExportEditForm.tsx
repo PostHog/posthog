@@ -11,10 +11,17 @@ import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelec
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { batchExportsEditLogic, BatchExportsEditLogicProps } from './batchExportEditLogic'
 
 export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+        return <></>
+    }
     const logic = batchExportsEditLogic(props)
     const { isNew, batchExportConfigForm, isBatchExportConfigFormSubmitting, batchExportConfigLoading } =
         useValues(logic)
@@ -259,16 +266,14 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
+                                            placeholder="Input one or more events to exclude from the export (optional)"
                                         />
                                     </Field>
                                     <Field name="include_events" label="Events to include" className="flex-1">
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                            placeholder="Input one or more events to include in the export (optional)"
                                         />
                                     </Field>
                                 </>
@@ -310,16 +315,14 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
+                                            placeholder="Input one or more events to exclude from the export (optional)"
                                         />
                                     </Field>
                                     <Field name="include_events" label="Events to include" className="flex-1">
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                            placeholder="Input one or more events to include in the export (optional)"
                                         />
                                     </Field>
                                 </>
@@ -359,9 +362,7 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             label={
                                                 <span className="flex items-center gap-2">
                                                     Does your Postgres instance have a self-signed SSL certificate?
-                                                    <Tooltip
-                                                        title={'In most cases, Heroku and RDS users should check this.'}
-                                                    >
+                                                    <Tooltip title="In most cases, Heroku and RDS users should check this.">
                                                         <IconInfo className=" text-lg text-muted-alt" />
                                                     </Tooltip>
                                                 </span>
@@ -373,16 +374,14 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
+                                            placeholder="Input one or more events to exclude from the export (optional)"
                                         />
                                     </Field>
                                     <Field name="include_events" label="Events to include" className="flex-1">
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                            placeholder="Input one or more events to include in the export (optional)"
                                         />
                                     </Field>
                                 </>
@@ -422,7 +421,7 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                                 { value: 'varchar', label: 'VARCHAR(65535)' },
                                                 { value: 'super', label: 'SUPER' },
                                             ]}
-                                            value={'varchar'}
+                                            value="varchar"
                                         />
                                     </Field>
 
@@ -430,16 +429,14 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
+                                            placeholder="Input one or more events to exclude from the export (optional)"
                                         />
                                     </Field>
                                     <Field name="include_events" label="Events to include" className="flex-1">
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                            placeholder="Input one or more events to include in the export (optional)"
                                         />
                                     </Field>
                                 </>
@@ -457,20 +454,35 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                         <LemonInput placeholder="dataset" />
                                     </Field>
 
+                                    {isNew ? (
+                                        <Field name="use_json_type" label="Structured fields data type">
+                                            <LemonCheckbox
+                                                bordered
+                                                label={
+                                                    <span className="flex items-center gap-2">
+                                                        Export 'properties', 'set', and 'set_once' fields as BigQuery
+                                                        JSON type
+                                                        <Tooltip title="If left unchecked, these fields will be sent as STRING type. This setting cannot be changed after batch export is created.">
+                                                            <IconInfo className=" text-lg text-muted-alt" />
+                                                        </Tooltip>
+                                                    </span>
+                                                }
+                                            />
+                                        </Field>
+                                    ) : null}
+
                                     <Field name="exclude_events" label="Events to exclude" className="flex-1">
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
+                                            placeholder="Input one or more events to exclude from the export (optional)"
                                         />
                                     </Field>
                                     <Field name="include_events" label="Events to include" className="flex-1">
                                         <LemonSelectMultiple
                                             mode="multiple-custom"
                                             options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                            placeholder="Input one or more events to include in the export (optional)"
                                         />
                                     </Field>
                                 </>

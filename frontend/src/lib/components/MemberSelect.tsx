@@ -1,23 +1,19 @@
-import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
 
-export type MemberSelectProps = Pick<LemonButtonProps, 'size' | 'type'> & {
+export type MemberSelectProps = {
     defaultLabel?: string
     // NOTE: Trying to cover a lot of different cases - if string we assume uuid, if number we assume id
     value: UserBasicType | string | number | null
     onChange: (value: UserBasicType | null) => void
 }
 
-export function MemberSelect({
-    defaultLabel = 'All users',
-    value,
-    onChange,
-    ...buttonProps
-}: MemberSelectProps): JSX.Element {
+export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: MemberSelectProps): JSX.Element {
     const { meFirstMembers, membersFuse } = useValues(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
@@ -61,13 +57,7 @@ export function MemberSelect({
                     />
                     <ul className="space-y-px">
                         <li>
-                            <LemonButton
-                                status="stealth"
-                                fullWidth
-                                role="menuitem"
-                                size="small"
-                                onClick={() => _onChange(null)}
-                            >
+                            <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
                                 {defaultLabel}
                             </LemonButton>
                         </li>
@@ -75,21 +65,14 @@ export function MemberSelect({
                         {filteredMembers.map((member) => (
                             <li key={member.user.uuid}>
                                 <LemonButton
-                                    status="stealth"
                                     fullWidth
                                     role="menuitem"
                                     size="small"
-                                    icon={
-                                        <ProfilePicture
-                                            size="md"
-                                            name={member.user.first_name}
-                                            email={member.user.email}
-                                        />
-                                    }
+                                    icon={<ProfilePicture size="md" user={member.user} />}
                                     onClick={() => _onChange(member.user)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span>{member.user.first_name}</span>
+                                        <span>{fullName(member.user)}</span>
                                         <span className="text-muted-alt">
                                             {meFirstMembers[0] === member && `(you)`}
                                         </span>
@@ -107,12 +90,12 @@ export function MemberSelect({
                 </div>
             }
         >
-            <LemonButton {...buttonProps}>
+            <LemonButton size="small" type="secondary">
                 {typeof selectedMember === 'string' ? (
                     selectedMember
                 ) : selectedMember ? (
                     <span>
-                        {selectedMember.first_name}
+                        {fullName(selectedMember)}
                         {meFirstMembers[0].user.uuid === selectedMember.uuid ? ` (you)` : ''}
                     </span>
                 ) : (

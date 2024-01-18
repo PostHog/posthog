@@ -60,7 +60,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         )
         if is_email_available(with_absolute_urls=True):
             invite.emailing_attempt_made = True
-            send_invite.delay(invite_id=invite.id)
+            send_invite(invite_id=invite.id)
             invite.save()
 
         report_team_member_invited(

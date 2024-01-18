@@ -115,7 +115,7 @@ export const definitionLogic = kea<definitionLogicType>([
                 hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
                 hasAvailableFeature(AvailableFeature.TAGGING),
         ],
-        isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith(urls.eventDefinitions())],
+        isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.includes(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],
         breadcrumbs: [
@@ -133,7 +133,7 @@ export const definitionLogic = kea<definitionLogicType>([
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
-                        key: definition?.id || 'new',
+                        key: [isEvent ? Scene.EventDefinition : Scene.PropertyDefinition, definition?.id || 'new'],
                         name: definition?.id !== 'new' ? getPropertyLabel(definition?.name) || 'Untitled' : 'Untitled',
                     },
                 ]

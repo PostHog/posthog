@@ -15,7 +15,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { passwordResetLogic } from './passwordResetLogic'
 import { SupportModalButton } from './SupportModalButton'
-import { useButtonStyle } from './useButtonStyles'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -78,7 +77,7 @@ function EmailUnavailable(): JSX.Element {
                     </ul>
                 </p>
                 <CodeSnippet language={Language.Bash} wrap>
-                    {'python manage.py changepassword [account email]'}
+                    python manage.py changepassword [account email]
                 </CodeSnippet>
             </div>
         </div>
@@ -87,10 +86,9 @@ function EmailUnavailable(): JSX.Element {
 
 function ResetForm(): JSX.Element {
     const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
-    const buttonStyles = useButtonStyle()
 
     return (
-        <Form logic={passwordResetLogic} formKey={'requestPasswordReset'} className="space-y-4" enableFormOnSubmit>
+        <Form logic={passwordResetLogic} formKey="requestPasswordReset" className="space-y-4" enableFormOnSubmit>
             <div className="text-center">
                 Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>
@@ -107,11 +105,12 @@ function ResetForm(): JSX.Element {
             <LemonButton
                 fullWidth
                 type="primary"
+                status="alt"
                 center
                 htmlType="submit"
                 data-attr="password-reset"
                 loading={isRequestPasswordResetSubmitting}
-                {...buttonStyles}
+                size="large"
             >
                 Continue
             </LemonButton>
@@ -122,7 +121,6 @@ function ResetForm(): JSX.Element {
 function ResetSuccess(): JSX.Element {
     const { requestPasswordReset } = useValues(passwordResetLogic)
     const { push } = useActions(router)
-    const buttonStyles = useButtonStyle()
 
     return (
         <div className="text-center">
@@ -131,11 +129,12 @@ function ResetSuccess(): JSX.Element {
             <div className="mt-4">
                 <LemonButton
                     type="primary"
+                    status="alt"
                     data-attr="back-to-login"
                     center
                     fullWidth
                     onClick={() => push('/login')}
-                    {...buttonStyles}
+                    size="large"
                 >
                     Back to login
                 </LemonButton>
@@ -147,7 +146,6 @@ function ResetSuccess(): JSX.Element {
 function ResetThrottled(): JSX.Element {
     const { requestPasswordReset } = useValues(passwordResetLogic)
     const { push } = useActions(router)
-    const buttonStyles = useButtonStyle()
 
     return (
         <div className="text-center">
@@ -160,11 +158,12 @@ function ResetThrottled(): JSX.Element {
             <div className="mt-4">
                 <LemonButton
                     type="primary"
+                    status="alt"
                     data-attr="back-to-login"
                     center
                     fullWidth
                     onClick={() => push('/login')}
-                    {...buttonStyles}
+                    size="large"
                 >
                     Back to login
                 </LemonButton>

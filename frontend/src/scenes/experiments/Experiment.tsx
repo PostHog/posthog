@@ -150,7 +150,7 @@ export function Experiment(): JSX.Element {
     if (!hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
         return (
             <>
-                <PageHeader title="Experiments" />
+                <PageHeader />
                 <ExperimentsPayGate />
             </>
         )
@@ -177,7 +177,6 @@ export function Experiment(): JSX.Element {
                         className="space-y-4 experiment-form"
                     >
                         <PageHeader
-                            title={editingExistingExperiment ? 'Edit experiment' : 'New experiment'}
                             buttons={
                                 <div className="flex items-center gap-2">
                                     <LemonButton
@@ -299,7 +298,6 @@ export function Experiment(): JSX.Element {
                                                                             placement="bottomLeft"
                                                                         >
                                                                             <LemonButton
-                                                                                status="primary-alt"
                                                                                 size="small"
                                                                                 icon={<IconDelete />}
                                                                                 onClick={() =>
@@ -527,22 +525,6 @@ export function Experiment(): JSX.Element {
                 <div className="view-experiment">
                     <div className="draft-header">
                         <PageHeader
-                            title={
-                                <div className="flex items-center gap-2">
-                                    <span>{experiment?.name}</span>
-                                    {experiment.feature_flag && (
-                                        <CopyToClipboardInline
-                                            iconStyle={{ color: 'var(--muted-alt)' }}
-                                            className="text-muted font-normal text-sm"
-                                            description="feature flag key"
-                                        >
-                                            {experiment.feature_flag.key}
-                                        </CopyToClipboardInline>
-                                    )}
-                                    <StatusTag experiment={experiment} />
-                                    <ResultsTag />
-                                </div>
-                            }
                             buttons={
                                 <>
                                     {experiment && !isExperimentRunning && (
@@ -566,7 +548,6 @@ export function Experiment(): JSX.Element {
                                                     overlay={
                                                         <>
                                                             <LemonButton
-                                                                status="stealth"
                                                                 onClick={() => loadExperimentResults(true)}
                                                                 fullWidth
                                                                 data-attr="refresh-experiment"
@@ -595,9 +576,7 @@ export function Experiment(): JSX.Element {
                                                 }
                                                 onConfirm={() => resetRunningExperiment()}
                                             >
-                                                <LemonButton type="secondary" status="primary">
-                                                    Reset
-                                                </LemonButton>
+                                                <LemonButton type="secondary">Reset</LemonButton>
                                             </Popconfirm>
                                             {!experiment.end_date && (
                                                 <LemonButton
@@ -625,9 +604,16 @@ export function Experiment(): JSX.Element {
                             }
                         />
                         <div className="w-full pb-4">
-                            <div>
+                            <div className="inline-flex">
+                                <div className="block">
+                                    <div className="exp-flag-copy-label">Status</div>
+                                    <StatusTag experiment={experiment} />
+                                    <span className="ml-2">
+                                        <ResultsTag />
+                                    </span>
+                                </div>
                                 {experiment.feature_flag && (
-                                    <>
+                                    <div className="block ml-10">
                                         <div className="exp-flag-copy-label">Feature flag</div>
                                         <CopyToClipboardInline
                                             iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
@@ -636,10 +622,10 @@ export function Experiment(): JSX.Element {
                                         >
                                             {experiment.feature_flag.key}
                                         </CopyToClipboardInline>
-                                    </>
+                                    </div>
                                 )}
                             </div>
-                            <div className="mt-4 exp-description">
+                            <div className="mt-6 exp-description">
                                 {isExperimentRunning ? (
                                     <EditableField
                                         multiline

@@ -1,4 +1,5 @@
 import json
+from django.http import HttpRequest
 import structlog
 from typing import Dict, List, Optional, cast
 
@@ -296,6 +297,36 @@ class FeatureFlag(models.Model):
             return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 
         return list(cohort_ids)
+
+    def scheduled_changes_dispatcher(self, payload):
+        from posthog.api.feature_flag import FeatureFlagSerializer
+
+        if "operation" not in payload or "value" not in payload:
+            raise Exception("Invalid payload")
+
+        http_request = HttpRequest()
+        http_request.user = self.created_by
+        context = {
+            "request": http_request,
+            "team_id": self.team_id,
+        }
+
+        serializer_data = {}
+
+        if payload["operation"] == "add_release_condition":
+            current_filters = self.get_filters()
+            current_groups = current_filters.get("groups", [])
+            new_groups = payload["value"].get("groups", [])
+
+            serializer_data["filters"] = {**current_filters, "groups": current_groups + new_groups}
+        elif payload["operation"] == "update_status":
+            serializer_data["active"] = payload["value"]
+        else:
+            raise Exception(f"Unrecognized operation: {payload['operation']}")
+
+        serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
 
     @property
     def uses_cohorts(self) -> bool:

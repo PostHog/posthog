@@ -53,7 +53,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'querySource as vizQuerySource',
                 'insightFilter',
                 'funnelsFilter',
-                'breakdown',
+                'breakdownFilter',
                 'series',
                 'interval',
                 'insightData',
@@ -153,15 +153,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.breakdown, s.results, s.isTimeToConvertFunnel],
-            (breakdown, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
+            (s) => [s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
                 if (!isTimeToConvertFunnel && Array.isArray(results)) {
                     if (isBreakdownFunnelResults(results)) {
-                        const breakdownProperty = breakdown?.breakdowns
-                            ? breakdown?.breakdowns.map((b) => b.property).join('::')
-                            : breakdown?.breakdown ?? undefined
+                        const breakdownProperty = breakdownFilter?.breakdowns
+                            ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
+                            : breakdownFilter?.breakdown ?? undefined
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
                     return results.sort((a, b) => a.order - b.order)
@@ -375,6 +375,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (conversionMetrics, skewWarningHidden): boolean => {
                 return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
+        ],
+        indexedSteps: [
+            (s) => [s.steps],
+            (steps) =>
+                Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
         ],
     })),
 ])

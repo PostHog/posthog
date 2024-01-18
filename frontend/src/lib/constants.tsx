@@ -143,12 +143,9 @@ export const FEATURE_FLAGS = {
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     QUERY_ASYNC: 'query-async', // owner: @webjunkie
-    POSTHOG_3000: 'posthog-3000', // owner: @Twixes multivariate
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     POSTHOG_3000_WELCOME_ANNOUNCEMENT: 'posthog-3000-welcome-announcement', // owner: #posthog-3000
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
-    FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
-    NOTEBOOKS: 'notebooks', // owner: #team-replay
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
@@ -158,7 +155,7 @@ export const FEATURE_FLAGS = {
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
     DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
-    DATA_WAREHOUSE_EXTERNAL_LINK: 'data-warehouse-external-link', // owner: @EDsCODE
+    DATA_WAREHOUSE_HUBSPOT_IMPORT: 'data-warehouse-hubspot-import', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
@@ -170,12 +167,12 @@ export const FEATURE_FLAGS = {
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
     HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
     HOGQL_INSIGHTS_TRENDS: 'hogql-insights-trends', // owner: @Gilbert09
+    HOGQL_INSIGHTS_STICKINESS: 'hogql-insights-stickiness', // owner: @Gilbert09
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     BI_VIZ: 'bi_viz', // owner: @Gilbert09
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
     SURVEYS_PAYGATES: 'surveys-paygates',
-    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-replay
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
     NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-replay
@@ -193,7 +190,11 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_IOS: 'session-replay-ios', // owner: #team-replay
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
-    REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-ingestion-product-analytics-onboarding', // owner: @biancayang
+    DISCUSSIONS: 'discussions', // owner: #team-replay
+    REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-web-product-analytics-onboarding', // owner: @biancayang
+    RECRUIT_ANDROID_MOBILE_BETA_TESTERS: 'recruit-android-mobile-beta-testers', // owner: #team-replay
+    SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
+    AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -226,6 +227,7 @@ export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>
     [AvailableFeature.SURVEYS_STYLING]: LicensePlan.Scale,
     [AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS]: LicensePlan.Scale,
     [AvailableFeature.SURVEYS_TEXT_HTML]: LicensePlan.Scale,
+    [AvailableFeature.DATA_PIPELINES]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

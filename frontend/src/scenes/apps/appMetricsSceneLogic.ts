@@ -188,7 +188,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                     path: urls.projectApps(),
                 },
                 {
-                    key: pluginConfigId,
+                    key: [Scene.AppMetrics, pluginConfigId],
                     name: pluginConfig?.plugin_info?.name,
                     path: urls.appMetrics(pluginConfigId),
                 },
