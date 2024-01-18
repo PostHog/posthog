@@ -40,7 +40,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                         {row.map((column, columnIndex) => (
                             <td key={columnIndex}>
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
-                                    <span className="RetentionTable__TextTab" key={'columnIndex'}>
+                                    <span className="RetentionTable__TextTab" key="columnIndex">
                                         {column}
                                     </span>
                                 ) : (

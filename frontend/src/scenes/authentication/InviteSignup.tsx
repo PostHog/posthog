@@ -7,7 +7,6 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { Field, PureField } from 'lib/forms/Field'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -129,7 +128,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 
     return (
         <BridgePage
-            view={'accept-invite'}
+            view="accept-invite"
             hedgehog
             message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
             footer={<SupportModalButton name={user?.first_name} email={user?.email} />}
@@ -144,7 +143,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                         className="border rounded-lg border-dashed flex items-center gap-2 px-2 py-1"
                         data-attr="top-navigation-whoami"
                     >
-                        <ProfilePicture name={user.first_name} email={user.email} />
+                        <ProfilePicture user={user} />
                         <div className="">
                             <div className="font-bold">{user.first_name}</div>
                             <div>{user.organization?.name}</div>
@@ -193,11 +192,10 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
     const { signup, isSignupSubmitting } = useValues(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     return (
         <BridgePage
-            view={'invites-signup'}
+            view="invites-signup"
             hedgehog
             message={
                 <>
@@ -272,7 +270,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                 <LemonButton
                     type="primary"
-                    status={is3000 ? 'primary-alt' : 'primary'}
+                    status="alt"
                     htmlType="submit"
                     data-attr="password-signup"
                     loading={isSignupSubmitting}

@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
          count(*) as count
@@ -10,12 +11,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen.1
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
          count(*) as count
@@ -26,12 +27,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen.2
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -145,10 +146,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
          count(*) as count
@@ -159,12 +160,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.1
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
          count(*) as count
@@ -175,12 +176,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.2
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -302,10 +303,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
          count(*) as count
@@ -316,12 +317,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot.1
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
          count(*) as count
@@ -332,12 +333,12 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot.2
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -449,5 +450,5 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---

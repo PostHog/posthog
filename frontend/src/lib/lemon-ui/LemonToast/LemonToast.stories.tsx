@@ -9,7 +9,6 @@ const meta: Meta<typeof ToastContent> = {
     component: ToastContent,
     parameters: {
         testOptions: {
-            include3000: true,
             waitForLoadersToDisappear: false,
             snapshotTargetSelector: '.Toastify__toast-container',
         },

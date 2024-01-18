@@ -14,11 +14,10 @@ export const BreakdownTagMenu = (): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)
-    const { breakdown } = useValues(insightVizDataLogic(insightProps))
-    const { updateBreakdown } = useActions(insightVizDataLogic(insightProps))
+    const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateBreakdownFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const { histogramBinCount, breakdownLimit, histogramBinsUsed, breakdownFilter } =
-        useValues(taxonomicBreakdownFilterLogic)
+    const { histogramBinCount, breakdownLimit, histogramBinsUsed } = useValues(taxonomicBreakdownFilterLogic)
     const { setHistogramBinCount, setBreakdownLimit, setHistogramBinsUsed, setNormalizeBreakdownURL } =
         useActions(taxonomicBreakdownFilterLogic)
 
@@ -26,7 +25,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
         <>
             {isNormalizeable && (
                 <LemonSwitch
-                    checked={!!breakdownFilter.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
+                    checked={!!breakdownFilter?.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
                     fullWidth={true}
                     onChange={(checked) => setNormalizeBreakdownURL(checked)}
                     className="min-h-10 px-2"
@@ -62,7 +61,6 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         onClick={() => {
                             setHistogramBinsUsed(true)
                         }}
-                        status="stealth"
                         active={histogramBinsUsed}
                         fullWidth
                     >
@@ -83,7 +81,6 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         onClick={() => {
                             setHistogramBinsUsed(false)
                         }}
-                        status="stealth"
                         active={!histogramBinsUsed}
                         className="mt-2"
                         fullWidth
@@ -96,11 +93,11 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     <LemonSwitch
                         fullWidth
                         className="min-h-10 px-2"
-                        checked={!breakdown?.breakdown_hide_other_aggregation}
+                        checked={!breakdownFilter?.breakdown_hide_other_aggregation}
                         onChange={() =>
-                            updateBreakdown({
-                                ...breakdown,
-                                breakdown_hide_other_aggregation: !breakdown?.breakdown_hide_other_aggregation,
+                            updateBreakdownFilter({
+                                ...breakdownFilter,
+                                breakdown_hide_other_aggregation: !breakdownFilter?.breakdown_hide_other_aggregation,
                             })
                         }
                         label={
@@ -109,8 +106,8 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                 <Tooltip
                                     title={
                                         <>
-                                            If you have over {breakdown?.breakdown_limit ?? 25} breakdown options, the
-                                            smallest ones are aggregated under the label "Other". Use this toggle to
+                                            If you have over {breakdownFilter?.breakdown_limit ?? 25} breakdown options,
+                                            the smallest ones are aggregated under the label "Other". Use this toggle to
                                             show/hide the "Other" option.
                                         </>
                                     }
@@ -123,9 +120,8 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     <div>
                         <LemonButton
                             onClick={() => {
-                                updateBreakdown({ breakdown_limit: breakdownLimit })
+                                updateBreakdownFilter({ breakdown_limit: breakdownLimit })
                             }}
-                            status="stealth"
                             active={histogramBinsUsed}
                             fullWidth
                         >

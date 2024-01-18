@@ -5,9 +5,9 @@ import {
     personActivityResponseJson,
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { mswDecorator } from '~/mocks/browser'
+import { ActivityScope } from '~/types'
 
 const meta: Meta<typeof ActivityLog> = {
     title: 'Components/ActivityLog',

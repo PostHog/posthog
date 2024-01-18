@@ -30,7 +30,6 @@ export function BackToSource(): JSX.Element | null {
         <LemonButton
             tooltip={summary}
             type="secondary"
-            status="primary-alt"
             onClick={() =>
                 router.actions.push(urls.insightNew(undefined, undefined, JSON.stringify(backToSourceQuery)))
             }

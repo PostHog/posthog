@@ -251,7 +251,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     <div>
                                         Save a query as a view that can be referenced in another query. This is useful
                                         for modeling data and organizing large queries into readable chunks.{' '}
-                                        <Link to={'https://posthog.com/docs/data-warehouse'}>More Info</Link>{' '}
+                                        <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
                                     </div>
                                 ),
                                 placement: 'right-start',

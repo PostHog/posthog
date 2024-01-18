@@ -1,4 +1,5 @@
-import { InputNumber, Select } from 'antd'
+import { LemonInput } from '@posthog/lemon-ui'
+import { Select } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BIN_COUNT_AUTO } from 'lib/constants'
@@ -63,9 +64,9 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
                     <>
                         {menu}
                         <div>
-                            <InputNumber
+                            <LemonInput
+                                type="number"
                                 className="funnel-bins-custom-picker"
-                                size="middle"
                                 min={MIN}
                                 max={MAX}
                                 value={numericBinCount}

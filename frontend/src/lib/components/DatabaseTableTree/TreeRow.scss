@@ -1,0 +1,10 @@
+.TreeRow {
+    &:hover {
+        cursor: pointer;
+        background-color: var(--primary-bg-hover);
+    }
+}
+
+.TreeRow__selected {
+    background-color: var(--primary-bg-hover);
+}

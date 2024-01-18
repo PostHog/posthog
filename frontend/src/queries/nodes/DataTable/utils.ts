@@ -13,7 +13,7 @@ export const defaultDataTableEventColumns: HogQLExpression[] = [
 export const defaultDataTablePersonColumns: HogQLExpression[] = ['person', 'id', 'created_at', 'person.$delete']
 
 export function defaultDataTableColumns(kind: NodeKind): HogQLExpression[] {
-    return kind === NodeKind.PersonsNode || kind === NodeKind.PersonsQuery
+    return kind === NodeKind.PersonsNode || kind === NodeKind.ActorsQuery
         ? defaultDataTablePersonColumns
         : kind === NodeKind.EventsQuery
         ? defaultDataTableEventColumns

@@ -21,7 +21,7 @@ export const siteLogic = kea<siteLogicType>([
                     name: `Site`,
                 },
                 {
-                    key: url,
+                    key: [Scene.Site, url],
                     name: url,
                 },
             ],

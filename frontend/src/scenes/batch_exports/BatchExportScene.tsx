@@ -23,10 +23,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportLogEntry, BatchExportLogEntryLevel } from '~/types'
+import { AvailableFeature, BatchExportLogEntry } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
@@ -43,6 +45,10 @@ export const scene: SceneExport = {
 }
 
 export function RunsTab(): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+        return <></>
+    }
     const {
         batchExportRunsResponse,
         batchExportConfig,
@@ -56,7 +62,7 @@ export function RunsTab(): JSX.Element {
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
     if (!batchExportConfig && !batchExportConfigLoading) {
-        return <NotFound object={'Batch Export'} />
+        return <NotFound object="Batch Export" />
     }
 
     return (
@@ -89,7 +95,6 @@ export function RunsTab(): JSX.Element {
                                         setDateRangeVisible(!dateRangeVisible)
                                     }}
                                     type="secondary"
-                                    status="stealth"
                                     size="small"
                                 >
                                     {runsDateRange.from.format('MMMM D, YYYY')} -{' '}
@@ -240,7 +245,7 @@ export function RunsTab(): JSX.Element {
                                 <>
                                     No runs yet. Your exporter runs every <b>{batchExportConfig.interval}</b>.
                                     <br />
-                                    <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                                    <LemonButton type="primary" onClick={openBackfillModal}>
                                         Create historic export
                                     </LemonButton>
                                 </>
@@ -253,22 +258,22 @@ export function RunsTab(): JSX.Element {
     )
 }
 
-function BatchExportLogEntryLevelDisplay(type: BatchExportLogEntryLevel): JSX.Element {
+function BatchExportLogEntryLevelDisplay(type: PipelineAppLogLevel): JSX.Element {
     let color: string | undefined
     switch (type) {
-        case BatchExportLogEntryLevel.Debug:
+        case PipelineAppLogLevel.Debug:
             color = 'var(--muted)'
             break
-        case BatchExportLogEntryLevel.Log:
+        case PipelineAppLogLevel.Log:
             color = 'var(--default)'
             break
-        case BatchExportLogEntryLevel.Info:
+        case PipelineAppLogLevel.Info:
             color = 'var(--blue)'
             break
-        case BatchExportLogEntryLevel.Warning:
+        case PipelineAppLogLevel.Warning:
             color = 'var(--warning)'
             break
-        case BatchExportLogEntryLevel.Error:
+        case PipelineAppLogLevel.Error:
             color = 'var(--danger)'
             break
         default:
@@ -336,7 +341,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
             />
             <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                {Object.values(BatchExportLogEntryLevel).map((type) => {
+                {Object.values(PipelineAppLogLevel).map((type) => {
                     return (
                         <LemonCheckbox
                             key={type}
@@ -399,17 +404,12 @@ export function BatchExportScene(): JSX.Element {
     }, [])
 
     if (!batchExportConfig && !batchExportConfigLoading) {
-        return <NotFound object={'Batch Export'} />
+        return <NotFound object="Batch Export" />
     }
 
     return (
         <>
             <PageHeader
-                title={
-                    <span className="flex items-center gap-2">
-                        {batchExportConfig?.name ?? (batchExportConfigLoading ? 'Loading...' : 'Missing')}
-                    </span>
-                }
                 buttons={
                     batchExportConfig ? (
                         <>
@@ -444,7 +444,7 @@ export function BatchExportScene(): JSX.Element {
                                     },
                                 ]}
                             >
-                                <LemonButton icon={<IconEllipsis />} status="stealth" size="small" />
+                                <LemonButton icon={<IconEllipsis />} size="small" />
                             </LemonMenu>
                             <LemonDivider vertical />
                             <LemonButton type="secondary" onClick={() => openBackfillModal()}>

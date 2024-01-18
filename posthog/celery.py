@@ -271,6 +271,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="recalculate cohorts",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        120,
+        process_scheduled_changes.s(),
+        name="process scheduled changes",
+    )
+
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,
@@ -336,16 +343,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
     sender.add_periodic_task(
-        crontab(minute="*/10"),
-        sync_datawarehouse_sources.s(),
-        name="sync datawarehouse sources that have settled in s3 bucket",
-    )
-
-    # Every 30 minutes try to retrieve and calculate total rows synced in period
-    sender.add_periodic_task(
-        crontab(minute="*/30"),
-        calculate_external_data_rows_synced.s(),
-        name="calculate external data rows synced",
+        crontab(minute="*/20"),
+        check_data_import_row_limits.s(),
+        name="check external data rows synced",
     )
 
 
@@ -401,8 +401,8 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@app.task(ignore_result=True, bind=True)
-def process_query_task(self, team_id, query_id, query_json, limit_context=None, refresh_requested=False):
+@app.task(ignore_result=True, queue="analytics_queries")
+def process_query_task(team_id, query_id, query_json, limit_context=None, refresh_requested=False):
     """
     Kick off query
     Once complete save results to redis
@@ -822,7 +822,7 @@ def clear_clickhouse_deleted_person():
     remove_deleted_person_data()
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=True, queue="email")
 def redis_celery_queue_depth():
     try:
         with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:
@@ -869,6 +869,13 @@ def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
+
+
+@app.task(ignore_result=True)
+def process_scheduled_changes():
+    from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+
+    process_scheduled_changes()
 
 
 @app.task(ignore_result=True)
@@ -923,23 +930,6 @@ def calculate_decide_usage() -> None:
         capture_team_decide_usage(ph_client, team.id, team.uuid)
 
     ph_client.shutdown()
-
-
-@app.task(ignore_result=True)
-def calculate_external_data_rows_synced() -> None:
-    from django.db.models import Q
-
-    from posthog.models import Team
-    from posthog.tasks.warehouse import (
-        capture_workspace_rows_synced_by_team,
-        check_external_data_source_billing_limit_by_team,
-    )
-
-    for team in Team.objects.select_related("organization").exclude(
-        Q(organization__for_internal_metrics=True) | Q(is_demo=True) | Q(external_data_workspace_id__isnull=True)
-    ):
-        capture_workspace_rows_synced_by_team.delay(team.pk)
-        check_external_data_source_billing_limit_by_team.delay(team.pk)
 
 
 @app.task(ignore_result=True)
@@ -1097,10 +1087,10 @@ def ee_persist_finished_recordings():
 
 
 @app.task(ignore_result=True)
-def sync_datawarehouse_sources():
+def check_data_import_row_limits():
     try:
-        from posthog.tasks.warehouse import sync_resources
+        from posthog.tasks.warehouse import check_synced_row_limits
     except ImportError:
         pass
     else:
-        sync_resources()
+        check_synced_row_limits()

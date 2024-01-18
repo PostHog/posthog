@@ -13,7 +13,7 @@ class TestScheduledChange(APIBaseTest):
             f"/api/projects/{self.team.id}/scheduled_changes/",
             data={
                 "id": 6,
-                "record_id": 119,
+                "record_id": "119",
                 "model_name": "FeatureFlag",
                 "payload": payload,
                 "scheduled_at": "2023-12-08T12:00:00Z",
@@ -27,6 +27,6 @@ class TestScheduledChange(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert ScheduledChange.objects.filter(id=response_data["id"]).exists()
         assert response_data["model_name"] == "FeatureFlag"
-        assert response_data["record_id"] == 119
+        assert response_data["record_id"] == "119"
         assert response_data["payload"] == payload
         assert response_data["created_by"]["id"] == self.user.id

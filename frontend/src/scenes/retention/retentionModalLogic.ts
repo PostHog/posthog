@@ -1,12 +1,14 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { DataTableNode, NodeKind, PersonsQuery, RetentionQuery } from '~/queries/schema'
-import { isInsightPersonsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
+import { ActorsQuery, DataTableNode, NodeKind, RetentionQuery } from '~/queries/schema'
+import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
@@ -19,7 +21,14 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
     key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
     path((key) => ['scenes', 'retention', 'retentionModalLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['querySource'], groupsModel, ['aggregationLabel']],
+        values: [
+            insightVizDataLogic(props),
+            ['querySource'],
+            groupsModel,
+            ['aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     })),
     actions(() => ({
@@ -46,9 +55,9 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 return aggregationLabel(aggregation_group_type_index)
             },
         ],
-        personsQuery: [
+        actorsQuery: [
             (s) => [s.querySource, s.selectedInterval],
-            (querySource: RetentionQuery, selectedInterval): PersonsQuery | null => {
+            (querySource: RetentionQuery, selectedInterval): ActorsQuery | null => {
                 if (!querySource) {
                     return null
                 }
@@ -56,20 +65,20 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             },
         ],
         exploreUrl: [
-            (s) => [s.personsQuery],
-            (personsQuery): string | null => {
-                if (!personsQuery) {
+            (s) => [s.actorsQuery, s.featureFlags],
+            (actorsQuery, featureFlags): string | null => {
+                if (!actorsQuery || !featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]) {
                     return null
                 }
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
-                    source: personsQuery,
+                    source: actorsQuery,
                     full: true,
                 }
                 if (
-                    isInsightPersonsQuery(personsQuery.source) &&
-                    isRetentionQuery(personsQuery.source.source) &&
-                    personsQuery.source.source.aggregation_group_type_index !== undefined
+                    isInsightActorsQuery(actorsQuery.source) &&
+                    isRetentionQuery(actorsQuery.source.source) &&
+                    actorsQuery.source.source.aggregation_group_type_index !== undefined
                 ) {
                     query.showPropertyFilter = false
                 }

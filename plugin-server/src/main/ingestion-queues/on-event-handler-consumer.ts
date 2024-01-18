@@ -1,6 +1,7 @@
 import { Consumer, Kafka } from 'kafkajs'
 import * as schedule from 'node-schedule'
 import { AppMetrics } from 'worker/ingestion/app-metrics'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub, PluginsServerConfig } from '../../types'
@@ -23,7 +24,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team. 
+        and processes any onEvent plugin handlers configured for the team.
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
@@ -45,6 +46,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     teamManager,
     organizationManager,
     serverConfig,
+    rustyHook,
     appMetrics,
 }: {
     kafka: Kafka
@@ -52,11 +54,12 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     teamManager: TeamManager
     organizationManager: OrganizationManager
     serverConfig: PluginsServerConfig
+    rustyHook: RustyHook
     appMetrics: AppMetrics
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team. 
+        and processes any onEvent plugin handlers configured for the team.
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
@@ -78,6 +81,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         postgres,
         teamManager,
         organizationManager,
+        rustyHook,
         appMetrics,
         serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
     )

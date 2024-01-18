@@ -64,7 +64,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
-    const { unregisterNodeLogic } = useActions(notebookLogic)
+    const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
     const logicProps: NotebookNodeLogicProps = {
@@ -74,7 +74,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { resizeable, expanded, actions, nodeId } = useValues(nodeLogic)
+    const { resizeable, expanded, actions, nodeId, sourceComment } = useValues(nodeLogic)
     const {
         setRef,
         setExpanded,
@@ -174,6 +174,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             : null,
 
         isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
+        isEditable
+            ? sourceComment
+                ? { label: 'Show comment', onClick: () => selectComment(nodeId) }
+                : { label: 'Comment', onClick: () => insertComment({ type: 'node', id: nodeId }) }
+            : null,
         isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconClose />, status: 'danger' } : null,
     ]
 
@@ -253,11 +258,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
-                                                        <LemonButton
-                                                            icon={<IconEllipsis />}
-                                                            status="stealth"
-                                                            size="small"
-                                                        />
+                                                        <LemonButton icon={<IconEllipsis />} size="small" />
                                                     </LemonMenu>
                                                 ) : null}
                                             </div>
@@ -306,7 +307,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         <LemonButton
                                             size="xsmall"
                                             type="secondary"
-                                            status="primary"
                                             icon={<IconPlus />}
                                             onClick={(e) => {
                                                 e.stopPropagation()
@@ -319,7 +319,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             key={i}
                                             size="xsmall"
                                             type="secondary"
-                                            status="primary"
                                             icon={x.icon ?? <IconPlus />}
                                             onClick={(e) => {
                                                 e.stopPropagation()

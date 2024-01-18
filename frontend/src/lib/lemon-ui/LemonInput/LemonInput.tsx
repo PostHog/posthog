@@ -109,7 +109,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size="small"
                 noPadding
                 icon={passwordVisible ? <IconEyeHidden /> : <IconEyeVisible />}
-                status="primary-alt"
                 tooltip={passwordVisible ? 'Hide password' : 'Show password'}
                 onClick={(e) => {
                     e.stopPropagation()
@@ -126,7 +125,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size="small"
                 noPadding
                 icon={<IconClose />}
-                status="primary-alt"
                 tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()

@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -54,11 +55,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    key: Scene.DataWarehouse,
-                    name: `Data Warehouse`,
-                    path: urls.dataWarehouseExternal(),
-                },
-                {
                     key: Scene.DataWarehouseSettings,
                     name: 'Data Warehouse Settings',
                     path: urls.dataWarehouseSettings(),
@@ -80,8 +76,16 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             actions.loadingFinished(source)
         },
         reloadSource: async ({ source }) => {
-            await api.externalDataSources.reload(source.id)
-            actions.loadSources()
+            try {
+                await api.externalDataSources.reload(source.id)
+                actions.loadSources()
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error('Cant refresh source at this time')
+                }
+            }
             actions.loadingFinished(source)
         },
         updateSchema: async ({ schema }) => {

@@ -102,7 +102,6 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                     </div>
                                     <LemonButton
                                         icon={<IconDelete />}
-                                        status="muted"
                                         noPadding
                                         onClick={() => {
                                             removeRollbackCondition(index)
@@ -123,7 +122,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                         loadInsightAtIndex(index, payload)
                                                     }}
                                                     typeKey={'feature-flag-rollback-trends-' + index}
-                                                    buttonCopy={'Add graph series'}
+                                                    buttonCopy="Add graph series"
                                                     showSeriesIndicator={false}
                                                     showNestedArrow
                                                     hideRename={true}
@@ -239,12 +238,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                     </>
                 ))}
             {!readOnly && (
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        addRollbackCondition()
-                    }}
-                >
+                <LemonButton type="secondary" onClick={addRollbackCondition}>
                     Add condition
                 </LemonButton>
             )}

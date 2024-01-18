@@ -9,7 +9,7 @@ import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect } from 'react'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
-import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
+import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
@@ -84,7 +84,7 @@ export function NotebooksTable(): JSX.Element {
                         ]}
                         actionable
                     >
-                        <LemonButton aria-label="more" icon={<IconEllipsis />} status="stealth" size="small" />
+                        <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
                     </LemonMenu>
                 )
             },
@@ -114,17 +114,15 @@ export function NotebooksTable(): JSX.Element {
                         setFilters({ search: s })
                     }}
                     value={filters.search}
-                    data-attr={'notebooks-search'}
+                    data-attr="notebooks-search"
                 />
                 <div className="flex items-center gap-4 flex-wrap">
                     <ContainsTypeFilters filters={filters} setFilters={setFilters} />
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
                         <MemberSelect
-                            size="small"
-                            type="secondary"
                             value={filters.createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.uuid || DEFAULT_FILTERS.createdBy })}
+                            onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                         />
                     </div>
                 </div>
@@ -137,7 +135,7 @@ export function NotebooksTable(): JSX.Element {
                 columns={columns}
                 loading={notebooksResponseLoading}
                 defaultSorting={{ columnKey: '-created_at', order: 1 }}
-                emptyState={`No notebooks matching your filters!`}
+                emptyState="No notebooks matching your filters!"
                 nouns={['notebook', 'notebooks']}
                 sorting={sortValue ? { columnKey: sortValue, order: sortValue.startsWith('-') ? -1 : 1 } : undefined}
                 onSort={(newSorting) =>

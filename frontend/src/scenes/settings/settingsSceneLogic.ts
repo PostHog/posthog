@@ -34,7 +34,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                     path: urls.settings('project'),
                 },
                 {
-                    key: selectedSectionId || selectedLevel,
+                    key: [Scene.Settings, selectedSectionId || selectedLevel],
                     name: selectedSectionId
                         ? SettingsMap.find((x) => x.id === selectedSectionId)?.title
                         : capitalizeFirstLetter(selectedLevel),

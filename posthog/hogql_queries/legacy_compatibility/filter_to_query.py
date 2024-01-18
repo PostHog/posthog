@@ -301,7 +301,7 @@ def _breakdown_filter(_filter: Dict):
     if len(BreakdownFilter(**breakdownFilter).model_dump(exclude_defaults=True)) == 0:
         return {}
 
-    return {"breakdown": BreakdownFilter(**breakdownFilter)}
+    return {"breakdownFilter": BreakdownFilter(**breakdownFilter)}
 
 
 def _group_aggregation_filter(filter: Dict):
@@ -314,18 +314,19 @@ def _insight_filter(filter: Dict):
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
             "trendsFilter": TrendsFilter(
-                smoothing_intervals=filter.get("smoothing_intervals"),
+                smoothingIntervals=filter.get("smoothing_intervals"),
                 # show_legend=filter.get('show_legend'),
                 # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
                 compare=filter.get("compare"),
-                aggregation_axis_format=filter.get("aggregation_axis_format"),
-                aggregation_axis_prefix=filter.get("aggregation_axis_prefix"),
-                aggregation_axis_postfix=filter.get("aggregation_axis_postfix"),
-                decimal_places=filter.get("decimal_places"),
+                aggregationAxisFormat=filter.get("aggregation_axis_format"),
+                aggregationAxisPrefix=filter.get("aggregation_axis_prefix"),
+                aggregationAxisPostfix=filter.get("aggregation_axis_postfix"),
+                decimalPlaces=filter.get("decimal_places"),
                 formula=filter.get("formula"),
                 display=clean_display(filter.get("display")),
                 show_values_on_series=filter.get("show_values_on_series"),
-                show_percent_stack_view=filter.get("show_percent_stack_view"),
+                showPercentStackView=filter.get("show_percent_stack_view"),
+                showLabelsOnSeries=filter.get("show_label_on_series"),
             )
         }
     elif _insight_type(filter) == "FUNNELS":

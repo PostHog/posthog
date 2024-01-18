@@ -71,7 +71,7 @@ const DashboardRelationRow = ({
             <span className="grow" />
             <LemonButton
                 type="secondary"
-                status={isAlreadyOnDashboard ? 'danger' : 'primary'}
+                status={isAlreadyOnDashboard ? 'danger' : 'default'}
                 loading={dashboardWithActiveAPICall === dashboard.id}
                 disabledReason={
                     !canEditInsight
@@ -150,12 +150,12 @@ export function AddToDashboardModal({
                 </>
             }
         >
-            <div className="space-y-2 w-md max-w-full">
+            <div className="space-y-2 w-192 max-w-full">
                 <LemonInput
                     data-attr="dashboard-searchfield"
                     type="search"
                     fullWidth
-                    placeholder={`Search for dashboards...`}
+                    placeholder="Search for dashboards..."
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />

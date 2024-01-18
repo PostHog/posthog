@@ -102,8 +102,7 @@ export function Annotations(): JSX.Element {
                 return (
                     <div className="flex flex-row items-center">
                         <ProfilePicture
-                            name={creation_type === 'GIT' ? 'GitHub Actions' : created_by?.first_name}
-                            email={creation_type === 'GIT' ? undefined : created_by?.email}
+                            user={creation_type === 'GIT' ? { first_name: 'GitHub Actions' } : created_by}
                             showName
                             size="md"
                             type={creation_type === 'GIT' ? 'bot' : 'person'}
@@ -121,15 +120,7 @@ export function Annotations(): JSX.Element {
             key: 'actions',
             width: 0,
             render: function RenderActions(_, annotation): JSX.Element {
-                return (
-                    <LemonButton
-                        icon={<IconEdit />}
-                        size="small"
-                        type="tertiary"
-                        status="stealth"
-                        to={urls.annotation(annotation.id)}
-                    />
-                )
+                return <LemonButton icon={<IconEdit />} size="small" to={urls.annotation(annotation.id)} />
             },
         },
     ]
@@ -140,7 +131,7 @@ export function Annotations(): JSX.Element {
                 Annotations allow you to mark when certain changes happened so you can easily see how they impacted your
                 metrics.
             </p>
-            <div data-attr={'annotations-content'}>
+            <div data-attr="annotations-content">
                 {(shouldShowEmptyState || shouldShowProductIntroduction) && (
                     <div className="mt-4">
                         <ProductIntroduction

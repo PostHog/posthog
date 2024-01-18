@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestSessionsTimelineQueryRunner.test_before_and_after
-  '
+  '''
   SELECT e.uuid AS uuid,
          e.timestamp AS timestamp,
          e.event AS event,
@@ -60,10 +61,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_before_and_after_defaults
-  '
+  '''
   SELECT e.uuid AS uuid,
          e.timestamp AS timestamp,
          e.event AS event,
@@ -124,10 +125,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_event_limit_and_has_more
-  '
+  '''
   SELECT e.uuid AS uuid,
          e.timestamp AS timestamp,
          e.event AS event,
@@ -188,10 +189,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_formal_and_informal_sessions_global
-  '
+  '''
   SELECT e.uuid AS uuid,
          e.timestamp AS timestamp,
          e.event AS event,
@@ -252,10 +253,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_formal_session_with_recording
-  '
+  '''
   SELECT e.uuid AS uuid,
          e.timestamp AS timestamp,
          e.event AS event,
@@ -316,10 +317,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_for_person
-  '
+  '''
   SELECT e.uuid AS uuid,
          e.timestamp AS timestamp,
          e.event AS event,
@@ -380,10 +381,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_global
-  '
+  '''
   SELECT e.uuid AS uuid,
          e.timestamp AS timestamp,
          e.event AS event,
@@ -444,5 +445,5 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---

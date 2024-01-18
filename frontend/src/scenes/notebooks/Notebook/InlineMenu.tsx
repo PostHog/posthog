@@ -1,15 +1,21 @@
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
-import { IconBold, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { isURL } from 'lib/utils'
+import { useActions } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconBold, IconComment, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isURL, uuid } from 'lib/utils'
 import { useRef } from 'react'
 
 import NotebookIconHeading from './NotebookIconHeading'
+import { notebookLogic } from './notebookLogic'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
+    const { insertComment } = useActions(notebookLogic)
     const { href, target } = editor.getAttributes('link')
     const menuRef = useRef<HTMLDivElement>(null)
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const commentSelected = editor.isActive('comment')
 
     const setLink = (href: string): void => {
         editor.commands.setMark('link', { href: href })
@@ -51,7 +57,6 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                         <LemonButton
                             onClick={openLink}
                             icon={<IconOpenInNew />}
-                            status="primary"
                             size="small"
                             disabledReason={!isURL(href) && 'Enter a URL.'}
                         />
@@ -69,41 +74,49 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                             active={editor.isActive('heading', { level: 1 })}
                             icon={<NotebookIconHeading level={1} />}
                             size="small"
-                            status={editor.isActive('heading', { level: 1 }) ? 'primary' : 'stealth'}
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
                             active={editor.isActive('heading', { level: 2 })}
                             icon={<NotebookIconHeading level={2} />}
                             size="small"
-                            status={editor.isActive('heading', { level: 2 }) ? 'primary' : 'stealth'}
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
                             active={editor.isActive('heading', { level: 3 })}
                             icon={<NotebookIconHeading level={3} />}
                             size="small"
-                            status={editor.isActive('heading', { level: 3 }) ? 'primary' : 'stealth'}
                         />
                         <LemonDivider vertical />
                         <LemonButton
                             onClick={() => editor.chain().focus().toggleMark('italic').run()}
                             active={editor.isActive('italic')}
                             icon={<IconItalic />}
-                            status={editor.isActive('italic') ? 'primary' : 'stealth'}
                             size="small"
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().toggleMark('bold').run()}
                             active={editor.isActive('bold')}
                             icon={<IconBold />}
-                            status={editor.isActive('bold') ? 'primary' : 'stealth'}
                             size="small"
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().setMark('link').run()}
                             icon={<IconLink />}
-                            status="stealth"
+                            size="small"
+                        />
+                    </>
+                )}
+                {hasDiscussions && !commentSelected && (
+                    <>
+                        <LemonDivider vertical />
+                        <LemonButton
+                            onClick={() => {
+                                const markId = uuid()
+                                editor.commands.setMark('comment', { id: markId })
+                                insertComment({ type: 'mark', id: markId })
+                            }}
+                            icon={<IconComment className="w-4 h-4" />}
                             size="small"
                         />
                     </>

@@ -23,42 +23,41 @@ describe('Insights', () => {
     it('Saving an insight sets breadcrumbs', () => {
         createInsight('insight name')
 
-        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
-        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
-        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Product analytics')
-        cy.get('[data-attr=breadcrumb-3]').should('have.text', 'insight name')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
+        cy.get('[data-attr=breadcrumb-SavedInsights]').should('have.text', 'Product analytics')
+        cy.get('[data-attr^="breadcrumb-Insight:"]').should('have.text', 'insight name')
     })
 
     it('Can change insight name', () => {
         const startingName = randomString('starting-value-')
         const editedName = randomString('edited-value-')
         createInsight(startingName)
-        cy.get('[data-attr="insight-name"]').should('contain', startingName)
+        cy.get('[data-attr="top-bar-name"]').should('contain', startingName)
 
-        cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
-        cy.get('[data-attr="insight-name"] input').type(editedName)
-        cy.get('[data-attr="insight-name"] [title="Save"]').click()
+        cy.get('[data-attr="top-bar-name"] button').click()
+        cy.get('[data-attr="top-bar-name"] input').clear().type(editedName)
+        cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
 
-        cy.get('[data-attr="insight-name"]').should('contain', editedName)
+        cy.get('[data-attr="top-bar-name"]').should('contain', editedName)
 
         savedInsights.checkInsightIsInListView(editedName)
     })
 
     it('Can undo a change of insight name', () => {
         createInsight('starting value')
-        cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
+        cy.get('[data-attr="top-bar-name"]').should('contain', 'starting value')
 
-        cy.get('[data-attr="insight-name"]').scrollIntoView()
-        cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click({ force: true })
-        cy.get('[data-attr="insight-name"] input').type('edited value')
-        cy.get('[data-attr="insight-name"] [title="Save"]').click()
+        cy.get('[data-attr="top-bar-name"] button').click({ force: true })
+        cy.get('[data-attr="top-bar-name"] input').clear().type('edited value')
+        cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
 
-        cy.get('[data-attr="insight-name"]').should('contain', 'edited value')
+        cy.get('[data-attr="top-bar-name"]').should('contain', 'edited value')
 
         cy.get('[data-attr="edit-insight-undo"]').click()
 
-        cy.get('[data-attr="insight-name"]').should('not.contain', 'edited value')
-        cy.get('[data-attr="insight-name"]').should('contain', 'starting value')
+        cy.get('[data-attr="top-bar-name"]').should('not.contain', 'edited value')
+        cy.get('[data-attr="top-bar-name"]').should('contain', 'starting value')
 
         savedInsights.checkInsightIsInListView('starting value')
     })
@@ -73,7 +72,7 @@ describe('Insights', () => {
 
         cy.url().should('match', /insights\/[\w\d]+\/edit/)
 
-        cy.get('.page-title').then(($pageTitle) => {
+        cy.get('[data-attr="top-bar-name"] .EditableField__display').then(($pageTitle) => {
             const pageTitle = $pageTitle.text()
 
             cy.get('[data-attr="add-action-event-button"]').click()
@@ -92,7 +91,7 @@ describe('Insights', () => {
 
     it('Shows not found error with invalid short URL', () => {
         cy.visit('/i/i_dont_exist')
-        cy.location('pathname').should('eq', '/insights/i_dont_exist')
+        cy.location('pathname').should('contain', '/insights/i_dont_exist')
         cy.get('.LemonSkeleton').should('exist')
     })
 

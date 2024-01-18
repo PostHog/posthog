@@ -11,7 +11,6 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { EventDefinitionType, ProductKey, SidePanelTab, TeamBasicType } from '~/types'
@@ -66,8 +65,6 @@ export const activationLogic = kea<activationLogicType>([
             ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure'],
             pluginsLogic,
             ['loadPluginsSuccess', 'loadPluginsFailure'],
-            navigationLogic,
-            ['toggleActivationSideBar', 'showActivationSideBar', 'hideActivationSideBar'],
             sidePanelStateLogic,
             ['openSidePanel'],
             eventUsageLogic,
@@ -358,13 +355,6 @@ export const activationLogic = kea<activationLogicType>([
                 actions.addSkippedTask(values.currentTeam.id, id)
             }
         },
-        showActivationSideBar: async () => {
-            actions.reportActivationSideBarShown(
-                values.activeTasks.length,
-                values.completedTasks.length,
-                values.completionPercent
-            )
-        },
     })),
     events(({ actions }) => ({
         afterMount: () => {
@@ -375,10 +365,7 @@ export const activationLogic = kea<activationLogicType>([
     urlToAction(({ actions, values }) => ({
         '*': (_, params) => {
             if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
-                actions.toggleActivationSideBar()
                 actions.openSidePanel(SidePanelTab.Activation)
-            } else {
-                actions.hideActivationSideBar()
             }
         },
     })),

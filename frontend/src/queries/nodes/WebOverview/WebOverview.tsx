@@ -71,7 +71,7 @@ export const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.El
 
     return (
         <Tooltip title={tooltip}>
-            <div className="min-w-30 min-h-20 flex flex-col items-center text-center justify-between">
+            <div className="min-w-[7.5rem] min-h-20 flex flex-col items-center text-center justify-between">
                 <div className="font-bold uppercase text-xs">{label}</div>
                 <div className="w-full flex-1 flex items-center justify-center">
                     <div className="text-2xl">{formatItem(item.value, item.kind)}</div>

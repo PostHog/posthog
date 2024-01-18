@@ -38,7 +38,7 @@ const config: StorybookConfig = {
 
     framework: {
         name: '@storybook/react-webpack5',
-        options: {},
+        options: { builder: { useSWC: true } },
     },
 
     docs: {

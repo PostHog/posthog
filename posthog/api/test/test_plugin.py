@@ -1356,8 +1356,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
                 "updated_at": mock.ANY,
-                "name": None,
-                "description": None,
+                "name": "Hello World",
+                "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
             },
         )
@@ -1385,8 +1385,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
                 "updated_at": mock.ANY,
-                "name": None,
-                "description": None,
+                "name": "Hello World",
+                "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
             },
         )
@@ -1416,8 +1416,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
                 "updated_at": mock.ANY,
-                "name": None,
-                "description": None,
+                "name": "Hello World",
+                "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
             },
         )

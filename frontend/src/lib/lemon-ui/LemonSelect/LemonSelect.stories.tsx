@@ -131,7 +131,7 @@ CustomElement.args = {
 export const FullWidth: StoryFn<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="items-center w-full border p-4 gap-2">
-            <LemonSelect {...props} fullWidth={true} allowClear={true} value={'poodle'} />
+            <LemonSelect {...props} fullWidth={true} allowClear={true} value="poodle" />
         </div>
     )
 }

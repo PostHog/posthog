@@ -309,12 +309,10 @@ def render_template(
 
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
-    from loginas.utils import is_impersonated_session
 
     template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
-    context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
 
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
@@ -1035,7 +1033,7 @@ def _request_has_key_set(key: str, request: Request) -> bool:
 
 
 def str_to_bool(value: Any) -> bool:
-    """Return whether the provided string (or any value really) represents true. Otherwise false.
+    """Return whether the provided string (or any value really) represents true. Otherwise, false.
     Just like plugin server stringToBoolean.
     """
     if not value:

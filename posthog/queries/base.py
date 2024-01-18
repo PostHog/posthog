@@ -279,10 +279,19 @@ def property_to_Q(
         cohort_id = int(cast(Union[str, int], value))
         if cohorts_cache is not None:
             if cohorts_cache.get(cohort_id) is None:
-                cohorts_cache[cohort_id] = Cohort.objects.using(using_database).get(pk=cohort_id)
-            cohort = cohorts_cache[cohort_id]
+                queried_cohort = Cohort.objects.using(using_database).filter(pk=cohort_id).first()
+                if queried_cohort:
+                    cohorts_cache[cohort_id] = queried_cohort
+
+                cohort = queried_cohort
+            else:
+                cohort = cohorts_cache[cohort_id]
         else:
-            cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
+            cohort = Cohort.objects.using(using_database).filter(pk=cohort_id).first()
+
+        if not cohort:
+            # Don't match anything if cohort doesn't exist
+            return Q(pk__isnull=True)
 
         if cohort.is_static:
             return Q(
@@ -435,11 +444,16 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
 
 
 def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
-    regex = r"(?P<number>[0-9]+)(?P<interval>[a-z])"
+    regex = r"^(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)
     parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
     if match:
         number = int(match.group("number"))
+
+        if number >= 10_000:
+            # Guard against overflow, disallow numbers greater than 10_000
+            return None
+
         interval = match.group("interval")
         if interval == "h":
             parsed_dt = parsed_dt - relativedelta(hours=number)

@@ -12,8 +12,7 @@ import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
-import { IconNotebook } from '../IconNotebook'
-import { IconChat, IconDashboard, IconLogomark, IconRewindPlay } from '@posthog/icons'
+import { IconChat, IconDashboard, IconLogomark, IconNotebook, IconRewindPlay } from '@posthog/icons'
 import { useEffect } from 'react'
 
 type BackLinkMapper = {

@@ -64,7 +64,8 @@ SELECT
     counts.total_pageviews as "context.columns.views",
     counts.unique_visitors as "context.columns.visitors",
     bounce_rate.bounce_rate as "context.columns.bounce_rate",
-    scroll_depth.average_scroll_percentage as "context.columns.average_scroll_percentage"
+    scroll_depth.average_scroll_percentage as "context.columns.average_scroll_percentage",
+    scroll_depth.scroll_gt80_percentage as "context.columns.scroll_gt80_percentage"
 FROM
     {counts_query} AS counts
 LEFT OUTER JOIN

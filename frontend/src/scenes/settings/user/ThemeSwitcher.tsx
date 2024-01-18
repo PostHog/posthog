@@ -13,9 +13,9 @@ export function ThemeSwitcher({
     return (
         <LemonSelect
             options={[
-                { icon: <IconLaptop />, value: 'system', label: `Sync with system` },
                 { icon: <IconDay />, value: 'light', label: 'Light mode' },
                 { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
+                { icon: <IconLaptop />, value: 'system', label: `Sync with system` },
             ]}
             value={themeMode}
             renderButtonContent={(leaf) => {

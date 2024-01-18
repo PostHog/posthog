@@ -8,4 +8,4 @@ class Migration(migrations.Migration):
         ("posthog", "0174_organization_slug"),
     ]
 
-    operations = []  # type: ignore
+    operations = []

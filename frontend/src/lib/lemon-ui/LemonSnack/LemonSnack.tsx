@@ -32,7 +32,7 @@ export function LemonSnack({
                 !isRegular && 'LemonSnack--pill',
                 `inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 bg-${bgColor}`,
                 !wrap && 'whitespace-nowrap',
-                isRegular ? 'px-1.5 rounded' : 'px-4 rounded-4xl h-8',
+                isRegular ? 'px-1.5 rounded' : 'px-4 rounded-full h-8',
                 isClickable && 'cursor-pointer',
                 className
             )}
@@ -48,7 +48,6 @@ export function LemonSnack({
             {onClose && (
                 <span className={clsx('LemonSnack__close shrink-0 ml-1', isRegular || '-mr-1')}>
                     <LemonButton
-                        status="stealth"
                         size="small"
                         noPadding
                         icon={<IconClose />}

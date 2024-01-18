@@ -23,7 +23,7 @@ export const sessionRecordingDetailLogic = kea<sessionRecordingDetailLogicType>(
                     path: urls.replay(),
                 },
                 {
-                    key: sessionRecordingId,
+                    key: [Scene.ReplaySingle, sessionRecordingId],
                     name: sessionRecordingId ?? 'Not Found',
                     path: sessionRecordingId ? urls.replaySingle(sessionRecordingId) : undefined,
                 },

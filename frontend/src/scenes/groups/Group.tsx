@@ -11,7 +11,6 @@ import { GroupDashboard } from 'scenes/groups/GroupDashboard'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -77,7 +76,6 @@ export function Group(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={groupDisplayId(groupData.group_key, groupData.group_properties)}
                 caption={<GroupCaption groupData={groupData} groupTypeName={groupTypeName} />}
                 buttons={
                     <NotebookSelectButton

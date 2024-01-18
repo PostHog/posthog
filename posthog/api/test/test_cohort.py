@@ -725,7 +725,7 @@ email@example.org,
                 "name": "cohort A",
                 "is_static": True,
                 "query": {
-                    "kind": "PersonsQuery",
+                    "kind": "ActorsQuery",
                     "properties": [
                         {
                             "key": "$some_prop",
@@ -755,7 +755,7 @@ email@example.org,
             data={
                 "name": "cohort A",
                 "query": {
-                    "kind": "PersonsQuery",
+                    "kind": "ActorsQuery",
                     "properties": [
                         {
                             "key": "$some_prop",

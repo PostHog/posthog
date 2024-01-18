@@ -2,6 +2,7 @@ import base64
 import json
 import random
 import time
+from typing import Optional
 from unittest.mock import patch
 
 import pytest
@@ -76,6 +77,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         geoip_disable=False,
         ip="127.0.0.1",
         disable_flags=False,
+        user_agent: Optional[str] = None,
     ):
         return self.client.post(
             f"/decide/?v={api_version}",
@@ -93,6 +95,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
             HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
+            HTTP_USER_AGENT=user_agent or "PostHog test",
         )
 
     def _update_team(self, data, expected_status_code: int = status.HTTP_200_OK):
@@ -413,6 +416,20 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
         response = self._post_decide(origin="any.site.com").json()
+        assert response["sessionRecording"] == {
+            "endpoint": "/s/",
+            "recorderVersion": "v2",
+            "consoleLogRecordingEnabled": False,
+            "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
+            "networkPayloadCapture": None,
+        }
+
+    def test_user_session_recording_allowed_for_android(self, *args) -> None:
+        self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://my-website.io"]})
+
+        response = self._post_decide(origin="any.site.com", user_agent="posthog-android/3.1.0").json()
         assert response["sessionRecording"] == {
             "endpoint": "/s/",
             "recorderVersion": "v2",
@@ -2137,6 +2154,39 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # get cohort, get person filter
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+    def test_flag_with_unknown_cohort(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": "something_1"},
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": 99999, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            name="This is a regular flag",
+            key="simple-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(7):
+            # multiple queries to get the same cohort, because it doesn't exist
+            # TODO: Find a better way to optimise this in cache
+            response = self._post_decide(api_version=3, distinct_id="example_id_1")
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     @snapshot_postgres_queries

@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from zoneinfo import ZoneInfo
+
 from django.test import override_settings
 from rest_framework import status
 
@@ -11,8 +12,11 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.persons_query_runner import PersonsQueryRunner
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models import Action, ActionStep
+from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.person import Person
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -70,17 +74,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, interval, query):
+    def run_actors_query(self, interval, query, select=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = PersonsQueryRunner(
+        runner = ActorsQueryRunner(
             team=self.team,
             query={
-                "select": ["person", "appearances"],
+                "select": ["person", "appearances", *(select or [])],
                 "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
-                    "kind": "InsightPersonsQuery",
+                    "kind": "InsightActorsQuery",
                     "interval": interval,
                     "source": query,
                 },
@@ -751,6 +755,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(result), 1, result)
         self.assertEqual(result[0][0]["id"], person1.uuid, person1.uuid)
+
+        # test selecting appearances directly (defauly: days)
+        result_2 = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+            },
+            select=["day_0", "day_1", "day_2", "day_3", "day_4"],
+        )
+        self.assertEqual(len(result_2), len(result))
+        self.assertEqual(result_2[0][2], 1)  # day_0
+        self.assertEqual(result_2[0][3], 1)  # day_1
+        self.assertEqual(result_2[0][4], 1)  # day_2
+        self.assertEqual(result_2[0][5], 0)  # day_3
+        self.assertEqual(result_2[0][6], 0)  # day_4
 
     def test_retention_people_first_time(self):
         _, _, p3, _ = self._create_first_time_retention_events()
@@ -1622,5 +1641,243 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 [0, 0, 0],
                 [0, 0],
                 [0],
+            ],
+        )
+
+
+class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
+    def run_query(self, query):
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
+        runner = RetentionQueryRunner(team=self.team, query=query)
+        return runner.calculate().model_dump()["results"]
+
+    def run_actors_query(self, interval, query, select=None, actor="person"):
+        query["kind"] = "RetentionQuery"
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
+        runner = ActorsQueryRunner(
+            team=self.team,
+            query={
+                "select": [actor, "appearances", *(select or [])],
+                "orderBy": ["length(appearances) DESC", "actor_id"],
+                "source": {
+                    "kind": "InsightActorsQuery",
+                    "interval": interval,
+                    "source": query,
+                },
+            },
+        )
+        return runner.calculate().model_dump()["results"]
+
+    def _create_groups_and_events(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:6",
+            properties={"industry": "technology"},
+        )
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:2",
+            properties={},
+        )
+
+        Person.objects.create(team=self.team, distinct_ids=["person1", "alias1"])
+        Person.objects.create(team=self.team, distinct_ids=["person2"])
+        Person.objects.create(team=self.team, distinct_ids=["person3"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"$group_0": "org:5", "$group_1": "company:1"}),
+                ("person2", _date(0), {"$group_0": "org:6"}),
+                ("person3", _date(0)),
+                ("person1", _date(1), {"$group_0": "org:5"}),
+                ("person2", _date(1), {"$group_0": "org:6"}),
+                ("person1", _date(7), {"$group_0": "org:5"}),
+                ("person2", _date(7), {"$group_0": "org:6"}),
+                ("person1", _date(14), {"$group_0": "org:5"}),
+                (
+                    "person1",
+                    _date(month=1, day=-6),
+                    {"$group_0": "org:5", "$group_1": "company:1"},
+                ),
+                ("person2", _date(month=1, day=-6), {"$group_0": "org:6"}),
+                ("person2", _date(month=1, day=1), {"$group_0": "org:6"}),
+                ("person1", _date(month=1, day=1), {"$group_0": "org:5"}),
+                (
+                    "person2",
+                    _date(month=1, day=15),
+                    {"$group_0": "org:6", "$group_1": "company:1"},
+                ),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_groups_aggregating(self):
+        self._create_groups_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
+                "aggregation_group_type_index": 0,
+                "retentionFilter": {
+                    "period": "Week",
+                    "total_intervals": 7,
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [2, 2, 1, 2, 2, 0, 1],
+                [2, 1, 2, 2, 0, 1],
+                [1, 1, 1, 0, 0],
+                [2, 2, 0, 1],
+                [2, 0, 1],
+                [0, 0],
+                [1],
+            ],
+        )
+
+        actor_result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
+                "aggregation_group_type_index": 0,
+                "retentionFilter": {
+                    "period": "Week",
+                    "total_intervals": 7,
+                },
+            },
+            actor="group",
+        )
+        self.assertCountEqual([actor[0]["id"] for actor in actor_result], ["org:5", "org:6"])
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
+                "aggregation_group_type_index": 1,
+                "retentionFilter": {
+                    "period": "Week",
+                    "total_intervals": 7,
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 0, 0, 1, 0, 0, 1],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [1, 0, 0, 1],
+                [0, 0, 0],
+                [0, 0],
+                [1],
+            ],
+        )
+
+    def test_groups_in_period(self):
+        self._create_groups_and_events()
+
+        actor_result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
+                "aggregation_group_type_index": 0,
+                "retentionFilter": {
+                    "period": "Week",
+                    "total_intervals": 7,
+                },
+            },
+            actor="group",
+        )
+
+        self.assertEqual(actor_result[0][0]["id"], "org:5")
+        self.assertEqual(actor_result[0][1], [0, 1, 2, 3, 4])
+
+        self.assertEqual(actor_result[1][0]["id"], "org:6")
+        self.assertEqual(actor_result[1][1], [0, 1, 3, 4, 6])
+
+    @snapshot_clickhouse_queries
+    def test_groups_aggregating_person_on_events(self):
+        self._create_groups_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
+                "aggregation_group_type_index": 0,
+                "retentionFilter": {
+                    "period": "Week",
+                    "total_intervals": 7,
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [2, 2, 1, 2, 2, 0, 1],
+                [2, 1, 2, 2, 0, 1],
+                [1, 1, 1, 0, 0],
+                [2, 2, 0, 1],
+                [2, 0, 1],
+                [0, 0],
+                [1],
+            ],
+        )
+
+        actor_result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
+                "aggregation_group_type_index": 0,
+                "retentionFilter": {
+                    "period": "Week",
+                    "total_intervals": 7,
+                },
+            },
+            actor="group",
+        )
+
+        self.assertCountEqual([actor[0]["id"] for actor in actor_result], ["org:5", "org:6"])
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, month=1, hour=0)},
+                "aggregation_group_type_index": 1,
+                "retentionFilter": {
+                    "period": "Week",
+                    "total_intervals": 7,
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            [
+                [1, 0, 0, 1, 0, 0, 1],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [1, 0, 0, 1],
+                [0, 0, 0],
+                [0, 0],
+                [1],
             ],
         )

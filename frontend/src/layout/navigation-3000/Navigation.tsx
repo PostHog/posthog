@@ -3,15 +3,15 @@ import './Navigation.scss'
 import clsx from 'clsx'
 import { useMountedLogic, useValues } from 'kea'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
-import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
+import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import posthog from 'posthog-js'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
+import { Announcement } from '../navigation/TopBar/Announcement'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
@@ -31,13 +31,6 @@ export function Navigation({
     const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
 
-    useEffect(() => {
-        // FIXME: Include debug notice in a non-obstructing way
-        document.getElementById('bottom-notice')?.remove()
-        // TODO: Unflag Notebooks once the 3000 experiment is over
-        posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.NOTEBOOKS, true)
-    }, [])
-
     if (mode !== 'full') {
         return (
             <div className="Navigation3000 flex-col">
@@ -54,6 +47,7 @@ export function Navigation({
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
             <main>
+                <Announcement />
                 <TopBar />
 
                 <div
@@ -69,7 +63,7 @@ export function Navigation({
                 </div>
             </main>
             {!mobileLayout && <SidePanel />}
-            <CommandPalette />
+            <CommandBar />
         </div>
     )
 }

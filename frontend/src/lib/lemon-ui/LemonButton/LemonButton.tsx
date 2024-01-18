@@ -1,5 +1,4 @@
 import './LemonButton.scss'
-import './LemonButtonLegacy.scss'
 import './LemonButton3000.scss'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -34,7 +33,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** Button color scheme. */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
+    status?: 'default' | 'alt' | 'danger'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -66,8 +65,6 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     noPadding?: boolean
-    /** Hides the button chrome until hover. */
-    stealth?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
@@ -111,7 +108,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 disabledReason,
                 loading,
                 type = 'tertiary',
-                status = 'primary',
+                status = 'default',
                 icon,
                 sideIcon,
                 sideAction,
@@ -120,7 +117,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
-                stealth = false,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -213,7 +209,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !children && 'LemonButton--no-content',
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
-                        stealth && 'LemonButton--is-stealth',
                         truncate && 'LemonButton--truncate',
                         className
                     )}

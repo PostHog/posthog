@@ -29,6 +29,7 @@ export interface BillingAlertConfig {
     dismissKey?: string
     action?: LemonBannerAction
     pathName?: string
+    onClose?: () => void
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -162,9 +163,32 @@ export const billingLogic = kea<billingLogicType>([
                 return projectedTotal
             },
         ],
+        over20kAnnual: [
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
+            (billing, preflight, projectedTotalAmountUsd) => {
+                if (!billing || !preflight?.cloud) {
+                    return
+                }
+                if (
+                    billing.current_total_amount_usd_after_discount &&
+                    (parseFloat(billing.current_total_amount_usd_after_discount) > 1666 ||
+                        projectedTotalAmountUsd > 1666) &&
+                    billing.billing_period?.interval === 'month'
+                ) {
+                    return true
+                }
+                return
+            },
+        ],
+        isAnnualPlan: [
+            (s) => [s.billing],
+            (billing) => {
+                return billing?.billing_period?.interval === 'year'
+            },
+        ],
         billingAlert: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd, s.productSpecificAlert],
-            (billing, preflight, projectedTotalAmountUsd, productSpecificAlert): BillingAlertConfig | undefined => {
+            (s) => [s.billing, s.preflight, s.productSpecificAlert],
+            (billing, preflight, productSpecificAlert): BillingAlertConfig | undefined => {
                 if (productSpecificAlert) {
                     return productSpecificAlert
                 }
@@ -226,21 +250,6 @@ export const billingLogic = kea<billingLogicType>([
                         )}% of your ${
                             productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
                         } allocation.`,
-                    }
-                }
-
-                if (
-                    billing.current_total_amount_usd_after_discount &&
-                    (parseFloat(billing.current_total_amount_usd_after_discount) > 1000 ||
-                        projectedTotalAmountUsd > 1000) &&
-                    billing.billing_period?.interval === 'month'
-                ) {
-                    return {
-                        status: 'info',
-                        title: `Switch to annual up-front billing to save up to 20% on your bill.`,
-                        contactSupport: true,
-                        buttonCTA: 'Contact sales',
-                        dismissKey: 'annual-billing-cta',
                     }
                 }
             },

@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
 
-const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
+const statuses: LemonButtonProps['status'][] = ['default', 'alt', 'danger']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 type Story = StoryObj<typeof LemonButton>
@@ -24,9 +24,6 @@ const meta: Meta<typeof LemonButton> = {
         icon: {
             type: 'function',
         },
-    },
-    parameters: {
-        testOptions: { include3000: true },
     },
 }
 export default meta
@@ -69,71 +66,19 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     )
 }
 
-const ButtonVariants3000 = ({
-    tertiary = false,
-    active = false,
-}: {
-    tertiary?: boolean
-    active?: LemonButtonProps['active']
-}): JSX.Element => {
-    const variants: LemonButtonProps[] = tertiary
-        ? [
-              { type: 'tertiary', children: 'Primary' },
-              { type: 'tertiary', status: 'danger', children: 'Danger' },
-          ]
-        : [
-              { type: 'primary', children: 'Primary' },
-              { type: 'primary', status: 'primary-alt', children: 'Primary alt' },
-              { type: 'secondary', children: 'Secondary' },
-              { type: 'secondary', status: 'danger', children: 'Danger' },
-              { type: 'secondary', stealth: true, status: 'primary', children: 'Stealth' },
-          ]
+export const TypesAndStatuses: Story = () => {
     return (
-        <div className="flex gap-2 flex-wrap">
-            {variants.map((props, index) => (
-                <LemonButton key={index} active={active} {...props} icon={<IconCalculate />} />
-            ))}
-        </div>
-    )
-}
-
-export const Types3000: Story = () => {
-    return (
-        <div className="space-y-2">
-            <h5>type=3D</h5>
-            <div className="border rounded">
-                <div className="p-2">
-                    <ButtonVariants3000 />
-                </div>
-                <div className="p-2">
-                    <h5>Active</h5>
-                    <ButtonVariants3000 active />
-                </div>
-                <div className="p-2 bg-bg-light rounded-b">
-                    <h5>Light background</h5>
-                    <div className="flex gap-2 flex-wrap">
-                        <ButtonVariants3000 />
-                    </div>
-                </div>
+        <div className="space-y-12">
+            <div className="p-2 rounded-lg border">
+                <TypesAndStatusesTemplate />
             </div>
-            <h5>type=TERTIARY</h5>
-            <div className="border rounded">
-                <div className="p-2">
-                    <ButtonVariants3000 tertiary />
-                </div>
-                <div className="p-2 bg-bg-light rounded-b">
-                    <h5>Light background</h5>
-                    <div className="flex gap-2 flex-wrap">
-                        <ButtonVariants3000 tertiary />
-                    </div>
-                </div>
+            <div className="p-2 bg-bg-light rounded-lg border">
+                <TypesAndStatusesTemplate />
             </div>
         </div>
     )
 }
-Types3000.args = { ...Default.args }
 
-export const TypesAndStatuses: Story = TypesAndStatusesTemplate.bind({})
 TypesAndStatuses.args = { ...Default.args }
 
 type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
@@ -146,7 +91,7 @@ export const NoPadding = (): JSX.Element => {
 }
 
 export const TextOnly = (): JSX.Element => {
-    return <StatusesTemplate type={'secondary'} icon={null} />
+    return <StatusesTemplate type="secondary" icon={null} />
 }
 
 export const Sizes = (): JSX.Element => {
@@ -223,39 +168,81 @@ export const Active = (): JSX.Element => {
                 <LemonButton>I am not active</LemonButton>
                 <LemonButton active>I am active</LemonButton>
             </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="primary">I am not active</LemonButton>
+                <LemonButton type="primary" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="primary" status="alt">
+                    I am not active
+                </LemonButton>
+                <LemonButton type="primary" status="alt" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="secondary">I am not active</LemonButton>
+                <LemonButton type="secondary" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="secondary" status="alt">
+                    I am not active
+                </LemonButton>
+                <LemonButton type="secondary" status="alt" active>
+                    I am active
+                </LemonButton>
+            </div>
         </div>
     )
 }
 
 export const PseudoStates = (): JSX.Element => {
     return (
-        <div className="space-y-2">
-            <div className="border rounded p-2">
+        <div className="space-y-8">
+            <div>
                 <div>
                     <h5>TYPE=3D STATE=DEFAULT</h5>
-                    <ButtonVariants3000 />
+                    <StatusesTemplate type="primary" />
                 </div>
                 <div id="hover">
                     <h5>TYPE=3D STATE=HOVER</h5>
-                    <ButtonVariants3000 />
+                    <StatusesTemplate type="primary" />
                 </div>
                 <div id="active">
                     <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
-                    <ButtonVariants3000 />
+                    <StatusesTemplate type="primary" />
                 </div>
             </div>
-            <div className="border rounded p-2">
+            <div>
+                <div>
+                    <h5>TYPE=SECONDARY STATE=DEFAULT</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=SECONDARY STATE=HOVER</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+                <div id="active">
+                    <h5>TYPE=SECONDARY STATE=HOVER,ACTIVE</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+            </div>
+            <div>
                 <div>
                     <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
-                    <ButtonVariants3000 tertiary />
+                    <StatusesTemplate type="tertiary" />
                 </div>
                 <div id="hover">
                     <h5>TYPE=TERTIARY STATE=HOVER</h5>
-                    <ButtonVariants3000 tertiary />
+                    <StatusesTemplate type="tertiary" />
                 </div>
                 <div id="active">
                     <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
-                    <ButtonVariants3000 tertiary />
+                    <StatusesTemplate type="tertiary" />
                 </div>
             </div>
         </div>
@@ -271,13 +258,10 @@ PseudoStates.parameters = {
 export const MenuButtons = (): JSX.Element => {
     return (
         <div className="space-y-2">
-            <p>When a button is used inside a menu item it should have the special status **stealth**</p>
             <div className="border rounded-lg flex flex-col p-2 space-y-1">
-                <LemonButton active status="stealth">
-                    Active item
-                </LemonButton>
-                <LemonButton status="stealth">Item 1</LemonButton>
-                <LemonButton status="stealth">Item 2</LemonButton>
+                <LemonButton active>Active item</LemonButton>
+                <LemonButton>Item 1</LemonButton>
+                <LemonButton>Item 2</LemonButton>
             </div>
         </div>
     )
@@ -348,7 +332,7 @@ export const AsLinks = (): JSX.Element => {
         <div className="space-y-2">
             <LemonBanner type="info">
                 <b>Reminder</b> - if you just want a link, use the{' '}
-                <Link to={'/?path=/docs/lemon-ui-link'} disableClientSideRouting>
+                <Link to="/?path=/docs/lemon-ui-link" disableClientSideRouting>
                     Link component
                 </Link>
             </LemonBanner>
@@ -379,18 +363,10 @@ WithDropdownToTheRight.args = {
     dropdown: {
         overlay: (
             <>
-                <LemonButton status="stealth" fullWidth>
-                    Kakapo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kangaroo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kingfisher
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Koala
-                </LemonButton>
+                <LemonButton fullWidth>Kakapo</LemonButton>
+                <LemonButton fullWidth>Kangaroo</LemonButton>
+                <LemonButton fullWidth>Kingfisher</LemonButton>
+                <LemonButton fullWidth>Koala</LemonButton>
             </>
         ),
         placement: 'right-start',
@@ -403,18 +379,10 @@ WithDropdownToTheBottom.args = {
     dropdown: {
         overlay: (
             <>
-                <LemonButton status="stealth" fullWidth>
-                    Kakapo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kangaroo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kingfisher
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Koala
-                </LemonButton>
+                <LemonButton fullWidth>Kakapo</LemonButton>
+                <LemonButton fullWidth>Kangaroo</LemonButton>
+                <LemonButton fullWidth>Kingfisher</LemonButton>
+                <LemonButton fullWidth>Koala</LemonButton>
             </>
         ),
         placement: 'bottom',
@@ -429,7 +397,7 @@ WithVeryLongPopoverToTheBottom.args = {
         overlay: (
             <>
                 {range(200).map((n) => (
-                    <LemonButton key={n} status="stealth" fullWidth>
+                    <LemonButton key={n} fullWidth>
                         {n.toString()}
                     </LemonButton>
                 ))}
@@ -451,12 +419,8 @@ export const More_ = (): JSX.Element => {
         <More
             overlay={
                 <>
-                    <LemonButton status="stealth" fullWidth>
-                        View
-                    </LemonButton>
-                    <LemonButton status="stealth" fullWidth>
-                        Edit
-                    </LemonButton>
+                    <LemonButton fullWidth>View</LemonButton>
+                    <LemonButton fullWidth>Edit</LemonButton>
                     <LemonDivider />
                     <LemonButton status="danger" fullWidth>
                         Delete

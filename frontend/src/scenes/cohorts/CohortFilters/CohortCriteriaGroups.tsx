@@ -49,16 +49,14 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 onChange={(value) => setInnerGroupType(value, groupIndex)}
                                                 value={group.type}
                                             />
-                                            <div className="flex-1 min-w-2" />
+                                            <div className="flex-1 min-w-[0.5rem]" />
                                             <LemonButton
                                                 icon={<IconCopy />}
-                                                status="primary-alt"
                                                 onClick={() => duplicateFilter(groupIndex)}
                                             />
                                             {cohort.filters.properties.values.length > 1 && (
                                                 <LemonButton
                                                     icon={<IconDelete />}
-                                                    status="primary-alt"
                                                     onClick={() => removeFilter(groupIndex)}
                                                 />
                                             )}
@@ -90,7 +88,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             {criteriaIndex === group.values.length - 1 && (
                                                 <div className="m-3">
                                                     <LemonButton
-                                                        data-attr={'cohort-add-filter-group-criteria'}
+                                                        data-attr="cohort-add-filter-group-criteria"
                                                         type="secondary"
                                                         onClick={() => addFilter(groupIndex)}
                                                         icon={<IconPlusMini color="var(--primary)" />}
@@ -108,7 +106,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                 ) : null
             )}
             <LemonButton
-                data-attr={`cohort-add-filter-group`}
+                data-attr="cohort-add-filter-group"
                 className="mb-4 mt-4"
                 type="secondary"
                 onClick={() => addFilter()}

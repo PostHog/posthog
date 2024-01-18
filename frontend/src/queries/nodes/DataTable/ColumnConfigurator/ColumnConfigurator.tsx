@@ -252,7 +252,7 @@ const SelectedColumn = ({
                 <PropertyKeyInfo className="ml-1" value={columnKey} />
                 <div className="flex-1" />
                 <Tooltip title="Edit">
-                    <LemonButton onClick={() => onEdit(column, dataIndex)} status="primary" size="small">
+                    <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
                         <IconEdit data-attr="column-display-item-edit-icon" />
                     </LemonButton>
                 </Tooltip>
