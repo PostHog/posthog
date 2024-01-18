@@ -331,7 +331,6 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         mergedQuery[filterKey] = {
             ...query[filterKey],
             ...cache[filterKey],
-            ...(isRetentionQuery(mergedQuery) ? mergedQuery.retentionFilter : {}),
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
             // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
