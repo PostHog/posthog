@@ -12,6 +12,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
+from posthog.tasks.utils import CeleryQueue
 
 
 @shared_task(ignore_result=True)
@@ -26,7 +27,7 @@ def redis_heartbeat():
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@shared_task(ignore_result=True, queue="analytics_queries")
+@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES)
 def process_query_task(team_id, query_id, query_json, limit_context=None, refresh_requested=False):
     """
     Kick off query
@@ -447,7 +448,7 @@ def clear_clickhouse_deleted_person():
     remove_deleted_person_data()
 
 
-@shared_task(ignore_result=True, queue="email")
+@shared_task(ignore_result=True, queue=CeleryQueue.EMAIL)
 def redis_celery_queue_depth():
     try:
         with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:
