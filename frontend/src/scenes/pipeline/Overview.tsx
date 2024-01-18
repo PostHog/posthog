@@ -58,6 +58,7 @@ const StatusMessage = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element 
 }
 
 const StatusIndicator = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element => {
+    const enabledAndHasMetrics = enabled && !!metrics
     const failureRate = metrics ? metrics?.failures / metrics?.totals : null
 
     let statusColor: string = 'bg-success'
@@ -72,13 +73,13 @@ const StatusIndicator = ({ enabled, metrics }: StatusIndicatorProps): JSX.Elemen
             <div className="relative flex h-3 w-3 items-center justify-center">
                 <span
                     className={clsx('absolute inline-flex h-3/4 w-3/4 rounded-full opacity-50', {
-                        [`${statusColor} animate-ping`]: enabled,
-                        'bg-border': !enabled,
+                        [`${statusColor} animate-ping`]: enabledAndHasMetrics,
+                        'bg-border': !enabledAndHasMetrics,
                     })}
                 />
                 <span
                     className={clsx('relative inline-flex rounded-full h-3 w-3', {
-                        [`${statusColor}`]: enabled,
+                        [`${statusColor}`]: enabledAndHasMetrics,
                     })}
                 />
             </div>
@@ -251,7 +252,9 @@ const PipelineStepDestination = ({ destination }: { destination: DestinationType
             metrics={metrics}
             headerInfo={
                 <>
-                    <DestinationSparkLine destination={destination} />
+                    <div className="mr-1">
+                        <DestinationSparkLine destination={destination} />
+                    </div>
                     <More overlay={<DestinationMoreOverlay destination={destination} />} />
                 </>
             }
@@ -305,7 +308,6 @@ export function Overview(): JSX.Element {
                 {destinationsLoading && <PipelineStepSkeleton />}
                 {destinations && destinations.map((d) => <PipelineStepDestination key={d.id} destination={d} />)}
             </div>
-            {/* {destinations && <pre>{JSON.stringify(destinations, null, 2)}</pre>} */}
         </div>
     )
 }
