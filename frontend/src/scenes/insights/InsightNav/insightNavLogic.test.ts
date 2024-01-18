@@ -239,8 +239,8 @@ describe('insightNavLogic', () => {
                     queryPropertyCache: expect.objectContaining({
                         commonFilter: {
                             showValuesOnSeries: true,
-                            funnel_order_type: 'strict',
-                            funnel_viz_type: 'steps',
+                            funnelOrderType: 'strict',
+                            funnelVizType: 'steps',
                         },
                     }),
                 })
