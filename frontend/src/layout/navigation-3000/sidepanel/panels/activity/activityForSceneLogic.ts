@@ -22,7 +22,12 @@ export const activityFiltersForScene = (sceneConfig: SceneConfig | null): Activi
         const pathParts = removeProjectIdIfPresent(router.values.currentLocation.pathname).split('/')
         const item_id = pathParts[2]
 
-        return { scope: sceneConfig.activityScope, item_id }
+        // Loose check for the item_id being a number, a short_id (8 chars) or a uuid
+        if (item_id && (item_id.length === 8 || item_id.length === 36 || !isNaN(parseInt(item_id)))) {
+            return { scope: sceneConfig.activityScope, item_id }
+        }
+
+        return { scope: sceneConfig.activityScope }
     }
     return null
 }
