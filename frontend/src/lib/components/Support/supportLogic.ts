@@ -71,7 +71,7 @@ export const TARGET_AREA_TO_NAME = {
 }
 
 export const SEVERITY_LEVEL_TO_NAME = {
-    critical: 'Critical - Outage / Data loss / Breach',
+    critical: 'Critical - Outage / data loss / breach',
     high: 'High - Feature unavailable / Significant impact',
     medium: 'Medium - Feature not working as expected',
     low: 'Low - Feature request or Question',
