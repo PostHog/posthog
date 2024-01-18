@@ -108,7 +108,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self, time_frame: Optional[str | int]) -> ast.SelectQuery | ast.SelectUnionQuery:  # type: ignore
         queries = []
         with self.timings.measure("trends_persons_query"):
             for series in self.series:
@@ -124,10 +124,18 @@ class TrendsQueryRunner(QueryRunner):
                     series=series.series,
                     timings=self.timings,
                     modifiers=self.modifiers,
+                    person_query_time_frame=time_frame,
                 )
-                queries.append(query_builder.build_persons_query())
+                queries.append(query_builder.build_query())
 
-        return ast.SelectUnionQuery(select_queries=queries)
+        select_queries: List[ast.SelectQuery] = []
+        for query in queries:
+            if isinstance(query, ast.SelectUnionQuery):
+                select_queries.extend(query.select_queries)
+            else:
+                select_queries.append(query)
+
+        return ast.SelectUnionQuery(select_queries=select_queries)
 
     def calculate(self):
         queries = self.to_query()

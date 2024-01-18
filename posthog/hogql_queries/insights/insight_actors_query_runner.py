@@ -28,7 +28,7 @@ class InsightActorsQueryRunner(QueryRunner):
             return lifecycle_runner.to_actors_query(day=str(day) if day else None, status=status)
         elif isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
-            return trends_runner.to_actors_query()
+            return trends_runner.to_actors_query(self.query.day)
         elif isinstance(self.source_runner, RetentionQueryRunner):
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
             return retention_runner.to_actors_query(interval=self.query.interval)
