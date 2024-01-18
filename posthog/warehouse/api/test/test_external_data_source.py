@@ -5,6 +5,7 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from django.conf import settings
 
 
 class TestSavedQuery(APIBaseTest):
@@ -135,3 +136,22 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(mock_trigger.call_count, 1)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
+
+    def test_database_schema(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
+            data={
+                "host": settings.PG_HOST,
+                "port": int(settings.PG_PORT),
+                "database": settings.PG_DATABASE,
+                "user": settings.PG_USER,
+                "password": settings.PG_PASSWORD,
+                "sslmode": "disable",
+                "schema": "public",
+            },
+        )
+        results = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue("posthog_user" in results)
+        self.assertTrue("posthog_event" in results)

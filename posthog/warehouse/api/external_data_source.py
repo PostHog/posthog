@@ -1,6 +1,7 @@
 import uuid
 from typing import Any
 
+import psycopg
 import structlog
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -297,3 +298,32 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         instance.status = "Running"
         instance.save()
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=False)
+    def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
+        host = request.query_params.get("host")
+        port = request.query_params.get("port")
+        database = request.query_params.get("database")
+
+        user = request.query_params.get("user")
+        password = request.query_params.get("password")
+        sslmode = request.query_params.get("sslmode")
+        schema = request.query_params.get("schema")
+
+        connection = psycopg.Connection.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+            )
+            result = cursor.fetchall()
+            result = [row[0] for row in result]
+
+        return Response(status=status.HTTP_200_OK, data=result)
