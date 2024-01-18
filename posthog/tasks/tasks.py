@@ -448,7 +448,7 @@ def clear_clickhouse_deleted_person() -> None:
     remove_deleted_person_data()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.EMAIL)
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS)
 def redis_celery_queue_depth():
     try:
         with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:

@@ -1,5 +1,3 @@
-from enum import Enum
-
 # NOTE: These are the queues used for logically separating workloads.
 # Many queues are consumed by one "consumer" - a worker configured to consume from that queue.
 # The goal should be to split up queues based on the type of work being done, so that we can scale effectively
@@ -24,8 +22,9 @@ from enum import Enum
 
 
 # NOTE: Keep in sync with bin/celery-queues.env
-class CeleryQueue(Enum):
+class CeleryQueue:
     DEFAULT = "celery"
+    STATS = "stats"
     EMAIL = "email"
     INSIGHT_EXPORT = "insight_export"
     INSIGHT_REFRESH = "insight_refresh"
