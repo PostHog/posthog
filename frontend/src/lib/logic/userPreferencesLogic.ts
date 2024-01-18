@@ -2,8 +2,7 @@ import { actions, kea, path, reducers } from 'kea'
 
 import type { userPreferencesLogicType } from './userPreferencesLogicType'
 
-// This logic contains player settings that should persist across players
-// If key is not specified, it is global so it does not reset when recordings change in the main recordings page
+// This logic is for browser stored user preferences where it's not super important that it is persisted to the server
 export const userPreferencesLogic = kea<userPreferencesLogicType>([
     path(['lib', 'logic', 'userPreferencesLogic']),
     actions({
