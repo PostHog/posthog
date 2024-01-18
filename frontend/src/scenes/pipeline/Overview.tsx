@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { PipelineAppKind, PipelineAppTab } from '~/types'
 
 import { DestinationMoreOverlay } from './Destinations'
+import { DestinationSparkLine } from './DestinationSparkLine'
 import { pipelineOverviewLogic } from './overviewLogic'
 import { TransformationsMoreOverlay } from './Transformations'
 
@@ -42,9 +43,18 @@ type PipelineStepProps = {
     to: string
     success_rate?: number
     moreOverlay?: JSX.Element
+    sparkline?: JSX.Element
 }
 
-const PipelineStep = ({ name, description, order, enabled, to, moreOverlay }: PipelineStepProps): JSX.Element => (
+const PipelineStep = ({
+    name,
+    description,
+    order,
+    enabled,
+    to,
+    moreOverlay,
+    sparkline,
+}: PipelineStepProps): JSX.Element => (
     <LemonCard>
         {order && (
             <div className="mb-3">
@@ -68,7 +78,10 @@ const PipelineStep = ({ name, description, order, enabled, to, moreOverlay }: Pi
                 </h3>
                 <StatusIndicator status={enabled ? 'enabled' : 'disabled'} />
             </div>
-            <div>{moreOverlay && <More overlay={moreOverlay} />}</div>
+            <div className="flex items-center">
+                {sparkline && <div className="mr-1">{sparkline}</div>}
+                {moreOverlay && <More overlay={moreOverlay} />}
+            </div>
         </div>
 
         {description ? (
@@ -148,6 +161,7 @@ export function Overview(): JSX.Element {
                             enabled={d.enabled}
                             to={d.config_url}
                             moreOverlay={<DestinationMoreOverlay destination={d} />}
+                            sparkline={<DestinationSparkLine destination={d} />}
                         />
                     ))}
                 </div>

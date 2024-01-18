@@ -5,15 +5,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Sparkline, SparklineTimeSeries } from 'lib/lemon-ui/Sparkline'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { PipelineAppKind, ProductKey } from '~/types'
 
-import { DestinationType, PipelineAppBackend, pipelineDestinationsLogic } from './destinationsLogic'
+import { DestinationType, pipelineDestinationsLogic } from './destinationsLogic'
+import { DestinationSparkLine } from './DestinationSparkLine'
 import { NewButton } from './NewButton'
-import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { RenderApp } from './utils'
 
 export function Destinations(): JSX.Element {
@@ -184,36 +183,4 @@ export const DestinationMoreOverlay = ({ destination }: { destination: Destinati
             )}
         </>
     )
-}
-
-function DestinationSparkLine({ destination }: { destination: DestinationType }): JSX.Element {
-    if (destination.backend === PipelineAppBackend.BatchExport) {
-        return <></> // TODO: not ready yet
-    } else {
-        const logic = pipelineAppMetricsLogic({ pluginConfigId: destination.id })
-        const { appMetricsResponse } = useValues(logic)
-
-        const displayData: SparklineTimeSeries[] = [
-            {
-                color: 'success',
-                name: 'Events sent',
-                values: appMetricsResponse ? appMetricsResponse.metrics.successes : [],
-            },
-        ]
-        if (appMetricsResponse?.metrics.failures.some((failure) => failure > 0)) {
-            displayData.push({
-                color: 'danger',
-                name: 'Events dropped',
-                values: appMetricsResponse ? appMetricsResponse.metrics.failures : [],
-            })
-        }
-
-        return (
-            <Sparkline
-                loading={appMetricsResponse === null}
-                labels={appMetricsResponse ? appMetricsResponse.metrics.dates : []}
-                data={displayData}
-            />
-        )
-    }
 }

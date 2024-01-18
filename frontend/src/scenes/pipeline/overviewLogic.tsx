@@ -106,7 +106,8 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                     backend: PipelineAppBackend.Plugin,
                     id: pluginConfig.id,
                     plugin: plugins[pluginConfig.plugin],
-                    app_source_code_url: '',
+                    app_source_code_url: plugins[pluginConfig.plugin].url,
+                    fullConfig: pluginConfig,
 
                     // success_rates: {
                     //     '24h': pluginConfig.delivery_rate_24h === undefined ? null : pluginConfig.delivery_rate_24h,
@@ -141,7 +142,10 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
+        // transfomations
         actions.loadTransformations()
+
+        // destinations
         actions.loadPlugins()
         actions.loadPluginConfigs()
         actions.loadBatchExports()
