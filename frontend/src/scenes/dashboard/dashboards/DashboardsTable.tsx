@@ -256,7 +256,7 @@ export function DashboardsTable({
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={{ columnKey: 'name', order: 1 }}
-                emptyState={`No dashboards matching your filters!`}
+                emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
             />
         </>

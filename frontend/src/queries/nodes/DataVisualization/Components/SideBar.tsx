@@ -30,7 +30,6 @@ export const SideBar = (): JSX.Element => {
         <LemonTabs
             activeKey={activeSideBarTab}
             onChange={(tab) => setSideBarTab(tab as SideBarTab)}
-            borderless
             tabs={Object.values(TABS_TO_CONTENT).map((tab, index) => ({
                 label: tab.label,
                 key: Object.keys(TABS_TO_CONTENT)[index],

@@ -40,17 +40,20 @@ export interface DataVisualizationLogicProps {
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     key((props) => props.key),
     path(['queries', 'nodes', 'DataVisualization', 'dataVisualizationLogic']),
-    connect({
+    connect((props: DataVisualizationLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId'],
             insightSceneLogic,
             ['insightMode'],
-            dataNodeLogic,
+            dataNodeLogic({ cachedResults: props.cachedResults, key: props.key, query: props.query.source }),
             ['response', 'responseLoading'],
         ],
-        actions: [dataNodeLogic, ['loadDataSuccess']],
-    }),
+        actions: [
+            dataNodeLogic({ cachedResults: props.cachedResults, key: props.key, query: props.query.source }),
+            ['loadDataSuccess'],
+        ],
+    })),
     props({ query: {} } as DataVisualizationLogicProps),
     actions({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),

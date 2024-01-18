@@ -156,7 +156,6 @@ export function Experiments(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={<div className="flex items-center">A/B testing</div>}
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                         <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>

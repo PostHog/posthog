@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -21,10 +22,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -131,10 +132,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -162,10 +163,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -278,10 +279,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -301,10 +302,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -416,10 +417,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -439,10 +440,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.3
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -550,11 +551,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -574,10 +576,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.5
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -685,11 +687,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.6
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -709,10 +712,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.7
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -820,11 +823,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.8
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -844,10 +848,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.9
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -955,11 +959,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -981,10 +986,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -1091,10 +1096,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -1122,10 +1127,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -1238,10 +1243,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -1261,10 +1266,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -1376,10 +1381,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -1399,10 +1404,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.3
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -1488,11 +1493,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.4
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -1512,10 +1518,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.5
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -1601,11 +1607,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.6
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -1625,10 +1632,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.7
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -1714,11 +1721,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.8
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -1738,10 +1746,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.9
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -1827,11 +1835,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -1853,10 +1862,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -1963,10 +1972,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -1994,10 +2003,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -2110,10 +2119,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2133,10 +2142,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -2248,10 +2257,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.10
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2271,10 +2280,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.11
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2294,10 +2303,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.12
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2317,10 +2326,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.13
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -2525,11 +2534,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.14
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2549,10 +2559,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.15
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2572,10 +2582,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.16
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2595,10 +2605,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.17
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -2803,11 +2813,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.2
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2827,10 +2838,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.3
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2850,10 +2861,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.4
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -2873,10 +2884,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.5
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -3081,11 +3092,12 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.6
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -3105,10 +3117,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.7
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -3128,10 +3140,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.8
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
          count(*) as count
@@ -3151,10 +3163,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.9
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -3359,6 +3371,7 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---

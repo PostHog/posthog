@@ -40,6 +40,12 @@ module.exports = {
                 message: 'Expected variable to match kebab-case or snake_case',
             },
         ],
+        'scss/at-rule-no-unknown': [
+            true,
+            {
+                ignoreAtRules: ['tailwind'],
+            },
+        ],
         'scss/operator-no-newline-after': null, // Doesn't always play well with prettier
         'scss/at-extend-no-missing-placeholder': null,
         'scss/comment-no-empty': null,

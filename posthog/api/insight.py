@@ -104,6 +104,8 @@ from posthog.utils import (
     relative_date_parse,
     str_to_bool,
 )
+from loginas.utils import is_impersonated_session
+
 
 logger = structlog.get_logger(__name__)
 
@@ -115,6 +117,7 @@ INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
 
 
 def log_insight_activity(
+    *,
     activity: str,
     insight: Insight,
     insight_id: int,
@@ -122,6 +125,7 @@ def log_insight_activity(
     organization_id: UUIDT,
     team_id: int,
     user: User,
+    was_impersonated: bool,
     changes: Optional[List[Change]] = None,
 ) -> None:
     """
@@ -136,6 +140,7 @@ def log_insight_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
+            was_impersonated=was_impersonated,
             item_id=insight_id,
             scope="Insight",
             activity=activity,
@@ -155,7 +160,7 @@ class QuerySchemaParser(JSONParser):
         try:
             query = data.get("query", None)
             if query:
-                schema.QuerySchema.model_validate(query)
+                schema.QuerySchemaRoot.model_validate(query)
         except Exception as error:
             raise ParseError(detail=str(error))
         else:
@@ -343,6 +348,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team_id,
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
         )
 
         return insight
@@ -409,6 +415,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 organization_id=self.context["request"].user.current_organization_id,
                 team_id=self.context["team_id"],
                 user=self.context["request"].user,
+                was_impersonated=is_impersonated_session(self.context["request"]),
                 changes=changes,
             )
 
@@ -1029,7 +1036,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         activity_page = load_activity(
             scope="Insight",
             team_id=self.team_id,
-            item_id=item_id,
+            item_ids=[str(item_id)],
             limit=limit,
             page=page,
         )

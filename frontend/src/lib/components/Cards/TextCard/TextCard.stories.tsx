@@ -38,7 +38,7 @@ export const Template: Story = () => {
             <div>
                 <h5>basic text</h5>
                 <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
+                    className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                     dashboardId={1}
                     textTile={makeTextTile('basic text')}
                 />
@@ -46,7 +46,7 @@ export const Template: Story = () => {
             <div>
                 <h5>markdown text</h5>
                 <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
+                    className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                     dashboardId={1}
                     textTile={makeTextTile('# a title \n\n **formatted** _text_')}
                 />
@@ -54,7 +54,7 @@ export const Template: Story = () => {
             <div>
                 <h5>Long text</h5>
                 <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
+                    className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                     style={{ height: '250px', width: '300px' }}
                     dashboardId={1}
                     textTile={makeTextTile(
@@ -65,7 +65,7 @@ export const Template: Story = () => {
             <div>
                 <h5>with resize handles</h5>
                 <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-60'}
+                    className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                     dashboardId={1}
                     showResizeHandles={true}
                     canResizeWidth={true}
@@ -73,10 +73,10 @@ export const Template: Story = () => {
                 />
             </div>
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className={'w-full'} style={{ height: '200px' }}>
+            <div className="w-full" style={{ height: '200px' }}>
                 <h5>Large Card</h5>
                 <TextCard
-                    className={'h-full w-full react-grid-item react-draggable cssTransforms react-resizable'}
+                    className="h-full w-full react-grid-item react-draggable cssTransforms react-resizable"
                     dashboardId={1}
                     textTile={makeTextTile('basic text')}
                 />

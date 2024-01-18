@@ -9,4 +9,4 @@ class Migration(migrations.Migration):
     ]
 
     # The type and function were never used
-    operations = []  # type: ignore
+    operations = []

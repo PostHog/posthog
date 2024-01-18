@@ -581,7 +581,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     name: 'Surveys',
                     path: urls.surveys(),
                 },
-                { key: survey?.id || 'new', name: survey.name },
+                { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
             ],
         ],
         dataTableQuery: [

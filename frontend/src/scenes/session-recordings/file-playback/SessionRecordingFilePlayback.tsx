@@ -1,9 +1,10 @@
-import Dragger from 'antd/lib/upload/Dragger'
 import { useActions, useValues } from 'kea'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
@@ -16,6 +17,8 @@ export function SessionRecordingFilePlayback(): JSX.Element {
     const { sessionRecording, sessionRecordingLoading, playerKey } = useValues(sessionRecordingFilePlaybackLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const filePlaybackEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
+
+    const dropRef = useRef<HTMLDivElement>(null)
 
     if (!filePlaybackEnabled) {
         return (
@@ -51,26 +54,25 @@ export function SessionRecordingFilePlayback(): JSX.Element {
                     <SessionRecordingPlayer sessionRecordingId="" playerKey={playerKey} />
                 </div>
             ) : (
-                <Dragger
-                    name="file"
-                    multiple={false}
-                    accept=".json"
-                    showUploadList={false}
-                    beforeUpload={(file) => {
-                        loadFromFile(file)
-                        return false
-                    }}
+                <div
+                    ref={dropRef}
+                    className="w-full border rounded p-20 text-muted-alt flex flex-col items-center justify-center"
                 >
-                    <div className="p-20 flex flex-col items-center justify-center space-y-2 text-muted-alt">
-                        <p className="flex items-center gap-2 font-semibold">
-                            <IconUploadFile className="text-xl" />
-                            Load recording
-                        </p>
-                        <p className="text-muted-alt ">
-                            Drag and drop your exported recording here or click to open the file browser.
-                        </p>
-                    </div>
-                </Dragger>
+                    <LemonFileInput
+                        accept="application/json"
+                        multiple={false}
+                        onChange={(files) => loadFromFile(files[0])}
+                        alternativeDropTargetRef={dropRef}
+                        callToAction={
+                            <div className="flex flex-col items-center justify-center space-y-2">
+                                <span className="flex items-center gap-2 font-semibold">
+                                    <IconUploadFile className="text-2xl" /> Load recording
+                                </span>
+                                <div>Drag and drop your exported recording here or click to open the file browser.</div>
+                            </div>
+                        }
+                    />
+                </div>
             )}
         </div>
     )

@@ -266,7 +266,6 @@ export function AsyncMigrations(): JSX.Element {
             {user?.is_staff ? (
                 <>
                     <PageHeader
-                        title="Async Migrations"
                         caption={
                             <>
                                 <p>Manage async migrations in your instance.</p>
@@ -321,7 +320,6 @@ export function AsyncMigrations(): JSX.Element {
                 </>
             ) : (
                 <PageHeader
-                    title="Async Migrations"
                     caption={
                         <>
                             <p>

@@ -48,7 +48,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                         <LemonButton icon={<IconClose />} size="small" aria-label="delete" onClick={onDelete} />
                     )}
                 </div>
-                {<TypeSwitcher step={step} sendStep={sendStep} />}
+                <TypeSwitcher step={step} sendStep={sendStep} />
 
                 {step.event === '$autocapture' && (
                     <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
@@ -309,12 +309,12 @@ function TypeSwitcher({
                         label: 'Autocapture',
                     },
                     {
-                        value: 'event',
-                        label: 'Custom event',
+                        value: '$pageview',
+                        label: 'Pageview',
                     },
                     {
-                        value: '$pageview',
-                        label: 'Page view',
+                        value: 'event',
+                        label: 'All events',
                     },
                 ]}
                 fullWidth

@@ -72,17 +72,6 @@ jobs:
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
 
-            - name: Build and push unit container image
-              id: build-unit
-              uses: depot/build-push-action@v1
-              with:
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
-                  push: true
-                  file: production-unit.Dockerfile
-                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:unit
-                  platforms: linux/arm64,linux/amd64
-                  build-args: COMMIT_HASH=${{ github.sha }}
-
             - name: get deployer token
               id: deployer
               uses: getsentry/action-github-app-token@v2
@@ -102,17 +91,17 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
-                        "image_tag_unit": "${{ steps.build-unit.outputs.digest }}",
+                        "image_tag_unit": "${{ steps.build.outputs.digest }}",
                         "context": ${{ toJson(github) }}
                       }
 
             - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
-                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^plugin-server/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Ingestion Cloud deployment
-              if: steps.check_changes_plugins.outputs.changed != ''
+              if: steps.check_changes_plugins.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -127,10 +116,10 @@ jobs:
             - name: Check for changes that affect batch exports temporal worker
               id: check_changes_batch_exports_temporal_worker
               run: |
-                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' || true)"
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
-              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed != ''
+              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -146,10 +135,10 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$' || true)"
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed != ''
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}

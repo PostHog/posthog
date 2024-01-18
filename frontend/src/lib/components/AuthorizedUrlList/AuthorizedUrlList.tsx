@@ -171,7 +171,7 @@ export function AuthorizedUrlList({
                                             <LemonButton
                                                 icon={<IconEdit />}
                                                 onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
-                                                tooltip={'Edit'}
+                                                tooltip="Edit"
                                                 center
                                             />
 
