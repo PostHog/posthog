@@ -101,11 +101,11 @@ class PathsQueryRunner(QueryRunner):
 
         return event in (self.query.pathsFilter.include_event_types or [])
 
-    def construct_event_hogql(self) -> str:
-        event_hogql = "event"
+    def construct_event_hogql(self) -> ast.Expr:
+        event_hogql: ast.Expr = parse_expr("event")
 
-        if self._should_query_event(HOGQL):
-            event_hogql = self.query.pathsFilter.paths_hogql_expression or event_hogql
+        if self._should_query_event(HOGQL) and self.query.pathsFilter.paths_hogql_expression:
+            event_hogql = parse_expr(self.query.pathsFilter.paths_hogql_expression)
 
         if self._should_query_event(PAGEVIEW_EVENT):
             event_hogql = parse_expr(
@@ -191,7 +191,7 @@ class PathsQueryRunner(QueryRunner):
                 alias="path_item",
                 expr=parse_expr(
                     "if(group_index > 0, groupings[group_index], {final_path_item_column}) AS path_item",
-                    {"final_path_item_column": ast.Constant(value=final_path_item_column)},
+                    {"final_path_item_column": ast.Field(chain=[final_path_item_column])},
                 ),
             ),
         ]
