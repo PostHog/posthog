@@ -15,10 +15,10 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
         values: [teamLogic, ['currentTeamId']],
     }),
     loaders(({ values }) => ({
-        transformations: [
-            [] as PluginType[],
+        transformationPlugins: [
+            {} as Record<number, PluginType>,
             {
-                loadTransformations: async () => {
+                loadTransformationPlugins: async () => {
                     const results: PluginType[] = await api.loadPaginatedResults(
                         `api/organizations/@current/pipeline_transformations`
                     )
@@ -26,15 +26,27 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                     for (const plugin of results) {
                         plugins[plugin.id] = plugin
                     }
-                    return Object.values(plugins)
+                    return plugins
+                },
+            },
+        ],
+        transformationPluginConfigs: [
+            {} as Record<number, PluginConfigTypeNew>,
+            {
+                loadTransformationPluginConfigs: async () => {
+                    const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
+                        `api/projects/${values.currentTeamId}/pipeline_transformation_configs`
+                    )
+
+                    return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
             },
         ],
 
-        plugins: [
+        destinationPlugins: [
             {} as Record<number, PluginType>,
             {
-                loadPlugins: async () => {
+                loadDestinationPlugins: async () => {
                     const results: PluginType[] = await api.loadPaginatedResults(
                         `api/organizations/@current/pipeline_destinations`
                     )
@@ -46,10 +58,10 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                 },
             },
         ],
-        pluginConfigs: [
+        destinationPluginConfigs: [
             {} as Record<number, PluginConfigTypeNew>,
             {
-                loadPluginConfigs: async () => {
+                loadDestinationPluginConfigs: async () => {
                     const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
                     const results = await api.loadPaginatedResults(
                         `api/projects/${values.currentTeamId}/pipeline_destination_configs`
@@ -60,8 +72,15 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                             ...pluginConfig,
                             // If this pluginConfig doesn't have a name of desciption, use the plugin's
                             // note that this will get saved to the db on certain actions and that's fine
-                            name: pluginConfig.name || values.plugins[pluginConfig.plugin]?.name || 'Unknown app',
-                            description: pluginConfig.description || values.plugins[pluginConfig.plugin]?.description,
+                            name:
+                                pluginConfig.name ||
+                                values.transformationPlugins[pluginConfig.plugin]?.name ||
+                                values.destinationPlugins[pluginConfig.plugin]?.name ||
+                                'Unknown app',
+                            description:
+                                pluginConfig.description ||
+                                values.transformationPlugins[pluginConfig.plugin]?.description ||
+                                values.destinationPlugins[pluginConfig.plugin]?.description,
                         }
                     }
                     return pluginConfigs
@@ -71,7 +90,7 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
         batchExportConfigs: [
             {} as Record<string, BatchExportConfiguration>,
             {
-                loadBatchExports: async () => {
+                loadBatchExportConfigs: async () => {
                     const results: BatchExportConfiguration[] = await api.loadPaginatedResults(
                         `api/projects/${values.currentTeamId}/batch_exports`
                     )
@@ -81,15 +100,50 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
         ],
     })),
     selectors({
+        transformationsLoading: [
+            (s) => [s.transformationPluginsLoading, s.transformationPluginConfigsLoading],
+            (transformationPluginsLoading, transformationPluginConfigsLoading) =>
+                transformationPluginsLoading || transformationPluginConfigsLoading,
+        ],
+        transformations: [
+            (s) => [s.transformationPluginConfigs, s.transformationPlugins],
+            (transformationPluginConfigs, transformationPlugins): DestinationType[] => {
+                const enabledPluginConfigs = Object.values(transformationPluginConfigs)
+                    .filter((c) => c.enabled)
+                    .sort((a, b) => a.order - b.order)
+                const disabledPluginConfigs = Object.values(transformationPluginConfigs)
+                    .filter((c) => !c.enabled)
+                    .sort((a, b) => a.order - b.order)
+
+                const result = [...enabledPluginConfigs, ...disabledPluginConfigs].map<DestinationType>((c) => ({
+                    name: c.name,
+                    description: c.description,
+                    enabled: c.enabled,
+                    config_url: urls.pipelineApp(PipelineAppKind.Transformation, c.id, PipelineAppTab.Configuration),
+                    metrics_url: urls.pipelineApp(PipelineAppKind.Transformation, c.id, PipelineAppTab.Metrics),
+                    logs_url: urls.pipelineApp(PipelineAppKind.Transformation, c.id, PipelineAppTab.Logs),
+                    updated_at: c.updated_at,
+                    frequency: 'realtime',
+
+                    backend: PipelineAppBackend.Plugin,
+                    id: c.id,
+                    plugin: transformationPlugins[c.plugin],
+                    app_source_code_url: transformationPlugins[c.plugin].url,
+                }))
+
+                return result
+            },
+        ],
+
         destinationsLoading: [
-            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading],
-            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading) =>
-                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading,
+            (s) => [s.destinationPluginsLoading, s.destinationPluginConfigsLoading, s.batchExportConfigsLoading],
+            (pluginsLoading, destinationPluginConfigsLoading, batchExportConfigsLoading) =>
+                pluginsLoading || destinationPluginConfigsLoading || batchExportConfigsLoading,
         ],
         destinations: [
-            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
-            (pluginConfigs, plugins, batchExportConfigs): DestinationType[] => {
-                const appDests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
+            (s) => [s.destinationPluginConfigs, s.destinationPlugins, s.batchExportConfigs],
+            (destinationPluginConfigs, destinationPlugins, batchExportConfigs): DestinationType[] => {
+                const appDests = Object.values(destinationPluginConfigs).map<DestinationType>((pluginConfig) => ({
                     name: pluginConfig.name,
                     description: pluginConfig.description,
                     enabled: pluginConfig.enabled,
@@ -105,8 +159,8 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
 
                     backend: PipelineAppBackend.Plugin,
                     id: pluginConfig.id,
-                    plugin: plugins[pluginConfig.plugin],
-                    app_source_code_url: plugins[pluginConfig.plugin].url,
+                    plugin: destinationPlugins[pluginConfig.plugin],
+                    app_source_code_url: destinationPlugins[pluginConfig.plugin].url,
                 }))
                 const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
                     name: batchExport.name,
@@ -131,12 +185,13 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        // transfomations
-        actions.loadTransformations()
+        // transformations
+        actions.loadTransformationPlugins()
+        actions.loadTransformationPluginConfigs()
 
         // destinations
-        actions.loadPlugins()
-        actions.loadPluginConfigs()
-        actions.loadBatchExports()
+        actions.loadDestinationPlugins()
+        actions.loadDestinationPluginConfigs()
+        actions.loadBatchExportConfigs()
     }),
 ])
