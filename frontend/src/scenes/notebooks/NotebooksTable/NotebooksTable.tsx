@@ -65,21 +65,20 @@ export function NotebooksTable(): JSX.Element {
         >,
         {
             render: function Render(_, notebook) {
+                if (notebook.is_template) {
+                    return null
+                }
                 return (
                     <LemonMenu
                         items={[
                             {
-                                items: [
-                                    {
-                                        label: 'Delete',
-                                        icon: <IconDelete />,
-                                        status: 'danger',
+                                label: 'Delete',
+                                icon: <IconDelete />,
+                                status: 'danger',
 
-                                        onClick: () => {
-                                            notebooksModel.actions.deleteNotebook(notebook.short_id, notebook?.title)
-                                        },
-                                    },
-                                ],
+                                onClick: () => {
+                                    notebooksModel.actions.deleteNotebook(notebook.short_id, notebook?.title)
+                                },
                             },
                         ]}
                         actionable

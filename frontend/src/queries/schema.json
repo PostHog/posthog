@@ -15,7 +15,7 @@
                     "type": "array"
                 },
                 "id": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "kind": {
                     "const": "ActionsNode",
@@ -334,16 +334,16 @@
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
-                    "type": ["number", "null"]
+                    "type": "integer"
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
                 },
                 "breakdown_histogram_bin_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown_limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -965,7 +965,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "math": {
                     "anyOf": [
@@ -1709,7 +1709,7 @@
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
                 "inCohortVia": {
-                    "enum": ["leftjoin", "subquery"],
+                    "enum": ["leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
                 },
                 "materializationMode": {
@@ -2348,7 +2348,7 @@
             "additionalProperties": false,
             "properties": {
                 "cohort": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "distinctId": {
                     "type": "string"
@@ -2365,10 +2365,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "offset": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -3726,7 +3726,7 @@
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["kind"],
@@ -3749,7 +3749,7 @@
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["kind"],
@@ -3806,13 +3806,13 @@
         "TrendsFilter": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_axis_format": {
+                "aggregationAxisFormat": {
                     "$ref": "#/definitions/AggregationAxisFormat"
                 },
-                "aggregation_axis_postfix": {
+                "aggregationAxisPostfix": {
                     "type": "string"
                 },
-                "aggregation_axis_prefix": {
+                "aggregationAxisPrefix": {
                     "type": "string"
                 },
                 "breakdown_histogram_bin_count": {
@@ -3821,7 +3821,7 @@
                 "compare": {
                     "type": "boolean"
                 },
-                "decimal_places": {
+                "decimalPlaces": {
                     "type": "number"
                 },
                 "display": {
@@ -3836,13 +3836,13 @@
                     },
                     "type": "array"
                 },
-                "show_labels_on_series": {
+                "showLabelsOnSeries": {
+                    "type": "boolean"
+                },
+                "showPercentStackView": {
                     "type": "boolean"
                 },
                 "show_legend": {
-                    "type": "boolean"
-                },
-                "show_percent_stack_view": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {

@@ -5,6 +5,12 @@ import clsx from 'clsx'
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 
+interface IconWithBadgeProps {
+    content: LemonBadgeProps['content']
+    status?: LemonBadgeProps['status']
+    className?: string
+}
+
 interface IconWithCountProps {
     count: number
     showZero?: boolean
@@ -23,6 +29,20 @@ export function IconWithCount({
         <span className={clsx('relative inline-flex', className)}>
             {children}
             <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
+        </span>
+    )
+}
+
+export function IconWithBadge({
+    content,
+    children,
+    status = 'primary',
+    className,
+}: PropsWithChildren<IconWithBadgeProps>): JSX.Element {
+    return (
+        <span className={clsx('relative inline-flex', className)}>
+            {children}
+            <LemonBadge visible={!!content} content={content} size="small" position="top-right" status={status} />
         </span>
     )
 }

@@ -161,7 +161,7 @@ export interface DataNode extends Node {
 export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
-    inCohortVia?: 'leftjoin' | 'subquery'
+    inCohortVia?: 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
 }
 
@@ -255,6 +255,7 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     /** The event or `null` for all events. */
     event?: string | null
+    /**  @asType integer */
     limit?: number
     /** Columns to order by */
     orderBy?: string[]
@@ -267,6 +268,7 @@ export interface EventsNode extends EntityNode {
 
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
+    /**  @asType integer */
     id: number
 }
 
@@ -339,13 +341,16 @@ export interface EventsQuery extends DataNode {
 export interface PersonsNode extends DataNode {
     kind: NodeKind.PersonsNode
     search?: string
+    /**  @asType integer */
     cohort?: number
     distinctId?: string
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    /**  @asType integer */
     limit?: number
+    /**  @asType integer */
     offset?: number
 }
 
@@ -513,15 +518,15 @@ export type TrendsFilter = {
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     display?: TrendsFilterLegacy['display']
-    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
     show_legend?: TrendsFilterLegacy['show_legend']
-    aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
-    aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
-    aggregation_axis_postfix?: TrendsFilterLegacy['aggregation_axis_postfix']
-    decimal_places?: TrendsFilterLegacy['decimal_places']
+    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    decimalPlaces?: TrendsFilterLegacy['decimal_places']
     show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
-    show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
-    show_percent_stack_view?: TrendsFilterLegacy['show_percent_stack_view']
+    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
 
@@ -895,7 +900,10 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     /** Date range for the query */
     dateRange?: DateRange
 
-    /** Project to filter on. Defaults to current project */
+    /**
+     * Project to filter on. Defaults to current project
+     *  @asType integer
+     */
     teamId?: number
 
     response?: TimeToSeeDataSessionsQueryResponse
@@ -918,7 +926,10 @@ export interface DatabaseSchemaQuery extends DataNode {
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
 
-    /** Project to filter on. Defaults to current project */
+    /**
+     * Project to filter on. Defaults to current project
+     * @asType integer
+     */
     teamId?: number
 
     /** Project to filter on. Defaults to current session */
@@ -953,11 +964,14 @@ export interface DateRange {
 export interface BreakdownFilter {
     // TODO: unclutter
     breakdown_type?: BreakdownType | null
+    /** @asType integer */
     breakdown_limit?: number
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
+    /** @asType integer */
     breakdown_group_type_index?: number | null
+    /** @asType integer */
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }

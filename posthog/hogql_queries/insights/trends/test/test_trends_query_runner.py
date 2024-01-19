@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+from unittest.mock import patch
+from django.test import override_settings
 from freezegun import freeze_time
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
@@ -41,6 +43,7 @@ class SeriesTestData:
     properties: Dict[str, str | int]
 
 
+@override_settings(IN_UNIT_TESTING=True)
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
@@ -1158,3 +1161,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results[0]["data"] == [1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
+    def test_should_throw_exception(self, patch_sync_execute):
+        patch_sync_execute.side_effect = Exception("Error thrown inside thread")
+
+        with self.assertRaises(Exception) as e:
+            self._run_trends_query(
+                "2020-01-09",
+                "2020-01-20",
+                IntervalType.day,
+                [EventsNode(event="$pageview")],
+                None,
+                None,
+            )
+
+        self.assertEqual(
+            str(e.exception),
+            "Error thrown inside thread",
+        )

@@ -4,8 +4,10 @@ set -e
 # this kills all processes when the last one terminates
 trap 'kill $(jobs -p)' EXIT
 
+source ./bin/celery-queues.env
+
 # start celery worker with heartbeat (-B)
-SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-gossip --without-mingle -Ofair -n node@%h &
+SKIP_ASYNC_MIGRATIONS_SETUP=0 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-mingle -Ofair -n node@%h &
 
 if [[ "$PLUGIN_SERVER_IDLE" != "1" && "$PLUGIN_SERVER_IDLE" != "true" ]]; then
   ./bin/plugin-server

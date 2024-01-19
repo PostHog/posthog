@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,7 +10,7 @@ import { PipelineAppLogs } from 'scenes/pipeline/PipelineAppLogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppKind, PipelineAppTab, PipelineTab } from '~/types'
+import { ActivityScope, PipelineAppKind, PipelineAppTab, PipelineTab } from '~/types'
 
 import { PipelineAppConfiguration } from './PipelineAppConfiguration'
 import { pipelineAppLogic, PipelineAppLogicProps } from './pipelineAppLogic'
@@ -65,6 +66,7 @@ export function PipelineApp(params: { kindTab?: string; id?: string } = {}): JSX
         [PipelineAppTab.Configuration]: <PipelineAppConfiguration />,
         [PipelineAppTab.Metrics]: <PipelineAppMetrics pluginConfigId={id as number} />,
         [PipelineAppTab.Logs]: <PipelineAppLogs id={id} kind={kind} />,
+        [PipelineAppTab.History]: <ActivityLog id={id} scope={ActivityScope.PLUGIN} />,
     }
 
     return (

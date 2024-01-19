@@ -151,7 +151,19 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     const legacyProps: TrendsFilterLegacy = {}
     if (isTrendsQuery(query)) {
         legacyProps.smoothing_intervals = insightFilter.smoothingIntervals
+        legacyProps.decimal_places = insightFilter.decimalPlaces
+        legacyProps.aggregation_axis_format = insightFilter.aggregationAxisFormat
+        legacyProps.aggregation_axis_postfix = insightFilter.aggregationAxisPostfix
+        legacyProps.aggregation_axis_prefix = insightFilter.aggregationAxisPrefix
+        legacyProps.show_labels_on_series = insightFilter.showLabelsOnSeries
+        legacyProps.show_percent_stack_view = insightFilter.showPercentStackView
         delete insightFilter.smoothingIntervals
+        delete insightFilter.decimalPlaces
+        delete insightFilter.aggregationAxisFormat
+        delete insightFilter.aggregationAxisPostfix
+        delete insightFilter.aggregationAxisPrefix
+        delete insightFilter.showLabelsOnSeries
+        delete insightFilter.showPercentStackView
     }
     Object.assign(filters, insightFilter)
     Object.assign(filters, legacyProps)

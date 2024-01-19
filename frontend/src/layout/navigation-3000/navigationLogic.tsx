@@ -15,19 +15,22 @@ import {
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
+import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -312,8 +315,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             (isNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isNavCollapsedDesktop,
         ],
         navbarItems: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags): NavbarItem[][] => {
+            () => [
+                featureFlagLogic.selectors.featureFlags,
+                dashboardsModel.selectors.dashboardsLoading,
+                dashboardsModel.selectors.pinnedDashboards,
+            ],
+            (featureFlags, dashboardsLoading, pinnedDashboards): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
                 return [
                     [
@@ -329,6 +336,30 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconDashboard />,
                             logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.dashboards(),
+                            sideAction: {
+                                identifier: 'pinned-dashboards-dropdown',
+                                dropdown: {
+                                    overlay: (
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    title: 'Pinned dashboards',
+                                                    items: pinnedDashboards.map((dashboard) => ({
+                                                        label: dashboard.name,
+                                                        to: urls.dashboard(dashboard.id),
+                                                    })),
+                                                    footer: dashboardsLoading && (
+                                                        <div className="px-2 py-1 text-text-secondary-3000">
+                                                            <Spinner /> Loading…
+                                                        </div>
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                    ),
+                                    placement: 'bottom-end',
+                                },
+                            },
                         },
                         {
                             identifier: Scene.Notebooks,
