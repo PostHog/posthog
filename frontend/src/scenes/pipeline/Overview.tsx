@@ -9,9 +9,9 @@ import { urls } from 'scenes/urls'
 
 import { PipelineAppKind, PipelineAppTab, PluginConfigWithPluginInfoNew } from '~/types'
 
+import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { DestinationMoreOverlay } from './Destinations'
 import { DestinationType, PipelineAppBackend } from './destinationsLogic'
-import { DestinationSparkLine } from './DestinationSparkLine'
 import { pipelineOverviewLogic } from './overviewLogic'
 import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { TransformationsMoreOverlay } from './Transformations'
@@ -180,7 +180,7 @@ const PipelineStepTransformation = ({
             headerInfo={
                 <>
                     <div className="mr-1">
-                        <DestinationSparkLine destination={transformation} />
+                        <AppMetricSparkLine config={transformation} />
                     </div>
                     <More overlay={<TransformationsMoreOverlay pluginConfig={transformation} />} />
                 </>
@@ -213,7 +213,7 @@ const PipelineStepDestination = ({ destination }: { destination: DestinationType
             headerInfo={
                 <>
                     <div className="mr-1">
-                        <DestinationSparkLine destination={destination} />
+                        <AppMetricSparkLine config={destination} />
                     </div>
                     <More overlay={<DestinationMoreOverlay destination={destination} />} />
                 </>

@@ -10,8 +10,8 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { PipelineAppKind, ProductKey } from '~/types'
 
+import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { DestinationType, pipelineDestinationsLogic } from './destinationsLogic'
-import { DestinationSparkLine } from './DestinationSparkLine'
 import { NewButton } from './NewButton'
 import { RenderApp } from './utils'
 
@@ -91,7 +91,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: 'Success rate',
                         render: function RenderSuccessRate(_, destination) {
-                            return <DestinationSparkLine destination={destination} />
+                            return <AppMetricSparkLine config={destination} />
                         },
                     },
                     updatedAtColumn() as LemonTableColumn<DestinationType, any>,
