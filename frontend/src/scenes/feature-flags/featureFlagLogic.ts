@@ -935,6 +935,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (featureFlag, groupsTaxonomicTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
                 const baseGroupTypes = []
                 const additionalGroupTypes = []
+                const newFlagOperatorsEnabled = enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]
                 if (
                     featureFlag &&
                     featureFlag.filters.aggregation_group_type_index != null &&
@@ -942,7 +943,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ) {
                     baseGroupTypes.push(groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index])
 
-                    if (enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]) {
+                    if (newFlagOperatorsEnabled) {
                         additionalGroupTypes.push(
                             `${TaxonomicFilterGroupType.GroupNamesPrefix}_${featureFlag.filters.aggregation_group_type_index}` as unknown as TaxonomicFilterGroupType
                         )
@@ -951,7 +952,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     baseGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
                     baseGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
 
-                    if (enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]) {
+                    if (newFlagOperatorsEnabled) {
                         additionalGroupTypes.push(TaxonomicFilterGroupType.Metadata)
                     }
                 }

@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
@@ -51,6 +51,7 @@ export function FeatureFlagReleaseConditions({
         affectedUsers,
         totalUsers,
         featureFlagTaxonomicOptions,
+        enabledFeatures,
     } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
@@ -220,7 +221,7 @@ export function FeatureFlagReleaseConditions({
                                 metadataTaxonomicGroupToPropertyFilterType={PropertyFilterType.Person}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
-                                allowRelativeDateOptions
+                                allowRelativeDateOptions={!!enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]}
                                 errorMessages={
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
                                         ? propertySelectErrors[index].properties?.map((message, index) => {
