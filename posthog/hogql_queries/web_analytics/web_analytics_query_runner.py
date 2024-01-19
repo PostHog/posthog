@@ -101,7 +101,15 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         )
 
     def events_where(self):
-        properties = (
+        properties = [self.events_where_data_range(), self.query.properties, self._test_account_filters]
+
+        return property_to_expr(
+            properties,
+            self.team,
+        )
+
+    def events_where_data_range(self):
+        return property_to_expr(
             [
                 parse_expr(
                     "events.timestamp >= {date_from}",
@@ -111,13 +119,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                     "events.timestamp < {date_to}",
                     placeholders={"date_to": self.query_date_range.date_to_as_hogql()},
                 ),
-            ]
-            + self.query.properties
-            + self._test_account_filters
-        )
-
-        return property_to_expr(
-            properties,
+            ],
             self.team,
         )
 
@@ -176,13 +178,13 @@ SELECT
     count() as count
 FROM
     events
-{sample_expr}
+SAMPLE 1/1000
+WHERE
+    {where}
                 """,
                 timings=self.timings,
                 placeholders={
-                    "sample_expr": ast.SampleExpr(
-                        sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=1000))
-                    ),
+                    "where": self.events_where_data_range(),
                 },
             )
 
@@ -193,6 +195,9 @@ FROM
                 team=self.team,
                 timings=self.timings,
             )
+
+        if not response.results or not response.results[0] or not response.results[0][0]:
+            return SamplingRate(numerator=1)
 
         count = response.results[0][0] * 1000
         fresh_sample_rate = _sample_rate_from_count(count)

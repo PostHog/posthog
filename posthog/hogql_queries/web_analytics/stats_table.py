@@ -148,7 +148,10 @@ LIMIT 10
             else:
                 return col_val
 
-        results = [[to_data(c, i) for (i, c) in enumerate(r)] for r in response.results]
+        if response.results:
+            results = [[to_data(c, i) for (i, c) in enumerate(r)] if r else None for r in response.results]
+        else:
+            results = None
 
         return WebStatsTableQueryResponse(
             columns=response.columns,
