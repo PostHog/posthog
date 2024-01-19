@@ -7,6 +7,11 @@ settings:
 overrides:
   playwright: 1.32.2
 
+patchedDependencies:
+  rrweb@2.0.0-alpha.11:
+    hash: wtihnhsbrvhsseahzoxzsqwdqu
+    path: patches/rrweb@2.0.0-alpha.11.patch
+
 dependencies:
   '@ant-design/icons':
     specifier: ^4.7.0
@@ -48,7 +53,7 @@ dependencies:
     specifier: ^2.1.2
     version: 2.1.2(react@18.2.0)
   '@rrweb/types':
-    specifier: ^2.0.0-alpha.11
+    specifier: 2.0.0-alpha.11
     version: 2.0.0-alpha.11
   '@sentry/react':
     specifier: 7.22.0
@@ -321,8 +326,8 @@ dependencies:
     specifier: ^1.5.1
     version: 1.5.1
   rrweb:
-    specifier: ^2.0.0-alpha.11
-    version: 2.0.0-alpha.11
+    specifier: 2.0.0-alpha.11
+    version: 2.0.0-alpha.11(patch_hash=wtihnhsbrvhsseahzoxzsqwdqu)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -18894,7 +18899,7 @@ packages:
     resolution: {integrity: sha512-N0dzeJA2VhrlSOadkKwCVmV/DuNOwBH+Lhx89hAf9PQK4lCS8AP4AaylhqUdZOYHqwVjqsYel/uZ4hN79vuLhw==}
     dev: false
 
-  /rrweb@2.0.0-alpha.11:
+  /rrweb@2.0.0-alpha.11(patch_hash=wtihnhsbrvhsseahzoxzsqwdqu):
     resolution: {integrity: sha512-vJ2gNvF+pUG9C2aaau7iSNqhWBSc4BwtUO4FpegOtDObuH4PIaxNJOlgHz82+WxKr9XPm93ER0LqmNpy0KYdKg==}
     dependencies:
       '@rrweb/types': 2.0.0-alpha.11
@@ -18906,6 +18911,7 @@ packages:
       rrdom: 2.0.0-alpha.11
       rrweb-snapshot: 2.0.0-alpha.11
     dev: false
+    patched: true
 
   /run-applescript@5.0.0:
     resolution: {integrity: sha512-XcT5rBksx1QdIhlFOCtgZkB99ZEouFZ1E2Kc2LHqNW13U3/74YGdkQRmThTwxy4QIyookibDKYZOPqX//6BlAg==}
