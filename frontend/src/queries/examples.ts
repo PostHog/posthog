@@ -218,8 +218,8 @@ const InsightRetentionQuery: RetentionQuery = {
     filterTestAccounts,
     retentionFilter: {
         // TODO: this should be typed as (EventsNode | ActionsNode)[] without math and properties
-        target_entity: { type: 'events', id: '$pageview', name: '$pageview' },
-        returning_entity: { type: 'events', id: '$pageview', name: '$pageview' },
+        targetEntity: { type: 'events', id: '$pageview', name: '$pageview' },
+        returningEntity: { type: 'events', id: '$pageview', name: '$pageview' },
     },
 }
 
