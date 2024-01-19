@@ -15,6 +15,7 @@ import { DestinationType, PipelineAppBackend } from './destinationsLogic'
 import { pipelineOverviewLogic } from './overviewLogic'
 import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { TransformationsMoreOverlay } from './Transformations'
+import { pipelineTransformationsLogic } from './transformationsLogic'
 import { humanFriendlyFrequencyName } from './utils'
 
 const FAILURE_RATE_WARNING_THRESHOLD = 0
@@ -159,8 +160,8 @@ const PipelineStepTransformation = ({
 }): JSX.Element => {
     let metrics: StatusMetrics | undefined = undefined
 
-    const logic = pipelineAppMetricsLogic({ pluginConfigId: transformation.id })
-    const { appMetricsResponse } = useValues(logic)
+    const { appMetricsResponse } = useValues(pipelineAppMetricsLogic({ pluginConfigId: transformation.id }))
+    const { sortedEnabledPluginConfigs } = useValues(pipelineTransformationsLogic)
 
     if (appMetricsResponse) {
         metrics = {
@@ -171,7 +172,11 @@ const PipelineStepTransformation = ({
 
     return (
         <PipelineStep
-            order={transformation.order}
+            order={
+                transformation.enabled
+                    ? sortedEnabledPluginConfigs.findIndex((pc) => pc.id === transformation.id) + 1
+                    : undefined
+            }
             name={transformation.name}
             to={urls.pipelineApp(PipelineAppKind.Transformation, transformation.id, PipelineAppTab.Configuration)}
             description={transformation.description}
