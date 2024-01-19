@@ -23,17 +23,17 @@ export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineSta
 }
 
 const paramsToProps = ({
-    params: { stageTab, id },
+    params: { stage, id },
 }: {
-    params: { stageTab?: string; id?: string }
+    params: { stage?: string; id?: string }
 }): PipelineNodeLogicProps => {
     const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
-    if (!stageTab || !id) {
-        throw new Error('Loaded PipelineNode without either `stageTab` or `id` passed in')
+    if (!stage || !id) {
+        throw new Error('Loaded PipelineNode without either `stage` or `id` passed in')
     }
 
     return {
-        stage: PIPELINE_TAB_TO_NODE_STAGE[stageTab] || null,
+        stage: PIPELINE_TAB_TO_NODE_STAGE[stage] || null,
         id: numericId && !isNaN(numericId) ? numericId : id,
     }
 }
@@ -44,7 +44,7 @@ export const scene: SceneExport = {
     paramsToProps,
 }
 
-export function PipelineNode(params: { stageTab?: string; id?: string } = {}): JSX.Element {
+export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
 
     const { currentTab, node, nodeLoading } = useValues(pipelineNodeLogic)
@@ -80,7 +80,7 @@ export function PipelineNode(params: { stageTab?: string; id?: string } = {}): J
                             label: capitalizeFirstLetter(tab),
                             key: tab,
                             content: tabToContent[tab],
-                            link: params.stageTab ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
+                            link: params.stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
                         } as LemonTab<PipelineNodeTab>)
                 )}
             />

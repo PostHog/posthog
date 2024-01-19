@@ -23,43 +23,42 @@ interface PipelineNodeBase {
 
 // Split by backend
 
-interface PluginBasedStep extends PipelineNodeBase {
+export interface PluginBasedStepBase extends PipelineNodeBase {
     backend: PipelineBackend.Plugin
     id: number
     plugin: PluginType
     config: Record<string, any>
 }
 /** NOTE: Batch exports are only used in Destinations, but we're making this a bit more abstract for clearer types. */
-interface BatchExportBasedStep extends PipelineNodeBase {
+export interface BatchExportBasedStep extends PipelineNodeBase {
     backend: PipelineBackend.BatchExport
     /** UUID */
     id: string
     service: BatchExportService
-    start_at: string | null
+    interval: BatchExportConfiguration['interval']
 }
 
 // Stage: Filters
 
-export interface Filter extends PluginBasedStep {
+export interface Filter extends PluginBasedStepBase {
     stage: PipelineStage.Filter
 }
 
 // Stage: Transformations
 
-export interface Transformation extends PluginBasedStep {
+export interface Transformation extends PluginBasedStepBase {
     stage: PipelineStage.Transformation
     order: number
 }
 
 // Stage: Destinations
 
-export interface WebhookDestination extends PluginBasedStep {
+export interface WebhookDestination extends PluginBasedStepBase {
     stage: PipelineStage.Destination
-    frequency: 'realtime'
+    interval: 'realtime'
 }
 export interface BatchExportDestination extends BatchExportBasedStep {
     stage: PipelineStage.Destination
-    frequency: BatchExportConfiguration['interval']
 }
 export type Destination = BatchExportDestination | WebhookDestination
 
@@ -109,7 +108,7 @@ export function convertToPipelineNode<S extends PipelineStage>(
             node = {
                 ...almostNode,
                 stage,
-                frequency: 'realtime',
+                interval: 'realtime',
             }
         } else {
             node = almostNode as Filter
@@ -118,14 +117,13 @@ export function convertToPipelineNode<S extends PipelineStage>(
         node = {
             stage: stage as PipelineStage.Destination,
             backend: PipelineBackend.BatchExport,
-            frequency: candidate.interval,
+            interval: candidate.interval,
             id: candidate.id,
             name: candidate.name,
             description: `${candidate.destination.type} batch export`, // TODO: add to backend
             enabled: !candidate.paused,
             created_at: candidate.created_at,
             updated_at: candidate.created_at, // TODO: Add updated_at to batch exports in the backend
-            start_at: candidate.start_at,
             service: candidate.destination,
         }
     }

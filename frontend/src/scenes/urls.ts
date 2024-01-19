@@ -106,11 +106,11 @@ export const urls = {
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Destinations}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
     pipelineNode: (
-        stage: PipelineStage | ':stageTab',
+        stage: PipelineStage | ':stage',
         id: string | number,
-        appTab?: PipelineNodeTab | ':appTab'
+        nodeTab?: PipelineNodeTab | ':nodeTab'
     ): string =>
-        `/pipeline/${!stage.startsWith(':') ? `${stage}s` : stage}/${id}/${appTab ?? PipelineNodeTab.Configuration}`,
+        `/pipeline/${!stage.startsWith(':') ? `${stage}s` : stage}/${id}/${nodeTab ?? PipelineNodeTab.Configuration}`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>

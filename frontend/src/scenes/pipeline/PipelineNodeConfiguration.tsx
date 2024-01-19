@@ -1,71 +1,73 @@
-import { LemonSkeleton, LemonWidget, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import React, { useEffect, useState } from 'react'
-import { BatchExportsEditForm } from 'scenes/batch_exports/BatchExportEditForm'
-import {
-    defaultConfigForPlugin,
-    determineInvisibleFields,
-    determineRequiredFields,
-    getConfigSchemaArray,
-    isValidField,
-} from 'scenes/pipeline/configUtils'
+import React from 'react'
+import { BatchExportsEditFields } from 'scenes/batch_exports/BatchExportEditForm'
+import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
+import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 
 import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelineBackend, PipelineNode } from './types'
 
 export function PipelineNodeConfiguration(): JSX.Element {
-    const { node } = useValues(pipelineNodeLogic)
+    const { node, savedConfiguration, configuration, isConfigurationSubmitting } = useValues(pipelineNodeLogic)
+    const { resetConfiguration, submitConfiguration } = useActions(pipelineNodeLogic)
 
     return (
-        <LemonWidget title="Configuration">
+        <div className="space-y-3">
             {!node ? (
-                <div className="space-y-3 m-3">
-                    {Array(2)
-                        .fill(null)
-                        .map((_, index) => (
-                            <div key={index} className="space-y-2">
-                                <LemonSkeleton className="h-4 w-48" />
-                                <LemonSkeleton className="h-9" />
-                            </div>
-                        ))}
-                </div>
-            ) : node.backend === 'plugin' ? (
-                <PluginAppConfiguration node={node} />
+                Array(2)
+                    .fill(null)
+                    .map((_, index) => (
+                        <div key={index} className="space-y-2">
+                            <LemonSkeleton className="h-4 w-48" />
+                            <LemonSkeleton className="h-9" />
+                        </div>
+                    ))
             ) : (
-                <BatchExportAppConfiguration node={node} />
+                <>
+                    <Form logic={pipelineNodeLogic} formKey="configuration" className="space-y-3">
+                        {node.backend === 'plugin' ? (
+                            <PluginConfigurationFields node={node} formValues={configuration} />
+                        ) : (
+                            <BatchExportConfigurationFields node={node} formValues={configuration} />
+                        )}
+                        <div className="flex gap-2">
+                            <LemonButton
+                                type="secondary"
+                                htmlType="reset"
+                                onClick={() => resetConfiguration(savedConfiguration || {})}
+                                disabledReason={isConfigurationSubmitting ? 'Saving in progress…' : undefined}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                onClick={submitConfiguration}
+                                loading={isConfigurationSubmitting}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </Form>
+                </>
             )}
-        </LemonWidget>
+        </div>
     )
 }
 
-function PluginAppConfiguration({ node }: { node: PipelineNode & { backend: PipelineBackend.Plugin } }): JSX.Element {
-    const { configuration } = useValues(pipelineNodeLogic)
-    const { resetConfiguration, setConfigurationValues } = useActions(pipelineNodeLogic)
-
-    const [invisibleFields, setInvisibleFields] = useState<string[]>([])
-    const [requiredFields, setRequiredFields] = useState<string[]>([])
-
-    const updateInvisibleAndRequiredFields = (): void => {
-        setInvisibleFields(determineInvisibleFields((fieldName) => configuration[fieldName], node.plugin))
-        setRequiredFields(determineRequiredFields((fieldName) => configuration[fieldName], node.plugin))
-    }
-
-    useEffect(() => {
-        if (node) {
-            setConfigurationValues({
-                ...(node.config || defaultConfigForPlugin(node.plugin)),
-                __enabled: node.enabled,
-            })
-        } else {
-            resetConfiguration()
-        }
-        updateInvisibleAndRequiredFields()
-    }, [node])
+function PluginConfigurationFields({
+    node,
+}: {
+    node: PipelineNode & { backend: PipelineBackend.Plugin }
+    formValues: Record<string, any>
+}): JSX.Element {
+    const { hiddenFields, requiredFields } = useValues(pipelineNodeLogic)
 
     const configSchemaArray = getConfigSchemaArray(node.plugin.config_schema)
 
@@ -78,8 +80,9 @@ function PluginAppConfiguration({ node }: { node: PipelineNode & { backend: Pipe
             {fieldConfig.key &&
             fieldConfig.type &&
             isValidField(fieldConfig) &&
-            !invisibleFields.includes(fieldConfig.key) ? (
+            !hiddenFields.includes(fieldConfig.key) ? (
                 <Field
+                    name={fieldConfig.key}
                     label={
                         <>
                             {fieldConfig.secret && (
@@ -95,10 +98,9 @@ function PluginAppConfiguration({ node }: { node: PipelineNode & { backend: Pipe
                         </>
                     }
                     help={fieldConfig.hint && <LemonMarkdown className="mt-0.5">{fieldConfig.hint}</LemonMarkdown>}
-                    name={fieldConfig.key}
-                    showOptional={!fieldConfig.required && !requiredFields.includes(fieldConfig.key)}
+                    showOptional={!requiredFields.includes(fieldConfig.key)}
                 >
-                    <PluginField fieldConfig={fieldConfig} onChange={updateInvisibleAndRequiredFields} />
+                    <PluginField fieldConfig={fieldConfig} />
                 </Field>
             ) : (
                 <>
@@ -112,22 +114,20 @@ function PluginAppConfiguration({ node }: { node: PipelineNode & { backend: Pipe
         </React.Fragment>
     ))
 
-    return (
-        <Form logic={pipelineNodeLogic} formKey="configuration" className="space-y-3 my-2 mx-3">
-            {fields}
-        </Form>
-    )
+    return <>{fields}</>
 }
 
-function BatchExportAppConfiguration({
-    node,
+function BatchExportConfigurationFields({
+    formValues,
 }: {
     node: PipelineNode & { backend: PipelineBackend.BatchExport }
+    formValues: Record<string, any>
 }): JSX.Element {
     return (
-        // TODO: Inline this, and remove Cancel/Save
-        <div className="m-3">
-            <BatchExportsEditForm id={node.id} />
-        </div>
+        <BatchExportsEditFields
+            isNew={false /* TODO */}
+            isPipeline
+            batchExportConfigForm={formValues as BatchExportConfigurationForm}
+        />
     )
 }

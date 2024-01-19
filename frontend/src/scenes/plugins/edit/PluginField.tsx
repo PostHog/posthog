@@ -39,7 +39,7 @@ export function PluginField({
     fieldConfig,
 }: {
     value?: any
-    onChange: (value: any) => void
+    onChange?: (value: any) => void
     fieldConfig: PluginConfigSchema
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)

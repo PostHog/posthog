@@ -96,7 +96,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: 'Frequency',
                         render: function RenderFrequency(_, destination) {
-                            return destination.frequency
+                            return destination.interval
                         },
                     },
                     {
