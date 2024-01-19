@@ -1423,7 +1423,6 @@ const api = {
     pluginLogs: {
         async search(
             pluginConfigId: number,
-            currentTeamId: number | null,
             searchTerm: string | null = null,
             typeFilters: CheckboxValueType[] = [],
             trailingEntry: PluginLogEntry | null = null,
@@ -1440,11 +1439,7 @@ const api = {
                 true
             )
 
-            const response = await new ApiRequest()
-                .projectsDetail(currentTeamId || undefined)
-                .pluginLogs(pluginConfigId)
-                .withQueryString(params)
-                .get()
+            const response = await new ApiRequest().pluginLogs(pluginConfigId).withQueryString(params).get()
 
             return response.results
         },
@@ -1453,7 +1448,6 @@ const api = {
     batchExportLogs: {
         async search(
             batchExportId: string,
-            currentTeamId: number | null,
             searchTerm: string | null = null,
             typeFilters: CheckboxValueType[] = [],
             trailingEntry: BatchExportLogEntry | null = null,
@@ -1470,10 +1464,7 @@ const api = {
                 true
             )
 
-            const response = await new ApiRequest()
-                .batchExportLogs(batchExportId, currentTeamId || undefined)
-                .withQueryString(params)
-                .get()
+            const response = await new ApiRequest().batchExportLogs(batchExportId).withQueryString(params).get()
 
             return response.results
         },

@@ -58,7 +58,6 @@ function PluginAppConfiguration({ node }: { node: PipelineNode & { backend: Pipe
     useEffect(() => {
         if (node) {
             setConfigurationValues({
-                // Move this into pipelineNodeLogic
                 ...(node.config || defaultConfigForPlugin(node.plugin)),
                 __enabled: node.enabled,
             })

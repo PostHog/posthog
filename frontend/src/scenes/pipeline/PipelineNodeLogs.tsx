@@ -6,8 +6,8 @@ import { pluralize } from 'lib/utils'
 import { PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineLogLevel, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic'
 
-export function PipelineNodeLogs({ id, stage: kind }: PipelineNodeLogicProps): JSX.Element {
-    const logic = pipelineNodeLogsLogic({ id, kind })
+export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Element {
+    const logic = pipelineNodeLogsLogic({ id, stage })
 
     const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels } = useValues(logic)
     const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm } = useActions(logic)

@@ -25,7 +25,7 @@ export enum PipelineLogLevel {
 
 export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
     props({} as PipelineNodeLogicProps),
-    key(({ id }: PipelineNodeLogicProps) => id),
+    key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
     connect((props: PipelineNodeLogicProps) => ({
         values: [teamLogic(), ['currentTeamId'], pipelineNodeLogic(props), ['nodeBackend']],
@@ -46,14 +46,12 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 if (values.nodeBackend === PipelineBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
-                        values.currentTeamId,
                         values.searchTerm,
                         values.selectedLogLevels
                     )
                 } else {
                     results = await api.pluginLogs.search(
                         id as number,
-                        values.currentTeamId,
                         values.searchTerm,
                         logLevelsToTypeFilters(values.selectedLogLevels)
                     )
@@ -70,7 +68,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 if (values.nodeBackend === PipelineBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
-                        values.currentTeamId,
                         values.searchTerm,
                         values.selectedLogLevels,
                         values.trailingEntry as BatchExportLogEntry | null
@@ -78,7 +75,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 } else {
                     results = await api.pluginLogs.search(
                         id as number,
-                        values.currentTeamId,
                         values.searchTerm,
                         logLevelsToTypeFilters(values.selectedLogLevels),
                         values.trailingEntry as PluginLogEntry | null
@@ -109,7 +105,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 if (values.nodeBackend === PipelineBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
-                        values.currentTeamId,
                         values.searchTerm,
                         values.selectedLogLevels,
                         null,
@@ -118,7 +113,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                 } else {
                     results = await api.pluginLogs.search(
                         id as number,
-                        values.currentTeamId,
                         values.searchTerm,
                         logLevelsToTypeFilters(values.selectedLogLevels),
                         null,

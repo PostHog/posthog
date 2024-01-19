@@ -15,13 +15,13 @@ import { convertToPipelineNode, PipelineBackend, PipelineNode } from './types'
 
 export interface PipelineNodeLogicProps {
     id: number | string
-    /** Might be null if a non-existent kind is set in th URL. */
+    /** Might be null if a non-existent stage is set in th URL. */
     stage: PipelineStage | null
 }
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
-    key(({ stage: kind, id }) => `${kind}:${id}`),
+    key(({ id }) => id),
     path((id) => ['scenes', 'pipeline', 'pipelineNodeLogic', id]),
     connect(() => ({
         values: [pipelineDestinationsLogic, ['plugins', 'pluginsLoading', 'pluginConfigs', 'pluginConfigsLoading']],
