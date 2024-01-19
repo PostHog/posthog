@@ -4,7 +4,14 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { BatchExportConfiguration, PipelineAppKind, PipelineAppTab, PluginConfigTypeNew, PluginType } from '~/types'
+import {
+    BatchExportConfiguration,
+    PipelineAppKind,
+    PipelineAppTab,
+    PluginConfigTypeNew,
+    PluginConfigWithPluginInfoNew,
+    PluginType,
+} from '~/types'
 
 import { DestinationType, PipelineAppBackend } from './destinationsLogic'
 import type { pipelineOverviewLogicType } from './overviewLogicType'
@@ -107,7 +114,7 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
         ],
         transformations: [
             (s) => [s.transformationPluginConfigs, s.transformationPlugins],
-            (transformationPluginConfigs, transformationPlugins): DestinationType[] => {
+            (transformationPluginConfigs, transformationPlugins): PluginConfigWithPluginInfoNew[] => {
                 const enabledPluginConfigs = Object.values(transformationPluginConfigs)
                     .filter((c) => c.enabled)
                     .sort((a, b) => a.order - b.order)
@@ -115,21 +122,30 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                     .filter((c) => !c.enabled)
                     .sort((a, b) => a.order - b.order)
 
-                const result = [...enabledPluginConfigs, ...disabledPluginConfigs].map<DestinationType>((c) => ({
-                    name: c.name,
-                    description: c.description,
-                    enabled: c.enabled,
-                    config_url: urls.pipelineApp(PipelineAppKind.Transformation, c.id, PipelineAppTab.Configuration),
-                    metrics_url: urls.pipelineApp(PipelineAppKind.Transformation, c.id, PipelineAppTab.Metrics),
-                    logs_url: urls.pipelineApp(PipelineAppKind.Transformation, c.id, PipelineAppTab.Logs),
-                    updated_at: c.updated_at,
-                    frequency: 'realtime',
+                const result = [...enabledPluginConfigs, ...disabledPluginConfigs].map<PluginConfigWithPluginInfoNew>(
+                    (c) => ({
+                        ...c,
+                        plugin_info: transformationPlugins[c.plugin],
+                        // name: c.name,
+                        // description: c.description,
+                        // enabled: c.enabled,
+                        // config_url: urls.pipelineApp(
+                        //     PipelineAppKind.Transformation,
+                        //     c.id,
+                        //     PipelineAppTab.Configuration
+                        // ),
+                        // metrics_url: urls.pipelineApp(PipelineAppKind.Transformation, c.id, PipelineAppTab.Metrics),
+                        // logs_url: urls.pipelineApp(PipelineAppKind.Transformation, c.id, PipelineAppTab.Logs),
+                        // updated_at: c.updated_at,
+                        // frequency: 'realtime',
+                        // order: c.order,
 
-                    backend: PipelineAppBackend.Plugin,
-                    id: c.id,
-                    plugin: transformationPlugins[c.plugin],
-                    app_source_code_url: transformationPlugins[c.plugin].url,
-                }))
+                        // backend: PipelineAppBackend.Plugin,
+                        // id: c.id,
+                        // plugin_info: transformationPlugins[c.plugin],
+                        // app_source_code_url: transformationPlugins[c.plugin].url,
+                    })
+                )
 
                 return result
             },

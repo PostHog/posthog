@@ -7,7 +7,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { percentage } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppKind, PipelineAppTab } from '~/types'
+import { PipelineAppKind, PipelineAppTab, PluginConfigWithPluginInfoNew } from '~/types'
 
 import { DestinationMoreOverlay } from './Destinations'
 import { DestinationType, PipelineAppBackend } from './destinationsLogic'
@@ -109,7 +109,7 @@ const PipelineStep = ({
     additionalInfo,
 }: PipelineStepProps): JSX.Element => (
     <LemonCard>
-        {order && (
+        {order !== undefined && (
             <div className="mb-3">
                 <SeriesGlyph
                     style={{
@@ -117,7 +117,7 @@ const PipelineStep = ({
                         borderColor: 'var(--muted)',
                     }}
                 >
-                    {order}
+                    {order + 1}
                 </SeriesGlyph>
             </div>
         )}
@@ -133,7 +133,6 @@ const PipelineStep = ({
             </div>
             <div className="flex items-center">{headerInfo}</div>
         </div>
-
         {description ? (
             <LemonMarkdown className="row-description" lowKeyHeadings>
                 {description}
@@ -141,7 +140,6 @@ const PipelineStep = ({
         ) : (
             <span className="italic">No description.</span>
         )}
-
         {additionalInfo && <div className="mt-3 flex flex-end">{additionalInfo}</div>}
     </LemonCard>
 )
@@ -154,80 +152,42 @@ const PipelineStepSkeleton = (): JSX.Element => (
     </LemonCard>
 )
 
-type PipelineStepTransformationProps = {
-    order?: number
-    name: string
-    description?: string
-    enabled?: boolean
-    to: string
-    success_rate?: number
-    moreOverlay?: JSX.Element
-    sparkline?: JSX.Element
-}
-
 const PipelineStepTransformation = ({
-    name,
-    description,
-    order,
-    enabled,
-    to,
-    moreOverlay,
-    sparkline,
-}: PipelineStepTransformationProps): JSX.Element => (
-    <LemonCard>
-        {order && (
-            <div className="mb-3">
-                <SeriesGlyph
-                    style={{
-                        color: 'var(--muted)',
-                        borderColor: 'var(--muted)',
-                    }}
-                >
-                    {order}
-                </SeriesGlyph>
-            </div>
-        )}
+    transformation,
+}: {
+    transformation: PluginConfigWithPluginInfoNew
+}): JSX.Element => {
+    let metrics: StatusMetrics | undefined = undefined
 
-        <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center">
-                <h3 className="mb-0 mr-2">
-                    <Link to={to} subtle>
-                        {name}
-                    </Link>
-                </h3>
-                <StatusIndicator status={enabled ? 'enabled' : 'disabled'} />
-            </div>
-            <div className="flex items-center">
-                {sparkline && <div className="mr-1">{sparkline}</div>}
-                {moreOverlay && <More overlay={moreOverlay} />}
-            </div>
-        </div>
+    const logic = pipelineAppMetricsLogic({ pluginConfigId: transformation.id })
+    const { appMetricsResponse } = useValues(logic)
 
-        {description ? (
-            <LemonMarkdown className="row-description" lowKeyHeadings>
-                {description}
-            </LemonMarkdown>
-        ) : (
-            <span className="italic">No description.</span>
-        )}
+    if (appMetricsResponse) {
+        metrics = {
+            totals: appMetricsResponse.metrics.totals.successes + appMetricsResponse.metrics.totals.failures,
+            failures: appMetricsResponse.metrics.totals.failures,
+        }
+    }
 
-        <div className="mt-3 flex flex-end">
-            {enabled !== undefined && (
+    return (
+        <PipelineStep
+            order={transformation.order}
+            name={transformation.name}
+            to={urls.pipelineApp(PipelineAppKind.Transformation, transformation.id, PipelineAppTab.Configuration)}
+            description={transformation.description}
+            enabled={transformation.enabled}
+            metrics={metrics}
+            headerInfo={
                 <>
-                    {enabled ? (
-                        <LemonTag type="success" className="uppercase">
-                            Enabled
-                        </LemonTag>
-                    ) : (
-                        <LemonTag type="default" className="uppercase">
-                            Disabled
-                        </LemonTag>
-                    )}
+                    <div className="mr-1">
+                        <DestinationSparkLine destination={transformation} />
+                    </div>
+                    <More overlay={<TransformationsMoreOverlay pluginConfig={transformation} />} />
                 </>
-            )}
-        </div>
-    </LemonCard>
-)
+            }
+        />
+    )
+}
 
 const PipelineStepDestination = ({ destination }: { destination: DestinationType }): JSX.Element => {
     let metrics: StatusMetrics | undefined = undefined
@@ -289,19 +249,8 @@ export function Overview(): JSX.Element {
             <div className="grid grid-cols-3 gap-4">
                 {transformationsLoading && <PipelineStepSkeleton />}
                 {transformations &&
-                    transformations.map((t) => (
-                        <PipelineStepTransformation
-                            key={t.id}
-                            name={t.name}
-                            description={t.description}
-                            order={1} // TODO
-                            // enabled={} // TODO
-                            to={urls.pipelineApp(PipelineAppKind.Transformation, t.id, PipelineAppTab.Configuration)}
-                            moreOverlay={<TransformationsMoreOverlay pluginConfig={{}} />}
-                        />
-                    ))}
+                    transformations.map((t) => <PipelineStepTransformation key={t.id} transformation={t} />)}
             </div>
-            {/* {transformations && <pre>{JSON.stringify(transformations, null, 2)}</pre>} */}
 
             <h2 className="mt-4">Destinations</h2>
             <div className="grid grid-cols-3 gap-4">
