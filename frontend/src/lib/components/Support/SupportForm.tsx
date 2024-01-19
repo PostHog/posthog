@@ -102,9 +102,12 @@ export function SupportForm(): JSX.Element | null {
                     }))}
                 />
             </Field>
-            <span className="text-muted cursor-pointer">
+            <span className="text-muted">
                 Check out the{' '}
-                <Link to="https://posthog.com/docs/support-options#severity-levels">severity level definitions</Link>
+                <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                    severity level definitions
+                </Link>
+                .
             </span>
             <Field
                 name="message"
