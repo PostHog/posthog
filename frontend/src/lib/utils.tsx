@@ -949,7 +949,7 @@ export function dateFilterToText(
             if (isDateFormatted) {
                 return formatDateRange(date, dayjs().endOf('d'))
             } else if (startOfRange) {
-                return formatDate(date)
+                return formatDate(date, dateFormat)
             } else {
                 return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
             }

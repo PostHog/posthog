@@ -191,7 +191,9 @@ export function FeatureFlagReleaseConditions({
                                                               '',
                                                               [],
                                                               false,
-                                                              'MMMM D, YYYY',
+                                                              String(val).slice(-1) === 'h'
+                                                                  ? 'MMMM D, YYYY HH:mm:ss'
+                                                                  : 'MMMM D, YYYY',
                                                               true
                                                           )} )`
                                                         : ''}

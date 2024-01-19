@@ -8,10 +8,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
 const dateOptions: LemonSelectOptions<DateOption> = [
+    { value: 'hours', label: 'hours' },
     { value: 'days', label: 'days' },
     { value: 'weeks', label: 'weeks' },
     { value: 'months', label: 'months' },
     { value: 'quarters', label: 'quarters' },
+    { value: 'years', label: 'years' },
 ]
 
 type RollingDateRangeFilterProps = {
@@ -25,6 +27,7 @@ type RollingDateRangeFilterProps = {
         ref?: React.MutableRefObject<HTMLDivElement | null>
     }
     dateRangeFilterLabel?: string
+    allowedDateOptions?: DateOption[]
 }
 
 export function RollingDateRangeFilter({
@@ -36,6 +39,7 @@ export function RollingDateRangeFilter({
     max,
     dateRangeFilterLabel = 'In the last',
     pageKey,
+    allowedDateOptions = ['days', 'weeks', 'months', 'years'],
 }: RollingDateRangeFilterProps): JSX.Element {
     const logicProps = { onChange, dateFrom, selected, max, pageKey }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
@@ -86,7 +90,9 @@ export function RollingDateRangeFilter({
                         toggleDateOptionsSelector()
                     }}
                     dropdownMatchSelectWidth={false}
-                    options={dateOptions}
+                    options={dateOptions.filter((option) =>
+                        'value' in option ? allowedDateOptions.includes(option.value) : true
+                    )}
                     menu={{
                         ...popover,
                         className: 'RollingDateRangeFilter__popover',

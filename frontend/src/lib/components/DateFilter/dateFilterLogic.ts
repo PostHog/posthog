@@ -102,7 +102,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                     : isDateToNow
                     ? `${formatDate(dayjs(dateFrom))} to now`
                     : isFixedDate
-                    ? formatDate(dayjs(dateFrom))
+                    ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
                     : dateFilterToText(dateFrom, dateTo, CUSTOM_OPTION_VALUE, dateOptions, false),
         ],
     }),

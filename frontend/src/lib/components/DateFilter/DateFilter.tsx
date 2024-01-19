@@ -147,7 +147,17 @@ export function DateFilter({
                     )
 
                     return (
-                        <Tooltip key={key} title={makeLabel ? makeLabel(dateValue) : undefined}>
+                        <Tooltip
+                            key={key}
+                            title={
+                                makeLabel
+                                    ? makeLabel(
+                                          dateValue,
+                                          dateFilterToText(values[0], undefined, '', [], false, 'MMMM D, YYYY', true)
+                                      )
+                                    : undefined
+                            }
+                        >
                             <LemonButton
                                 key={key}
                                 onClick={() => setDate(values[0] || null, values[1] || null)}
@@ -161,6 +171,7 @@ export function DateFilter({
                 })}
                 {showRollingRangePicker && (
                     <RollingDateRangeFilter
+                        pageKey={key}
                         dateFrom={dateFrom}
                         dateRangeFilterLabel={isFixedDateMode ? 'The last' : undefined}
                         selected={isRollingDateRange}
@@ -172,6 +183,7 @@ export function DateFilter({
                             ref: rollingDateRangeRef,
                         }}
                         max={max}
+                        allowedDateOptions={isFixedDateMode ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}
                     />
                 )}
                 <LemonDivider />
