@@ -1,5 +1,4 @@
 import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import type { resizerLogicType } from './resizerLogicType'
@@ -163,12 +162,6 @@ export const resizerLogic = kea<resizerLogicType>([
 
         endResize: () => {
             removeAllListeners(cache)
-        },
-    })),
-    subscriptions(({ props }) => ({
-        desiredWidth: (desiredWidth) => {
-            // TODO: Fix this as it doesn't really work for all cases...
-            props.containerRef.current?.style.setProperty('width', `${desiredWidth}px`)
         },
     })),
 

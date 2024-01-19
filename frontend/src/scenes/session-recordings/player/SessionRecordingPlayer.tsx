@@ -182,7 +182,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 <LemonDivider className="my-0" />
                                 <PlayerController />
                             </div>
-                            {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
+                            {!noInspector && (
+                                <PlayerInspector onFocusChange={setInspectorFocus} isWidescreen={isWidescreen} />
+                            )}
                         </>
                     )}
                 </FloatingContainerContext.Provider>

@@ -8,6 +8,7 @@ import { resizerLogic, ResizerLogicProps } from './resizerLogic'
 
 export type ResizerProps = ResizerLogicProps & {
     offset?: number | string
+    disabled?: boolean
 }
 
 export function Resizer(props: ResizerProps): JSX.Element {
@@ -29,14 +30,15 @@ export function Resizer(props: ResizerProps): JSX.Element {
             className={clsx(
                 'Resizer',
                 isResizeInProgress && isSelected && 'Resizer--resizing',
-                `Resizer--${props.placement}`
+                `Resizer--${props.placement}`,
+                props.disabled && 'Resizer--disabled'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 [props.placement]: props.offset ?? 0,
             }}
             onMouseDown={(e) => {
-                if (e.button === 0) {
+                if (e.button === 0 && !props.disabled) {
                     setIsSelected(true)
                     beginResize(e.pageX)
                 }
