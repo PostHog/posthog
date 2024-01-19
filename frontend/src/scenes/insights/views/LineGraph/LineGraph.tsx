@@ -31,8 +31,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -277,8 +277,6 @@ export function LineGraph_({
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone, isTrends } = useValues(insightVizDataLogic(insightProps))
-
-    const { createTooltipData } = useValues(lineGraphLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()

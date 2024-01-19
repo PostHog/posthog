@@ -126,6 +126,14 @@ const cleanProperties = (parentProperties: FilterType['properties']): InsightsQu
             }
         }
 
+        // Some saved insights have `"operator": null` defined in the properties, this
+        // breaks HogQL trends and Pydantic validation
+        if (filter.type === PropertyFilterType.Cohort) {
+            if ('operator' in filter) {
+                delete filter.operator
+            }
+        }
+
         return filter
     }
 
@@ -251,7 +259,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
         query.trendsFilter = objectCleanWithEmpty({
             smoothingIntervals: filters.smoothing_intervals,
-            show_legend: filters.show_legend,
+            showLegend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             compare: filters.compare,
             aggregationAxisFormat: filters.aggregation_axis_format,
@@ -260,7 +268,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             decimalPlaces: filters.decimal_places,
             formula: filters.formula,
             display: filters.display,
-            show_values_on_series: filters.show_values_on_series,
+            showValuesOnSeries: filters.show_values_on_series,
             showPercentStackView: filters.show_percent_stack_view,
             showLabelsOnSeries: filters.show_labels_on_series,
         })
@@ -302,21 +310,20 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // paths filter
     if (isPathsFilter(filters) && isPathsQuery(query)) {
         query.pathsFilter = objectCleanWithEmpty({
-            path_type: filters.path_type,
-            paths_hogql_expression: filters.paths_hogql_expression,
-            include_event_types: filters.include_event_types,
-            start_point: filters.start_point,
-            end_point: filters.end_point,
-            path_groupings: filters.path_groupings,
-            funnel_paths: filters.funnel_paths,
-            funnel_filter: filters.funnel_filter,
-            exclude_events: filters.exclude_events,
-            step_limit: filters.step_limit,
-            path_replacements: filters.path_replacements,
-            local_path_cleaning_filters: filters.local_path_cleaning_filters,
-            edge_limit: filters.edge_limit,
-            min_edge_weight: filters.min_edge_weight,
-            max_edge_weight: filters.max_edge_weight,
+            pathsHogQLExpression: filters.paths_hogql_expression,
+            includeEventTypes: filters.include_event_types,
+            startPoint: filters.start_point,
+            endPoint: filters.end_point,
+            pathGroupings: filters.path_groupings,
+            funnelPaths: filters.funnel_paths,
+            funnelFilter: filters.funnel_filter,
+            excludeEvents: filters.exclude_events,
+            stepLimit: filters.step_limit,
+            pathReplacements: filters.path_replacements,
+            localPathCleaningFilters: filters.local_path_cleaning_filters,
+            edgeLimit: filters.edge_limit,
+            minEdgeWeight: filters.min_edge_weight,
+            maxEdgeWeight: filters.max_edge_weight,
         })
     }
 
@@ -325,9 +332,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.stickinessFilter = objectCleanWithEmpty({
             display: filters.display,
             compare: filters.compare,
-            show_legend: filters.show_legend,
+            showLegend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-            show_values_on_series: filters.show_values_on_series,
+            showValuesOnSeries: filters.show_values_on_series,
         })
     }
 
@@ -335,7 +342,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
         query.lifecycleFilter = objectCleanWithEmpty({
             toggledLifecycles: filters.toggledLifecycles,
-            show_values_on_series: filters.show_values_on_series,
+            showValuesOnSeries: filters.show_values_on_series,
         })
     }
 

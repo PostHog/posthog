@@ -8,7 +8,6 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
 import { examples, TotalEventsTable } from '~/queries/examples'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -36,9 +35,10 @@ import {
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isLifecycleQuery,
     isRetentionQuery,
 } from '~/queries/utils'
-import { ActionFilter, InsightLogicProps, InsightType } from '~/types'
+import { InsightLogicProps, InsightType } from '~/types'
 
 import type { insightNavLogicType } from './insightNavLogicType'
 
@@ -256,22 +256,26 @@ export const insightNavLogic = kea<insightNavLogicType>([
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
     const newCache = JSON.parse(JSON.stringify(query)) as QueryPropertyCache
 
-    // set series (first two entries) from retention target and returning entity
-    if (isRetentionQuery(query)) {
-        const { target_entity, returning_entity } = query.retentionFilter || {}
-        const series = actionsAndEventsToSeries({
-            events: [
-                ...(target_entity?.type === 'events' ? [target_entity as ActionFilter] : []),
-                ...(returning_entity?.type === 'events' ? [returning_entity as ActionFilter] : []),
-            ],
-            actions: [
-                ...(target_entity?.type === 'actions' ? [target_entity as ActionFilter] : []),
-                ...(returning_entity?.type === 'actions' ? [returning_entity as ActionFilter] : []),
-            ],
-        })
-        if (series.length > 0) {
-            newCache.series = [...series, ...(cache?.series ? cache.series.slice(series.length) : [])]
-        }
+    // // set series (first two entries) from retention target and returning entity
+    // if (isRetentionQuery(query)) {
+    //     const { target_entity, returning_entity } = query.retentionFilter || {}
+    //     const series = actionsAndEventsToSeries({
+    //         events: [
+    //             ...(target_entity?.type === 'events' ? [target_entity as ActionFilter] : []),
+    //             ...(returning_entity?.type === 'events' ? [returning_entity as ActionFilter] : []),
+    //         ],
+    //         actions: [
+    //             ...(target_entity?.type === 'actions' ? [target_entity as ActionFilter] : []),
+    //             ...(returning_entity?.type === 'actions' ? [returning_entity as ActionFilter] : []),
+    //         ],
+    //     })
+    //     if (series.length > 0) {
+    //         newCache.series = [...series, ...(cache?.series ? cache.series.slice(series.length) : [])]
+    //     }
+    // }
+
+    if (isLifecycleQuery(query)) {
+        newCache.series = cache?.series
     }
 
     // store the insight specific filter in commonFilter
@@ -292,7 +296,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // series
     if (isInsightQueryWithSeries(mergedQuery)) {
         if (cache.series) {
-            mergedQuery.series = cache.series
+            if (isLifecycleQuery(mergedQuery)) {
+                mergedQuery.series = cache.series.slice(0, 1)
+            } else {
+                mergedQuery.series = cache.series
+            }
         } else if (cache.retentionFilter?.target_entity || cache.retentionFilter?.returning_entity) {
             mergedQuery.series = [
                 ...(cache.retentionFilter.target_entity
@@ -331,8 +339,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
             // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
-            ...(getShowValueOnSeries(node) ? { show_values_on_series: getShowValueOnSeries(node) } : {}),
-            ...(getShowPercentStackView(node) ? { show_percent_stack_view: getShowPercentStackView(node) } : {}),
+            ...(getShowValueOnSeries(node) ? { showValuesOnSeries: getShowValueOnSeries(node) } : {}),
+            ...(getShowPercentStackView(node) ? { showPercentStackView: getShowPercentStackView(node) } : {}),
             ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
         }
     }

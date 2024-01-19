@@ -13,7 +13,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, TrendsQuery
 
 
 class TrendsQueryBuilder:
@@ -22,6 +22,7 @@ class TrendsQueryBuilder:
     query_date_range: QueryDateRange
     series: EventsNode | ActionsNode
     timings: HogQLTimings
+    modifiers: HogQLQueryModifiers
 
     def __init__(
         self,
@@ -30,12 +31,14 @@ class TrendsQueryBuilder:
         query_date_range: QueryDateRange,
         series: EventsNode | ActionsNode,
         timings: HogQLTimings,
+        modifiers: HogQLQueryModifiers,
     ):
         self.query = trends_query
         self.team = team
         self.query_date_range = query_date_range
         self.series = series
         self.timings = timings
+        self.modifiers = modifiers
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self._trends_display.should_aggregate_values():
@@ -448,6 +451,7 @@ class TrendsQueryBuilder:
             series=self.series,
             query_date_range=self.query_date_range,
             timings=self.timings,
+            modifiers=self.modifiers,
             events_filter=self._events_filter(ignore_breakdowns=True),
         )
 

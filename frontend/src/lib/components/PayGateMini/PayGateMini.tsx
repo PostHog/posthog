@@ -20,6 +20,7 @@ type PayGateSupportedFeatures =
     | AvailableFeature.PATHS_ADVANCED
     | AvailableFeature.SURVEYS_STYLING
     | AvailableFeature.SURVEYS_TEXT_HTML
+    | AvailableFeature.DATA_PIPELINES
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -83,6 +84,11 @@ const FEATURE_SUMMARIES: Record<
         umbrella: 'surveys customization',
         docsHref: 'https://posthog.com/docs/surveys',
     },
+    [AvailableFeature.DATA_PIPELINES]: {
+        description: 'Create export workflows to send your data to a destination of your choice.',
+        umbrella: 'data pipelines',
+        docsHref: 'https://posthog.com/docs/data-pipelines',
+    },
 }
 
 /** A sort of paywall for premium features.
@@ -143,8 +149,7 @@ export function PayGateMini({
                         ? '/organization/billing'
                         : undefined
                 }
-                type="secondary"
-                fullWidth
+                type="primary"
                 center
             >
                 {gateVariant === 'add-card'

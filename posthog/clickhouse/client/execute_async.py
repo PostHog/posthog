@@ -7,10 +7,10 @@ from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
 
 from posthog import celery, redis
-from posthog.celery import process_query_task
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql.constants import LimitContext
 from posthog.schema import QueryStatus
+from posthog.tasks.tasks import process_query_task
 
 logger = structlog.get_logger(__name__)
 
@@ -75,8 +75,8 @@ def execute_process_query(
 ):
     manager = QueryStatusManager(query_id, team_id)
 
-    from posthog.models import Team
     from posthog.api.services.query import process_query
+    from posthog.models import Team
 
     team = Team.objects.get(pk=team_id)
 

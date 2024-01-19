@@ -264,14 +264,14 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         )
     } else if (isPathsQuery(query)) {
         // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(
+        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.includeEventTypes).join(
             ' and '
         )}`
-        if (query.pathsFilter?.start_point) {
-            summary += ` starting at ${query.pathsFilter?.start_point}`
+        if (query.pathsFilter?.startPoint) {
+            summary += ` starting at ${query.pathsFilter?.startPoint}`
         }
-        if (query.pathsFilter?.end_point) {
-            summary += `${query.pathsFilter?.start_point ? ' and' : ''} ending at ${query.pathsFilter?.end_point}`
+        if (query.pathsFilter?.endPoint) {
+            summary += `${query.pathsFilter?.startPoint ? ' and' : ''} ending at ${query.pathsFilter?.endPoint}`
         }
         return summary
     } else if (isStickinessQuery(query)) {

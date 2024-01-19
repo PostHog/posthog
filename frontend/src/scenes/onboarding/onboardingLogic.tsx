@@ -32,9 +32,9 @@ export type OnboardingStep = JSX.Element
 export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlagsSet): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return featureFlags[FEATURE_FLAGS.REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
-                ? combineUrl(urls.insights(), { onboarding_completed: true }).url
-                : combineUrl(urls.events(), { onboarding_completed: true }).url
+            return featureFlags[FEATURE_FLAGS.REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
+                ? combineUrl(urls.webAnalytics(), { onboarding_completed: true }).url
+                : combineUrl(urls.insights(), { onboarding_completed: true }).url
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
         case ProductKey.FEATURE_FLAGS:
@@ -157,7 +157,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadBillingSuccess: () => {
-            if (window.location.pathname.startsWith('/onboarding')) {
+            if (window.location.pathname.includes('/onboarding')) {
                 actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
             }
         },

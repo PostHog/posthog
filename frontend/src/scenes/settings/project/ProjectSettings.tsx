@@ -9,6 +9,7 @@ import { JSSnippet } from 'lib/components/JSSnippet'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { TimezoneConfig } from './TimezoneConfig'
@@ -88,6 +89,8 @@ export function Bookmarklet(): JSX.Element {
 export function ProjectVariables(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
+    const { preflight } = useValues(preflightLogic)
+    const region = preflight?.region
 
     return (
         <div className="flex items-start gap-4 flex-wrap">
@@ -141,6 +144,15 @@ export function ProjectVariables(): JSX.Element {
                 </p>
                 <CodeSnippet thing="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
             </div>
+            {region ? (
+                <div className="flex-1">
+                    <h3 id="project-region" className="min-w-[25rem]">
+                        Project Region
+                    </h3>
+                    <p>This is the region where your PostHog data is hosted.</p>
+                    <CodeSnippet thing="project region">{`${region} Cloud`}</CodeSnippet>
+                </div>
+            ) : null}
         </div>
     )
 }

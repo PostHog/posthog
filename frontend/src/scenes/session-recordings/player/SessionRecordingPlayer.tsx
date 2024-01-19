@@ -151,6 +151,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         )
     }
 
+    const isWidescreen = !isFullScreen && size === 'medium'
+
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <div
@@ -158,8 +160,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 className={clsx('SessionRecordingPlayer', {
                     'SessionRecordingPlayer--fullscreen': isFullScreen,
                     'SessionRecordingPlayer--no-border': noBorder,
-                    'SessionRecordingPlayer--widescreen': !isFullScreen && size === 'medium',
-                    'SessionRecordingPlayer--inspector-focus': inspectorFocus,
+                    'SessionRecordingPlayer--widescreen': isWidescreen,
+                    'SessionRecordingPlayer--inspector-focus': inspectorFocus || isWidescreen,
                     'SessionRecordingPlayer--inspector-hidden': noInspector || size === 'tiny',
                     'SessionRecordingPlayer--buffering': isBuffering,
                 })}
