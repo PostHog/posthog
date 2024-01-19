@@ -185,7 +185,6 @@ export const supportLogic = kea<supportLogicType>([
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
         ],
-        kind: [(s) => [s.sendSupportRequest ?? null], (sendSupportRequest) => sendSupportRequest.kind],
     }),
     listeners(({ actions, props, values }) => ({
         updateUrlParams: async () => {
