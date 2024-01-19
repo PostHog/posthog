@@ -5,6 +5,7 @@ import { Field } from 'lib/forms/Field'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React, { useEffect, useState } from 'react'
+import { BatchExportsEditForm } from 'scenes/batch_exports/BatchExportEditForm'
 import {
     defaultConfigForPlugin,
     determineInvisibleFields,
@@ -35,7 +36,9 @@ export function PipelineNodeConfiguration(): JSX.Element {
                 </div>
             ) : node.backend === 'plugin' ? (
                 <PluginAppConfiguration node={node} />
-            ) : null}
+            ) : (
+                <BatchExportAppConfiguration node={node} />
+            )}
         </LemonWidget>
     )
 }
@@ -114,5 +117,18 @@ function PluginAppConfiguration({ node }: { node: PipelineNode & { backend: Pipe
         <Form logic={pipelineNodeLogic} formKey="configuration" className="space-y-3 my-2 mx-3">
             {fields}
         </Form>
+    )
+}
+
+function BatchExportAppConfiguration({
+    node,
+}: {
+    node: PipelineNode & { backend: PipelineBackend.BatchExport }
+}): JSX.Element {
+    return (
+        // TODO: Inline this, and remove Cancel/Save
+        <div className="m-3">
+            <BatchExportsEditForm id={node.id} />
+        </div>
     )
 }
