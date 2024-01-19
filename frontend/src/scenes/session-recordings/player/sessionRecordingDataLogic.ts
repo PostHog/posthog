@@ -78,7 +78,9 @@ export const parseEncodedSnapshots = async (
                 }
             })
         } catch (e) {
-            unparseableLines.push(l)
+            if (typeof l === 'string') {
+                unparseableLines.push(l)
+            }
             return []
         }
     })
