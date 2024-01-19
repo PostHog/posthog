@@ -32,7 +32,7 @@ export function PipelineNodeConfiguration(): JSX.Element {
             ) : isConfigurable ? (
                 <>
                     <Form logic={pipelineNodeLogic} formKey="configuration" className="space-y-3">
-                        {node.backend === 'plugin' ? (
+                        {node.backend === PipelineBackend.Plugin ? (
                             <PluginConfigurationFields node={node} formValues={configuration} />
                         ) : (
                             <BatchExportConfigurationFields node={node} formValues={configuration} />
