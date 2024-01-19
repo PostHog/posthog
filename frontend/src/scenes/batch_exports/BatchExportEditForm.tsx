@@ -110,29 +110,28 @@ export function BatchExportsEditFields({
                             ]}
                         />
                     </Field>
-                    {!isPipeline ||
-                        (batchExportConfigForm.end_at && (
-                            <Field
-                                name="end_at"
-                                label="End date"
-                                className="flex-1"
-                                info={
-                                    <>
-                                        The date up to which data is to be exported. Leaving it unset implies that data
-                                        exports will continue forever until this export is paused or deleted.
-                                    </>
-                                }
-                            >
-                                {({ value, onChange }) => (
-                                    <LemonCalendarSelectInput
-                                        value={value}
-                                        onChange={onChange}
-                                        placeholder="Select end date (optional)"
-                                        clearable
-                                    />
-                                )}
-                            </Field>
-                        ))}
+                    {(!isPipeline || batchExportConfigForm.end_at) && ( // Not present in the new UI unless grandfathered in
+                        <Field
+                            name="end_at"
+                            label="End date"
+                            className="flex-1"
+                            info={
+                                <>
+                                    The date up to which data is to be exported. Leaving it unset implies that data
+                                    exports will continue forever until this export is paused or deleted.
+                                </>
+                            }
+                        >
+                            {({ value, onChange }) => (
+                                <LemonCalendarSelectInput
+                                    value={value}
+                                    onChange={onChange}
+                                    placeholder="Select end date (optional)"
+                                    clearable
+                                />
+                            )}
+                        </Field>
+                    )}
                 </div>
 
                 <LemonBanner type="info">
