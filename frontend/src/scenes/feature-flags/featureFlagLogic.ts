@@ -5,8 +5,10 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -189,6 +191,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['dashboards'],
             organizationLogic,
             ['currentOrganization'],
+            enabledFeaturesLogic,
+            ['featureFlags as enabledFeatures'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -927,17 +931,32 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         taxonomicGroupTypes: [
-            (s) => [s.featureFlag, s.groupsTaxonomicTypes],
-            (featureFlag, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+            (s) => [s.featureFlag, s.groupsTaxonomicTypes, s.enabledFeatures],
+            (featureFlag, groupsTaxonomicTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
+                const baseGroupTypes = []
+                const additionalGroupTypes = []
                 if (
                     featureFlag &&
                     featureFlag.filters.aggregation_group_type_index != null &&
                     groupsTaxonomicTypes.length > 0
                 ) {
-                    return [groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index]]
+                    baseGroupTypes.push(groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index])
+
+                    if (enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]) {
+                        additionalGroupTypes.push(
+                            `${TaxonomicFilterGroupType.GroupNamesPrefix}_${featureFlag.filters.aggregation_group_type_index}` as unknown as TaxonomicFilterGroupType
+                        )
+                    }
+                } else {
+                    baseGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
+                    baseGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
+
+                    if (enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]) {
+                        additionalGroupTypes.push(TaxonomicFilterGroupType.Metadata)
+                    }
                 }
 
-                return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+                return [...baseGroupTypes, ...additionalGroupTypes]
             },
         ],
         breadcrumbs: [
@@ -952,17 +971,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ],
         ],
         featureFlagTaxonomicOptions: [
-            (s) => [s.groupTypes],
-            (groupTypes) => {
-                const taxonomicOptions: TaxonomicFilterProps['optionsFromProp'] = {
-                    [TaxonomicFilterGroupType.PersonProperties]: [{ name: '$current_distinct_id' }],
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
+                    return {}
                 }
-                Array.from(groupTypes.values()).map(
-                    (type) =>
-                        (taxonomicOptions[
-                            `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType
-                        ] = [{ name: '$group_key' }])
-                )
+
+                const taxonomicOptions: TaxonomicFilterProps['optionsFromProp'] = {
+                    [TaxonomicFilterGroupType.Metadata]: [{ name: 'distinct_id' }],
+                }
                 return taxonomicOptions
             },
         ],

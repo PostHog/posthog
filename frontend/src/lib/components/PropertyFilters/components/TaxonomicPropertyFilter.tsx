@@ -45,6 +45,7 @@ export function TaxonomicPropertyFilter({
     metadataSource,
     propertyAllowList,
     taxonomicFilterOptionsFromProp,
+    metadataTaxonomicGroupToPropertyFilterType,
     allowRelativeDateOperators,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
@@ -79,6 +80,7 @@ export function TaxonomicPropertyFilter({
         taxonomicOnChange,
         eventNames,
         propertyAllowList,
+        metadataTaxonomicGroupToPropertyFilterType,
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)

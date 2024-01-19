@@ -66,6 +66,8 @@ export interface TaxonomicFilterGroup {
 }
 
 export enum TaxonomicFilterGroupType {
+    // Person and event metadata that isn't present in properties
+    Metadata = 'metadata',
     Actions = 'actions',
     Cohorts = 'cohorts',
     CohortsWithAllUsers = 'cohorts_with_all',

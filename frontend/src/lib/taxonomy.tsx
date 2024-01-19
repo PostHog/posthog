@@ -592,8 +592,8 @@ export const KEY_MAPPING: KeyMappingInterface = {
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
             system: true,
         },
-        $current_distinct_id: {
-            label: 'Current Distinct ID',
+        distinct_id: {
+            label: 'Distinct ID',
             description: 'The current distinct ID of the user',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
         },

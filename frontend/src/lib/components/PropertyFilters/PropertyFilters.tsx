@@ -7,7 +7,7 @@ import React, { useEffect } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode } from '~/queries/schema'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
@@ -21,6 +21,7 @@ interface PropertyFiltersProps {
     disablePopover?: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
+    metadataTaxonomicGroupToPropertyFilterType?: PropertyFilterType
     metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
@@ -44,6 +45,7 @@ export function PropertyFilters({
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicGroupTypes,
     taxonomicFilterOptionsFromProp,
+    metadataTaxonomicGroupToPropertyFilterType,
     metadataSource,
     showNestedArrow = false,
     eventNames = [],
@@ -114,6 +116,9 @@ export function PropertyFilters({
                                             }}
                                             propertyAllowList={propertyAllowList}
                                             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                            metadataTaxonomicGroupToPropertyFilterType={
+                                                metadataTaxonomicGroupToPropertyFilterType
+                                            }
                                             allowRelativeDateOperators={allowRelativeDateOperators}
                                         />
                                     )}
