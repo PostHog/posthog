@@ -2,7 +2,7 @@
  * Taken from https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/replay/canvas/deserialize-args.ts
  * Modified to limit support to only canvas snapshots (rather than draw commands)
  */
-import type { CanvasArg } from '@rrweb/types'
+import { CanvasArg } from '@rrweb/types'
 import { base64ArrayBuffer } from 'lib/utils'
 import { Replayer } from 'rrweb'
 
@@ -24,13 +24,13 @@ const variableListFor = (ctx: CanvasContexts, ctor: string): any[] => {
     return contextMap.get(ctor) as any[]
 }
 
-export function deserializeCanvasArg(
+export const deserializeCanvasArg = (
     imageMap: Replayer['imageMap'],
     ctx: CanvasContexts | null,
     preload?: {
         isUnchanged: boolean
     }
-): (arg: CanvasArg) => Promise<any> {
+): ((arg: CanvasArg) => Promise<any>) => {
     return async (arg: CanvasArg): Promise<any> => {
         if (arg && typeof arg === 'object' && 'rr_type' in arg) {
             if (preload) {
@@ -44,7 +44,7 @@ export function deserializeCanvasArg(
             if ('index' in arg) {
                 if (preload || ctx === null) {
                     return arg
-                } // we are preloading, ctx is unknown
+                }
                 const { rr_type: name, index } = arg
                 return variableListFor(ctx, name)[index]
             }
