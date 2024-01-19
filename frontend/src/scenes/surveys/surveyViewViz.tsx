@@ -379,7 +379,10 @@ export function MultipleChoiceQuestionBarChart({
     const { loadSurveyMultipleChoiceResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
-
+    const resultsHeight =
+        surveyMultipleChoiceResults[questionIndex].labels.length > 8
+            ? surveyMultipleChoiceResults[questionIndex].labels.length * 50
+            : 400
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.MultipleChoice) {
         throw new Error(`Question type must be ${SurveyQuestionType.MultipleChoice}`)
@@ -399,7 +402,11 @@ export function MultipleChoiceQuestionBarChart({
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">Multiple choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className="border rounded pt-6 pr-10">
+                    <div
+                        className="border rounded pt-6 pr-10"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: resultsHeight }}
+                    >
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <LineGraph
                                 inSurveyView={true}
