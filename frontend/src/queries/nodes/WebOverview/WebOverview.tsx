@@ -32,16 +32,19 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
+    const samplingRate = webOverviewQueryResponse?.samplingRate
+
     return (
         <>
             <EvenlyDistributedRows className="w-full gap-x-2 gap-y-8" minWidthRems={8}>
                 {webOverviewQueryResponse?.results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) ||
                     []}
             </EvenlyDistributedRows>
-            {webOverviewQueryResponse?.samplingRate ? (
+            {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
-                    These results using a sampling factor of {webOverviewQueryResponse.samplingRate.numerator}/
-                    {webOverviewQueryResponse.samplingRate.denominator}. Sampling is currently in beta.
+                    These results using a sampling factor of {samplingRate.numerator}
+                    {samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}. Sampling is currently
+                    in beta.
                 </LemonBanner>
             ) : null}
         </>
