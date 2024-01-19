@@ -949,7 +949,7 @@ Using the correct cache and enriching the response with dashboard specific confi
     # - start_entity: (dict) specifies id and type of the entity to focus retention on
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         try:
             result = self.calculate_retention(request)

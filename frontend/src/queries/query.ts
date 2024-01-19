@@ -382,13 +382,14 @@ export async function legacyInsightQuery({
 }: LegacyInsightQueryParams): Promise<[Response, string]> {
     const apiUrl = legacyInsightQueryURL({ filters, currentTeamId, refresh })
     let fetchResponse: Response
-    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-        fetchResponse = await api.getResponse(apiUrl, methodOptions)
-    } else if (isRetentionFilter(filters)) {
-        fetchResponse = await api.getResponse(apiUrl, methodOptions)
-    } else if (isFunnelsFilter(filters)) {
-        fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
-    } else if (isPathsFilter(filters)) {
+    if (
+        isTrendsFilter(filters) ||
+        isStickinessFilter(filters) ||
+        isLifecycleFilter(filters) ||
+        isRetentionFilter(filters) ||
+        isFunnelsFilter(filters) ||
+        isPathsFilter(filters)
+    ) {
         fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
     } else {
         throw new Error(`Unsupported insight type: ${filters.insight}`)
