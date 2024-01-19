@@ -259,7 +259,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
         query.trendsFilter = objectCleanWithEmpty({
             smoothingIntervals: filters.smoothing_intervals,
-            show_legend: filters.show_legend,
+            showLegend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             compare: filters.compare,
             aggregationAxisFormat: filters.aggregation_axis_format,
@@ -268,7 +268,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             decimalPlaces: filters.decimal_places,
             formula: filters.formula,
             display: filters.display,
-            show_values_on_series: filters.show_values_on_series,
+            showValuesOnSeries: filters.show_values_on_series,
             showPercentStackView: filters.show_percent_stack_view,
             showLabelsOnSeries: filters.show_labels_on_series,
         })
@@ -333,9 +333,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.stickinessFilter = objectCleanWithEmpty({
             display: filters.display,
             compare: filters.compare,
-            show_legend: filters.show_legend,
+            showLegend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-            show_values_on_series: filters.show_values_on_series,
+            showValuesOnSeries: filters.show_values_on_series,
         })
     }
 
@@ -343,7 +343,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
         query.lifecycleFilter = objectCleanWithEmpty({
             toggledLifecycles: filters.toggledLifecycles,
-            show_values_on_series: filters.show_values_on_series,
+            showValuesOnSeries: filters.show_values_on_series,
         })
     }
 

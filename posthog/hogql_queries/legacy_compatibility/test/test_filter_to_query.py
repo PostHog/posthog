@@ -21,6 +21,7 @@ from posthog.schema import (
     GroupPropertyFilter,
     HogQLPropertyFilter,
     Key,
+    LifecycleToggle,
     PathCleaningFilter,
     PathType,
     PersonPropertyFilter,
@@ -35,6 +36,7 @@ from posthog.schema import (
     RetentionFilter,
     PathsFilter,
     StickinessFilter,
+    LifecycleFilter,
 )
 from posthog.test.base import BaseTest
 
@@ -1286,6 +1288,8 @@ class TestFilterToQuery(BaseTest):
             "formula": "A + B",
             "shown_as": "Volume",
             "display": "ActionsAreaGraph",
+            "show_legend": True,
+            "show_percent_stack_view": True,
         }
 
         query = filter_to_query(filter)
@@ -1301,6 +1305,8 @@ class TestFilterToQuery(BaseTest):
                 formula="A + B",
                 display=ChartDisplayType.ActionsAreaGraph,
                 decimalPlaces=5,
+                showLegend=True,
+                showPercentStackView=True,
             ),
         )
 
@@ -1488,24 +1494,35 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_stickiness_filter(self):
-        filter = {"insight": "STICKINESS", "compare": True, "shown_as": "Stickiness"}
+        filter = {
+            "insight": "STICKINESS",
+            "compare": True,
+            "show_legend": True,
+            "show_values_on_series": True,
+            "shown_as": "Stickiness",
+        }
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.stickinessFilter,
-            StickinessFilter(compare=True),
+            StickinessFilter(compare=True, showLegend=True, showValuesOnSeries=True),
         )
 
     def test_lifecycle_filter(self):
         filter = {
             "insight": "LIFECYCLE",
             "shown_as": "Lifecycle",
+            "show_values_on_series": True,
+            "toggledLifecycles": ["new", "dormant"],
         }
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.lifecycleFilter,
-            None,
+            LifecycleFilter(
+                showValuesOnSeries=True,
+                toggledLifecycles=[LifecycleToggle.new, LifecycleToggle.dormant],
+            ),
         )

@@ -1996,6 +1996,21 @@
         },
         "LifecycleFilter": {
             "additionalProperties": false,
+            "properties": {
+                "showValuesOnSeries": {
+                    "type": "boolean"
+                },
+                "toggledLifecycles": {
+                    "items": {
+                        "$ref": "#/definitions/LifecycleToggle"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "LifecycleFilterLegacy": {
+            "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "show_values_on_series": {
@@ -3500,6 +3515,30 @@
         },
         "StickinessFilter": {
             "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "showLegend": {
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "StickinessFilterLegacy": {
+            "additionalProperties": false,
             "description": "`StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "compare": {
@@ -3774,13 +3813,13 @@
                 "showLabelsOnSeries": {
                     "type": "boolean"
                 },
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "showPercentStackView": {
                     "type": "boolean"
                 },
-                "show_legend": {
-                    "type": "boolean"
-                },
-                "show_values_on_series": {
+                "showValuesOnSeries": {
                     "type": "boolean"
                 },
                 "smoothingIntervals": {
