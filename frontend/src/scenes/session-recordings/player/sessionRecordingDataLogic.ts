@@ -85,7 +85,7 @@ export const parseEncodedSnapshots = async (
 
     if (unparseableLines.length) {
         const extra = {
-            sessionId,
+            playbackSessionId: sessionId,
             totalLineCount: lineCount,
             unparseableLinesCount: unparseableLines.length,
             exampleLines: unparseableLines.slice(0, 3),
