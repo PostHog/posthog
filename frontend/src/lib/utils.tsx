@@ -922,13 +922,13 @@ export function dateFilterToText(
         if (dateOption && counter) {
             let date = null
             switch (dateOption) {
-                case 'quarters':
+                case 'quarter':
                     date = dayjs().subtract(counter * 3, 'M')
                     break
-                case 'months':
+                case 'month':
                     date = dayjs().subtract(counter, 'M')
                     break
-                case 'weeks':
+                case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
                     break
                 default:
