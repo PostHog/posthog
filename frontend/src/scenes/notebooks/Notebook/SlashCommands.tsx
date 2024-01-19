@@ -186,7 +186,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                 buildInsightVizQueryContent({
                     kind: NodeKind.PathsQuery,
                     pathsFilter: {
-                        include_event_types: [PathType.PageView],
+                        includeEventTypes: [PathType.PageView],
                     },
                 })
             ),

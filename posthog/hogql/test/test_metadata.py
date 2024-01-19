@@ -79,7 +79,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": "timestamp",
                 "errors": [
                     {
-                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '(', '<'}",
+                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '{', '(', '<'}",
                         "start": 0,
                         "end": 9,
                         "fix": None,

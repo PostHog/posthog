@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -178,8 +179,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
+        playerErrorSeen: (errorEvent: ErrorEvent) => ({ errorEvent }),
+        fingerprintReported: (fingerprint: string) => ({ fingerprint }),
     }),
     reducers(() => ({
+        reportedReplayerErrors: [
+            new Set<string>(),
+            {
+                fingerprintReported: (state, { fingerprint }) => {
+                    const clonedSet = new Set(state)
+                    clonedSet.add(fingerprint)
+                    return clonedSet
+                },
+            },
+        ],
         clickCount: [
             0,
             {
@@ -454,6 +467,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        playerErrorSeen: ({ errorEvent }) => {
+            const fingerprint = encodeURIComponent(
+                errorEvent.message + errorEvent.filename + errorEvent.lineno + errorEvent.colno
+            )
+            if (values.reportedReplayerErrors.has(fingerprint)) {
+                return
+            }
+            const extra = { fingerprint, recordingId: values.sessionRecordingId }
+            captureException(errorEvent.error, {
+                extra,
+                tags: { feature: 'replayer error swallowed' },
+            })
+            if (posthog.config.debug) {
+                posthog.capture('replayer error swallowed', extra)
+            }
+            actions.fingerprintReported(fingerprint)
+        },
         skipPlayerForward: ({ rrWebPlayerTime, skip }) => {
             // if the player has got stuck on the same timestamp for several animation frames
             // then we skip ahead a little to get past the blockage

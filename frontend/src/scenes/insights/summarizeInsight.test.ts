@@ -787,7 +787,7 @@ describe('summarizing insights', () => {
             const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
-                    include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+                    includeEventTypes: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
                 },
             }
 
@@ -800,11 +800,11 @@ describe('summarizing insights', () => {
             expect(result).toEqual('User paths based on all events')
         })
 
-        it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
+        it('summarizes a Paths insight based on all events (empty includeEventTypes case)', () => {
             const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
-                    include_event_types: [],
+                    includeEventTypes: [],
                 },
             }
 
@@ -821,9 +821,9 @@ describe('summarizing insights', () => {
             const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
-                    include_event_types: [PathType.PageView],
-                    start_point: '/landing-page',
-                    end_point: '/basket',
+                    includeEventTypes: [PathType.PageView],
+                    startPoint: '/landing-page',
+                    endPoint: '/basket',
                 },
             }
 
