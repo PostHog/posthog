@@ -148,7 +148,7 @@ export class ApiConfig {
         return this._currentOrganizationId
     }
 
-    static setCurrentOrganizationId(id: OrganizationType['id']): void {
+    static setCurrentOrganizationId(id: OrganizationType['id'] | null): void {
         this._currentOrganizationId = id
     }
 

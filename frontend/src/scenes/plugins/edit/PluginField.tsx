@@ -8,7 +8,7 @@ import { SECRET_FIELD_VALUE } from 'scenes/pipeline/configUtils'
 import { UploadField } from 'scenes/plugins/edit/UploadField'
 
 function JsonConfigField(props: {
-    onChange: (value: any) => void
+    onChange?: (value: any) => void
     className: string
     autoFocus: boolean
     value: any
@@ -20,7 +20,7 @@ function JsonConfigField(props: {
                     className="border"
                     language="json"
                     value={props.value}
-                    onChange={(v) => props.onChange(v ?? '')}
+                    onChange={(v) => props.onChange?.(v ?? '')}
                     height={height}
                     options={{
                         minimap: {
@@ -54,7 +54,7 @@ export function PluginField({
                 type="secondary"
                 icon={<IconEdit />}
                 onClick={() => {
-                    onChange(fieldConfig.default || '')
+                    onChange?.(fieldConfig.default || '')
                     setEditingSecret(true)
                 }}
             >
