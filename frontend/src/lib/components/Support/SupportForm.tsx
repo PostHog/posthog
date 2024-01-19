@@ -84,6 +84,15 @@ export function SupportForm(): JSX.Element | null {
             <Field name="kind" label="What type of message is this?">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </Field>
+            <Field name="target_area" label="What area does this best relate to?">
+                <LemonSelect
+                    fullWidth
+                    options={Object.entries(TARGET_AREA_TO_NAME).map(([key, value]) => ({
+                        label: value,
+                        value: key,
+                    }))}
+                />
+            </Field>
             <Field name="severity_level" label="What is the severity of this issue?">
                 <LemonSelect
                     fullWidth
@@ -97,15 +106,6 @@ export function SupportForm(): JSX.Element | null {
                 Check out the{' '}
                 <Link to="https://posthog.com/docs/support-options#severity-levels">severity level definitions</Link>
             </span>
-            <Field name="target_area" label="What area does this best relate to?">
-                <LemonSelect
-                    fullWidth
-                    options={Object.entries(TARGET_AREA_TO_NAME).map(([key, value]) => ({
-                        label: value,
-                        value: key,
-                    }))}
-                />
-            </Field>
             <Field
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
