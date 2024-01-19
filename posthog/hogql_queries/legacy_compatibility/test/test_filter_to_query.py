@@ -927,7 +927,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.kind, "RetentionQuery")
 
     def test_base_paths_query(self):
-        filter = {"insight": "PATHS"}
+        filter = {"insight": "PATHS", "step_limit": 2}
 
         query = filter_to_query(filter)
 
