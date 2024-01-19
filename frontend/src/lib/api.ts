@@ -51,6 +51,8 @@ import {
     OrganizationType,
     PersonListParams,
     PersonType,
+    PluginConfigTypeNew,
+    PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -268,16 +270,24 @@ class ApiRequest {
     }
 
     // # Plugins
-    public plugins(): ApiRequest {
-        return this.addPathComponent('plugins')
+    public plugins(orgId?: OrganizationType['id']): ApiRequest {
+        return this.organizationsDetail(orgId).addPathComponent('plugins')
     }
 
-    public pluginLogs(pluginConfigId: number): ApiRequest {
-        return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
+    public pluginsActivity(orgId?: OrganizationType['id']): ApiRequest {
+        return this.plugins(orgId).addPathComponent('activity')
     }
 
-    public pluginsActivity(): ApiRequest {
-        return this.organizations().current().plugins().addPathComponent('activity')
+    public pluginConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('plugin_configs')
+    }
+
+    public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
+        return this.pluginConfigs(teamId).addPathComponent(id)
+    }
+
+    public pluginLogs(pluginConfigId: number, teamId?: TeamType['id']): ApiRequest {
+        return this.pluginConfig(pluginConfigId, teamId).addPathComponent('logs')
     }
 
     // # Actions
@@ -1398,6 +1408,15 @@ const api = {
                 : recordingId
                 ? new ApiRequest().recordingSharing(recordingId).update({ data })
                 : null
+        },
+    },
+
+    pluginConfigs: {
+        async get(id: PluginConfigTypeNew['id']): Promise<PluginConfigWithPluginInfoNew> {
+            return await new ApiRequest().pluginConfig(id).get()
+        },
+        async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pluginConfigs().get()
         },
     },
 

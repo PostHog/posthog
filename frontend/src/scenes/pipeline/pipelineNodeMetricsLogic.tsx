@@ -4,9 +4,9 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { pipelineAppMetricsLogicType } from './pipelineAppMetricsLogicType'
+import type { pipelineNodeMetricsLogicType } from './pipelineNodeMetricsLogicType'
 
-export interface PipelineAppMetricsProps {
+export interface PipelineNodeMetricsProps {
     pluginConfigId: number
 }
 const DEFAULT_DATE_FROM = '-7d'
@@ -47,9 +47,9 @@ export interface AppMetricErrorDetail {
     }
 }
 
-export const pipelineAppMetricsLogic = kea<pipelineAppMetricsLogicType>([
-    props({} as PipelineAppMetricsProps),
-    key(({ pluginConfigId }: PipelineAppMetricsProps) => pluginConfigId),
+export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
+    props({} as PipelineNodeMetricsProps),
+    key(({ pluginConfigId }: PipelineNodeMetricsProps) => pluginConfigId),
     path((id) => ['scenes', 'pipeline', 'appMetricsLogic', id]),
     connect({
         values: [teamLogic, ['currentTeamId']],

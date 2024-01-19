@@ -4,13 +4,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
-    PipelineAppKind,
-    PipelineAppTab,
+    PipelineStage,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -18,35 +16,8 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { convertToPipelineNode, Destination } from './types'
 import { captureBatchExportEvent, capturePluginEvent } from './utils'
-
-interface DestinationTypeBase {
-    name: string
-    description?: string
-    enabled: boolean
-    config_url: string
-    metrics_url: string
-    logs_url: string
-    updated_at: string
-    frequency: 'realtime' | BatchExportConfiguration['interval']
-}
-export enum PipelineAppBackend {
-    BatchExport = 'batch_export',
-    Plugin = 'plugin',
-}
-
-export interface BatchExportDestination extends DestinationTypeBase {
-    backend: PipelineAppBackend.BatchExport
-    id: string
-    app_source_code_url?: never
-}
-export interface WebhookDestination extends DestinationTypeBase {
-    backend: PipelineAppBackend.Plugin
-    id: number
-    plugin: PluginType
-    app_source_code_url?: string
-}
-export type DestinationType = BatchExportDestination | WebhookDestination
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
@@ -54,7 +25,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
     }),
     actions({
-        toggleEnabled: (destination: DestinationType, enabled: boolean) => ({ destination, enabled }),
+        toggleEnabled: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
     }),
     loaders(({ values }) => ({
         plugins: [
@@ -161,42 +132,17 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
         destinations: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
-            (pluginConfigs, plugins, batchExportConfigs): DestinationType[] => {
-                const appDests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
-                    backend: PipelineAppBackend.Plugin,
-                    frequency: 'realtime',
-                    id: pluginConfig.id,
-                    name: pluginConfig.name,
-                    description: pluginConfig.description,
-                    enabled: pluginConfig.enabled,
-                    config_url: urls.pipelineApp(
-                        PipelineAppKind.Destination,
-                        pluginConfig.id,
-                        PipelineAppTab.Configuration
-                    ),
-                    metrics_url: urls.pipelineApp(PipelineAppKind.Destination, pluginConfig.id, PipelineAppTab.Metrics),
-                    logs_url: urls.pipelineApp(PipelineAppKind.Destination, pluginConfig.id, PipelineAppTab.Logs),
-                    app_source_code_url: '',
-                    plugin: plugins[pluginConfig.plugin],
-                    updated_at: pluginConfig.updated_at,
+            (pluginConfigs, plugins, batchExportConfigs): Destination[] => {
+                const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration)[] = Object.values(
+                    pluginConfigs
+                ).map((pluginConfig) => ({
+                    ...pluginConfig,
+                    plugin_info: plugins[pluginConfig.plugin] || null,
                 }))
-                const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
-                    backend: PipelineAppBackend.BatchExport,
-                    frequency: batchExport.interval,
-                    id: batchExport.id,
-                    name: batchExport.name,
-                    description: `${batchExport.destination.type} batch export`, // TODO: add to backend
-                    enabled: !batchExport.paused,
-                    config_url: urls.pipelineApp(
-                        PipelineAppKind.Destination,
-                        batchExport.id,
-                        PipelineAppTab.Configuration
-                    ),
-                    metrics_url: urls.pipelineApp(PipelineAppKind.Destination, batchExport.id, PipelineAppTab.Metrics),
-                    logs_url: urls.pipelineApp(PipelineAppKind.Destination, batchExport.id, PipelineAppTab.Logs),
-                    updated_at: batchExport.created_at, // TODO: Add updated_at to batch exports in the backend
-                }))
-                const enabledFirst = [...appDests, ...batchDests].sort((a, b) => Number(b.enabled) - Number(a.enabled))
+                const enabledFirst = rawDestinations
+                    .concat(Object.values(batchExportConfigs))
+                    .map((config) => convertToPipelineNode(config, PipelineStage.Destination))
+                    .sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
             },
         ],

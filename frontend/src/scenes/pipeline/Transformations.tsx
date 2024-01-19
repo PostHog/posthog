@@ -24,13 +24,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import {
-    PipelineAppKind,
-    PipelineAppTab,
-    PluginConfigTypeNew,
-    PluginConfigWithPluginInfoNew,
-    ProductKey,
-} from '~/types'
+import { PipelineNodeTab, PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
@@ -62,7 +56,7 @@ export function Transformations(): JSX.Element {
                     productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
                     description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton kind={PipelineAppKind.Transformation} />}
+                    actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
                     isEmpty={true}
                 />
             )}
@@ -114,10 +108,10 @@ export function Transformations(): JSX.Element {
                                         <>
                                             <Tooltip title="Click to update configuration, view metrics, and more">
                                                 <Link
-                                                    to={urls.pipelineApp(
-                                                        PipelineAppKind.Transformation,
+                                                    to={urls.pipelineStep(
+                                                        PipelineStage.Transformation,
                                                         pluginConfig.id,
-                                                        PipelineAppTab.Configuration
+                                                        PipelineNodeTab.Configuration
                                                     )}
                                                 >
                                                     <span className="row-name">{pluginConfig.name}</span>
@@ -196,10 +190,10 @@ export function Transformations(): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                     <LemonButton
-                                                        to={urls.pipelineApp(
-                                                            PipelineAppKind.Transformation,
+                                                        to={urls.pipelineStep(
+                                                            PipelineStage.Transformation,
                                                             pluginConfig.id,
-                                                            PipelineAppTab.Configuration
+                                                            PipelineNodeTab.Configuration
                                                         )}
                                                         id={`app-${pluginConfig.id}-configuration`}
                                                         fullWidth
@@ -207,10 +201,10 @@ export function Transformations(): JSX.Element {
                                                         {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                                     </LemonButton>
                                                     <LemonButton
-                                                        to={urls.pipelineApp(
-                                                            PipelineAppKind.Transformation,
+                                                        to={urls.pipelineStep(
+                                                            PipelineStage.Transformation,
                                                             pluginConfig.id,
-                                                            PipelineAppTab.Metrics
+                                                            PipelineNodeTab.Metrics
                                                         )}
                                                         id={`app-${pluginConfig.id}-metrics`}
                                                         fullWidth
@@ -218,10 +212,10 @@ export function Transformations(): JSX.Element {
                                                         View app metrics
                                                     </LemonButton>
                                                     <LemonButton
-                                                        to={urls.pipelineApp(
-                                                            PipelineAppKind.Transformation,
+                                                        to={urls.pipelineStep(
+                                                            PipelineStage.Transformation,
                                                             pluginConfig.id,
-                                                            PipelineAppTab.Logs
+                                                            PipelineNodeTab.Logs
                                                         )}
                                                         id={`app-${pluginConfig.id}-logs`}
                                                         fullWidth

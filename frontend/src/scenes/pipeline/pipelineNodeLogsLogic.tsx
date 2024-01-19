@@ -3,19 +3,19 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { PipelineAppBackend } from 'scenes/pipeline/destinationsLogic'
-import { pipelineAppLogic, PipelineAppLogicProps } from 'scenes/pipeline/pipelineAppLogic'
+import { pipelineNodeLogic, PipelineNodeLogicProps as PipelineNodeLogicProps } from 'scenes/pipeline/pipelineNodeLogic'
 
 import api from '~/lib/api'
 import { BatchExportLogEntry, PluginLogEntry } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import type { pipelineAppLogsLogicType } from './pipelineAppLogsLogicType'
+import type { pipelineNodeLogsLogicType } from './pipelineNodeLogsLogicType'
+import { PipelineBackend } from './types'
 import { LogLevelDisplay, logLevelsToTypeFilters, LogTypeDisplay } from './utils'
 
 export type LogEntry = BatchExportLogEntry | PluginLogEntry
 
-export enum PipelineAppLogLevel {
+export enum PipelineLogLevel {
     Debug = 'DEBUG',
     Log = 'LOG',
     Info = 'INFO',
@@ -23,15 +23,15 @@ export enum PipelineAppLogLevel {
     Error = 'ERROR',
 }
 
-export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
-    props({} as PipelineAppLogicProps),
-    key(({ id }: PipelineAppLogicProps) => id),
-    path((key) => ['scenes', 'pipeline', 'pipelineAppLogsLogic', key]),
-    connect((props: PipelineAppLogicProps) => ({
-        values: [teamLogic(), ['currentTeamId'], pipelineAppLogic(props), ['appBackend']],
+export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
+    props({} as PipelineNodeLogicProps),
+    key(({ id }: PipelineNodeLogicProps) => id),
+    path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
+    connect((props: PipelineNodeLogicProps) => ({
+        values: [teamLogic(), ['currentTeamId'], pipelineNodeLogic(props), ['nodeBackend']],
     })),
     actions({
-        setSelectedLogLevels: (levels: PipelineAppLogLevel[]) => ({
+        setSelectedLogLevels: (levels: PipelineLogLevel[]) => ({
             levels,
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -43,7 +43,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             __default: [] as PluginLogEntry[] | BatchExportLogEntry[],
             loadLogs: async () => {
                 let results: LogEntry[]
-                if (values.appBackend === PipelineAppBackend.BatchExport) {
+                if (values.nodeBackend === PipelineBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
                         values.currentTeamId,
@@ -67,7 +67,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             },
             loadMoreLogs: async () => {
                 let results: LogEntry[]
-                if (values.appBackend === PipelineAppBackend.BatchExport) {
+                if (values.nodeBackend === PipelineBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
                         values.currentTeamId,
@@ -106,7 +106,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                 }
 
                 let results: LogEntry[]
-                if (values.appBackend === PipelineAppBackend.BatchExport) {
+                if (values.nodeBackend === PipelineBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
                         values.currentTeamId,
@@ -132,7 +132,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
     })),
     reducers({
         selectedLogLevels: [
-            Object.values(PipelineAppLogLevel).filter((level) => level !== 'DEBUG'),
+            Object.values(PipelineLogLevel).filter((level) => level !== 'DEBUG'),
             {
                 setSelectedLogLevels: (_, { levels }) => levels,
             },
@@ -183,8 +183,8 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             },
         ],
         columns: [
-            (s) => [s.appBackend],
-            (appBackend): LemonTableColumns<LogEntry> => {
+            (s) => [s.nodeBackend],
+            (nodeBackend): LemonTableColumns<LogEntry> => {
                 return [
                     {
                         title: 'Timestamp',
@@ -193,15 +193,15 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                         render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
                     },
                     {
-                        title: appBackend === PipelineAppBackend.BatchExport ? 'Run Id' : 'Source',
-                        dataIndex: appBackend === PipelineAppBackend.BatchExport ? 'run_id' : 'source',
-                        key: appBackend === PipelineAppBackend.BatchExport ? 'run_id' : 'source',
+                        title: nodeBackend === PipelineBackend.BatchExport ? 'Run Id' : 'Source',
+                        dataIndex: nodeBackend === PipelineBackend.BatchExport ? 'run_id' : 'source',
+                        key: nodeBackend === PipelineBackend.BatchExport ? 'run_id' : 'source',
                     },
                     {
                         title: 'Level',
-                        key: appBackend === PipelineAppBackend.BatchExport ? 'level' : 'type',
-                        dataIndex: appBackend === PipelineAppBackend.BatchExport ? 'level' : 'type',
-                        render: appBackend === PipelineAppBackend.BatchExport ? LogLevelDisplay : LogTypeDisplay,
+                        key: nodeBackend === PipelineBackend.BatchExport ? 'level' : 'type',
+                        dataIndex: nodeBackend === PipelineBackend.BatchExport ? 'level' : 'type',
+                        render: nodeBackend === PipelineBackend.BatchExport ? LogLevelDisplay : LogTypeDisplay,
                     },
                     {
                         title: 'Message',

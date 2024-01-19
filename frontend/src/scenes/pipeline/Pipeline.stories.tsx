@@ -6,14 +6,14 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { PipelineAppKind, PipelineAppTab, PipelineTab } from '~/types'
+import { PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 import batchExports from './__mocks__/batchExports.json'
 import pluginConfigs from './__mocks__/pluginConfigs.json'
 import plugins from './__mocks__/plugins.json'
 import { appsManagementLogic } from './appsManagementLogic'
-import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { pipelineLogic } from './pipelineLogic'
+import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 
 export default {
     title: 'Scenes-App/Pipeline',
@@ -94,10 +94,10 @@ export function PipelineDestinationsPage(): JSX.Element {
 export function PipelineAppConfiguration(): JSX.Element {
     useEffect(() => {
         router.actions.push(
-            urls.pipelineApp(
-                PipelineAppKind.Destination,
+            urls.pipelineStep(
+                PipelineStage.Destination,
                 eventSequenceTimerPluginConfigId,
-                PipelineAppTab.Configuration
+                PipelineNodeTab.Configuration
             )
         )
     }, [])
@@ -106,30 +106,30 @@ export function PipelineAppConfiguration(): JSX.Element {
 
 export function PipelineAppConfigurationEmpty(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, geoIpConfigId, PipelineAppTab.Configuration))
+        router.actions.push(urls.pipelineStep(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Configuration))
     }, [])
     return <App />
 }
 
 export function PipelineAppConfiguration404(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, 4239084923809, PipelineAppTab.Configuration))
+        router.actions.push(urls.pipelineStep(PipelineStage.Destination, 4239084923809, PipelineNodeTab.Configuration))
     }, [])
     return <App />
 }
 
 export function PipelineAppMetrics(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, geoIpConfigId, PipelineAppTab.Metrics))
-        pipelineAppMetricsLogic({ pluginConfigId: geoIpConfigId }).mount()
+        router.actions.push(urls.pipelineStep(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Metrics))
+        pipelineNodeMetricsLogic({ pluginConfigId: geoIpConfigId }).mount()
     }, [])
     return <App />
 }
 
 export function PipelineAppMetricsErrorModal(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, geoIpConfigId, PipelineAppTab.Metrics))
-        const logic = pipelineAppMetricsLogic({ pluginConfigId: geoIpConfigId })
+        router.actions.push(urls.pipelineStep(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Metrics))
+        const logic = pipelineNodeMetricsLogic({ pluginConfigId: geoIpConfigId })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
     }, [])
@@ -143,7 +143,7 @@ export function PipelineAppLogs(): JSX.Element {
         },
     })
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, geoIpConfigId, PipelineAppTab.Logs))
+        router.actions.push(urls.pipelineStep(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Logs))
     }, [])
     return <App />
 }
@@ -156,7 +156,7 @@ export function PipelineAppLogsBatchExport(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(
-            urls.pipelineApp(PipelineAppKind.Destination, batchExports.results[0].id, PipelineAppTab.Logs)
+            urls.pipelineStep(PipelineStage.Destination, batchExports.results[0].id, PipelineNodeTab.Logs)
         )
     }, [])
     return <App />
