@@ -129,10 +129,7 @@ class PathsQueryRunner(QueryRunner):
         event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
 
         fields = [
-            ast.Alias(
-                alias="timestamp",
-                expr=ast.Call(name="toUnixTimestamp64Milli", args=[ast.Field(chain=["events", "timestamp"])]),
-            ),
+            ast.Field(chain=["events", "timestamp"]),
             ast.Field(chain=["events", "person_id"]),
             event_conditional,
         ]
@@ -343,7 +340,7 @@ class PathsQueryRunner(QueryRunner):
                             path_time_tuple.1 as path_basic,
                             path_time_tuple.2 as time,
                             session_index,
-                            arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple,
+                            arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple,
                             arraySplit(x -> if(x.3 < {session_time_threshold}, 0, 1), paths_tuple) as session_paths
                         FROM (
                             SELECT
@@ -371,7 +368,7 @@ class PathsQueryRunner(QueryRunner):
         table.select.extend(filtered_paths + limited_paths)
 
         other_selects = [
-            "arrayDifference(limited_timings) as timings_diff",
+            "arrayDifference(limited_timings) * 1000 as timings_diff",
             "arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings",
             "concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key /* last path item */",
         ]
