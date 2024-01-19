@@ -28,7 +28,7 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                 title={
                     hasFilters
                         ? 'Clean paths based using regex replacement.'
-                        : "You don't have path cleaning filters. Configure via gear icon."
+                        : "You don't have path cleaning filters. Configure via the gear icon."
                 }
             >
                 {/* This div is necessary for the tooltip to work. */}

@@ -29,7 +29,7 @@ from posthog.schema import (
 from posthog.schema import PathsQuery
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
-SESSION_TIME_THRESHOLD_DEFAULT_MILLISECONDS = 1800000  # milliseconds to 30 minutes
+SESSION_TIME_THRESHOLD_DEFAULT_MILLISECONDS = 30 * 60 * 1000  # 30 minutes
 EDGE_LIMIT_DEFAULT = 50
 
 
