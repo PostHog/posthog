@@ -50,7 +50,7 @@ const PipelineStep = ({
             </div>
         )}
 
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 min-h-13">
             <div className="flex items-center">
                 {plugin && <PluginImage plugin={plugin} size="small" />}
                 <h3 className={clsx('mb-0 mr-2', { 'ml-3': plugin })}>
