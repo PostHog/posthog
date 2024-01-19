@@ -382,7 +382,7 @@ export function MultipleChoiceQuestionBarChart({
     const resultsHeight =
         surveyMultipleChoiceResults[questionIndex].labels.length > 6
             ? surveyMultipleChoiceResults[questionIndex].labels.length * 50
-            : 400
+            : 300
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.MultipleChoice) {
         throw new Error(`Question type must be ${SurveyQuestionType.MultipleChoice}`)
