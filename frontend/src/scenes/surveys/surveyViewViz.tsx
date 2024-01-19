@@ -379,10 +379,7 @@ export function MultipleChoiceQuestionBarChart({
     const { loadSurveyMultipleChoiceResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
-    const resultsHeight =
-        surveyMultipleChoiceResults[questionIndex].labels.length > 6
-            ? surveyMultipleChoiceResults[questionIndex].labels.length * 50
-            : 300
+    const resultsHeight = surveyMultipleChoiceResults[questionIndex].labels.length * 50 + 60
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.MultipleChoice) {
         throw new Error(`Question type must be ${SurveyQuestionType.MultipleChoice}`)
