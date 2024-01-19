@@ -1228,6 +1228,114 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert modifiers.inCohortVia == InCohortVia.leftjoin_conjoined
 
+    @patch("posthog.hogql_queries.query_runner.create_default_modifiers_for_team")
+    def test_cohort_modifier_with_all_cohort(self, patch_create_default_modifiers_for_team):
+        self._create_test_events()
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p2",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort2",
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        modifiers = create_default_modifiers_for_team(self.team)
+
+        patch_create_default_modifiers_for_team.return_value = modifiers
+
+        self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=[cohort1.pk, cohort2.pk, "all"]),
+            hogql_modifiers=modifiers,
+        )
+
+        assert modifiers.inCohortVia == InCohortVia.subquery
+
+    @patch("posthog.hogql_queries.query_runner.create_default_modifiers_for_team")
+    def test_cohort_modifier_with_too_few_cohorts(self, patch_create_default_modifiers_for_team):
+        self._create_test_events()
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p2",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort2",
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        modifiers = create_default_modifiers_for_team(self.team)
+
+        patch_create_default_modifiers_for_team.return_value = modifiers
+
+        self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=[cohort1.pk, cohort2.pk, "all"]),
+            hogql_modifiers=modifiers,
+        )
+
+        assert modifiers.inCohortVia == InCohortVia.subquery
+
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):
         patch_sync_execute.side_effect = Exception("Error thrown inside thread")
