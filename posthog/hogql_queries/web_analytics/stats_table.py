@@ -148,10 +148,7 @@ LIMIT 10
             else:
                 return col_val
 
-        if response.results:
-            results = [[to_data(c, i) for (i, c) in enumerate(r)] if r else None for r in response.results]
-        else:
-            results = None
+        results = [[to_data(c, i) for (i, c) in enumerate(r)] for r in response.results]
 
         return WebStatsTableQueryResponse(
             columns=response.columns,
@@ -329,6 +326,7 @@ LIMIT 10
                 placeholders={
                     "counts_where": self.events_where(),
                     "where_breakdown": self.where_breakdown(),
+                    "sample_rate": self._sample_ratio,
                 },
             )
 

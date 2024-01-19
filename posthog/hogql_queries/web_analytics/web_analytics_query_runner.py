@@ -221,6 +221,7 @@ WHERE
     def _unsample(self, n: Optional[int | float]):
         if n is None:
             return None
+
         return (
             n * self._sample_rate.denominator / self._sample_rate.numerator
             if self._sample_rate.denominator
