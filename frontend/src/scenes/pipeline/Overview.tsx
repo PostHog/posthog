@@ -1,4 +1,5 @@
 import { LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -52,7 +53,7 @@ const PipelineStep = ({
         <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
                 {plugin && <PluginImage plugin={plugin} size="small" />}
-                <h3 className="mb-0 ml-3 mr-2">
+                <h3 className={clsx('mb-0 mr-2', { 'ml-3': plugin })}>
                     <Link to={to} subtle>
                         {name}
                     </Link>
