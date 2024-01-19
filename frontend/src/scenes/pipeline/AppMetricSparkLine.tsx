@@ -37,6 +37,7 @@ export function AppMetricSparkLine({
                 loading={appMetricsResponse === null}
                 labels={appMetricsResponse ? appMetricsResponse.metrics.dates : []}
                 data={displayData}
+                className="max-w-24"
             />
         )
     }
