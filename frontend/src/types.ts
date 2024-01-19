@@ -2846,9 +2846,9 @@ export interface AppContext {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 
 export interface PathEdgeParameters {
-    edge_limit?: number | undefined
-    min_edge_weight?: number | undefined
-    max_edge_weight?: number | undefined
+    edgeLimit?: number | undefined
+    minEdgeWeight?: number | undefined
+    maxEdgeWeight?: number | undefined
 }
 
 export enum SignificanceCode {

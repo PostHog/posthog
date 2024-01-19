@@ -60,7 +60,7 @@ const retentionQueryDefault: RetentionQuery = {
 const pathsQueryDefault: PathsQuery = {
     kind: NodeKind.PathsQuery,
     pathsFilter: {
-        include_event_types: [PathType.PageView],
+        includeEventTypes: [PathType.PageView],
     },
 }
 

@@ -439,7 +439,6 @@ describe('filtersToQueryNode', () => {
         it('converts all properties', () => {
             const filters: Partial<PathsFilterType> = {
                 insight: InsightType.PATHS,
-                path_type: PathType.Screen,
                 include_event_types: [PathType.Screen, PathType.PageView],
                 start_point: 'a',
                 end_point: 'b',
@@ -463,20 +462,19 @@ describe('filtersToQueryNode', () => {
             const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
-                    path_type: PathType.Screen,
-                    include_event_types: [PathType.Screen, PathType.PageView],
-                    start_point: 'a',
-                    end_point: 'b',
-                    path_groupings: ['c', 'd'],
-                    funnel_paths: FunnelPathType.between,
-                    funnel_filter: { a: 1 },
-                    exclude_events: ['e', 'f'],
-                    step_limit: 1,
-                    path_replacements: true,
-                    local_path_cleaning_filters: [{ alias: 'home' }],
-                    edge_limit: 1,
-                    min_edge_weight: 1,
-                    max_edge_weight: 1,
+                    includeEventTypes: [PathType.Screen, PathType.PageView],
+                    startPoint: 'a',
+                    endPoint: 'b',
+                    pathGroupings: ['c', 'd'],
+                    funnelPaths: FunnelPathType.between,
+                    funnelFilter: { a: 1 },
+                    excludeEvents: ['e', 'f'],
+                    stepLimit: 1,
+                    pathReplacements: true,
+                    localPathCleaningFilters: [{ alias: 'home' }],
+                    edgeLimit: 1,
+                    minEdgeWeight: 1,
+                    maxEdgeWeight: 1,
                 },
             }
             expect(result).toEqual(query)
@@ -1332,11 +1330,11 @@ describe('filtersToQueryNode', () => {
                     date_to: null,
                 },
                 pathsFilter: {
-                    start_point: 'https://hedgebox.net/',
-                    step_limit: 5,
-                    include_event_types: [PathType.PageView],
-                    path_groupings: ['/files/*'],
-                    edge_limit: 50,
+                    startPoint: 'https://hedgebox.net/',
+                    stepLimit: 5,
+                    includeEventTypes: [PathType.PageView],
+                    pathGroupings: ['/files/*'],
+                    edgeLimit: 50,
                 },
                 properties: {
                     type: FilterLogicalOperator.And,
