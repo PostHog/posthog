@@ -9,7 +9,7 @@ overrides:
 
 patchedDependencies:
   rrweb@2.0.0-alpha.11:
-    hash: wtihnhsbrvhsseahzoxzsqwdqu
+    hash: 7ca27zi72a5iqpbagmcrhqsp3e
     path: patches/rrweb@2.0.0-alpha.11.patch
 
 dependencies:
@@ -327,7 +327,7 @@ dependencies:
     version: 1.5.1
   rrweb:
     specifier: 2.0.0-alpha.11
-    version: 2.0.0-alpha.11(patch_hash=wtihnhsbrvhsseahzoxzsqwdqu)
+    version: 2.0.0-alpha.11(patch_hash=7ca27zi72a5iqpbagmcrhqsp3e)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -18899,7 +18899,7 @@ packages:
     resolution: {integrity: sha512-N0dzeJA2VhrlSOadkKwCVmV/DuNOwBH+Lhx89hAf9PQK4lCS8AP4AaylhqUdZOYHqwVjqsYel/uZ4hN79vuLhw==}
     dev: false
 
-  /rrweb@2.0.0-alpha.11(patch_hash=wtihnhsbrvhsseahzoxzsqwdqu):
+  /rrweb@2.0.0-alpha.11(patch_hash=7ca27zi72a5iqpbagmcrhqsp3e):
     resolution: {integrity: sha512-vJ2gNvF+pUG9C2aaau7iSNqhWBSc4BwtUO4FpegOtDObuH4PIaxNJOlgHz82+WxKr9XPm93ER0LqmNpy0KYdKg==}
     dependencies:
       '@rrweb/types': 2.0.0-alpha.11
