@@ -135,6 +135,7 @@ LIMIT 10
             timings=self.timings,
             modifiers=self.modifiers,
         )
+        assert response.results is not None
 
         def to_data(col_val, col_idx):
             if col_idx == 0:  # breakdown_value
