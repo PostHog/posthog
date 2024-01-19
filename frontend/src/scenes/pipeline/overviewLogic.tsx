@@ -20,8 +20,16 @@ import { pipelineTransformationsLogic } from './transformationsLogic'
 export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
     path(['scenes', 'pipeline', 'overviewLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId']],
-        actions: [pipelineTransformationsLogic, ['toggleEnabled']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            pipelineTransformationsLogic,
+            [
+                'pluginConfigs as transformationPluginConfigs',
+                'pluginConfigsLoading as transformationPluginConfigsLoading',
+            ],
+        ],
+        actions: [pipelineTransformationsLogic, ['loadPluginConfigs as loadTransformationPluginConfigs']],
     }),
     loaders(({ values }) => ({
         transformationPlugins: [
@@ -36,18 +44,6 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                         plugins[plugin.id] = plugin
                     }
                     return plugins
-                },
-            },
-        ],
-        transformationPluginConfigs: [
-            {} as Record<number, PluginConfigTypeNew>,
-            {
-                loadTransformationPluginConfigs: async () => {
-                    const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
-                        `api/projects/${values.currentTeamId}/pipeline_transformation_configs`
-                    )
-
-                    return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
             },
         ],

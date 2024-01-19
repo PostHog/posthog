@@ -247,15 +247,21 @@ export function Overview(): JSX.Element {
 
             <h2 className="mt-4">Transformations</h2>
             <div className="grid grid-cols-3 gap-4">
-                {transformationsLoading && <PipelineStepSkeleton />}
-                {transformations &&
-                    transformations.map((t) => <PipelineStepTransformation key={t.id} transformation={t} />)}
+                {transformationsLoading ? (
+                    <PipelineStepSkeleton />
+                ) : (
+                    transformations &&
+                    transformations.map((t) => <PipelineStepTransformation key={t.id} transformation={t} />)
+                )}
             </div>
 
             <h2 className="mt-4">Destinations</h2>
             <div className="grid grid-cols-3 gap-4">
-                {destinationsLoading && <PipelineStepSkeleton />}
-                {destinations && destinations.map((d) => <PipelineStepDestination key={d.id} destination={d} />)}
+                {destinationsLoading ? (
+                    <PipelineStepSkeleton />
+                ) : (
+                    destinations && destinations.map((d) => <PipelineStepDestination key={d.id} destination={d} />)
+                )}
             </div>
         </div>
     )
