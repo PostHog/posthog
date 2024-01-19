@@ -1,0 +1,87 @@
+diff --git a/es/rrweb/packages/rrweb/src/replay/canvas/index.js b/es/rrweb/packages/rrweb/src/replay/canvas/index.js
+index 47f3fe3e1aca7efe8cded4b0da8bb917317c485b..6ccda6ab9eff683d143ced68f7aea15d6fe4526f 100644
+--- a/es/rrweb/packages/rrweb/src/replay/canvas/index.js
++++ b/es/rrweb/packages/rrweb/src/replay/canvas/index.js
+@@ -1,40 +1,47 @@
+-import { __awaiter } from './../../../../../ext/tslib/tslib.es6.js';
+-import { CanvasContext } from '../../../../types/dist/types.js';
+-import webglMutation from './webgl.js';
+-import canvasMutation$1 from './2d.js';
++import { __awaiter } from "./../../../../../ext/tslib/tslib.es6.js";
++import { CanvasContext } from "../../../../types/dist/types.js";
++import webglMutation from "./webgl.js";
++import canvasMutation$1 from "./2d.js";
+ 
+-function canvasMutation({ event, mutation, target, imageMap, canvasEventMap, errorHandler, }) {
+-    return __awaiter(this, void 0, void 0, function* () {
+-        try {
+-            const precomputedMutation = canvasEventMap.get(event) || mutation;
+-            const commands = 'commands' in precomputedMutation
+-                ? precomputedMutation.commands
+-                : [precomputedMutation];
+-            if ([CanvasContext.WebGL, CanvasContext.WebGL2].includes(mutation.type)) {
+-                for (let i = 0; i < commands.length; i++) {
+-                    const command = commands[i];
+-                    yield webglMutation({
+-                        mutation: command,
+-                        type: mutation.type,
+-                        target,
+-                        imageMap,
+-                        errorHandler,
+-                    });
+-                }
+-                return;
+-            }
+-            yield canvasMutation$1({
+-                event,
+-                mutations: commands,
+-                target,
+-                imageMap,
+-                errorHandler,
+-            });
++export function canvasMutation({
++  event,
++  mutation,
++  target,
++  imageMap,
++  canvasEventMap,
++  errorHandler,
++}) {
++  return __awaiter(this, void 0, void 0, function* () {
++    try {
++      const precomputedMutation = canvasEventMap.get(event) || mutation;
++      const commands =
++        "commands" in precomputedMutation
++          ? precomputedMutation.commands
++          : [precomputedMutation];
++      if ([CanvasContext.WebGL, CanvasContext.WebGL2].includes(mutation.type)) {
++        for (let i = 0; i < commands.length; i++) {
++          const command = commands[i];
++          yield webglMutation({
++            mutation: command,
++            type: mutation.type,
++            target,
++            imageMap,
++            errorHandler,
++          });
+         }
+-        catch (error) {
+-            errorHandler(mutation, error);
+-        }
+-    });
++        return;
++      }
++      yield canvasMutation$1({
++        event,
++        mutations: commands,
++        target,
++        imageMap,
++        errorHandler,
++      });
++    } catch (error) {
++      errorHandler(mutation, error);
++    }
++  });
+ }
+ 
+ export { canvasMutation as default };
