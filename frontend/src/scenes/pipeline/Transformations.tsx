@@ -182,7 +182,7 @@ export const TransformationsMoreOverlay = ({
     enableReorder = false,
 }: {
     pluginConfig: PluginConfigWithPluginInfoNew
-    enableReorder: boolean
+    enableReorder?: boolean
 }): JSX.Element => {
     const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
     const { openReorderModal, toggleEnabled, loadPluginConfigs } = useActions(pipelineTransformationsLogic)
