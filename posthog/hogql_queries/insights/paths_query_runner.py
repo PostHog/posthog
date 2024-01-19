@@ -70,10 +70,10 @@ class PathsQueryRunner(QueryRunner):
             return []
 
         if PathType.field_pageview in self.query.pathsFilter.include_event_types:
-            or_conditions.append(parse_expr(f"event = '{PAGEVIEW_EVENT}'"))
+            or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=PAGEVIEW_EVENT)}))
 
         if PathType.field_screen in self.query.pathsFilter.include_event_types:
-            or_conditions.append(parse_expr(f"event = '{SCREEN_EVENT}'"))
+            or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=SCREEN_EVENT)}))
 
         if PathType.custom_event in self.query.pathsFilter.include_event_types:
             or_conditions.append(parse_expr("NOT startsWith(events.event, '$')"))
@@ -108,10 +108,16 @@ class PathsQueryRunner(QueryRunner):
             event_hogql = self.query.pathsFilter.paths_hogql_expression or event_hogql
 
         if self._should_query_event(PAGEVIEW_EVENT):
-            event_hogql = f"if(event = '{PAGEVIEW_EVENT}', replaceRegexpAll(ifNull(properties.$current_url, ''), '(.)/$', '\\\\1'), {event_hogql})"
+            event_hogql = parse_expr(
+                "if(event = {event}, replaceRegexpAll(ifNull(properties.$current_url, ''), '(.)/$', '\\\\1'), {event_hogql})",
+                {"event": ast.Constant(value=PAGEVIEW_EVENT), "event_hogql": event_hogql},
+            )
 
         if self._should_query_event(SCREEN_EVENT):
-            event_hogql = f"if(event = '{SCREEN_EVENT}', properties.$screen_name, {event_hogql})"
+            event_hogql = parse_expr(
+                "if(event = {event}, properties.$screen_name, {event_hogql})",
+                {"event": ast.Constant(value=SCREEN_EVENT), "event_hogql": event_hogql},
+            )
 
         return event_hogql
 
@@ -120,7 +126,7 @@ class PathsQueryRunner(QueryRunner):
         path_replacements: list[PathCleaningFilter] = []
 
         event_hogql = self.construct_event_hogql()
-        event_conditional = parse_expr(f"ifNull({event_hogql}, '') AS path_item_ungrouped")
+        event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
 
         fields = [
             ast.Alias(
@@ -183,8 +189,11 @@ class PathsQueryRunner(QueryRunner):
             ),
             ast.Alias(
                 alias="path_item",
-                expr=parse_expr(f"if(group_index > 0, groupings[group_index], {final_path_item_column}) AS path_item"),
-            ),  # TODO: path cleaning rules
+                expr=parse_expr(
+                    "if(group_index > 0, groupings[group_index], {final_path_item_column}) AS path_item",
+                    {"final_path_item_column": ast.Constant(value=final_path_item_column)},
+                ),
+            ),
         ]
 
         if self.query.properties is not None and self.query.properties != []:
@@ -241,9 +250,23 @@ class PathsQueryRunner(QueryRunner):
             "timings": "timings",
         }
         return [
-            parse_expr(
-                f"if(target_index > 0, {self.get_array_compacting_function()}({orig}, target_index), {orig})"
-                f" as filtered_{field}"
+            ast.Alias(
+                alias=f"filtered_{field}",
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Field(chain=["target_index"]),
+                            right=ast.Constant(value=0),
+                        ),
+                        ast.Call(
+                            name=self.get_array_compacting_function(),
+                            args=[ast.Field(chain=[orig]), ast.Field(chain=["target_index"])],
+                        ),
+                        ast.Field(chain=[orig]),
+                    ],
+                ),
             )
             for orig, field in fields.items()
         ]
@@ -251,7 +274,17 @@ class PathsQueryRunner(QueryRunner):
     def get_limited_path_ordering(self) -> list[ast.Expr]:
         fields_to_include = ["path", "timings"]
         return [
-            parse_expr(f"arraySlice(filtered_{field}, 1, {self.event_in_session_limit}) as limited_{field}")
+            ast.Alias(
+                alias=f"limited_{field}",
+                expr=ast.Call(
+                    name="arraySlice",
+                    args=[
+                        ast.Field(chain=[f"filtered_{field}"]),
+                        ast.Constant(value=1),
+                        ast.Constant(value=self.event_in_session_limit),
+                    ],
+                ),
+            )
             for field in fields_to_include
         ]
 
