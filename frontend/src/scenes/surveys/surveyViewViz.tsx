@@ -380,7 +380,7 @@ export function MultipleChoiceQuestionBarChart({
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
     const resultsHeight =
-        surveyMultipleChoiceResults[questionIndex].labels.length > 8
+        surveyMultipleChoiceResults[questionIndex].labels.length > 6
             ? surveyMultipleChoiceResults[questionIndex].labels.length * 50
             : 400
     const question = survey.questions[questionIndex]
