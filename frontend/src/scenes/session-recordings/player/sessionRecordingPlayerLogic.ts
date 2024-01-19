@@ -540,7 +540,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
                 plugins,
-                // ts-expect-error - this is a valid option added by patching rrweb player 🙈
+                // this is an option added by patching rrweb player 🙈
                 onError: (error: any) => {
                     actions.playerErrorSeen(error)
                 },
