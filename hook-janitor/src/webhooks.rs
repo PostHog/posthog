@@ -17,6 +17,7 @@ use crate::cleanup::Cleaner;
 use crate::kafka_producer::KafkaContext;
 
 use hook_common::kafka_messages::app_metrics::{AppMetric, AppMetricCategory};
+use hook_common::metrics::get_current_timestamp_seconds;
 
 #[derive(Error, Debug)]
 pub enum WebhookCleanerError {
@@ -446,6 +447,8 @@ impl Cleaner for WebhookCleaner {
         match self.cleanup_impl().await {
             Ok(stats) => {
                 metrics::counter!("webhook_cleanup_success",).increment(1);
+                metrics::gauge!("webhook_cleanup_last_success_timestamp",)
+                    .set(get_current_timestamp_seconds());
 
                 if stats.rows_processed > 0 {
                     let elapsed_time = start_time.elapsed().as_secs_f64();

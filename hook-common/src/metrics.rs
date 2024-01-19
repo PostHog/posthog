@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
@@ -70,4 +70,13 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     metrics::histogram!("http_requests_duration_seconds", &labels).record(latency);
 
     response
+}
+
+/// Returns the number of seconds since the Unix epoch, to use in prom gauges.
+/// Saturates to zero if the system time is set before epoch.
+pub fn get_current_timestamp_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as f64
 }
