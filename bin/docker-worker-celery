@@ -12,14 +12,13 @@ help () {
   echo "  --concurrency=<N>     start N workers (overrides env var WEB_CONCURRENCY)"
   echo
   echo "Advanced Celery options (disabled by default):"
-  echo "  --with-gossip         start Celery gossip (useful for Prometheus)"
   echo "  --with-heartbeat      start Celery internal heartbeat (normally not useful)"
   echo "  --with-mingle         start Celery mingle (normally not useful)"
   exit 0
 }
 
 with_scheduler=false
-with_gossip=false
+with_gossip=true
 with_heartbeat=false
 with_mingle=false
 
@@ -35,10 +34,6 @@ while test $# -gt 0; do
     --with-beat) # Deprecated since the name is too similar to "heartbeat"
       echo "⚠️ Using docker-worker-celery with --with-beat. This argument is deprecated. Use --with-scheduler instead!"
       with_scheduler=true
-      shift
-      ;;
-    --with-gossip)
-      with_gossip=true
       shift
       ;;
     --with-heartbeat)
@@ -87,7 +82,7 @@ echo
 
 ./bin/migrate-check
 
-SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]} &
+SKIP_ASYNC_MIGRATIONS_SETUP=0 CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES celery -A posthog worker ${FLAGS[*]} &
 
 # Exit if any processes exit, and exit with it's exit code
 wait -n

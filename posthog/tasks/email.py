@@ -4,10 +4,10 @@ from typing import List, Optional
 
 import posthoganalytics
 import structlog
+from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
-from posthog.celery import app
 from posthog.cloud_utils import is_cloud
 from posthog.email import EmailMessage, is_email_available
 from posthog.models import (
@@ -31,7 +31,8 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
@@ -55,7 +56,8 @@ def send_invite(invite_id: str) -> None:
     message.send()
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
@@ -78,7 +80,8 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         message.send()
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
@@ -101,7 +104,8 @@ def send_password_reset(user_id: int, token: str) -> None:
     message.send()
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
@@ -127,7 +131,8 @@ def send_email_verification(user_id: int, token: str) -> None:
     )
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
@@ -177,7 +182,8 @@ def send_fatal_plugin_error(
         message.send(send_async=False)
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
@@ -193,7 +199,8 @@ def send_canary_email(user_email: str) -> None:
     message.send()
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
@@ -225,7 +232,8 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
     message_new_address.send(send_async=False)
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
@@ -243,7 +251,8 @@ def send_async_migration_complete_email(migration_key: str, time: str) -> None:
     send_message_to_all_staff_users(message)
 
 
-@app.task(
+@shared_task(
+    ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=True,
