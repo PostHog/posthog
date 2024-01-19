@@ -118,7 +118,7 @@ export function DateFilter({
             />
         ) : view === DateFilterView.FixedDate ? (
             <PropertyFilterDatePicker
-                autoFocus={isFixedDate}
+                autoFocus
                 operator={PropertyOperator.Exact}
                 value={rangeDateFrom ? rangeDateFrom.toString() : dayjs().toString()}
                 setValue={(date) => {
@@ -162,6 +162,7 @@ export function DateFilter({
                 {showRollingRangePicker && (
                     <RollingDateRangeFilter
                         dateFrom={dateFrom}
+                        dateRangeFilterLabel={isFixedDateMode ? 'The last' : undefined}
                         selected={isRollingDateRange}
                         onChange={(fromDate) => {
                             setDate(fromDate, '')

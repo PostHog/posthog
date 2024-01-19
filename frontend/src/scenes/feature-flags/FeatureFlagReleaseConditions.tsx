@@ -15,7 +15,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, dateFilterToText, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -183,11 +183,10 @@ export function FeatureFlagReleaseConditions({
                                                 >
                                                     {val}
                                                     {isPropertyFilterWithOperator(property) &&
-                                                    ['is_relative_date_before', 'is_relative_date_after'].includes(
-                                                        property.operator
-                                                    )
+                                                    ['is_date_before', 'is_date_after'].includes(property.operator) &&
+                                                    dateStringToComponents(String(val)) // check it's a relative date
                                                         ? ` ( ${dateFilterToText(
-                                                              '-' + String(val),
+                                                              String(val),
                                                               undefined,
                                                               '',
                                                               [],
@@ -219,7 +218,7 @@ export function FeatureFlagReleaseConditions({
                                 metadataTaxonomicGroupToPropertyFilterType={PropertyFilterType.Person}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
-                                allowRelativeDateOperators
+                                allowRelativeDateOptions
                                 errorMessages={
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
                                         ? propertySelectErrors[index].properties?.map((message, index) => {

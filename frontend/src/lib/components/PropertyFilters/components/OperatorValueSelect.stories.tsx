@@ -45,15 +45,6 @@ export function OperatorValueWithDateTimeProperty(): JSX.Element {
     )
 }
 
-export function OperatorValueWithRelativeDateTimeProperty(): JSX.Element {
-    return (
-        <>
-            <h1>Relative Date Time Property</h1>
-            <OperatorValueSelect {...props(PropertyType.DateTime)} addRelativeDateTimeOperators />
-        </>
-    )
-}
-
 export function OperatorValueWithNumericProperty(): JSX.Element {
     return (
         <>

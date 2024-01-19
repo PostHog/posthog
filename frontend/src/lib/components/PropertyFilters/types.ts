@@ -50,5 +50,5 @@ export interface PropertyFilterInternalProps {
     hasRowOperator?: boolean
     metadataSource?: AnyDataNode
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
-    allowRelativeDateOperators?: boolean
+    allowRelativeDateOptions?: boolean
 }

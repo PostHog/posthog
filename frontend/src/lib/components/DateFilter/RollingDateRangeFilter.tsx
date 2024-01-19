@@ -25,11 +25,6 @@ type RollingDateRangeFilterProps = {
         ref?: React.MutableRefObject<HTMLDivElement | null>
     }
     dateRangeFilterLabel?: string
-    /* By default, we only update default counter values when selected, because that's the preferred way in insights.
-     * However, in some cases, we want to update the default counter values even when not selected, like
-     * when inside a TaxonomicFilter component.
-     */
-    forceUpdateDefaults?: boolean
 }
 
 export function RollingDateRangeFilter({
@@ -40,10 +35,9 @@ export function RollingDateRangeFilter({
     selected,
     max,
     dateRangeFilterLabel = 'In the last',
-    forceUpdateDefaults,
     pageKey,
 }: RollingDateRangeFilterProps): JSX.Element {
-    const logicProps = { onChange, dateFrom, selected, max, forceUpdateDefaults, pageKey }
+    const logicProps = { onChange, dateFrom, selected, max, pageKey }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
         useActions(rollingDateRangeFilterLogic(logicProps))
     const { counter, dateOption, formattedDate, startOfDateRange } = useValues(rollingDateRangeFilterLogic(logicProps))

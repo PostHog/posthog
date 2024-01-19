@@ -1,6 +1,6 @@
 import './RollingDateRangeFilter.scss'
 
-import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { dateFilterToText } from 'lib/utils'
 
@@ -20,17 +20,11 @@ export type RollingDateFilterLogicPropsType = {
     onChange?: (fromDate: string) => void
     dateFrom?: Dayjs | string | null
     max?: number | null
-    forceUpdateDefaults?: boolean
     pageKey?: string
 }
 
-const counterDefault = (
-    selected: boolean | undefined,
-    shouldUpdate: boolean | undefined,
-    dateFrom: Dayjs | string | null | undefined
-): number => {
-    const shouldUpdateDefaults = shouldUpdate ?? selected
-    if (shouldUpdateDefaults && dateFrom && typeof dateFrom === 'string') {
+const counterDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): number => {
+    if (selected && dateFrom && typeof dateFrom === 'string') {
         const counter = parseInt(dateFrom.slice(1, -1))
         if (counter) {
             return counter
@@ -39,14 +33,8 @@ const counterDefault = (
     return 3
 }
 
-const dateOptionDefault = (
-    selected: boolean | undefined,
-    shouldUpdate: boolean | undefined,
-    dateFrom: Dayjs | string | null | undefined
-): string => {
-    const shouldUpdateDefaults = shouldUpdate ?? selected
-
-    if (shouldUpdateDefaults && dateFrom && typeof dateFrom === 'string') {
+const dateOptionDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): string => {
+    if (selected && dateFrom && typeof dateFrom === 'string') {
         const dateOption = dateOptionsMap[dateFrom.slice(-1)]
         if (dateOption) {
             return dateOption
@@ -69,7 +57,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
     }),
     reducers(({ props }) => ({
         counter: [
-            counterDefault(props.selected, props.forceUpdateDefaults, props.dateFrom) as number | null,
+            counterDefault(props.selected, props.dateFrom) as number | null,
             {
                 increaseCounter: (state) => (state ? (!props.max || state < props.max ? state + 1 : state) : 1),
                 decreaseCounter: (state) => {
@@ -83,7 +71,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
             },
         ],
         dateOption: [
-            dateOptionDefault(props.selected, props.forceUpdateDefaults, props.dateFrom),
+            dateOptionDefault(props.selected, props.dateFrom),
             {
                 setDateOption: (_, { option }) => option,
             },
@@ -127,14 +115,6 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
             },
         ],
     })),
-    propsChanged(({ actions, props }, oldProps) => {
-        // TRICKY: This forces prop updates to update the counter as well, so we aren't stuck with old values
-        // in the counter
-        if (props.dateFrom !== oldProps.dateFrom && props.forceUpdateDefaults) {
-            actions.setCounter(counterDefault(props.selected, props.forceUpdateDefaults, props.dateFrom))
-            actions.setDateOption(dateOptionDefault(props.selected, props.forceUpdateDefaults, props.dateFrom))
-        }
-    }),
     listeners(({ props, values }) => ({
         select: () => {
             props.onChange?.(values.value)

@@ -500,8 +500,6 @@ export enum PropertyOperator {
     IsDateExact = 'is_date_exact',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
-    IsRelativeDateBefore = 'is_relative_date_before',
-    IsRelativeDateAfter = 'is_relative_date_after',
     Between = 'between',
     NotBetween = 'not_between',
     Minimum = 'min',

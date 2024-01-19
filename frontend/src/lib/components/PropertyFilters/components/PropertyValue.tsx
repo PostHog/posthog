@@ -2,28 +2,18 @@ import './PropertyValue.scss'
 
 import { AutoComplete } from 'antd'
 import clsx from 'clsx'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import {
-    formatDate,
-    isOperatorDate,
-    isOperatorFlag,
-    isOperatorMulti,
-    isOperatorRelativeDate,
-    toString,
-} from 'lib/utils'
+import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
-
-import { propertyFilterLogic } from '../propertyFilterLogic'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -37,6 +27,7 @@ export interface PropertyValueProps {
     autoFocus?: boolean
     allowCustom?: boolean
     eventNames?: string[]
+    addRelativeDateTimeOptions?: boolean
 }
 
 function matchesLowerCase(needle?: string, haystack?: string): boolean {
@@ -58,6 +49,7 @@ export function PropertyValue({
     autoFocus = false,
     allowCustom = true,
     eventNames = [],
+    addRelativeDateTimeOptions = false,
 }: PropertyValueProps): JSX.Element {
     // what the human has typed into the box
     const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
@@ -68,12 +60,8 @@ export function PropertyValue({
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
-    // Get key from bound logic props if present
-    const pageKey = useMountedLogic(propertyFilterLogic)?.props?.pageKey
-
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
-    const isRelativeDateTimeProperty = operator && isOperatorRelativeDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
     const isDurationProperty =
@@ -209,57 +197,52 @@ export function PropertyValue({
         )
     }
 
-    return isDateTimeProperty && operator === PropertyOperator.IsDateExact ? (
+    if (isDateTimeProperty && addRelativeDateTimeOptions) {
+        if (operator === PropertyOperator.IsDateExact) {
+            return (
+                <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+            )
+        }
+
+        return (
+            <DateFilter
+                dateFrom={String(value)}
+                onChange={setValue}
+                max={10000}
+                isFixedDateMode
+                dateOptions={[
+                    {
+                        key: 'Last 24 hours',
+                        values: ['-24h'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(24, 'h')),
+                        defaultInterval: 'hour',
+                    },
+                    {
+                        key: 'Last 7 days',
+                        values: ['-7d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
+                        defaultInterval: 'day',
+                    },
+                    {
+                        key: 'Last 14 days',
+                        values: ['-14d'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
+                        defaultInterval: 'day',
+                    },
+                ]}
+                size="medium"
+                makeLabel={(_, startOfRange) => (
+                    <span className="hide-when-small">
+                        Matches all values {operator === PropertyOperator.IsDateBefore ? 'before' : 'after'}{' '}
+                        {startOfRange}
+                    </span>
+                )}
+            />
+        )
+    }
+
+    return isDateTimeProperty ? (
         <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
-    ) : isDateTimeProperty ? (
-        <DateFilter
-            dateFrom={String(value)}
-            onChange={setValue}
-            max={10000}
-            isFixedDateMode
-            dateOptions={[
-                {
-                    key: 'Last 24 hours',
-                    values: ['-24h'],
-                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(24, 'h')),
-                    defaultInterval: 'hour',
-                },
-                {
-                    key: 'Last 7 days',
-                    values: ['-7d'],
-                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(7, 'd')),
-                    defaultInterval: 'day',
-                },
-                {
-                    key: 'Last 14 days',
-                    values: ['-14d'],
-                    getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.subtract(14, 'd')),
-                    defaultInterval: 'day',
-                },
-            ]}
-            size="medium"
-            makeLabel={(_, startOfRange) => (
-                <span className="hide-when-small">
-                    Matches all values {operator === PropertyOperator.IsDateBefore ? 'before' : 'after'} {startOfRange}
-                </span>
-            )}
-        />
-    ) : isRelativeDateTimeProperty ? (
-        <RollingDateRangeFilter
-            pageKey={pageKey}
-            dateRangeFilterLabel="the last"
-            // :TRICKY: This filter adds a default negative sign to the value, which we don't need
-            dateFrom={`-${String(value)}`}
-            onChange={(newValue) => setValue(newValue.slice(1))}
-            max={10000}
-            makeLabel={(_, startOfRange) => (
-                <span className="hide-when-small">
-                    Matches all values {operator === PropertyOperator.IsRelativeDateBefore ? 'before' : 'after'}{' '}
-                    {startOfRange}
-                </span>
-            )}
-            forceUpdateDefaults
-        />
     ) : isDurationProperty ? (
         <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
     ) : (

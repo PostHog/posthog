@@ -238,11 +238,6 @@ export const dateTimeOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
-export const relativeDateTimeOperatorMap: Record<string, string> = {
-    is_relative_date_before: '< relative date before',
-    is_relative_date_after: '> relative date after',
-}
-
 export const booleanOperatorMap: Record<string, string> = {
     exact: '= equals',
     is_not: "≠ doesn't equal",
@@ -262,7 +257,6 @@ export const selectorOperatorMap: Record<string, string> = {
 
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
-    ...relativeDateTimeOperatorMap,
     ...stringOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
@@ -282,14 +276,11 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Selector: selectorOperatorMap,
 }
 
-export function chooseOperatorMap(
-    propertyType: PropertyType | undefined,
-    addRelativeDateFilters?: boolean
-): Record<string, string> {
+export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
     let choice = genericOperatorMap
     if (propertyType) {
-        if (propertyType === PropertyType.DateTime && addRelativeDateFilters) {
-            choice = { ...operatorMappingChoice[propertyType], ...relativeDateTimeOperatorMap }
+        if (propertyType === PropertyType.DateTime) {
+            choice = { ...operatorMappingChoice[propertyType] }
         } else {
             choice = operatorMappingChoice[propertyType] || genericOperatorMap
         }
@@ -325,10 +316,6 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
     return [PropertyOperator.IsDateBefore, PropertyOperator.IsDateAfter, PropertyOperator.IsDateExact].includes(
         operator
     )
-}
-
-export function isOperatorRelativeDate(operator: PropertyOperator): boolean {
-    return [PropertyOperator.IsRelativeDateBefore, PropertyOperator.IsRelativeDateAfter].includes(operator)
 }
 
 /** Compare objects deeply. */
@@ -940,6 +927,12 @@ export function dateFilterToText(
         if (dateOption && counter) {
             let date = null
             switch (dateOption) {
+                case 'year':
+                    date = dayjs().subtract(counter, 'y')
+                    break
+                case 'hour':
+                    date = dayjs().subtract(counter, 'h')
+                    break
                 case 'quarter':
                     date = dayjs().subtract(counter * 3, 'M')
                     break
