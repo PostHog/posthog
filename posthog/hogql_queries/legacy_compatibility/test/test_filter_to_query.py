@@ -1373,7 +1373,7 @@ class TestFilterToQuery(BaseTest):
                     )
                 ],
                 binCount=15,
-                funnelAggregateByHogql="person_id",
+                funnelAggregateByHogQL="person_id",
                 # funnel_step_reference=FunnelStepReference.previous,
             ),
         )

@@ -297,7 +297,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
                     : undefined,
             layout: filters.layout,
             hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
-            funnelAggregateByhogql: filters.funnel_aggregate_by_hogql,
+            funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
         })
     }
 

@@ -191,7 +191,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedFunnelsProps.bin_count = queryCopy.funnelsFilter?.binCount
         camelCasedFunnelsProps.breakdown_attribution_type = queryCopy.funnelsFilter?.breakdownAttributionType
         camelCasedFunnelsProps.breakdown_attribution_value = queryCopy.funnelsFilter?.breakdownAttributionValue
-        camelCasedFunnelsProps.funnel_aggregate_by_hogql = queryCopy.funnelsFilter?.funnelAggregateByHogql
+        camelCasedFunnelsProps.funnel_aggregate_by_hogql = queryCopy.funnelsFilter?.funnelAggregateByHogQL
         camelCasedFunnelsProps.funnel_to_step = queryCopy.funnelsFilter?.funnelToStep
         camelCasedFunnelsProps.funnel_from_step = queryCopy.funnelsFilter?.funnelFromStep
         camelCasedFunnelsProps.funnel_order_type = queryCopy.funnelsFilter?.funnelOrderType
@@ -204,7 +204,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.funnelsFilter?.binCount
         delete queryCopy.funnelsFilter?.breakdownAttributionType
         delete queryCopy.funnelsFilter?.breakdownAttributionValue
-        delete queryCopy.funnelsFilter?.funnelAggregateByHogql
+        delete queryCopy.funnelsFilter?.funnelAggregateByHogQL
         delete queryCopy.funnelsFilter?.funnelToStep
         delete queryCopy.funnelsFilter?.funnelFromStep
         delete queryCopy.funnelsFilter?.funnelOrderType

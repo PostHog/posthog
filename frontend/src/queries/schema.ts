@@ -569,7 +569,7 @@ export type FunnelsFilter = {
     binCount?: FunnelsFilterLegacy['bin_count']
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: FunnelsFilterLegacy['breakdown_attribution_value']
-    funnelAggregateByHogql?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
     funnelToStep?: FunnelsFilterLegacy['funnel_to_step']
     funnelFromStep?: FunnelsFilterLegacy['funnel_from_step']
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']

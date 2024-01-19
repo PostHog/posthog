@@ -1410,7 +1410,7 @@
                     },
                     "type": "array"
                 },
-                "funnelAggregateByHogql": {
+                "funnelAggregateByHogQL": {
                     "type": "string"
                 },
                 "funnelFromStep": {

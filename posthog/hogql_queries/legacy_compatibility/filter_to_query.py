@@ -352,7 +352,7 @@ def _insight_filter(filter: Dict):
                 ],
                 layout=filter.get("layout"),
                 # hidden_legend_breakdowns: cleanHiddenLegendSeries(filter.get('hidden_legend_keys')),
-                funnelAggregateByHogql=filter.get("funnel_aggregate_by_hogql"),
+                funnelAggregateByHogQL=filter.get("funnel_aggregate_by_hogql"),
             ),
         }
     elif _insight_type(filter) == "RETENTION":

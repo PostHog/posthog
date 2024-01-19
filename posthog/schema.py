@@ -955,7 +955,7 @@ class FunnelsFilter(BaseModel):
     breakdownAttributionType: Optional[BreakdownAttributionType] = None
     breakdownAttributionValue: Optional[float] = None
     exclusions: Optional[List[FunnelExclusion]] = None
-    funnelAggregateByHogql: Optional[str] = None
+    funnelAggregateByHogQL: Optional[str] = None
     funnelFromStep: Optional[float] = None
     funnelOrderType: Optional[StepOrderValue] = None
     funnelStepReference: Optional[FunnelStepReference] = None

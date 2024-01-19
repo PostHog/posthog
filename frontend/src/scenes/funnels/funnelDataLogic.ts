@@ -124,8 +124,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return { singular: '', plural: '' }
                 }
 
-                return querySource.funnelsFilter?.funnelAggregateByHogql
-                    ? aggregationLabelForHogQL(querySource.funnelsFilter.funnelAggregateByHogql)
+                return querySource.funnelsFilter?.funnelAggregateByHogQL
+                    ? aggregationLabelForHogQL(querySource.funnelsFilter.funnelAggregateByHogQL)
                     : aggregationLabel(querySource.aggregation_group_type_index)
             },
         ],
