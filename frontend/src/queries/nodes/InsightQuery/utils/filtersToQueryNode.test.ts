@@ -423,11 +423,11 @@ describe('filtersToQueryNode', () => {
             const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
-                    retention_type: 'retention_first_time',
-                    retention_reference: 'total',
-                    total_intervals: 2,
-                    returning_entity: { id: '1' },
-                    target_entity: { id: '1' },
+                    retentionType: 'retention_first_time',
+                    retentionReference: 'total',
+                    totalIntervals: 2,
+                    returningEntity: { id: '1' },
+                    targetEntity: { id: '1' },
                     period: RetentionPeriod.Day,
                 },
             }
@@ -674,15 +674,15 @@ describe('filtersToQueryNode', () => {
                 },
                 retentionFilter: {
                     period: RetentionPeriod.Week,
-                    target_entity: {
+                    targetEntity: {
                         id: 'signed_up',
                         name: 'signed_up',
                         type: 'events',
                         order: 0,
                     },
-                    retention_type: 'retention_first_time',
-                    total_intervals: 9,
-                    returning_entity: {
+                    retentionType: 'retention_first_time',
+                    totalIntervals: 9,
+                    returningEntity: {
                         id: 1,
                         name: 'Interacted with file',
                         type: 'actions',

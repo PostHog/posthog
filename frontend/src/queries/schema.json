@@ -3228,6 +3228,31 @@
         },
         "RetentionFilter": {
             "additionalProperties": false,
+            "properties": {
+                "period": {
+                    "$ref": "#/definitions/RetentionPeriod"
+                },
+                "retentionReference": {
+                    "enum": ["total", "previous"],
+                    "type": "string"
+                },
+                "retentionType": {
+                    "$ref": "#/definitions/RetentionType"
+                },
+                "returningEntity": {
+                    "$ref": "#/definitions/RetentionEntity"
+                },
+                "targetEntity": {
+                    "$ref": "#/definitions/RetentionEntity"
+                },
+                "totalIntervals": {
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "RetentionFilterLegacy": {
+            "additionalProperties": false,
             "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "period": {
