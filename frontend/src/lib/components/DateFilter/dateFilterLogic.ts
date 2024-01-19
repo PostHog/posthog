@@ -74,12 +74,12 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             (dateFrom, dateTo) => !!(dateFrom && dateTo && dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()),
         ],
         isDateToNow: [
-            (s, p) => [s.dateFrom, s.dateTo, p.isFixedDateMode],
+            (s) => [s.dateFrom, s.dateTo, (_, p) => p.isFixedDateMode],
             (dateFrom, dateTo, isFixedDateMode) =>
                 !!dateFrom && !dateTo && dayjs(dateFrom).isValid() && !isFixedDateMode,
         ],
         isFixedDate: [
-            (s, p) => [s.dateFrom, s.dateTo, p.isFixedDateMode],
+            (s) => [s.dateFrom, s.dateTo, (_, p) => p.isFixedDateMode],
             (dateFrom, dateTo, isFixedDateMode) => dateFrom && dayjs(dateFrom).isValid() && !dateTo && isFixedDateMode,
         ],
         isRollingDateRange: [

@@ -56,7 +56,7 @@ export function DateFilter({
     size,
     dropdownPlacement = 'bottom-start',
     max,
-    isFixedDateMode,
+    isFixedDateMode = false,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
