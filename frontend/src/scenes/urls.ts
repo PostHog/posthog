@@ -105,7 +105,7 @@ export const urls = {
     // TODO: Default to the landing page, once it's ready
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Destinations}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
-    pipelineStep: (
+    pipelineNode: (
         stage: PipelineStage | ':stageTab',
         id: string | number,
         appTab?: PipelineNodeTab | ':appTab'

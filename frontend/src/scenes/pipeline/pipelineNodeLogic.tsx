@@ -111,7 +111,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     }),
     actionToUrl(({ values, props }) => {
         return {
-            setCurrentTab: () => [urls.pipelineStep(props.stage as PipelineStage, props.id, values.currentTab)],
+            setCurrentTab: () => [urls.pipelineNode(props.stage as PipelineStage, props.id, values.currentTab)],
         }
     }),
     urlToAction(({ actions, values }) => ({

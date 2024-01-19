@@ -66,7 +66,7 @@ function DestinationsTable(): JSX.Element {
                                 <>
                                     <Tooltip title="Click to update configuration, view metrics, and more">
                                         <Link
-                                            to={urls.pipelineStep(
+                                            to={urls.pipelineNode(
                                                 PipelineStage.Destination,
                                                 destination.id,
                                                 PipelineNodeTab.Configuration
@@ -145,7 +145,7 @@ function DestinationsTable(): JSX.Element {
                                                     label: canConfigurePlugins
                                                         ? 'Edit configuration'
                                                         : 'View configuration',
-                                                    to: urls.pipelineStep(
+                                                    to: urls.pipelineNode(
                                                         PipelineStage.Destination,
                                                         destination.id,
                                                         PipelineNodeTab.Configuration
@@ -153,7 +153,7 @@ function DestinationsTable(): JSX.Element {
                                                 },
                                                 {
                                                     label: 'View metrics',
-                                                    to: urls.pipelineStep(
+                                                    to: urls.pipelineNode(
                                                         PipelineStage.Destination,
                                                         destination.id,
                                                         PipelineNodeTab.Metrics
@@ -161,7 +161,7 @@ function DestinationsTable(): JSX.Element {
                                                 },
                                                 {
                                                     label: 'View logs',
-                                                    to: urls.pipelineStep(
+                                                    to: urls.pipelineNode(
                                                         PipelineStage.Destination,
                                                         destination.id,
                                                         PipelineNodeTab.Logs

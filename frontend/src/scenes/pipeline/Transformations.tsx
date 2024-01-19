@@ -108,7 +108,7 @@ export function Transformations(): JSX.Element {
                                         <>
                                             <Tooltip title="Click to update configuration, view metrics, and more">
                                                 <Link
-                                                    to={urls.pipelineStep(
+                                                    to={urls.pipelineNode(
                                                         PipelineStage.Transformation,
                                                         pluginConfig.id,
                                                         PipelineNodeTab.Configuration
@@ -190,7 +190,7 @@ export function Transformations(): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                     <LemonButton
-                                                        to={urls.pipelineStep(
+                                                        to={urls.pipelineNode(
                                                             PipelineStage.Transformation,
                                                             pluginConfig.id,
                                                             PipelineNodeTab.Configuration
@@ -201,7 +201,7 @@ export function Transformations(): JSX.Element {
                                                         {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                                     </LemonButton>
                                                     <LemonButton
-                                                        to={urls.pipelineStep(
+                                                        to={urls.pipelineNode(
                                                             PipelineStage.Transformation,
                                                             pluginConfig.id,
                                                             PipelineNodeTab.Metrics
@@ -212,7 +212,7 @@ export function Transformations(): JSX.Element {
                                                         View app metrics
                                                     </LemonButton>
                                                     <LemonButton
-                                                        to={urls.pipelineStep(
+                                                        to={urls.pipelineNode(
                                                             PipelineStage.Transformation,
                                                             pluginConfig.id,
                                                             PipelineNodeTab.Logs

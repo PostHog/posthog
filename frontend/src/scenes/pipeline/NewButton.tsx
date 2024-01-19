@@ -11,7 +11,7 @@ export function NewButton({ stage }: NewButtonProps): JSX.Element {
     return (
         <LemonButton
             data-attr={`new-${stage}`}
-            to={urls.pipelineStep(stage, 'new', PipelineNodeTab.Configuration)}
+            to={urls.pipelineNode(stage, 'new', PipelineNodeTab.Configuration)}
             type="primary"
         >
             New {stage}

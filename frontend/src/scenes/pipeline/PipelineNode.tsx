@@ -80,7 +80,7 @@ export function PipelineNode(params: { stageTab?: string; id?: string } = {}): J
                             label: capitalizeFirstLetter(tab),
                             key: tab,
                             content: tabToContent[tab],
-                            link: params.stageTab ? urls.pipelineStep(stage, id, tab as PipelineNodeTab) : undefined,
+                            link: params.stageTab ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
                         } as LemonTab<PipelineNodeTab>)
                 )}
             />

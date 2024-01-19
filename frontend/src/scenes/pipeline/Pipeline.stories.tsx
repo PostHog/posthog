@@ -94,7 +94,7 @@ export function PipelineDestinationsPage(): JSX.Element {
 export function PipelineAppConfiguration(): JSX.Element {
     useEffect(() => {
         router.actions.push(
-            urls.pipelineStep(
+            urls.pipelineNode(
                 PipelineStage.Destination,
                 eventSequenceTimerPluginConfigId,
                 PipelineNodeTab.Configuration
@@ -106,21 +106,21 @@ export function PipelineAppConfiguration(): JSX.Element {
 
 export function PipelineAppConfigurationEmpty(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineStep(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Configuration))
+        router.actions.push(urls.pipelineNode(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Configuration))
     }, [])
     return <App />
 }
 
 export function PipelineAppConfiguration404(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineStep(PipelineStage.Destination, 4239084923809, PipelineNodeTab.Configuration))
+        router.actions.push(urls.pipelineNode(PipelineStage.Destination, 4239084923809, PipelineNodeTab.Configuration))
     }, [])
     return <App />
 }
 
 export function PipelineAppMetrics(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineStep(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Metrics))
+        router.actions.push(urls.pipelineNode(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Metrics))
         pipelineNodeMetricsLogic({ pluginConfigId: geoIpConfigId }).mount()
     }, [])
     return <App />
@@ -128,7 +128,7 @@ export function PipelineAppMetrics(): JSX.Element {
 
 export function PipelineAppMetricsErrorModal(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineStep(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Metrics))
+        router.actions.push(urls.pipelineNode(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Metrics))
         const logic = pipelineNodeMetricsLogic({ pluginConfigId: geoIpConfigId })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
@@ -143,7 +143,7 @@ export function PipelineAppLogs(): JSX.Element {
         },
     })
     useEffect(() => {
-        router.actions.push(urls.pipelineStep(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Logs))
+        router.actions.push(urls.pipelineNode(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Logs))
     }, [])
     return <App />
 }
@@ -156,7 +156,7 @@ export function PipelineAppLogsBatchExport(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(
-            urls.pipelineStep(PipelineStage.Destination, batchExports.results[0].id, PipelineNodeTab.Logs)
+            urls.pipelineNode(PipelineStage.Destination, batchExports.results[0].id, PipelineNodeTab.Logs)
         )
     }, [])
     return <App />
