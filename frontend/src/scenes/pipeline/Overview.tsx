@@ -99,7 +99,7 @@ const PipelineStepTransformation = ({
                     <div className="mr-1">
                         <AppMetricSparkLine config={transformation} />
                     </div>
-                    <More overlay={<TransformationsMoreOverlay pluginConfig={transformation} />} />
+                    <More overlay={<TransformationsMoreOverlay pluginConfig={transformation} inOverview />} />
                 </>
             }
             plugin={transformation.plugin_info}
@@ -118,7 +118,7 @@ const PipelineStepDestination = ({ destination }: { destination: DestinationType
                     <div className="mr-1">
                         <AppMetricSparkLine config={destination} />
                     </div>
-                    <More overlay={<DestinationMoreOverlay destination={destination} />} />
+                    <More overlay={<DestinationMoreOverlay destination={destination} inOverview />} />
                 </>
             }
             additionalInfo={
