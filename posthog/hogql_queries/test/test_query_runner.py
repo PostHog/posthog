@@ -26,6 +26,8 @@ class TestQueryRunner(BaseTest):
         """Setup required methods and attributes of the abstract base class."""
 
         class TestQueryRunner(QueryRunner):
+            query_type: TestQuery = TestQuery  # type: ignore[assignment]
+
             def calculate(self) -> QueryResponse:
                 return QueryResponse(results=list())
 
