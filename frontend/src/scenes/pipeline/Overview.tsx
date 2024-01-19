@@ -1,10 +1,8 @@
-import { LemonCard, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { percentage } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { PipelineAppKind, PipelineAppTab, PluginConfigWithPluginInfoNew } from '~/types'
@@ -13,102 +11,20 @@ import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { DestinationMoreOverlay } from './Destinations'
 import { DestinationType, PipelineAppBackend } from './destinationsLogic'
 import { pipelineOverviewLogic } from './overviewLogic'
-import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { TransformationsMoreOverlay } from './Transformations'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { humanFriendlyFrequencyName } from './utils'
 
-const FAILURE_RATE_WARNING_THRESHOLD = 0
-const FAILURE_RATE_ERROR_THRESHOLD = 0.03
-
-type StatusMetrics = {
-    totals: number
-    failures: number
-}
-
-type StatusIndicatorProps = {
-    enabled: boolean
-    metrics?: StatusMetrics
-}
-
-const StatusMessage = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element => {
-    if (!enabled) {
-        return <i>Disabled.</i>
-    }
-
-    if (!metrics) {
-        return (
-            <span>
-                Enabled - <i>No events processed in the last 7 days.</i>
-            </span>
-        )
-    }
-
-    const failureRate = metrics.failures / metrics.totals
-
-    if (metrics.failures > 0) {
-        return (
-            <span>
-                {metrics.totals} events processed with {percentage(failureRate)} failures (a total of {metrics.failures}{' '}
-                event(s)) in the last 7 days.
-            </span>
-        )
-    }
-
-    return <span>{metrics.totals} events processed without errors in the last 7 days.</span>
-}
-
-const StatusIndicator = ({ enabled, metrics }: StatusIndicatorProps): JSX.Element => {
-    const enabledAndHasMetrics = enabled && !!metrics
-    const failureRate = metrics ? metrics?.failures / metrics?.totals : null
-
-    let statusColor: string = 'bg-success'
-    if (failureRate && failureRate > FAILURE_RATE_ERROR_THRESHOLD) {
-        statusColor = 'bg-danger'
-    } else if (failureRate && failureRate > FAILURE_RATE_WARNING_THRESHOLD) {
-        statusColor = 'bg-warning'
-    }
-
-    return (
-        <Tooltip title={<StatusMessage enabled={enabled} metrics={metrics} />} placement="right">
-            <div className="relative flex h-3 w-3 items-center justify-center">
-                <span
-                    className={clsx('absolute inline-flex h-3/4 w-3/4 rounded-full opacity-50', {
-                        [`${statusColor} animate-ping`]: enabledAndHasMetrics,
-                        'bg-border': !enabledAndHasMetrics,
-                    })}
-                />
-                <span
-                    className={clsx('relative inline-flex rounded-full h-3 w-3', {
-                        [`${statusColor}`]: enabledAndHasMetrics,
-                    })}
-                />
-            </div>
-        </Tooltip>
-    )
-}
-
 type PipelineStepProps = {
     order?: number
-    enabled: boolean
     name: string
     to: string
-    metrics?: StatusMetrics
     description?: string
     headerInfo: JSX.Element
     additionalInfo?: JSX.Element
 }
 
-const PipelineStep = ({
-    order,
-    enabled,
-    name,
-    to,
-    metrics,
-    description,
-    headerInfo,
-    additionalInfo,
-}: PipelineStepProps): JSX.Element => (
+const PipelineStep = ({ order, name, to, description, headerInfo, additionalInfo }: PipelineStepProps): JSX.Element => (
     <LemonCard>
         {order !== undefined && (
             <div className="mb-3">
@@ -124,14 +40,12 @@ const PipelineStep = ({
         )}
 
         <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center">
-                <h3 className="mb-0 mr-2">
-                    <Link to={to} subtle>
-                        {name}
-                    </Link>
-                </h3>
-                <StatusIndicator enabled={enabled} metrics={metrics} />
-            </div>
+            <h3 className="mb-0 mr-2">
+                <Link to={to} subtle>
+                    {name}
+                </Link>
+            </h3>
+
             <div className="flex items-center">{headerInfo}</div>
         </div>
         {description ? (
@@ -158,30 +72,14 @@ const PipelineStepTransformation = ({
 }: {
     transformation: PluginConfigWithPluginInfoNew
 }): JSX.Element => {
-    let metrics: StatusMetrics | undefined = undefined
-
-    const { appMetricsResponse } = useValues(pipelineAppMetricsLogic({ pluginConfigId: transformation.id }))
     const { sortedEnabledPluginConfigs } = useValues(pipelineTransformationsLogic)
-
-    if (appMetricsResponse) {
-        metrics = {
-            totals: appMetricsResponse.metrics.totals.successes + appMetricsResponse.metrics.totals.failures,
-            failures: appMetricsResponse.metrics.totals.failures,
-        }
-    }
 
     return (
         <PipelineStep
-            order={
-                transformation.enabled
-                    ? sortedEnabledPluginConfigs.findIndex((pc) => pc.id === transformation.id) + 1
-                    : undefined
-            }
+            order={sortedEnabledPluginConfigs.findIndex((pc) => pc.id === transformation.id) + 1}
             name={transformation.name}
             to={urls.pipelineApp(PipelineAppKind.Transformation, transformation.id, PipelineAppTab.Configuration)}
             description={transformation.description}
-            enabled={transformation.enabled}
-            metrics={metrics}
             headerInfo={
                 <>
                     <div className="mr-1">
@@ -195,26 +93,11 @@ const PipelineStepTransformation = ({
 }
 
 const PipelineStepDestination = ({ destination }: { destination: DestinationType }): JSX.Element => {
-    let metrics: StatusMetrics | undefined = undefined
-    if (destination.backend !== PipelineAppBackend.BatchExport) {
-        const logic = pipelineAppMetricsLogic({ pluginConfigId: destination.id })
-        const { appMetricsResponse } = useValues(logic)
-
-        if (appMetricsResponse) {
-            metrics = {
-                totals: appMetricsResponse.metrics.totals.successes + appMetricsResponse.metrics.totals.failures,
-                failures: appMetricsResponse.metrics.totals.failures,
-            }
-        }
-    }
-
     return (
         <PipelineStep
             name={destination.name}
             to={destination.config_url}
             description={destination.description}
-            enabled={destination.enabled}
-            metrics={metrics}
             headerInfo={
                 <>
                     <div className="mr-1">
@@ -225,13 +108,7 @@ const PipelineStepDestination = ({ destination }: { destination: DestinationType
             }
             additionalInfo={
                 <div className="flex gap-1">
-                    {destination.backend === PipelineAppBackend.Plugin ? (
-                        <LemonTag type="primary">Plugin</LemonTag>
-                    ) : (
-                        <LemonTag type="primary">
-                            {humanFriendlyFrequencyName(destination.frequency)} Batch Export
-                        </LemonTag>
-                    )}
+                    <LemonTag type="primary">{humanFriendlyFrequencyName(destination.frequency)}</LemonTag>
                     {destination.backend === PipelineAppBackend.BatchExport}
                 </div>
             }
@@ -256,7 +133,9 @@ export function Overview(): JSX.Element {
                     <PipelineStepSkeleton />
                 ) : (
                     transformations &&
-                    transformations.map((t) => <PipelineStepTransformation key={t.id} transformation={t} />)
+                    transformations
+                        .filter((t) => t.enabled)
+                        .map((t) => <PipelineStepTransformation key={t.id} transformation={t} />)
                 )}
             </div>
 
@@ -265,7 +144,10 @@ export function Overview(): JSX.Element {
                 {destinationsLoading ? (
                     <PipelineStepSkeleton />
                 ) : (
-                    destinations && destinations.map((d) => <PipelineStepDestination key={d.id} destination={d} />)
+                    destinations &&
+                    destinations
+                        .filter((d) => d.enabled)
+                        .map((d) => <PipelineStepDestination key={d.id} destination={d} />)
                 )}
             </div>
         </div>
