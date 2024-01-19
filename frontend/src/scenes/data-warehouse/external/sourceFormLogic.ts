@@ -3,7 +3,6 @@ import { actions, connect, kea, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceCreatePayload, ExternalDataSourceType } from '~/types'
@@ -13,115 +12,6 @@ import { getHubspotRedirectUri, sourceModalLogic } from './sourceModalLogic'
 
 export interface SourceFormProps {
     sourceType: ExternalDataSourceType
-}
-
-export interface SourceConfig {
-    name: ExternalDataSourceType
-    caption: string | JSX.Element
-    fields: FieldConfig[]
-    disabledReason?: string | null
-}
-interface FieldConfig {
-    name: string
-    label: string
-    type: string
-    required: boolean
-    placeholder: string
-}
-
-export const SOURCE_DETAILS: Record<string, SourceConfig> = {
-    Stripe: {
-        name: 'Stripe',
-        caption: (
-            <>
-                Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
-                <br />
-                You can find your account ID{' '}
-                <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
-                    in your Stripe dashboard
-                </Link>
-                , and create a secret key{' '}
-                <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
-                    here
-                </Link>
-                .
-            </>
-        ),
-        fields: [
-            {
-                name: 'account_id',
-                label: 'Account ID',
-                type: 'text',
-                required: true,
-                placeholder: 'acct_...',
-            },
-            {
-                name: 'client_secret',
-                label: 'Client Secret',
-                type: 'text',
-                required: true,
-                placeholder: 'sk_live_...',
-            },
-        ],
-    },
-    Hubspot: {
-        name: 'Hubspot',
-        fields: [],
-        caption: '',
-    },
-    Postgres: {
-        name: 'Postgres',
-        caption: (
-            <>
-                Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data
-                warehouse.
-            </>
-        ),
-        fields: [
-            {
-                name: 'host',
-                label: 'Host',
-                type: 'text',
-                required: true,
-                placeholder: 'localhost',
-            },
-            {
-                name: 'port',
-                label: 'Port',
-                type: 'number',
-                required: true,
-                placeholder: '5432',
-            },
-            {
-                name: 'database',
-                label: 'Database',
-                type: 'text',
-                required: true,
-                placeholder: 'postgres',
-            },
-            {
-                name: 'user',
-                label: 'User',
-                type: 'text',
-                required: true,
-                placeholder: 'postgres',
-            },
-            {
-                name: 'password',
-                label: 'Password',
-                type: 'password',
-                required: true,
-                placeholder: 'password',
-            },
-            {
-                name: 'schema',
-                label: 'Schema',
-                type: 'text',
-                required: true,
-                placeholder: 'public',
-            }
-        ]
-    }
 }
 
 const getPayloadDefaults = (sourceType: string): Record<string, any> => {
@@ -154,16 +44,18 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceFormLogic']),
     props({} as SourceFormProps),
     connect({
-        actions: [sourceModalLogic, ['onClear', 'toggleSourceModal', 'loadSources']],
+        actions: [sourceModalLogic, ['onBack', 'selectConnector', 'toggleSourceModal', 'loadSources']],
     }),
     actions({
-        onBack: true,
+        onCancel: true,
         handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        onPostgresNext: true,
     }),
     listeners(({ actions }) => ({
-        onBack: () => {
+        onCancel: () => {
             actions.resetExternalDataSource()
-            actions.onClear()
+            actions.onBack()
+            actions.selectConnector(null)
         },
         submitExternalDataSourceSuccess: () => {
             lemonToast.success('New Data Resource Created')
@@ -189,6 +81,9 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                     lemonToast.error(`Something went wrong.`)
             }
         },
+        onPostgresNext: async () => {
+
+        }
     })),
     urlToAction(({ actions }) => ({
         '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
@@ -208,5 +103,41 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                 return newResource
             },
         },
+        databaseSchema: {
+            defaults: {
+                payload: {
+                    host: '',
+                    port: '',
+                    dbname: '',
+                    user: '',
+                    password: '',
+                    schema: '',
+                    sslmode: '',
+                }
+            },
+            errors: ({ payload: {
+                host, port, dbname, user, password, schema, sslmode
+            }}) => ({
+                payload: {
+                    host: !host && 'Please enter a host.',
+                    port: !port && 'Please enter a port.',
+                    dbname: !dbname && 'Please enter a dbname.',
+                    user: !user && 'Please enter a user.',
+                    password: !password && 'Please enter a password.',
+                    schema: !schema && 'Please enter a schema.',
+                    sslmode: !sslmode && 'Please enter a sslmode.',
+                }
+            }),
+            submit: async ({
+                payload: {
+                    host, port, dbname, user, password, schema, sslmode
+                }
+            }) => {
+                const schemas = await api.externalDataSources.database_schema(
+                    host, port, dbname, user, password, schema, sslmode
+                )
+                console.log(schemas)
+            },
+        }
     })),
 ])
