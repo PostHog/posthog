@@ -24,7 +24,7 @@ type PipelineStepProps = {
     description?: string
     headerInfo: JSX.Element
     additionalInfo?: JSX.Element
-    plugin?: PluginType
+    plugin?: PluginType | null
 }
 
 const PipelineStep = ({
@@ -102,7 +102,7 @@ const PipelineStepTransformation = ({
                     <More overlay={<TransformationsMoreOverlay pluginConfig={transformation} />} />
                 </>
             }
-            plugin={transformation.plugin}
+            plugin={transformation.plugin_info}
         />
     )
 }
