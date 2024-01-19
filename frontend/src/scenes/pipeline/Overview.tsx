@@ -117,7 +117,7 @@ const PipelineStep = ({
                         borderColor: 'var(--muted)',
                     }}
                 >
-                    {order + 1}
+                    {order}
                 </SeriesGlyph>
             </div>
         )}
