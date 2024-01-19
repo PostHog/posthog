@@ -14,6 +14,7 @@ import {
     defaultConfigForPlugin,
     determineInvisibleFields,
     determineRequiredFields,
+    getConfigSchemaArray,
     getPluginConfigFormData,
 } from './configUtils'
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
@@ -64,16 +65,22 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                     if (!props.stage) {
                         return null
                     }
-                    let node: PipelineNode
-                    if (typeof props.id === 'string') {
-                        if (props.stage !== PipelineStage.Destination) {
+                    let node: PipelineNode | null = null
+                    try {
+                        if (typeof props.id === 'string') {
+                            if (props.stage !== PipelineStage.Destination) {
+                                return null
+                            }
+                            const batchExport = await api.batchExports.get(props.id)
+                            node = convertToPipelineNode(batchExport, props.stage)
+                        } else {
+                            const pluginConfig = await api.pluginConfigs.get(props.id)
+                            node = convertToPipelineNode(pluginConfig, props.stage)
+                        }
+                    } catch (e: any) {
+                        if (e.status === 404) {
                             return null
                         }
-                        const batchExport = await api.batchExports.get(props.id)
-                        node = convertToPipelineNode(batchExport, props.stage)
-                    } else {
-                        const pluginConfig = await api.pluginConfigs.get(props.id)
-                        node = convertToPipelineNode(pluginConfig, props.stage)
                     }
                     breakpoint()
                     return node
@@ -126,8 +133,8 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     })),
     selectors(() => ({
         breadcrumbs: [
-            (s, p) => [p.id, p.stage, s.node],
-            (id, stage, node): Breadcrumb[] => [
+            (s, p) => [p.id, p.stage, s.node, s.nodeLoading],
+            (id, stage, node, nodeLoading): Breadcrumb[] => [
                 {
                     key: Scene.Pipeline,
                     name: 'Data pipeline',
@@ -140,7 +147,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 },
                 {
                     key: [Scene.PipelineNode, id],
-                    name: node ? node.name || 'Unnamed' : 'Unknown',
+                    name: node ? node.name || 'Unnamed' : nodeLoading ? null : 'Not found',
                 },
             ],
         ],
@@ -185,6 +192,11 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 }
                 return []
             },
+        ],
+        isConfigurable: [
+            (s) => [s.node],
+            (node): boolean =>
+                node?.backend === PipelineBackend.Plugin && getConfigSchemaArray(node.plugin.config_schema).length > 0,
         ],
         id: [(_, p) => [p.id], (id) => id],
         stage: [(_, p) => [p.stage], (stage) => stage],

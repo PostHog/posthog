@@ -6,6 +6,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { MockSignature } from '~/mocks/utils'
 import { PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 import batchExports from './__mocks__/batchExports.json'
@@ -15,6 +16,15 @@ import { appsManagementLogic } from './appsManagementLogic'
 import { pipelineLogic } from './pipelineLogic'
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
 
+const pluginConfigRetrieveMock: MockSignature = (req, res, ctx) => {
+    const pluginConfig = pluginConfigs.results.find((conf) => conf.id === Number(req.params.id))
+    if (!pluginConfig) {
+        return res(ctx.status(404))
+    }
+    const plugin = plugins.results.find((plugin) => plugin.id === pluginConfig.plugin)
+    return res(ctx.json({ ...pluginConfig, plugin_info: plugin }))
+}
+
 export default {
     title: 'Scenes-App/Pipeline',
     decorators: [
@@ -23,12 +33,17 @@ export default {
             get: {
                 '/api/projects/:team_id/batch_exports/': batchExports,
                 '/api/organizations/:organization_id/batch_exports/': batchExports,
-                '/api/organizations/@current/plugins/': plugins,
-                '/api/organizations/@current/pipeline_transformations/': plugins,
-                '/api/projects/:team_id/pipeline_transformation_configs/': pluginConfigs,
+                '/api/organizations/:organization_id/plugins/': plugins,
+                '/api/projects/:team_id/plugin_configs/': pluginConfigs,
+                '/api/projects/:team_id/plugin_configs/:id': pluginConfigRetrieveMock,
                 // TODO: Differentiate between transformation and destination mocks for nicer mocks
-                '/api/organizations/@current/pipeline_destinations/': plugins,
+                '/api/organizations/:organization_id/pipeline_transformations/': plugins,
+                '/api/projects/:team_id/pipeline_transformation_configs/': pluginConfigs,
+                '/api/projects/:team_id/pipeline_transformation_configs/:id': pluginConfigRetrieveMock,
+                '/api/organizations/:organization_id/pipeline_destinations/': plugins,
                 '/api/projects/:team_id/pipeline_destination_configs/': pluginConfigs,
+                '/api/projects/:team_id/pipeline_destination_configs/:id': pluginConfigRetrieveMock,
+
                 '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
                 '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
             },
@@ -91,11 +106,11 @@ export function PipelineDestinationsPage(): JSX.Element {
     return <App />
 }
 
-export function PipelineAppConfiguration(): JSX.Element {
+export function PipelineNodeConfiguration(): JSX.Element {
     useEffect(() => {
         router.actions.push(
             urls.pipelineNode(
-                PipelineStage.Destination,
+                PipelineStage.Transformation,
                 eventSequenceTimerPluginConfigId,
                 PipelineNodeTab.Configuration
             )
@@ -104,31 +119,35 @@ export function PipelineAppConfiguration(): JSX.Element {
     return <App />
 }
 
-export function PipelineAppConfigurationEmpty(): JSX.Element {
+export function PipelineNodeConfigurationEmpty(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNode(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Configuration))
+        router.actions.push(
+            urls.pipelineNode(PipelineStage.Transformation, geoIpConfigId, PipelineNodeTab.Configuration)
+        )
     }, [])
     return <App />
 }
 
-export function PipelineAppConfiguration404(): JSX.Element {
+export function PipelineNodeConfiguration404(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNode(PipelineStage.Destination, 4239084923809, PipelineNodeTab.Configuration))
+        router.actions.push(
+            urls.pipelineNode(PipelineStage.Transformation, 4239084923809, PipelineNodeTab.Configuration)
+        )
     }, [])
     return <App />
 }
 
-export function PipelineAppMetrics(): JSX.Element {
+export function PipelineNodeMetrics(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNode(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Metrics))
+        router.actions.push(urls.pipelineNode(PipelineStage.Transformation, geoIpConfigId, PipelineNodeTab.Metrics))
         pipelineNodeMetricsLogic({ pluginConfigId: geoIpConfigId }).mount()
     }, [])
     return <App />
 }
 
-export function PipelineAppMetricsErrorModal(): JSX.Element {
+export function PipelineNodeMetricsErrorModal(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNode(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Metrics))
+        router.actions.push(urls.pipelineNode(PipelineStage.Transformation, geoIpConfigId, PipelineNodeTab.Metrics))
         const logic = pipelineNodeMetricsLogic({ pluginConfigId: geoIpConfigId })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
@@ -136,19 +155,19 @@ export function PipelineAppMetricsErrorModal(): JSX.Element {
     return <App />
 }
 
-export function PipelineAppLogs(): JSX.Element {
+export function PipelineNodeLogs(): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/plugin_configs/:plugin_config_id/logs': require('./__mocks__/pluginLogs.json'),
         },
     })
     useEffect(() => {
-        router.actions.push(urls.pipelineNode(PipelineStage.Destination, geoIpConfigId, PipelineNodeTab.Logs))
+        router.actions.push(urls.pipelineNode(PipelineStage.Transformation, geoIpConfigId, PipelineNodeTab.Logs))
     }, [])
     return <App />
 }
 
-export function PipelineAppLogsBatchExport(): JSX.Element {
+export function PipelineNodeLogsBatchExport(): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/batch_exports/:export_id/logs': require('./__mocks__/batchExportLogs.json'),
@@ -156,13 +175,13 @@ export function PipelineAppLogsBatchExport(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(
-            urls.pipelineNode(PipelineStage.Destination, batchExports.results[0].id, PipelineNodeTab.Logs)
+            urls.pipelineNode(PipelineStage.Transformation, batchExports.results[0].id, PipelineNodeTab.Logs)
         )
     }, [])
     return <App />
 }
 
-export function PipelineAppsManagementPage(): JSX.Element {
+export function PipelineNodesManagementPage(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipeline(PipelineTab.AppsManagement))
         appsManagementLogic.mount()

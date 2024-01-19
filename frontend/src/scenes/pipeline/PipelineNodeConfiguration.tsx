@@ -14,7 +14,8 @@ import { pipelineNodeLogic } from './pipelineNodeLogic'
 import { PipelineBackend, PipelineNode } from './types'
 
 export function PipelineNodeConfiguration(): JSX.Element {
-    const { node, savedConfiguration, configuration, isConfigurationSubmitting } = useValues(pipelineNodeLogic)
+    const { node, savedConfiguration, configuration, isConfigurationSubmitting, isConfigurable } =
+        useValues(pipelineNodeLogic)
     const { resetConfiguration, submitConfiguration } = useActions(pipelineNodeLogic)
 
     return (
@@ -28,7 +29,7 @@ export function PipelineNodeConfiguration(): JSX.Element {
                             <LemonSkeleton className="h-9" />
                         </div>
                     ))
-            ) : (
+            ) : isConfigurable ? (
                 <>
                     <Form logic={pipelineNodeLogic} formKey="configuration" className="space-y-3">
                         {node.backend === 'plugin' ? (
@@ -56,6 +57,8 @@ export function PipelineNodeConfiguration(): JSX.Element {
                         </div>
                     </Form>
                 </>
+            ) : (
+                <span>This {node.stage} isn't configurable.</span>
             )}
         </div>
     )
@@ -70,11 +73,6 @@ function PluginConfigurationFields({
     const { hiddenFields, requiredFields } = useValues(pipelineNodeLogic)
 
     const configSchemaArray = getConfigSchemaArray(node.plugin.config_schema)
-
-    if (configSchemaArray.length === 0) {
-        return <p className="m-3 italic">This {node.stage} isn't configurable.</p>
-    }
-
     const fields = configSchemaArray.map((fieldConfig, index) => (
         <React.Fragment key={fieldConfig.key || `__key__${index}`}>
             {fieldConfig.key &&

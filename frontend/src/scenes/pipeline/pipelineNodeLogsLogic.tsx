@@ -24,7 +24,7 @@ export enum PipelineLogLevel {
 }
 
 export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
-    props({} as PipelineNodeLogicProps),
+    props({} as PipelineNodeLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'pipelineNodeLogsLogic', key]),
     connect((props: PipelineNodeLogicProps) => ({
