@@ -236,6 +236,6 @@ def _sample_rate_from_count(count: int) -> SamplingRate:
     sample_rate_steps = [1_000, 100, 10]
 
     for step in sample_rate_steps:
-        if count / sample_target > step:
-            return SamplingRate(numerator=1, denominator=sample_target)
+        if count / sample_target >= step:
+            return SamplingRate(numerator=1, denominator=step)
     return SamplingRate(numerator=1)

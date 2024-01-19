@@ -3,6 +3,7 @@ from typing import Union, List
 from freezegun import freeze_time
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import _sample_rate_from_count
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.schema import (
     DateRange,
@@ -12,6 +13,7 @@ from posthog.schema import (
     EventPropertyFilter,
     PersonPropertyFilter,
     PropertyOperator,
+    SamplingRate,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -99,3 +101,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         key_b = self._create_web_stats_table_query(date_from_b, date_to, properties)._sample_rate_cache_key()
 
         self.assertNotEquals(key_a, key_b)
+
+    def test_sample_rate_from_count(self):
+        self.assertEqual(SamplingRate(numerator=1), _sample_rate_from_count(0))
+        self.assertEqual(SamplingRate(numerator=1), _sample_rate_from_count(1_000))
+        self.assertEqual(SamplingRate(numerator=1), _sample_rate_from_count(10_000))
+        self.assertEqual(SamplingRate(numerator=1, denominator=10), _sample_rate_from_count(100_000))
+        self.assertEqual(SamplingRate(numerator=1, denominator=10), _sample_rate_from_count(999_999))
+        self.assertEqual(SamplingRate(numerator=1, denominator=100), _sample_rate_from_count(1_000_000))
+        self.assertEqual(SamplingRate(numerator=1, denominator=100), _sample_rate_from_count(9_999_999))
+        self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(10_000_000))
+        self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(99_999_999))
