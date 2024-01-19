@@ -1996,6 +1996,21 @@
         },
         "LifecycleFilter": {
             "additionalProperties": false,
+            "properties": {
+                "showValuesOnSeries": {
+                    "type": "boolean"
+                },
+                "toggledLifecycles": {
+                    "items": {
+                        "$ref": "#/definitions/LifecycleToggle"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "LifecycleFilterLegacy": {
+            "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "show_values_on_series": {
@@ -2177,6 +2192,66 @@
             "type": "string"
         },
         "PathsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "edgeLimit": {
+                    "type": "integer"
+                },
+                "endPoint": {
+                    "type": "string"
+                },
+                "excludeEvents": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelFilter": {
+                    "type": "object"
+                },
+                "funnelPaths": {
+                    "$ref": "#/definitions/FunnelPathType"
+                },
+                "includeEventTypes": {
+                    "items": {
+                        "$ref": "#/definitions/PathType"
+                    },
+                    "type": "array"
+                },
+                "localPathCleaningFilters": {
+                    "items": {
+                        "$ref": "#/definitions/PathCleaningFilter"
+                    },
+                    "type": "array"
+                },
+                "maxEdgeWeight": {
+                    "type": "integer"
+                },
+                "minEdgeWeight": {
+                    "type": "integer"
+                },
+                "pathGroupings": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "pathReplacements": {
+                    "type": "boolean"
+                },
+                "pathsHogQLExpression": {
+                    "type": "string"
+                },
+                "startPoint": {
+                    "type": "string"
+                },
+                "stepLimit": {
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "PathsFilterLegacy": {
             "additionalProperties": false,
             "description": "`PathsFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
@@ -3218,6 +3293,31 @@
         },
         "RetentionFilter": {
             "additionalProperties": false,
+            "properties": {
+                "period": {
+                    "$ref": "#/definitions/RetentionPeriod"
+                },
+                "retentionReference": {
+                    "enum": ["total", "previous"],
+                    "type": "string"
+                },
+                "retentionType": {
+                    "$ref": "#/definitions/RetentionType"
+                },
+                "returningEntity": {
+                    "$ref": "#/definitions/RetentionEntity"
+                },
+                "targetEntity": {
+                    "$ref": "#/definitions/RetentionEntity"
+                },
+                "totalIntervals": {
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "RetentionFilterLegacy": {
+            "additionalProperties": false,
             "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "period": {
@@ -3565,6 +3665,30 @@
         },
         "StickinessFilter": {
             "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "showLegend": {
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "StickinessFilterLegacy": {
+            "additionalProperties": false,
             "description": "`StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "compare": {
@@ -3839,13 +3963,13 @@
                 "showLabelsOnSeries": {
                     "type": "boolean"
                 },
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "showPercentStackView": {
                     "type": "boolean"
                 },
-                "show_legend": {
-                    "type": "boolean"
-                },
-                "show_values_on_series": {
+                "showValuesOnSeries": {
                     "type": "boolean"
                 },
                 "smoothingIntervals": {

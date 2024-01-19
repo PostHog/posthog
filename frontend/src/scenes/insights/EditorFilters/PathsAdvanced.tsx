@@ -13,19 +13,19 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { edge_limit, min_edge_weight, max_edge_weight } = pathsFilter || {}
+    const { edgeLimit, minEdgeWeight, maxEdgeWeight } = pathsFilter || {}
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
-        edge_limit: edge_limit,
-        min_edge_weight: min_edge_weight,
-        max_edge_weight: max_edge_weight,
+        edgeLimit,
+        minEdgeWeight,
+        maxEdgeWeight,
     })
 
     const updateEdgeParameters = (): void => {
         if (
-            localEdgeParameters.edge_limit !== edge_limit ||
-            localEdgeParameters.min_edge_weight !== min_edge_weight ||
-            localEdgeParameters.max_edge_weight !== max_edge_weight
+            localEdgeParameters.edgeLimit !== edgeLimit ||
+            localEdgeParameters.minEdgeWeight !== minEdgeWeight ||
+            localEdgeParameters.maxEdgeWeight !== maxEdgeWeight
         ) {
             updateInsightFilter({ ...localEdgeParameters })
         }
@@ -46,7 +46,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                     onChange={(value): void =>
                         setLocalEdgeParameters((state) => ({
                             ...state,
-                            edge_limit: Number(value),
+                            edgeLimit: Number(value),
                         }))
                     }
                     onBlur={updateEdgeParameters}
@@ -67,7 +67,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         onChange={(value): void =>
                             setLocalEdgeParameters((state) => ({
                                 ...state,
-                                min_edge_weight: Number(value),
+                                minEdgeWeight: Number(value),
                             }))
                         }
                         onBlur={updateEdgeParameters}
@@ -79,7 +79,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         onChange={(value): void =>
                             setLocalEdgeParameters((state) => ({
                                 ...state,
-                                max_edge_weight: Number(value),
+                                maxEdgeWeight: Number(value),
                             }))
                         }
                         min={0}

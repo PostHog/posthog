@@ -50,12 +50,12 @@ class PathsQueryRunner(QueryRunner):
         if not self.query.pathsFilter:
             self.query.pathsFilter = PathsFilter()
 
-        self.event_in_session_limit = self.query.pathsFilter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT
+        self.event_in_session_limit = self.query.pathsFilter.stepLimit or EVENT_IN_SESSION_LIMIT_DEFAULT
 
         self.regex_groupings: list[str] = []
-        if self.query.pathsFilter.path_groupings:
+        if self.query.pathsFilter.pathGroupings:
             self.regex_groupings = [
-                escape(grouping).replace("\\*", ".*") for grouping in self.query.pathsFilter.path_groupings
+                escape(grouping).replace("\\*", ".*") for grouping in self.query.pathsFilter.pathGroupings
             ]
 
     @property
@@ -66,27 +66,27 @@ class PathsQueryRunner(QueryRunner):
         conditions: list[ast.Expr] = []
         or_conditions: list[ast.Expr] = []
 
-        if not self.query.pathsFilter.include_event_types:
+        if not self.query.pathsFilter.includeEventTypes:
             return []
 
-        if PathType.field_pageview in self.query.pathsFilter.include_event_types:
+        if PathType.field_pageview in self.query.pathsFilter.includeEventTypes:
             or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=PAGEVIEW_EVENT)}))
 
-        if PathType.field_screen in self.query.pathsFilter.include_event_types:
+        if PathType.field_screen in self.query.pathsFilter.includeEventTypes:
             or_conditions.append(parse_expr("event = {event}", {"event": ast.Constant(value=SCREEN_EVENT)}))
 
-        if PathType.custom_event in self.query.pathsFilter.include_event_types:
+        if PathType.custom_event in self.query.pathsFilter.includeEventTypes:
             or_conditions.append(parse_expr("NOT startsWith(events.event, '$')"))
 
         if or_conditions:
             conditions.append(ast.Or(exprs=or_conditions))
 
-        if self.query.pathsFilter.exclude_events:
+        if self.query.pathsFilter.excludeEvents:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotIn,
                     left=ast.Field(chain=["path_item"]),
-                    right=ast.Constant(value=self.query.pathsFilter.exclude_events),
+                    right=ast.Constant(value=self.query.pathsFilter.excludeEvents),
                 )
             )
 
@@ -96,16 +96,16 @@ class PathsQueryRunner(QueryRunner):
         return []
 
     def _should_query_event(self, event: str) -> bool:
-        if not self.query.pathsFilter.include_event_types:  # TODO: include_custom_events ?
-            return event not in (self.query.pathsFilter.exclude_events or [])
+        if not self.query.pathsFilter.includeEventTypes:  # TODO: include_custom_events ?
+            return event not in (self.query.pathsFilter.excludeEvents or [])
 
-        return event in (self.query.pathsFilter.include_event_types or [])
+        return event in (self.query.pathsFilter.includeEventTypes or [])
 
     def construct_event_hogql(self) -> ast.Expr:
         event_hogql: ast.Expr = parse_expr("event")
 
-        if self._should_query_event(HOGQL) and self.query.pathsFilter.paths_hogql_expression:
-            event_hogql = parse_expr(self.query.pathsFilter.paths_hogql_expression)
+        if self._should_query_event(HOGQL) and self.query.pathsFilter.pathsHogQLExpression:
+            event_hogql = parse_expr(self.query.pathsFilter.pathsHogQLExpression)
 
         if self._should_query_event(PAGEVIEW_EVENT):
             event_hogql = parse_expr(
@@ -123,7 +123,7 @@ class PathsQueryRunner(QueryRunner):
 
     def paths_events_query(self) -> ast.SelectQuery:
         event_filters = []
-        path_replacements: list[PathCleaningFilter] = []
+        pathReplacements: list[PathCleaningFilter] = []
 
         event_hogql = self.construct_event_hogql()
         event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
@@ -140,25 +140,22 @@ class PathsQueryRunner(QueryRunner):
         final_path_item_column = "path_item_ungrouped"
 
         if (
-            self.query.pathsFilter.path_replacements
+            self.query.pathsFilter.pathReplacements
             and self.team.path_cleaning_filters
             and len(self.team.path_cleaning_filters) > 0
         ):
-            path_replacements.extend(self.team.path_cleaning_filter_models())
+            pathReplacements.extend(self.team.path_cleaning_filter_models())
 
-        if (
-            self.query.pathsFilter.local_path_cleaning_filters
-            and len(self.query.pathsFilter.local_path_cleaning_filters) > 0
-        ):
-            path_replacements.extend(self.query.pathsFilter.local_path_cleaning_filters)
+        if self.query.pathsFilter.localPathCleaningFilters and len(self.query.pathsFilter.localPathCleaningFilters) > 0:
+            pathReplacements.extend(self.query.pathsFilter.localPathCleaningFilters)
 
-        if len(path_replacements) > 0:
+        if len(pathReplacements) > 0:
             final_path_item_column = "path_item_cleaned"
 
-            for idx, replacement in enumerate(path_replacements):
+            for idx, replacement in enumerate(pathReplacements):
                 source_path_item_column = "path_item_ungrouped" if idx == 0 else f"path_item_{idx - 1}"
                 result_path_item_column = (
-                    "path_item_cleaned" if idx == len(path_replacements) - 1 else f"path_item_{idx}"
+                    "path_item_cleaned" if idx == len(pathReplacements) - 1 else f"path_item_{idx}"
                 )
 
                 fields.append(
@@ -178,7 +175,7 @@ class PathsQueryRunner(QueryRunner):
         fields += [
             ast.Alias(
                 alias="groupings",
-                expr=ast.Constant(value=self.query.pathsFilter.path_groupings or None),
+                expr=ast.Constant(value=self.query.pathsFilter.pathGroupings or None),
             ),
             ast.Alias(
                 alias="group_index",
@@ -289,13 +286,13 @@ class PathsQueryRunner(QueryRunner):
         ]
 
     def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
-        if self.query.pathsFilter.end_point:
+        if self.query.pathsFilter.endPoint:
             return "arrayResize"
 
         return "arraySlice"
 
     def paths_per_person_query(self) -> ast.SelectQuery:
-        target_point = self.query.pathsFilter.end_point or self.query.pathsFilter.start_point
+        target_point = self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint
 
         filtered_paths = self.get_filtered_path_ordering()
         limited_paths = self.get_limited_path_ordering()
@@ -380,29 +377,29 @@ class PathsQueryRunner(QueryRunner):
         ]
         table.select.extend([parse_expr(s, placeholders) for s in other_selects])
 
-        if self.query.pathsFilter.end_point and self.query.pathsFilter.start_point:
+        if self.query.pathsFilter.endPoint and self.query.pathsFilter.startPoint:
             table.where = parse_expr("start_target_index > 0 AND end_target_index > 0")
-        elif self.query.pathsFilter.end_point or self.query.pathsFilter.start_point:
+        elif self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint:
             table.where = parse_expr("target_index > 0")
 
         return select
 
     def get_edge_weight_exprs(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
-        if self.query.pathsFilter.min_edge_weight:
+        if self.query.pathsFilter.minEdgeWeight:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["event_count"]),
-                    right=ast.Constant(value=self.query.pathsFilter.min_edge_weight),
+                    right=ast.Constant(value=self.query.pathsFilter.minEdgeWeight),
                 )
             )
-        if self.query.pathsFilter.max_edge_weight:
+        if self.query.pathsFilter.maxEdgeWeight:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["event_count"]),
-                    right=ast.Constant(value=self.query.pathsFilter.max_edge_weight),
+                    right=ast.Constant(value=self.query.pathsFilter.maxEdgeWeight),
                 )
             )
         return conditions
@@ -438,7 +435,7 @@ class PathsQueryRunner(QueryRunner):
             if conditions:
                 paths_query.having = ast.And(exprs=conditions)
 
-            paths_query.limit = ast.Constant(value=self.query.pathsFilter.edge_limit or EDGE_LIMIT_DEFAULT)
+            paths_query.limit = ast.Constant(value=self.query.pathsFilter.edgeLimit or EDGE_LIMIT_DEFAULT)
 
         return paths_query
 

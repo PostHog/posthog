@@ -55,15 +55,7 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    FilterType,
-    FunnelExclusion,
-    InsightLogicProps,
-    IntervalType,
-    TrendsFilterType,
-} from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, FunnelExclusion, InsightLogicProps, IntervalType } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
@@ -224,11 +216,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (isTrends, isStickiness, isLifecycle, insightFilter): boolean => {
                 return !!(
                     ((isTrends || isStickiness || isLifecycle) &&
-                        (insightFilter as TrendsFilterType)?.show_values_on_series) ||
+                        (insightFilter as TrendsFilter)?.showValuesOnSeries) ||
                     // pie charts have value checked by default
                     (isTrends &&
-                        (insightFilter as TrendsFilterType)?.display === ChartDisplayType.ActionsPie &&
-                        (insightFilter as TrendsFilterType)?.show_values_on_series === undefined)
+                        (insightFilter as TrendsFilter)?.display === ChartDisplayType.ActionsPie &&
+                        (insightFilter as TrendsFilter)?.showValuesOnSeries === undefined)
                 )
             },
         ],
