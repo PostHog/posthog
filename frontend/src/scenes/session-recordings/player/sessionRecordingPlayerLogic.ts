@@ -473,7 +473,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.reportedReplayerErrors.has(fingerprint)) {
                 return
             }
-            const extra = { fingerprint, recordingId: values.sessionRecordingId }
+            const extra = { fingerprint, playbackSessionId: values.sessionRecordingId }
             captureException(error, {
                 extra,
                 tags: { feature: 'replayer error swallowed' },
