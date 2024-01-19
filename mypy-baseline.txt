@@ -365,7 +365,6 @@ posthog/hogql/query.py:0: error: Incompatible types in assignment (expression ha
 posthog/hogql/query.py:0: error: Argument 1 to "get_default_limit_for_context" has incompatible type "LimitContext | None"; expected "LimitContext"  [arg-type]
 posthog/hogql/query.py:0: error: "SelectQuery" has no attribute "select_queries"  [attr-defined]
 posthog/hogql/query.py:0: error: Subclass of "SelectQuery" and "SelectUnionQuery" cannot exist: would have incompatible method signatures  [unreachable]
-posthog/hogql_queries/query_runner.py:0: error: Incompatible types in assignment (expression has type "HogQLQuery | TrendsQuery | LifecycleQuery | InsightActorsQuery | EventsQuery | ActorsQuery | RetentionQuery | SessionsTimelineQuery | WebOverviewQuery | WebTopClicksQuery | WebStatsTableQuery | StickinessQuery | BaseModel | dict[str, Any]", variable has type "HogQLQuery | TrendsQuery | LifecycleQuery | InsightActorsQuery | EventsQuery | ActorsQuery | RetentionQuery | SessionsTimelineQuery | WebOverviewQuery | WebTopClicksQuery | WebStatsTableQuery | StickinessQuery")  [assignment]
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
 posthog/hogql_queries/sessions_timeline_query_runner.py:0: error: Statement is unreachable  [unreachable]
@@ -510,7 +509,6 @@ posthog/session_recordings/queries/session_recording_list_from_replay_summary.py
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: note: If the method is meant to be abstract, use @abc.abstractmethod
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonsOnEventsMode | None")  [assignment]
 posthog/session_recordings/queries/session_recording_list_from_replay_summary.py:0: error: Incompatible types in assignment (expression has type "PersonOnEventsMode", variable has type "PersonsOnEventsMode | None")  [assignment]
-posthog/hogql_queries/test/test_query_runner.py:0: error: Incompatible default for argument "query_class" (default has type "type[TestQuery]", argument has type "type[HogQLQuery] | type[TrendsQuery] | type[LifecycleQuery] | type[InsightActorsQuery] | type[EventsQuery] | type[ActorsQuery] | type[RetentionQuery] | type[SessionsTimelineQuery] | type[WebOverviewQuery] | type[WebTopClicksQuery] | type[WebStatsTableQuery] | type[StickinessQuery]")  [assignment]
 posthog/hogql_queries/test/test_query_runner.py:0: error: Variable "TestQueryRunner" is not valid as a type  [valid-type]
 posthog/hogql_queries/test/test_query_runner.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 posthog/hogql_queries/test/test_query_runner.py:0: error: Invalid base class "TestQueryRunner"  [misc]

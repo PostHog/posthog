@@ -2195,7 +2195,7 @@
             "additionalProperties": false,
             "properties": {
                 "edgeLimit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "endPoint": {
                     "type": "string"
@@ -2225,10 +2225,10 @@
                     "type": "array"
                 },
                 "maxEdgeWeight": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "minEdgeWeight": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "pathGroupings": {
                     "items": {
@@ -2246,7 +2246,7 @@
                     "type": "string"
                 },
                 "stepLimit": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -2256,7 +2256,7 @@
             "description": "`PathsFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
                 "edge_limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "end_point": {
                     "type": "string"
@@ -2286,10 +2286,10 @@
                     "type": "array"
                 },
                 "max_edge_weight": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "min_edge_weight": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "path_groupings": {
                     "items": {
@@ -2310,7 +2310,7 @@
                     "type": "string"
                 },
                 "step_limit": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -2352,12 +2352,46 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/PathsQueryResponse"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "pathsFilter"],
+            "type": "object"
+        },
+        "PathsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "PersonPropertyFilter": {
@@ -2975,6 +3009,37 @@
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/RetentionResult"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "hogql": {
+                            "type": "string"
+                        },
+                        "is_cached": {
+                            "type": "boolean"
+                        },
+                        "last_refresh": {
+                            "type": "string"
+                        },
+                        "next_allowed_client_refresh": {
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "type": "object"
                             },
                             "type": "array"
                         },

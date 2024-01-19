@@ -1,12 +1,9 @@
 import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
-import { urls } from 'scenes/urls'
 
 import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
 
@@ -61,7 +58,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 >
                     Number of people on each path
                 </LemonLabel>
-                <div>
+                <div className="flex items-baseline">
                     <span className="mr-2">Between</span>
                     <LemonInput
                         type="number"
@@ -95,7 +92,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 <div>
                     <div className="flex items-center my-2">
                         <LemonLabel
-                            showOptional
                             info={
                                 <>
                                     Cleaning rules are an advanced feature that uses regex to normalize URLS for paths
@@ -106,13 +102,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         >
                             Path Cleaning Rules
                         </LemonLabel>
-                        <Link
-                            className="flex items-center ml-2"
-                            to={urls.settings('project-product-analytics', 'path-cleaning')}
-                        >
-                            <IconSettings fontSize="16" className="mr-0.5" />
-                            Configure Project Rules
-                        </Link>
                     </div>
                     <PathCleaningFilter insightProps={insightProps} {...rest} />
                 </div>

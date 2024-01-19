@@ -165,6 +165,7 @@ export const FEATURE_FLAGS = {
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-replay
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
+    HOGQL_INSIGHTS_PATHS: 'hogql-insights-paths', // owner: @webjunkie
     HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
     HOGQL_INSIGHTS_TRENDS: 'hogql-insights-trends', // owner: @Gilbert09
     HOGQL_INSIGHTS_STICKINESS: 'hogql-insights-stickiness', // owner: @Gilbert09

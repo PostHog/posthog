@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast
+from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard
 
 from django.conf import settings
 from django.core.cache import cache
@@ -32,6 +32,7 @@ from posthog.schema import (
     DashboardFilter,
     HogQLQueryModifiers,
     RetentionQuery,
+    PathsQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -76,18 +77,19 @@ class CachedQueryResponse(QueryResponse):
 
 
 RunnableQueryNode = Union[
-    HogQLQuery,
-    TrendsQuery,
-    LifecycleQuery,
-    InsightActorsQuery,
-    EventsQuery,
     ActorsQuery,
+    EventsQuery,
+    HogQLQuery,
+    InsightActorsQuery,
+    LifecycleQuery,
+    PathsQuery,
     RetentionQuery,
     SessionsTimelineQuery,
-    WebOverviewQuery,
-    WebTopClicksQuery,
-    WebStatsTableQuery,
     StickinessQuery,
+    TrendsQuery,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebTopClicksQuery,
 ]
 
 
@@ -141,6 +143,16 @@ def get_query_runner(
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "PathsQuery":
+        from .insights.paths_query_runner import PathsQueryRunner
+
+        return PathsQueryRunner(
+            query=cast(PathsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -231,10 +243,14 @@ class QueryRunner(ABC):
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.modifiers = create_default_modifiers_for_team(team, modifiers)
-        if isinstance(query, self.query_type):
-            self.query = query
-        else:
-            self.query = self.query_type.model_validate(query)
+
+        if not self.is_query_node(query):
+            query = self.query_type.model_validate(query)
+        assert isinstance(query, self.query_type)
+        self.query = query
+
+    def is_query_node(self, data) -> TypeGuard[RunnableQueryNode]:
+        return isinstance(data, self.query_type)
 
     @abstractmethod
     def calculate(self) -> BaseModel:
