@@ -160,7 +160,13 @@ export function Transformations(): JSX.Element {
                             {
                                 width: 0,
                                 render: function Render(_, pluginConfig) {
-                                    return <More overlay={<TransformationsMoreOverlay pluginConfig={pluginConfig} />} />
+                                    return (
+                                        <More
+                                            overlay={
+                                                <TransformationsMoreOverlay pluginConfig={pluginConfig} enableReorder />
+                                            }
+                                        />
+                                    )
                                 },
                             },
                         ]}
@@ -173,8 +179,10 @@ export function Transformations(): JSX.Element {
 
 export const TransformationsMoreOverlay = ({
     pluginConfig,
+    enableReorder = false,
 }: {
     pluginConfig: PluginConfigWithPluginInfoNew
+    enableReorder: boolean
 }): JSX.Element => {
     const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
     const { openReorderModal, toggleEnabled, loadPluginConfigs } = useActions(pipelineTransformationsLogic)
@@ -194,7 +202,7 @@ export const TransformationsMoreOverlay = ({
             >
                 {pluginConfig.enabled ? 'Disable' : 'Enable'} app
             </LemonButton>
-            {pluginConfig.enabled && (
+            {pluginConfig.enabled && enableReorder && (
                 <LemonButton
                     onClick={openReorderModal}
                     id="app-reorder"
