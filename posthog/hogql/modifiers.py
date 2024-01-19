@@ -21,8 +21,8 @@ def create_default_modifiers_for_team(
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.auto
 
-    if modifiers.inCohortVia is None:
-        modifiers.inCohortVia = InCohortVia.auto
+    if modifiers.inCohortVia is None or modifiers.inCohortVia == InCohortVia.auto:
+        modifiers.inCohortVia = InCohortVia.subquery
 
     if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.auto:
         modifiers.materializationMode = MaterializationMode.legacy_null_as_null

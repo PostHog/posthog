@@ -48,7 +48,7 @@ from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, InCohortVia, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 
 if TYPE_CHECKING:
@@ -125,11 +125,6 @@ class Database(BaseModel):
             setattr(self, f_name, f_def)
 
 
-def setup_in_cohort_via_modifier(modifiers: HogQLQueryModifiers) -> None:
-    if modifiers.inCohortVia == InCohortVia.auto:
-        modifiers.inCohortVia = InCohortVia.leftjoin
-
-
 def create_hogql_database(
     team_id: int, modifiers: Optional[HogQLQueryModifiers] = None, team_arg: Optional["Team"] = None
 ) -> Database:
@@ -143,7 +138,6 @@ def create_hogql_database(
 
     team = team_arg or Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)
-    setup_in_cohort_via_modifier(modifiers)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
 
     if modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled:

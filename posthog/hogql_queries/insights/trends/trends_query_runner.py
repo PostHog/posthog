@@ -385,11 +385,11 @@ class TrendsQueryRunner(QueryRunner):
 
     def update_hogql_modifiers(self) -> None:
         if (
-            self.modifiers.inCohortVia == InCohortVia.auto
-            and self.query.breakdownFilter is not None
+            self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
             and isinstance(self.query.breakdownFilter.breakdown, List)
             and len(self.query.breakdownFilter.breakdown) > 1
+            and not any(value == "all" for value in self.query.breakdownFilter.breakdown)
         ):
             self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
 
