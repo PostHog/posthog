@@ -3,9 +3,10 @@ import { useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppKind, PipelineAppTab, PluginConfigWithPluginInfoNew } from '~/types'
+import { PipelineAppKind, PipelineAppTab, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { DestinationMoreOverlay } from './Destinations'
@@ -22,9 +23,18 @@ type PipelineStepProps = {
     description?: string
     headerInfo: JSX.Element
     additionalInfo?: JSX.Element
+    plugin?: PluginType
 }
 
-const PipelineStep = ({ order, name, to, description, headerInfo, additionalInfo }: PipelineStepProps): JSX.Element => (
+const PipelineStep = ({
+    order,
+    name,
+    to,
+    description,
+    headerInfo,
+    additionalInfo,
+    plugin,
+}: PipelineStepProps): JSX.Element => (
     <LemonCard>
         {order !== undefined && (
             <div className="mb-3">
@@ -40,11 +50,14 @@ const PipelineStep = ({ order, name, to, description, headerInfo, additionalInfo
         )}
 
         <div className="flex items-center justify-between mb-3">
-            <h3 className="mb-0 mr-2">
-                <Link to={to} subtle>
-                    {name}
-                </Link>
-            </h3>
+            <div className="flex items-center">
+                {plugin && <PluginImage plugin={plugin} size="small" />}
+                <h3 className="mb-0 ml-3 mr-2">
+                    <Link to={to} subtle>
+                        {name}
+                    </Link>
+                </h3>
+            </div>
 
             <div className="flex items-center">{headerInfo}</div>
         </div>
@@ -88,6 +101,7 @@ const PipelineStepTransformation = ({
                     <More overlay={<TransformationsMoreOverlay pluginConfig={transformation} />} />
                 </>
             }
+            plugin={transformation.plugin}
         />
     )
 }
@@ -112,6 +126,7 @@ const PipelineStepDestination = ({ destination }: { destination: DestinationType
                     {destination.backend === PipelineAppBackend.BatchExport}
                 </div>
             }
+            plugin={destination.backend === PipelineAppBackend.Plugin ? destination.plugin : undefined}
         />
     )
 }
