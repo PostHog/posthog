@@ -581,6 +581,14 @@ class RetentionValue(BaseModel):
     count: int
 
 
+class SamplingRate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator: Optional[float] = None
+    numerator: float
+
+
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -747,6 +755,14 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    forceSamplingRate: Optional[SamplingRate] = None
+
+
 class Kind1(str, Enum):
     unit = "unit"
     duration_s = "duration_s"
@@ -774,6 +790,7 @@ class WebOverviewQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -805,6 +822,7 @@ class WebStatsTableQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -819,6 +837,7 @@ class WebTopClicksQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -1150,6 +1169,7 @@ class QueryResponseAlternative8(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1163,6 +1183,7 @@ class QueryResponseAlternative9(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -1302,6 +1323,7 @@ class WebAnalyticsQueryBase(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+    sampling: Optional[Sampling] = None
 
 
 class WebOverviewQuery(BaseModel):
@@ -1312,6 +1334,7 @@ class WebOverviewQuery(BaseModel):
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class WebStatsTableQuery(BaseModel):
@@ -1324,6 +1347,7 @@ class WebStatsTableQuery(BaseModel):
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -1334,6 +1358,7 @@ class WebTopClicksQuery(BaseModel):
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class AnyResponseType(

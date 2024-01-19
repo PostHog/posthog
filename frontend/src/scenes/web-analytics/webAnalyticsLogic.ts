@@ -3,8 +3,9 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
-import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
+import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
 
 import {
@@ -114,7 +115,9 @@ const initialInterval = getDefaultInterval(initialDateFrom, initialDateTo)
 
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
-    connect({}),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
         togglePropertyFilter: (
@@ -325,6 +328,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
                 const compare = !!dateRange.date_from
 
+                const sampling = {
+                    enabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SAMPLING],
+                    forceSamplingRate: { numerator: 1, denominator: 10 },
+                }
+
                 const tiles: (WebDashboardTile | null)[] = [
                     {
                         layout: {
@@ -335,6 +343,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: NodeKind.WebOverviewQuery,
                             properties: webAnalyticsFilters,
                             dateRange,
+                            sampling,
                         },
                     },
                     {
@@ -459,6 +468,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         breakdownBy: WebStatsBreakdown.Page,
                                         dateRange,
                                         includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                        sampling,
                                     },
                                     embedded: false,
                                 },
@@ -476,6 +486,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         breakdownBy: WebStatsBreakdown.InitialPage,
                                         dateRange,
                                         includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                        sampling,
                                     },
                                     embedded: false,
                                 },
@@ -502,6 +513,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialReferringDomain,
                                         dateRange,
+                                        sampling,
                                     },
                                 },
                             },
@@ -517,6 +529,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialChannelType,
                                         dateRange,
+                                        sampling,
                                     },
                                 },
                             },
@@ -532,6 +545,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialUTMSource,
                                         dateRange,
+                                        sampling,
                                     },
                                 },
                             },
@@ -547,6 +561,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialUTMMedium,
                                         dateRange,
+                                        sampling,
                                     },
                                 },
                             },
@@ -562,6 +577,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialUTMCampaign,
                                         dateRange,
+                                        sampling,
                                     },
                                 },
                             },
@@ -577,6 +593,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialUTMContent,
                                         dateRange,
+                                        sampling,
                                     },
                                 },
                             },
@@ -592,6 +609,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialUTMTerm,
                                         dateRange,
+                                        sampling,
                                     },
                                 },
                             },
@@ -651,6 +669,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.Browser,
                                         dateRange,
+                                        sampling,
                                     },
                                     embedded: false,
                                 },
@@ -667,6 +686,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.OS,
                                         dateRange,
+                                        sampling,
                                     },
                                     embedded: false,
                                 },
@@ -724,6 +744,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               properties: webAnalyticsFilters,
                                               breakdownBy: WebStatsBreakdown.Country,
                                               dateRange,
+                                              sampling,
                                           },
                                       },
                                   },
@@ -739,6 +760,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               properties: webAnalyticsFilters,
                                               breakdownBy: WebStatsBreakdown.Region,
                                               dateRange,
+                                              sampling,
                                           },
                                       },
                                   },
@@ -754,6 +776,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               properties: webAnalyticsFilters,
                                               breakdownBy: WebStatsBreakdown.City,
                                               dateRange,
+                                              sampling,
                                           },
                                       },
                                   },

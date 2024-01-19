@@ -33,6 +33,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     RetentionQuery,
     PathsQuery,
+    SamplingRate,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -63,6 +64,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     hasMore: Optional[bool] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
+    samplingRate: Optional[SamplingRate] = None
 
 
 class CachedQueryResponse(QueryResponse):

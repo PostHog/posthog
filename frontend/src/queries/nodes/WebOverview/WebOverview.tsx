@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil } from 'lib/utils'
@@ -29,12 +30,21 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
         return null
     }
 
-    const results = (response as WebOverviewQueryResponse | undefined)?.results
+    const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
     return (
-        <EvenlyDistributedRows className="w-full gap-x-2 gap-y-8" minWidthRems={8}>
-            {results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) || []}
-        </EvenlyDistributedRows>
+        <>
+            <EvenlyDistributedRows className="w-full gap-x-2 gap-y-8" minWidthRems={8}>
+                {webOverviewQueryResponse?.results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) ||
+                    []}
+            </EvenlyDistributedRows>
+            {webOverviewQueryResponse?.samplingRate ? (
+                <LemonBanner type="info" className="my-4">
+                    These results using a sampling factor of {webOverviewQueryResponse.samplingRate.numerator}/
+                    {webOverviewQueryResponse.samplingRate.denominator}. Sampling is currently in beta.
+                </LemonBanner>
+            ) : null}
+        </>
     )
 }
 

@@ -816,6 +816,10 @@ export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
+    sampling?: {
+        enabled?: boolean
+        forceSamplingRate?: SamplingRate
+    }
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
@@ -832,8 +836,14 @@ export interface WebOverviewItem {
     isIncreaseBad?: boolean
 }
 
+export interface SamplingRate {
+    numerator: number
+    denominator?: number
+}
+
 export interface WebOverviewQueryResponse extends QueryResponse {
     results: WebOverviewItem[]
+    samplingRate?: SamplingRate
 }
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
@@ -844,6 +854,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
     results: unknown[]
     types?: unknown[]
     columns?: unknown[]
+    samplingRate?: SamplingRate
 }
 
 export enum WebStatsBreakdown {
@@ -875,6 +886,7 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
+    samplingRate?: SamplingRate
 }
 
 export type InsightQueryNode =

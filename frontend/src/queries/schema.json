@@ -2876,6 +2876,9 @@
                             },
                             "type": "array"
                         },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
                         "timings": {
                             "items": {
                                 "$ref": "#/definitions/QueryTiming"
@@ -2908,6 +2911,9 @@
                         "results": {
                             "items": {},
                             "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
                         },
                         "timings": {
                             "items": {
@@ -2945,6 +2951,9 @@
                         "results": {
                             "items": {},
                             "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
                         },
                         "timings": {
                             "items": {
@@ -3457,6 +3466,19 @@
                 }
             },
             "required": ["count"],
+            "type": "object"
+        },
+        "SamplingRate": {
+            "additionalProperties": false,
+            "properties": {
+                "denominator": {
+                    "type": "number"
+                },
+                "numerator": {
+                    "type": "number"
+                }
+            },
+            "required": ["numerator"],
             "type": "object"
         },
         "SavedInsightNode": {
@@ -4189,6 +4211,18 @@
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["properties"],
@@ -4235,6 +4269,18 @@
                 },
                 "response": {
                     "$ref": "#/definitions/WebOverviewQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["kind", "properties"],
@@ -4260,6 +4306,9 @@
                         "$ref": "#/definitions/WebOverviewItem"
                     },
                     "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
                 },
                 "timings": {
                     "items": {
@@ -4312,6 +4361,18 @@
                 },
                 "response": {
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -4339,6 +4400,9 @@
                 "results": {
                     "items": {},
                     "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
                 },
                 "timings": {
                     "items": {
@@ -4369,6 +4433,18 @@
                 },
                 "response": {
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["kind", "properties"],
@@ -4396,6 +4472,9 @@
                 "results": {
                     "items": {},
                     "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
                 },
                 "timings": {
                     "items": {
