@@ -16,15 +16,16 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
 import { useRef } from 'react'
 
-import { DateMappingOption } from '~/types'
+import { DateMappingOption, PropertyOperator } from '~/types'
 
+import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
 import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 
 export interface DateFilterProps {
     showCustom?: boolean
     showRollingRangePicker?: boolean
-    makeLabel?: (key: React.ReactNode) => React.ReactNode
+    makeLabel?: (key: React.ReactNode, startOfRange?: React.ReactNode) => React.ReactNode
     className?: string
     onChange?: (fromDate: string | null, toDate: string | null) => void
     disabled?: boolean
@@ -32,6 +33,8 @@ export interface DateFilterProps {
     isDateFormatted?: boolean
     size?: LemonButtonProps['size']
     dropdownPlacement?: Placement
+    /* True when we're not dealing with ranges, but a single date / relative date */
+    isFixedDateMode?: boolean
 }
 interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
@@ -53,6 +56,7 @@ export function DateFilter({
     size,
     dropdownPlacement = 'bottom-start',
     max,
+    isFixedDateMode,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -62,11 +66,30 @@ export function DateFilter({
         onChange,
         dateOptions,
         isDateFormatted,
+        isFixedDateMode,
     }
-    const { open, openFixedRange, openDateToNow, close, setRangeDateFrom, setRangeDateTo, setDate, applyRange } =
-        useActions(dateFilterLogic(logicProps))
-    const { isVisible, view, rangeDateFrom, rangeDateTo, label, isFixedRange, isDateToNow, isRollingDateRange } =
-        useValues(dateFilterLogic(logicProps))
+    const {
+        open,
+        openFixedRange,
+        openDateToNow,
+        openFixedDate,
+        close,
+        setRangeDateFrom,
+        setRangeDateTo,
+        setDate,
+        applyRange,
+    } = useActions(dateFilterLogic(logicProps))
+    const {
+        isVisible,
+        view,
+        rangeDateFrom,
+        rangeDateTo,
+        label,
+        isFixedRange,
+        isDateToNow,
+        isFixedDate,
+        isRollingDateRange,
+    } = useValues(dateFilterLogic(logicProps))
 
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
@@ -92,6 +115,15 @@ export function DateFilter({
                     applyRange()
                 }}
                 onClose={open}
+            />
+        ) : view === DateFilterView.FixedDate ? (
+            <PropertyFilterDatePicker
+                autoFocus={isFixedDate}
+                operator={PropertyOperator.Exact}
+                value={rangeDateFrom ? rangeDateFrom.toString() : dayjs().toString()}
+                setValue={(date) => {
+                    setDate(String(date), '')
+                }}
             />
         ) : (
             <div className="space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
@@ -142,12 +174,20 @@ export function DateFilter({
                     />
                 )}
                 <LemonDivider />
-                <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
-                    From custom date until now…
-                </LemonButton>
-                <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
-                    Custom fixed date range…
-                </LemonButton>
+                {isFixedDateMode ? (
+                    <LemonButton onClick={openFixedDate} active={isFixedDate} fullWidth>
+                        Custom date...
+                    </LemonButton>
+                ) : (
+                    <>
+                        <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
+                            From custom date until now…
+                        </LemonButton>
+                        <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
+                            Custom fixed date range…
+                        </LemonButton>
+                    </>
+                )}
             </div>
         )
 
