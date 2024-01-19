@@ -290,6 +290,9 @@ class PathsQueryRunner(QueryRunner):
 
     def paths_per_person_query(self) -> ast.SelectQuery:
         target_point = self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint
+        target_point = (
+            target_point[:-1] if target_point and len(target_point) > 1 and target_point.endswith("/") else target_point
+        )
 
         filtered_paths = self.get_filtered_path_ordering()
         limited_paths = self.get_limited_path_ordering()

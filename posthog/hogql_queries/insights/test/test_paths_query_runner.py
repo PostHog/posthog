@@ -5,11 +5,8 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
 from posthog.models import Team
-from posthog.models.filters.path_filter import PathFilter
-from posthog.queries.paths import Paths
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -149,8 +146,14 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2012-01-15T03:21:34.000Z"):
-            filter = PathFilter(team=self.team, data={"dummy": "dummy"})
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "pathsFilter": {},  # Not actually possible in frontend?!?
+                },
+                team=self.team,
+            ).run()
+            response = result.results
 
         self.assertEqual(response[0]["source"], "1_/", response)
         self.assertEqual(response[0]["target"], "2_/pricing")
@@ -170,55 +173,102 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2012-01-15T03:21:34.000Z"):
             date_from = now() - relativedelta(days=7)
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/path/?insight=PATHS&date_from=" + date_from.strftime("%Y-%m-%d")
-            ).json()
-            self.assertEqual(len(response["result"]), 4)
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "dateRange": {
+                        "date_from": date_from.strftime("%Y-%m-%d"),
+                    },
+                    "pathsFilter": {},
+                },
+                team=self.team,
+            ).run()
+            self.assertEqual(len(result.results), 4)
 
             date_to = now()
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
-            ).json()
-            self.assertEqual(len(response["result"]), 4)
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "dateRange": {
+                        "date_to": date_to.strftime("%Y-%m-%d"),
+                    },
+                    "pathsFilter": {},
+                },
+                team=self.team,
+            ).run()
+            self.assertEqual(len(result.results), 4)
 
             date_from = now() + relativedelta(days=7)
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/path/?insight=PATHS&date_from=" + date_from.strftime("%Y-%m-%d")
-            ).json()
-            self.assertEqual(len(response["result"]), 0)
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "dateRange": {
+                        "date_from": date_from.strftime("%Y-%m-%d"),
+                    },
+                    "pathsFilter": {},
+                },
+                team=self.team,
+            ).run()
+            self.assertEqual(len(result.results), 0)
 
             date_to = now() - relativedelta(days=7)
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/insights/path/?insight=PATHS&date_to=" + date_to.strftime("%Y-%m-%d")
-            ).json()
-            self.assertEqual(len(response["result"]), 0)
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "dateRange": {
+                        "date_to": date_to.strftime("%Y-%m-%d"),
+                    },
+                    "pathsFilter": {},
+                },
+                team=self.team,
+            ).run()
+            self.assertEqual(len(result.results), 0)
 
             date_from = now() - relativedelta(days=7)
             date_to = now() + relativedelta(days=7)
 
-            date_params = {
-                "date_from": date_from.strftime("%Y-%m-%d"),
-                "date_to": date_to.strftime("%Y-%m-%d"),
-            }
-
-            filter = PathFilter(team=self.team, data={**date_params})
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
-            self.assertEqual(len(response), 4)
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "dateRange": {
+                        "date_from": date_from.strftime("%Y-%m-%d"),
+                        "date_to": date_to.strftime("%Y-%m-%d"),
+                    },
+                    "pathsFilter": {},
+                },
+                team=self.team,
+            ).run()
+            self.assertEqual(len(result.results), 4)
 
             # Test account filter
-            filter = PathFilter(team=self.team, data={**date_params, FILTER_TEST_ACCOUNTS: True})
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
-            self.assertEqual(len(response), 3)
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "dateRange": {
+                        "date_from": date_from.strftime("%Y-%m-%d"),
+                        "date_to": date_to.strftime("%Y-%m-%d"),
+                    },
+                    "filterTestAccounts": True,
+                    "pathsFilter": {},
+                },
+                team=self.team,
+            ).run()
+            self.assertEqual(len(result.results), 3)
 
             date_from = now() + relativedelta(days=7)
             date_to = now() - relativedelta(days=7)
-            date_params = {
-                "date_from": date_from.strftime("%Y-%m-%d"),
-                "date_to": date_to.strftime("%Y-%m-%d"),
-            }
-            filter = PathFilter(team=self.team, data={**date_params})
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
-            self.assertEqual(len(response), 0)
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "dateRange": {
+                        "date_from": date_from.strftime("%Y-%m-%d"),
+                        "date_to": date_to.strftime("%Y-%m-%d"),
+                    },
+                    "pathsFilter": {},
+                },
+                team=self.team,
+            ).run()
+            self.assertEqual(len(result.results), 0)
 
     def test_custom_event_paths(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -795,7 +845,6 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    # "include_event_types": ["$pageview"],
                     "start_point": "/pricing",
                 },
             },
@@ -812,8 +861,16 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(response[4].items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
 
         # ensure trailing slashes make no difference
-        filter = PathFilter(team=self.team, data={"path_type": "$pageview", "start_point": "/pricing/"})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        result = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "start_point": "/pricing/",
+                },
+            },
+            team=self.team,
+        ).run()
+        response = result.results
 
         self.assertEqual(len(response), 5)
 
@@ -823,8 +880,17 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(response[3].items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items())
         self.assertTrue(response[4].items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
 
-        filter = PathFilter(team=self.team, data={"path_type": "$pageview", "start_point": "/"})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        result = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "path_type": "$pageview",
+                    "start_point": "/",
+                },
+            },
+            team=self.team,
+        ).run()
+        response = result.results
 
         self.assertEqual(len(response), 3)
 
@@ -872,8 +938,18 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-        filter = PathFilter(team=self.team, data={"date_from": "2020-04-13"})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        date_from = "2020-04-13"
+        result = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "dateRange": {
+                    "date_from": date_from,
+                },
+                "pathsFilter": {},
+            },
+            team=self.team,
+        ).run()
+        response = result.results
 
         self.assertEqual(response[0]["source"], "1_/")
         self.assertEqual(response[0]["target"], "2_/about")
