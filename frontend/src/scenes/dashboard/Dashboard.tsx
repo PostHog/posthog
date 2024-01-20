@@ -183,7 +183,7 @@ function DashboardScene(): JSX.Element {
                 <AddInsightsToDashboardModal
                     isOpen={addInsightsToDashboardModalOpen}
                     closeModal={() => setAddInsightsToDashboardModalOpen(false)}
-                    dashboard={dashboard}
+                    dashboardId={dashboard.id}
                     canEditDashboard={canEditDashboard}
                 />
             )}

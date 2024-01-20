@@ -279,8 +279,8 @@ export function DashboardHeader({
                             )}
                             {dashboard && (
                                 <AddInsightsToDashboard
+                                    dashboardId={dashboard.id}
                                     setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen}
-                                    dashboard={dashboard}
                                     disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                 />
                             )}

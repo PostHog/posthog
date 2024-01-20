@@ -1,18 +1,21 @@
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { DashboardType } from '~/types'
+import { useActions } from 'kea'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 interface AddInsightsToDashboardProps {
+    dashboardId: number
     setAddInsightsToDashboardModalOpen: (open: boolean) => void
-    dashboard: DashboardType
     disabledReason: string | null
 }
 
 export function AddInsightsToDashboard({
+    dashboardId,
     setAddInsightsToDashboardModalOpen,
-    dashboard,
     disabledReason,
-}: AddInsightsToDashboardProps): JSX.Element | null {
+}: AddInsightsToDashboardProps): JSX.Element {
+    const { push } = useActions(router)
+
     return (
         <LemonButton
             onClick={() => {
@@ -21,8 +24,26 @@ export function AddInsightsToDashboard({
             type="primary"
             data-attr="insight-add-graph"
             disabledReason={disabledReason}
+            sideAction={{
+                dropdown: {
+                    placement: 'bottom-end',
+                    overlay: (
+                        <>
+                            <LemonButton
+                                fullWidth
+                                onClick={() => push(urls.dashboardTextTile(dashboardId, 'new'))}
+                                data-attr="add-text-tile-to-dashboard"
+                            >
+                                Add text card
+                            </LemonButton>
+                        </>
+                    ),
+                },
+                disabled: false,
+                'data-attr': 'dashboard-add-dropdown',
+            }}
         >
-            {dashboard.tiles.every((tile) => !tile.insight) ? 'Add Insight' : 'Manage Insights'}
+            Add insight
         </LemonButton>
     )
 }

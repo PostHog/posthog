@@ -1,4 +1,4 @@
-import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, Link, PaginationControl, usePagination } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CSSProperties } from 'react'
@@ -6,19 +6,19 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { urls } from 'scenes/urls'
 
-import { DashboardType, InsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { addInsightsToDashboardModalLogic } from './addInsightsToDashboardModalLogic'
 
 interface AddInsightsToDashboardModalProps {
     isOpen: boolean
     closeModal: () => void
-    dashboard: DashboardType
+    dashboardId: number
     canEditDashboard: boolean
 }
 
 interface InsightRelationRowProps {
-    dashboard: DashboardType
+    dashboardId: number
     insight: InsightModel
     canEditDashboard: boolean
     isHighlighted: boolean
@@ -27,7 +27,7 @@ interface InsightRelationRowProps {
 }
 
 const InsightRelationRow = ({
-    dashboard,
+    dashboardId,
     insight,
     canEditDashboard,
     isHighlighted,
@@ -35,7 +35,7 @@ const InsightRelationRow = ({
     style,
 }: InsightRelationRowProps): JSX.Element => {
     const logic = addInsightsToDashboardModalLogic({
-        dashboard: dashboard,
+        dashboardId: dashboardId,
     })
 
     const { addToDashboard, removeFromDashboard } = useActions(logic)
@@ -83,28 +83,29 @@ const InsightRelationRow = ({
 export function AddInsightsToDashboardModal({
     isOpen,
     closeModal,
-    dashboard,
+    dashboardId,
     canEditDashboard,
-}: AddInsightsToDashboardModalProps): JSX.Element | null {
+}: AddInsightsToDashboardModalProps): JSX.Element {
     const logic = addInsightsToDashboardModalLogic({
-        dashboard: dashboard,
+        dashboardId: dashboardId,
     })
 
-    const { searchQuery, filteredInsights, scrollIndex } = useValues(logic)
+    const { searchQuery, filteredInsights, pagination, tiles, scrollIndex } = useValues(logic)
 
     const { setSearchQuery } = useActions(logic)
+
+    const paginationState = usePagination(filteredInsights || [], pagination)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         return (
             <InsightRelationRow
                 key={filteredInsights[rowIndex].short_id}
-                dashboard={dashboard}
+                dashboardId={dashboardId}
                 insight={filteredInsights[rowIndex]}
                 canEditDashboard={canEditDashboard}
                 isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnDashboard={
-                    logic.values.tiles?.some((t) => t.insight?.short_id === filteredInsights[rowIndex].short_id) ||
-                    false
+                    tiles?.some((t) => t.insight?.short_id === filteredInsights[rowIndex].short_id) || false
                 }
                 style={style}
             />
@@ -115,11 +116,11 @@ export function AddInsightsToDashboardModal({
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
-            title="Add Insights to Dashboard"
+            title="Add insight to dashboard"
             footer={
                 <div className="w-full flex justify-between">
-                    <LemonButton to={urls.insightNew(undefined, dashboard.id)} type="secondary">
-                        Create New Insight
+                    <LemonButton to={urls.insightNew(undefined, dashboardId)} type="secondary">
+                        Create a new insight
                     </LemonButton>
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
@@ -132,7 +133,7 @@ export function AddInsightsToDashboardModal({
                     data-attr="insight-searchfield"
                     type="search"
                     fullWidth
-                    placeholder={`Search for insights...`}
+                    placeholder="Search for insights..."
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
@@ -141,6 +142,7 @@ export function AddInsightsToDashboardModal({
                     <AutoSizer>
                         {({ height, width }) => (
                             <List
+                                style={{ paddingLeft: 10, paddingRight: 10 }}
                                 width={width}
                                 height={height}
                                 rowCount={filteredInsights.length}
@@ -152,6 +154,7 @@ export function AddInsightsToDashboardModal({
                         )}
                     </AutoSizer>
                 </div>
+                <PaginationControl {...paginationState} nouns={['insight', 'insights']} bordered />
             </div>
         </LemonModal>
     )

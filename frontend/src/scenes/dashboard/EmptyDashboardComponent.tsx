@@ -96,8 +96,8 @@ export function EmptyDashboardComponent({
                     {dashboard && (
                         <div className="mt-4 text-center">
                             <AddInsightsToDashboard
+                                dashboardId={dashboard.id}
                                 setAddInsightsToDashboardModalOpen={setAddInsightsToDashboardModalOpen}
-                                dashboard={dashboard}
                                 disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                             />
                         </div>
