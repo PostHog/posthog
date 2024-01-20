@@ -146,7 +146,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
-            # TODO validation to enforce expected fields
             "session_recording_summary_config",
             "effective_membership_level",
             "access_control",
@@ -206,6 +205,21 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not all(key in ["recordHeaders", "recordBody"] for key in value.keys()):
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
+            )
+
+        return value
+
+    def validate_session_recording_summary_config(self, value) -> Dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, Dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        allowed_keys = ["included_event_properties", "opt_in", "preferred_events", "excluded_events"]
+        if not all(key in allowed_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                "Must provide a dictionary with only allowed keys: {}".format(allowed_keys)
             )
 
         return value

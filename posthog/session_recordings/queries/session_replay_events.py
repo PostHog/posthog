@@ -13,7 +13,7 @@ from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
-from posthog.session_recordings.session_summary.summarize_session import SessionRecordingSummaryConfig
+from posthog.session_recordings.session_summary.summary_config import SessionRecordingSummaryConfig
 
 
 class SessionReplayEvents:
