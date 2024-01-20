@@ -240,6 +240,10 @@ export const supportLogic = kea<supportLogicType>([
                             id: 22084126888475,
                             value: severity_level,
                         },
+                        {
+                            id: 22129191462555,
+                            value: posthog.get_distinct_id(),
+                        },
                     ],
                     comment: {
                         body: (
