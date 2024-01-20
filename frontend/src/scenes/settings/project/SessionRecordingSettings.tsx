@@ -213,7 +213,7 @@ export function ReplaySummarySettings(): JSX.Element | null {
                 <p>
                     We use Open AI to summarise sessions. No data is sent to OpenAI without an explicit instruction to
                     do so. Only by clicking the <IconAutoAwesome /> "Summary" button will selected event data be shared
-                    with a third party. We only send the data selected below.
+                    with a third party. We only send the data selected below.{' '}
                     <strong>Data submitted is not used to train Open AI's models</strong>
                 </p>
                 <LemonSwitch
@@ -283,7 +283,10 @@ export function ReplaySummarySettings(): JSX.Element | null {
                     <IconSelectEvents className="text-lg" />
                     Included event properties
                 </h3>
-                <p>Only these properties are sent for summary.</p>
+                <p>
+                    We always send the event name and timestamp. The only other data sent are values of the properties
+                    selected here.
+                </p>
                 <div className="max-w-160">
                     <LemonSelectMultiple
                         mode="multiple-custom"
