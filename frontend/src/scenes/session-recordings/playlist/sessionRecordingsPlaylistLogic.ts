@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     AnyPropertyFilter,
@@ -229,6 +230,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['featureFlags'],
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
+            teamLogic,
+            ['currentTeam'],
         ],
     }),
     actions({
@@ -263,7 +266,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     loaders(({ props, values, actions }) => ({
         sessionSummary: {
             summarizeSession: async ({ id }): Promise<SessionSummaryResponse | null> => {
-                if (!id) {
+                if (!id || !values.sessionSummaryOptedIn) {
                     return null
                 }
                 const response = await api.recordings.summarize(id)
@@ -548,6 +551,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
+        sessionSummaryOptedIn: [
+            (s) => [s.currentTeam],
+            (currentTeam) => currentTeam?.session_recording_summary_config?.opt_in ?? false,
+        ],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
         shouldShowEmptyState: [
             (s) => [
