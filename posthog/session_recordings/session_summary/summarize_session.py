@@ -44,6 +44,33 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 )
 
 
+@dataclasses.dataclass(frozen=True)
+class SessionRecordingSummaryConfig:
+    opt_in: bool
+    preferred_events: List[str]
+    excluded_events: List[str]
+    included_event_properties: List[str]
+
+    @staticmethod
+    def from_config_json(config_json: dict) -> "SessionRecordingSummaryConfig":
+        raw_included_event_properties = config_json.get(
+            "included_event_properties", ["elements_chain", "$window_id", "$current_url", "$event_type"]
+        )
+        included_event_properties = ["event", "timestamp"]
+        for prop in raw_included_event_properties:
+            if prop in ["elements_chain"]:
+                included_event_properties.append(prop)
+            else:
+                included_event_properties.append(f"properties.{prop}")
+
+        return SessionRecordingSummaryConfig(
+            opt_in=config_json.get("opt_in", False),
+            preferred_events=config_json.get("preferred_events", []),
+            excluded_events=config_json.get("excluded_events", ["$feature_flag_called"]),
+            included_event_properties=included_event_properties,
+        )
+
+
 @dataclasses.dataclass
 class SessionSummaryPromptData:
     # we may allow customisation of columns included in the future,
@@ -252,14 +279,14 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         if not session_metadata:
             raise ValueError(f"no session metadata found for session_id {recording.session_id}")
 
+    config = SessionRecordingSummaryConfig.from_config_json(team.session_recording_summary_config)
+
     with timer("get_events"):
         session_events = SessionReplayEvents().get_events(
             session_id=str(recording.session_id),
             team=team,
             metadata=session_metadata,
-            events_to_ignore=[
-                "$feature_flag_called",
-            ],
+            config=config,
         )
         if not session_events or not session_events[0] or not session_events[1]:
             raise ValueError(f"no events found for session_id {recording.session_id}")
@@ -296,18 +323,12 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             We also gather events that occur like mouse clicks and key presses.
             You write two or three sentence concise and simple summaries of those sessions based on a prompt.
             You are more likely to mention errors or things that look like business success such as checkout events.
-            You don't help with other knowledge.""",
+            You don't help with other knowledge.""".replace("\n", ""),
         },
         {
             "role": "user",
             "content": f"""the session metadata I have is {session_metadata_dict}.
-            it gives an overview of activity and duration""",
-        },
-        {
-            "role": "user",
-            "content": f"""
-            URLs associated with the events can be found in this mapping {prompt_data.url_mapping}.
-            """,
+            it gives an overview of activity and duration""".replace("\n", ""),
         },
         {
             "role": "user",
@@ -315,7 +336,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             with columns {prompt_data.columns}.
             they give an idea of what happened and when,
             if present the elements_chain extracted from the html can aid in understanding
-            but should not be directly used in your response""",
+            but should not be directly used in your response""".replace("\n", ""),
         },
         {
             "role": "user",
@@ -323,9 +344,25 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             generate a two or three sentence summary of the session.
             use as concise and simple language as is possible.
             assume a reading age of around 12 years old.
-            generate no text other than the summary.""",
+            generate no text other than the summary.""".replace("\n", ""),
         },
     ]
+
+    if prompt_data.url_mapping:
+        messages.append(
+            {
+                "role": "user",
+                "content": f"""for brevity I have replaced URLs with placeholders {prompt_data.url_mapping}""",
+            },
+        )
+
+    if config.preferred_events:
+        messages.append(
+            {
+                "role": "user",
+                "content": f"""the events I am most interested in are {config.preferred_events}""",
+            },
+        )
 
     with timer("openai_completion"):
         result = openai.ChatCompletion.create(

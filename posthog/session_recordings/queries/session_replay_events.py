@@ -13,6 +13,7 @@ from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
+from posthog.session_recordings.session_summary.summarize_session import SessionRecordingSummaryConfig
 
 
 class SessionReplayEvents:
@@ -105,18 +106,20 @@ class SessionReplayEvents:
         )
 
     def get_events(
-        self, session_id: str, team: Team, metadata: RecordingMetadata, events_to_ignore: List[str] | None
+        self, session_id: str, team: Team, metadata: RecordingMetadata, config: SessionRecordingSummaryConfig
     ) -> Tuple[List | None, List | None]:
+        # imported locally to avoid circular import warnings 🤷
         from posthog.schema import HogQLQuery, HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         q = """
-            select event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+            select {event_properties}
             from events
             where timestamp >= {start_time} and timestamp <= {end_time}
             and $session_id = {session_id}
+            and team_id = {team_id}
             """
-        if events_to_ignore:
+        if config.excluded_events:
             q += " and event not in {events_to_ignore}"
 
         q += " order by timestamp asc"
@@ -124,10 +127,12 @@ class SessionReplayEvents:
         hq = HogQLQuery(
             query=q,
             values={
+                "event_properties": ", ".join(config.included_event_properties),
                 "start_time": metadata["start_time"],
                 "end_time": metadata["end_time"],
                 "session_id": session_id,
-                "events_to_ignore": events_to_ignore,
+                "events_to_ignore": config.excluded_events,
+                "team_id": team.pk,
             },
         )
 
