@@ -341,6 +341,13 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
+export interface SessionRecordingSummaryConfig {
+    opt_in: boolean
+    preferred_events: string[]
+    excluded_events: string[]
+    included_event_properties: string[]
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -360,6 +367,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
+    session_recording_summary_config: SessionRecordingSummaryConfig | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]

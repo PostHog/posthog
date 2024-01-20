@@ -146,6 +146,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            # TODO validation to enforce expected fields
+            "session_recording_summary_config",
             "effective_membership_level",
             "access_control",
             "week_start_day",
