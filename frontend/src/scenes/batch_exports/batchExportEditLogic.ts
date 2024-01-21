@@ -55,76 +55,76 @@ const formFields = (
         end_at: '',
         ...(destination === 'Postgres'
             ? {
-                  user: isNew ? (!config.user ? 'This field is required' : '') : '',
-                  password: isNew ? (!config.password ? 'This field is required' : '') : '',
-                  host: !config.host ? 'This field is required' : '',
-                  port: !config.port ? 'This field is required' : '',
-                  database: !config.database ? 'This field is required' : '',
-                  schema: !config.schema ? 'This field is required' : '',
-                  table_name: !config.table_name ? 'This field is required' : '',
-                  has_self_signed_cert: false,
-                  exclude_events: '',
-                  include_events: '',
-              }
+                user: isNew ? (!config.user ? 'This field is required' : '') : '',
+                password: isNew ? (!config.password ? 'This field is required' : '') : '',
+                host: !config.host ? 'This field is required' : '',
+                port: !config.port ? 'This field is required' : '',
+                database: !config.database ? 'This field is required' : '',
+                schema: !config.schema ? 'This field is required' : '',
+                table_name: !config.table_name ? 'This field is required' : '',
+                has_self_signed_cert: false,
+                exclude_events: '',
+                include_events: '',
+            }
             : destination === 'Redshift'
-            ? {
-                  user: isNew ? (!config.user ? 'This field is required' : '') : '',
-                  password: isNew ? (!config.password ? 'This field is required' : '') : '',
-                  host: !config.host ? 'This field is required' : '',
-                  port: !config.port ? 'This field is required' : '',
-                  database: !config.database ? 'This field is required' : '',
-                  schema: !config.schema ? 'This field is required' : '',
-                  table_name: !config.table_name ? 'This field is required' : '',
-                  properties_data_type: '',
-                  exclude_events: '',
-                  include_events: '',
-              }
-            : destination === 'S3'
-            ? {
-                  bucket_name: !config.bucket_name ? 'This field is required' : '',
-                  region: !config.region ? 'This field is required' : '',
-                  prefix: !config.prefix ? 'This field is required' : '',
-                  aws_access_key_id: isNew ? (!config.aws_access_key_id ? 'This field is required' : '') : '',
-                  aws_secret_access_key: isNew ? (!config.aws_secret_access_key ? 'This field is required' : '') : '',
-                  compression: '',
-                  encryption: '',
-                  kms_key_id: !config.kms_key_id && config.encryption == 'aws:kms' ? 'This field is required' : '',
-                  exclude_events: '',
-                  include_events: '',
-              }
-            : destination === 'BigQuery'
-            ? {
-                  json_config_file: isNew
-                      ? !config.json_config_file
-                          ? 'This field is required'
-                          : !config.project_id ||
-                            !config.private_key ||
-                            !config.private_key_id ||
-                            !config.client_email ||
-                            !config.token_uri
-                          ? 'The config file is not valid'
-                          : ''
-                      : '',
-                  dataset_id: !config.dataset_id ? 'This field is required' : '',
-                  table_id: !config.table_id ? 'This field is required' : '',
-                  exclude_events: '',
-                  include_events: '',
-                  use_json_type: '',
-              }
-            : destination === 'Snowflake'
-            ? {
-                  account: !config.account ? 'This field is required' : '',
-                  database: !config.database ? 'This field is required' : '',
-                  warehouse: !config.warehouse ? 'This field is required' : '',
-                  user: isNew ? (!config.user ? 'This field is required' : '') : '',
-                  password: isNew ? (!config.password ? 'This field is required' : '') : '',
-                  schema: !config.schema ? 'This field is required' : '',
-                  table_name: !config.table_name ? 'This field is required' : '',
-                  role: '',
-                  exclude_events: '',
-                  include_events: '',
-              }
-            : {}),
+                ? {
+                    user: isNew ? (!config.user ? 'This field is required' : '') : '',
+                    password: isNew ? (!config.password ? 'This field is required' : '') : '',
+                    host: !config.host ? 'This field is required' : '',
+                    port: !config.port ? 'This field is required' : '',
+                    database: !config.database ? 'This field is required' : '',
+                    schema: !config.schema ? 'This field is required' : '',
+                    table_name: !config.table_name ? 'This field is required' : '',
+                    properties_data_type: '',
+                    exclude_events: '',
+                    include_events: '',
+                }
+                : destination === 'S3'
+                    ? {
+                        bucket_name: !config.bucket_name ? 'This field is required' : '',
+                        region: !config.region ? 'This field is required' : '',
+                        prefix: !config.prefix ? 'This field is required' : '',
+                        aws_access_key_id: isNew ? (!config.aws_access_key_id ? 'This field is required' : '') : '',
+                        aws_secret_access_key: isNew ? (!config.aws_secret_access_key ? 'This field is required' : '') : '',
+                        compression: '',
+                        encryption: '',
+                        kms_key_id: !config.kms_key_id && config.encryption == 'aws:kms' ? 'This field is required' : '',
+                        exclude_events: '',
+                        include_events: '',
+                    }
+                    : destination === 'BigQuery'
+                        ? {
+                            json_config_file: isNew
+                                ? !config.json_config_file
+                                    ? 'This field is required'
+                                    : !config.project_id ||
+                                        !config.private_key ||
+                                        !config.private_key_id ||
+                                        !config.client_email ||
+                                        !config.token_uri
+                                        ? 'The config file is not valid'
+                                        : ''
+                                : '',
+                            dataset_id: !config.dataset_id ? 'This field is required' : '',
+                            table_id: !config.table_id ? 'This field is required' : '',
+                            exclude_events: '',
+                            include_events: '',
+                            use_json_type: false,
+                        }
+                        : destination === 'Snowflake'
+                            ? {
+                                account: !config.account ? 'This field is required' : '',
+                                database: !config.database ? 'This field is required' : '',
+                                warehouse: !config.warehouse ? 'This field is required' : '',
+                                user: isNew ? (!config.user ? 'This field is required' : '') : '',
+                                password: isNew ? (!config.password ? 'This field is required' : '') : '',
+                                schema: !config.schema ? 'This field is required' : '',
+                                table_name: !config.table_name ? 'This field is required' : '',
+                                role: '',
+                                exclude_events: '',
+                                include_events: '',
+                            }
+                            : {}),
     }
 }
 
@@ -151,28 +151,28 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                 const destinationObject: BatchExportDestination =
                     destination === 'Postgres'
                         ? ({
-                              type: 'Postgres',
-                              config: config,
-                          } as unknown as BatchExportDestinationPostgres)
+                            type: 'Postgres',
+                            config: config,
+                        } as unknown as BatchExportDestinationPostgres)
                         : destination === 'S3'
-                        ? ({
-                              type: 'S3',
-                              config: config,
-                          } as unknown as BatchExportDestinationS3)
-                        : destination === 'Redshift'
-                        ? ({
-                              type: 'Redshift',
-                              config: config,
-                          } as unknown as BatchExportDestinationRedshift)
-                        : destination === 'BigQuery'
-                        ? ({
-                              type: 'BigQuery',
-                              config: config,
-                          } as unknown as BatchExportDestinationBigQuery)
-                        : ({
-                              type: 'Snowflake',
-                              config: config,
-                          } as unknown as BatchExportDestinationSnowflake)
+                            ? ({
+                                type: 'S3',
+                                config: config,
+                            } as unknown as BatchExportDestinationS3)
+                            : destination === 'Redshift'
+                                ? ({
+                                    type: 'Redshift',
+                                    config: config,
+                                } as unknown as BatchExportDestinationRedshift)
+                                : destination === 'BigQuery'
+                                    ? ({
+                                        type: 'BigQuery',
+                                        config: config,
+                                    } as unknown as BatchExportDestinationBigQuery)
+                                    : ({
+                                        type: 'Snowflake',
+                                        config: config,
+                                    } as unknown as BatchExportDestinationSnowflake)
 
                 const data: Omit<BatchExportConfiguration, 'id' | 'created_at' | 'team_id'> = {
                     paused,
@@ -274,22 +274,22 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                 },
                 ...(isNew
                     ? [
-                          {
-                              key: 'new',
-                              name: 'New',
-                          },
-                      ]
+                        {
+                            key: 'new',
+                            name: 'New',
+                        },
+                    ]
                     : [
-                          {
-                              key: config?.id ?? 'loading',
-                              name: config?.name,
-                              path: config?.id ? urls.batchExport(config.id) : undefined,
-                          },
-                          {
-                              key: 'edit',
-                              name: 'Edit',
-                          },
-                      ]),
+                        {
+                            key: config?.id ?? 'loading',
+                            name: config?.name,
+                            path: config?.id ? urls.batchExport(config.id) : undefined,
+                        },
+                        {
+                            key: 'edit',
+                            name: 'Edit',
+                        },
+                    ]),
             ],
         ],
     }),

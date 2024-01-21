@@ -44,11 +44,14 @@ async-generator==1.10
     # via
     #   trio
     #   trio-websocket
-async-timeout==4.0.2
+async-timeout==4.0.3
     # via
     #   aiohttp
     #   aiokafka
+    #   asyncpg
     #   redis
+asyncpg==0.29.0
+    # via -r requirements.in
 attrs==23.2.0
     # via
     #   aiohttp
@@ -263,6 +266,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -416,8 +421,6 @@ protobuf==4.22.1
     #   grpcio-status
     #   proto-plus
     #   temporalio
-psycopg==3.1.13
-    # via -r requirements.in
 psycopg2-binary==2.9.7
     # via -r requirements.in
 ptyprocess==0.6.0
@@ -626,7 +629,6 @@ types-setuptools==69.0.0.0
 typing-extensions==4.7.1
     # via
     #   dlt
-    #   psycopg
     #   pydantic
     #   pydantic-core
     #   qrcode

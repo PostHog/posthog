@@ -1,7 +1,6 @@
-import psycopg
+import asyncpg
 import pytest
 import pytest_asyncio
-from psycopg import sql
 
 
 @pytest.fixture
@@ -34,6 +33,19 @@ def exclude_events(request) -> list[str] | None:
         return None
 
 
+@pytest.fixture
+def batch_export_schema(request) -> dict | None:
+    """A parametrizable fixture to configure a batch export schema.
+
+    By decorating a test function with @pytest.mark.parametrize("batch_export_schema", ..., indirect=True)
+    it's possible to set the batch_export_schema that will be used to create a BatchExport.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return None
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def truncate_events(clickhouse_client):
     """Fixture to automatically truncate sharded_events after a test.
@@ -56,57 +68,45 @@ async def setup_postgres_test_db(postgres_config):
     5. After tests, drop the test schema and any tables in it.
     6. Drop the test database.
     """
-    connection = await psycopg.AsyncConnection.connect(
+    connection = await asyncpg.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
         host=postgres_config["host"],
         port=postgres_config["port"],
     )
-    await connection.set_autocommit(True)
 
-    async with connection.cursor() as cursor:
-        await cursor.execute(
-            sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"),
-            (postgres_config["database"],),
-        )
+    row = await connection.fetchrow("SELECT 1 FROM pg_database WHERE datname = $1", postgres_config["database"])
 
-        if await cursor.fetchone() is None:
-            await cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(postgres_config["database"])))
+    if row is None:
+        await connection.execute("CREATE DATABASE {}".format(postgres_config["database"]))
 
     await connection.close()
 
     # We need a new connection to connect to the database we just created.
-    connection = await psycopg.AsyncConnection.connect(
+    connection = await asyncpg.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
         host=postgres_config["host"],
         port=postgres_config["port"],
-        dbname=postgres_config["database"],
+        database=postgres_config["database"],
     )
-    await connection.set_autocommit(True)
 
-    async with connection.cursor() as cursor:
-        await cursor.execute(
-            sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(postgres_config["schema"]))
-        )
+    await connection.execute("CREATE SCHEMA IF NOT EXISTS {}".format(postgres_config["schema"]))
 
     yield
 
-    async with connection.cursor() as cursor:
-        await cursor.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(postgres_config["schema"])))
+    await connection.execute("DROP SCHEMA {} CASCADE".format(postgres_config["schema"]))
 
     await connection.close()
 
     # We need a new connection to drop the database, as we cannot drop the current database.
-    connection = await psycopg.AsyncConnection.connect(
+    connection = await asyncpg.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
         host=postgres_config["host"],
         port=postgres_config["port"],
     )
-    await connection.set_autocommit(True)
 
-    async with connection.cursor() as cursor:
-        await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
+    await connection.execute("DROP DATABASE {}".format(postgres_config["database"]))
 
     await connection.close()

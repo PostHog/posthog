@@ -5,9 +5,8 @@ import itertools
 import typing
 from dataclasses import dataclass
 
+import asyncpg
 import orjson
-import psycopg
-from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -71,7 +70,7 @@ def remove_escaped_whitespace_recursive(value):
 
 
 @contextlib.asynccontextmanager
-async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
+async def redshift_connection(inputs) -> typing.AsyncIterator[asyncpg.connection.Connection]:
     """Manage a Redshift connection.
 
     This just yields a Postgres connection but we adjust a couple of things required for
@@ -90,7 +89,7 @@ async def redshift_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConne
 
 async def insert_records_to_redshift(
     records: collections.abc.Iterator[dict[str, typing.Any]],
-    redshift_connection: psycopg.AsyncConnection,
+    redshift_connection: asyncpg.connection.Connection,
     schema: str | None,
     table: str,
     batch_size: int = 100,
@@ -156,8 +155,8 @@ async def insert_records_to_redshift(
 
 @contextlib.asynccontextmanager
 async def async_client_cursor_from_connection(
-    psycopg_connection: psycopg.AsyncConnection,
-) -> typing.AsyncIterator[psycopg.AsyncClientCursor]:
+    psycopg_connection: asyncpg.connection.Connection,
+):
     """Yield a AsyncClientCursor from a psycopg.AsyncConnection.
 
     Keeps track of the current cursor_factory to set it after we are done.
@@ -234,7 +233,12 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         logger.info("BatchExporting %s rows", count)
 
         fields = default_fields()
-        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
+        fields.append(
+            {
+                "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+                "alias": "ip",
+            }
+        )
         # Fields kept for backwards compatibility with legacy apps schema.
         fields.append({"expression": "elements_chain", "alias": "elements"})
         fields.append({"expression": "''", "alias": "site_url"})
@@ -298,7 +302,10 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         async with postgres_connection(inputs) as connection:
             await insert_records_to_redshift(
-                (map_to_record(result) for result, _ in records_iterator), connection, inputs.schema, inputs.table_name
+                (map_to_record(result) for result, _ in records_iterator),
+                connection,
+                inputs.schema,
+                inputs.table_name,
             )
 
 

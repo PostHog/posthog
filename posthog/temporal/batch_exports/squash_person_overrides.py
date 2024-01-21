@@ -260,7 +260,9 @@ class QueryInputs:
         else:
             self._latest_created_at = v
 
-    def iter_person_overides_to_delete(self) -> Iterable[SerializablePersonOverrideToDelete]:
+    def iter_person_overides_to_delete(
+        self,
+    ) -> Iterable[SerializablePersonOverrideToDelete]:
         """Iterate over SerializablePersonOverrideToDelete ensuring they are of that type.
 
         Looking at the types, this seems pointless, just iterate over person_overrides_to_delete!
@@ -334,7 +336,9 @@ async def drop_dictionary(inputs: QueryInputs) -> None:
 
 
 @activity.defn
-async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePersonOverrideToDelete]:
+async def select_persons_to_delete(
+    inputs: QueryInputs,
+) -> list[SerializablePersonOverrideToDelete]:
     """Select the persons we'll override to lock them in and safely delete afterwards
 
     New overrides may come in while we are executing this workflow, so we need to

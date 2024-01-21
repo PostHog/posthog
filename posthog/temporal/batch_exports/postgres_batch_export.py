@@ -1,23 +1,25 @@
 import collections.abc
 import contextlib
-import csv
 import datetime as dt
 import json
 import typing
 from dataclasses import dataclass
 
-import psycopg
+import asyncpg
+import asyncpg.utils
+import pgpq
+import pgpq.encoders
+import pgpq.schema
 import pyarrow as pa
 from django.conf import settings
-from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import PostgresBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportField,
     BatchExportSchema,
-    BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
@@ -36,154 +38,185 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
 @contextlib.asynccontextmanager
-async def postgres_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
+async def postgres_connection(inputs) -> typing.AsyncIterator[asyncpg.connection.Connection]:
     """Manage a Postgres connection."""
     kwargs: dict[str, typing.Any] = {}
     if inputs.has_self_signed_cert:
         # Disable certificate verification for self-signed certificates.
         kwargs["sslrootcert"] = None
 
-    connection = await psycopg.AsyncConnection.connect(
+    connection = await asyncpg.connect(
         user=inputs.user,
         password=inputs.password,
-        dbname=inputs.database,
+        database=inputs.database,
         host=inputs.host,
         port=inputs.port,
-        sslmode="prefer" if settings.TEST else "require",
+        ssl="prefer" if settings.TEST else "require",
         **kwargs,
     )
 
     try:
         yield connection
-    except Exception:
-        await connection.rollback()
-        raise
-    else:
-        await connection.commit()
     finally:
         await connection.close()
 
 
-async def copy_tsv_to_postgres(
-    tsv_file,
-    postgres_connection: psycopg.AsyncConnection,
-    schema: str,
-    table_name: str,
-    schema_columns: list[str],
-):
-    """Execute a COPY FROM query with given connection to copy contents of tsv_file.
-
-    Arguments:
-        tsv_file: A file-like object to interpret as TSV to copy its contents.
-        postgres_connection: A connection to Postgres as setup by psycopg.
-        schema: An existing schema where to create the table.
-        table_name: The name of the table to create.
-        schema_columns: A list of column names.
-    """
-    tsv_file.seek(0)
-
-    async with postgres_connection.cursor() as cursor:
-        if schema:
-            await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
-
-        async with cursor.copy(
-            sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t')").format(
-                table_name=sql.Identifier(table_name),
-                fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
-            )
-        ) as copy:
-            while data := tsv_file.read():
-                await copy.write(data)
+def postgres_export_default_fields() -> list[BatchExportField]:
+    batch_export_fields = default_fields()
+    batch_export_fields.append(
+        {
+            "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+            "alias": "ip",
+        }
+    )
+    # Fields kept for backwards compatibility with legacy apps schema.
+    batch_export_fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
+    batch_export_fields.append({"expression": "''", "alias": "site_url"})
+    # Team ID is (for historical reasons) an INTEGER (4 bytes) in PostgreSQL, but in ClickHouse is stored as Int64.
+    # We can't encode it as an Int64, as this includes 4 extra bytes, and PostgreSQL will reject the data with a
+    # 'incorrect binary data format' error on the column, so we cast it to Int32.
+    team_id_field = batch_export_fields.pop(
+        batch_export_fields.index(BatchExportField(expression="team_id", alias="team_id"))
+    )
+    team_id_field["expression"] = "toInt32(team_id)"
+    batch_export_fields.append(team_id_field)
+    return batch_export_fields
 
 
-PostgreSQLField = tuple[str, str]
-PostgreSQLFields = collections.abc.Iterable[PostgreSQLField]
+TableColumn = tuple[str, str]
+TableColumns = list[TableColumn]
 
 
-def get_postgres_fields_from_record_schema(record_schema: pa.Schema) -> list[PostgreSQLField]:
+def infer_table_columns_from_record_schema(record_schema: pa.Schema) -> TableColumns:
     """Generate a list of supported PostgreSQL fields from PyArrow schema.
 
     This function is used to map custom schemas to PostgreSQL-supported types. Some loss of precision is
     expected.
     """
-    pg_schema: list[PostgreSQLField] = []
+    pg_schema: TableColumns = []
 
-    for name in record_schema.names:
-        pa_field = record_schema.field(name)
+    encoder = pgpq.ArrowToPostgresBinaryEncoder(record_schema)
+    for column_name, column in encoder.schema().columns:
+        column_type = column.data_type.ddl()
 
-        if pa.types.is_string(pa_field.type):
-            pg_type = "TEXT"
+        if column_type == "TIMESTAMP" and record_schema.field(column_name).type.tz is not None:
+            column_type += "TZ"
 
-        elif pa.types.is_signed_integer(pa_field.type):
-            if pa.types.is_int64(pa_field.type):
-                pg_type = "BIGINT"
-            else:
-                pg_type = "INTEGER"
-
-        elif pa.types.is_floating(pa_field.type):
-            if pa.types.is_float64(pa_field.type):
-                pg_type = "DOUBLE PRECISION"
-            else:
-                pg_type = "REAL"
-
-        elif pa.types.is_boolean(pa_field.type):
-            pg_type = "BOOLEAN"
-
-        elif pa.types.is_timestamp(pa_field.type):
-            if pa_field.type.tz is not None:
-                pg_type = "TIMESTAMPTZ"
-            else:
-                pg_type = "TIMESTAMP"
-
-        else:
-            raise TypeError(f"Unsupported type: {pa_field.type}")
-
-        pg_schema.append((name, pg_type))
+        nullable = "" if column.nullable else " NOT NULL"
+        pg_schema.append((column_name, f"{column_type}{nullable}"))
 
     return pg_schema
 
 
 async def create_table_in_postgres(
-    postgres_connection: psycopg.AsyncConnection,
-    schema: str | None,
+    postgres_connection: asyncpg.connection.Connection,
+    schema_name: str | None,
     table_name: str,
-    fields: PostgreSQLFields,
+    table_columns: TableColumns,
 ) -> None:
     """Create a table in a Postgres database if it doesn't exist already.
 
     Arguments:
         postgres_connection: A connection to Postgres as setup by psycopg.
-        schema: An existing schema where to create the table.
+        schema_name: An existing schema where to create the table.
         table_name: The name of the table to create.
         fields: An iterable of (name, type) tuples representing the fields of the table.
     """
-    if schema:
-        table_identifier = sql.Identifier(schema, table_name)
-    else:
-        table_identifier = sql.Identifier(table_name)
-
-    async with postgres_connection.cursor() as cursor:
-        await cursor.execute(
-            sql.SQL(
-                """
-                CREATE TABLE IF NOT EXISTS {table} (
-                    {fields}
-                )
-                """
-            ).format(
-                table=table_identifier,
-                fields=sql.SQL(",").join(
-                    # typing.LiteralString is not available in Python 3.10.
-                    # So, we ignore it for now.
-                    # This is safe as we are hardcoding the type values anyways.
-                    sql.SQL("{field} {type}").format(
-                        field=sql.Identifier(field),
-                        type=sql.SQL(field_type),
-                    )
-                    for field, field_type in fields
-                ),
-            )
+    create_table_query = """
+        CREATE TABLE IF NOT EXISTS {table}(
+            {fields}
         )
+        """.format(
+        table=asyncpg.utils._quote_ident(schema_name) + "." + asyncpg.utils._quote_ident(table_name),
+        fields=",\n".join(
+            "{field} {type}".format(
+                field=asyncpg.utils._quote_ident(field),
+                type=field_type,
+            )
+            for field, field_type in table_columns
+        ),
+    )
+
+    await postgres_connection.execute(create_table_query)
+
+
+T = typing.TypeVar("T")
+
+
+async def peek_first_and_rewind(
+    gen: collections.abc.AsyncGenerator[T, None]
+) -> tuple[T, collections.abc.AsyncGenerator[T, None]]:
+    first = await anext(gen)
+
+    async def rewind_gen() -> collections.abc.AsyncGenerator[T, None]:
+        yield first
+        async for i in gen:
+            yield i
+
+    return (first, rewind_gen())
+
+
+async def encode_records(
+    records: collections.abc.AsyncGenerator[pa.RecordBatch, None],
+    column_names: list[str],
+) -> collections.abc.AsyncGenerator[bytes, None]:
+    first_record_batch, records = await peek_first_and_rewind(records)
+    record_schema = first_record_batch.select(column_names).schema
+
+    encoders_for_known_fields = {
+        "properties": pgpq.encoders.StringEncoderBuilder.new_with_output(
+            pa.field("properties", pa.string()), pgpq.schema.Jsonb()
+        ),
+        "set": pgpq.encoders.StringEncoderBuilder.new_with_output(pa.field("set", pa.string()), pgpq.schema.Jsonb()),
+        "set_once": pgpq.encoders.StringEncoderBuilder.new_with_output(
+            pa.field("set_once", pa.string()), pgpq.schema.Jsonb()
+        ),
+        "elements": pgpq.encoders.StringEncoderBuilder.new_with_output(
+            pa.field("elements", pa.string()), pgpq.schema.Jsonb()
+        ),
+    }
+    encoders = {
+        field.name: pgpq.ArrowToPostgresBinaryEncoder.infer_encoder(field)
+        if field.name not in encoders_for_known_fields
+        else encoders_for_known_fields[field.name]
+        for field in record_schema
+    }
+
+    encoder = pgpq.ArrowToPostgresBinaryEncoder.new_with_encoders(record_schema, encoders)
+
+    header = encoder.write_header()
+    yield header
+
+    async for record_batch in records:
+        encoded = encoder.write_batch(record_batch.select(column_names))
+        yield encoded
+
+    finisher = encoder.finish()
+    yield finisher
+
+
+async def copy_records_to_postgres(
+    postgres_connection: asyncpg.connection.Connection,
+    records: collections.abc.AsyncGenerator[pa.RecordBatch, None],
+    schema_name: str,
+    table_name: str,
+    table_columns: TableColumns,
+):
+    """Copy records to PostgreSQL table using binary format.
+
+    Arguments:
+        postgres_connection: A connection to PostgreSQL as setup by asyncpg.
+        records: Iterator of records to copy to PostgreSQL table.
+        schema_name: An existing schema where the table to copy to resides.
+        table_name: The name of the table to copy to.
+        schema_columns: A list of column names.
+    """
+    column_names = [column[0] for column in table_columns]
+    bytes_gen = encode_records(records, column_names)
+
+    await postgres_connection.copy_to_table(
+        table_name, source=bytes_gen, format="binary", columns=column_names, schema_name=schema_name
+    )
 
 
 @dataclass
@@ -240,36 +273,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         logger.info("BatchExporting %s rows", count)
 
         if inputs.batch_export_schema is None:
-            batch_export_fields = default_fields()
-            batch_export_fields.append(
-                {
-                    "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
-                    "alias": "ip",
-                }
-            )
-            # Fields kept for backwards compatibility with legacy apps schema.
-            batch_export_fields.append({"expression": "elements_chain", "alias": "elements"})
-            batch_export_fields.append({"expression": "''", "alias": "site_url"})
+            batch_export_fields = postgres_export_default_fields()
             extra_query_parameters = {}
-
-            schema_columns = [
-                "uuid",
-                "event",
-                "properties",
-                "elements",
-                "set",
-                "set_once",
-                "distinct_id",
-                "team_id",
-                "ip",
-                "site_url",
-                "timestamp",
-            ]
 
         else:
             batch_export_fields = inputs.batch_export_schema["fields"]
             extra_query_parameters = inputs.batch_export_schema["values"]
-            schema_columns = [field["alias"] for field in inputs.batch_export_schema["fields"]]
 
         records_iterator = iter_records(
             client=client,
@@ -285,72 +294,40 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
 
-        with BatchExportTemporaryFile() as pg_file:
-            async with postgres_connection(inputs) as connection:
+        async with postgres_connection(inputs) as connection:
+            first_record, records_iterator = await peek_first_and_rewind(records_iterator)
 
-                async def flush_to_postgres():
-                    logger.debug(
-                        "Copying %s records of size %s bytes",
-                        pg_file.records_since_last_reset,
-                        pg_file.bytes_since_last_reset,
-                    )
-                    await copy_tsv_to_postgres(
-                        pg_file,
-                        connection,
-                        inputs.schema,
-                        inputs.table_name,
-                        schema_columns,
-                    )
-                    rows_exported.add(pg_file.records_since_last_reset)
-                    bytes_exported.add(pg_file.bytes_since_last_reset)
+            if inputs.batch_export_schema is None:
+                table_columns = [
+                    ("uuid", "VARCHAR(200)"),
+                    ("event", "VARCHAR(200)"),
+                    ("properties", "JSONB"),
+                    ("elements", "JSONB"),
+                    ("set", "JSONB"),
+                    ("set_once", "JSONB"),
+                    ("distinct_id", "VARCHAR(200)"),
+                    ("team_id", "INTEGER"),
+                    ("ip", "VARCHAR(200)"),
+                    ("site_url", "VARCHAR(200)"),
+                    ("timestamp", "TIMESTAMPTZ"),
+                ]
+            else:
+                table_columns = infer_table_columns_from_record_schema(first_record.schema)
 
-                is_table_created = False
+            await create_table_in_postgres(
+                connection,
+                schema_name=inputs.schema,
+                table_name=inputs.table_name,
+                table_columns=table_columns,
+            )
 
-                for record, schema in records_iterator:
-                    if not is_table_created:
-                        if inputs.batch_export_schema is None:
-                            fields = [
-                                ("uuid", "VARCHAR(200)"),
-                                ("event", "VARCHAR(200)"),
-                                ("properties", "JSONB"),
-                                ("elements", "JSONB"),
-                                ("set", "JSONB"),
-                                ("set_once", "JSONB"),
-                                ("distinct_id", "VARCHAR(200)"),
-                                ("team_id", "INTEGER"),
-                                ("ip", "VARCHAR(200)"),
-                                ("site_url", "VARCHAR(200)"),
-                                ("timestamp", "TIMESTAMP WITH TIME ZONE"),
-                            ]
-                        else:
-                            fields = get_postgres_fields_from_record_schema(schema)
-
-                        await create_table_in_postgres(
-                            connection,
-                            schema=inputs.schema,
-                            table_name=inputs.table_name,
-                            fields=fields,
-                        )
-                        is_table_created = True
-
-                    row = record
-
-                    if row.get("elements", None) is not None and inputs.batch_export_schema is None:
-                        row["elements"] = json.dumps(row["elements"])
-
-                    pg_file.write_records_to_tsv(
-                        [row],
-                        fieldnames=schema_columns,
-                        quoting=csv.QUOTE_MINIMAL,
-                        escapechar=None,
-                    )
-
-                    if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
-                        await flush_to_postgres()
-                        pg_file.reset()
-
-                if pg_file.tell() > 0:
-                    await flush_to_postgres()
+            await copy_records_to_postgres(
+                connection,
+                records_iterator,
+                schema_name=inputs.schema,
+                table_name=inputs.table_name,
+                table_columns=table_columns,
+            )
 
 
 @workflow.defn(name="postgres-export")

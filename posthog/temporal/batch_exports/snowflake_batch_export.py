@@ -80,7 +80,11 @@ class SnowflakeHeartbeatDetails(BatchExportHeartbeatDetails):
         except (TypeError, ValueError) as e:
             raise HeartbeatParseError("file_no") from e
 
-        return cls(last_inserted_at=details.last_inserted_at, file_no=file_no, _remaining=details._remaining[2:])
+        return cls(
+            last_inserted_at=details.last_inserted_at,
+            file_no=file_no,
+            _remaining=details._remaining[2:],
+        )
 
 
 @dataclasses.dataclass
@@ -366,7 +370,12 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             bytes_exported.add(file.bytes_since_last_reset)
 
         fields = default_fields()
-        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
+        fields.append(
+            {
+                "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+                "alias": "ip",
+            }
+        )
         # Fields kept for backwards compatibility with legacy apps schema.
         fields.append({"expression": "elements_chain", "alias": "elements"})
         fields.append({"expression": "''", "alias": "site_url"})
@@ -434,7 +443,13 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         local_results_file.reset()
 
                 if local_results_file.tell() > 0 and inserted_at is not None:
-                    await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no, last=True)
+                    await flush_to_snowflake(
+                        connection,
+                        local_results_file,
+                        inputs.table_name,
+                        file_no,
+                        last=True,
+                    )
 
                     last_inserted_at = inserted_at
                     file_no += 1

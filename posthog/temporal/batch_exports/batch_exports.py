@@ -65,6 +65,7 @@ async def get_rows_count(
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
 ) -> int:
+    """Return a count of rows to be batch exported."""
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -136,7 +137,7 @@ def default_fields() -> list[BatchExportField]:
         BatchExportField(expression="toString(uuid)", alias="uuid"),
         BatchExportField(expression="team_id", alias="team_id"),
         BatchExportField(expression="timestamp", alias="timestamp"),
-        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="inserted_at"),
+        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at"),
         BatchExportField(expression="created_at", alias="created_at"),
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="nullIf(properties, '')", alias="properties"),
@@ -150,7 +151,7 @@ def default_fields() -> list[BatchExportField]:
     ]
 
 
-def iter_records(
+async def iter_records(
     client: ClickHouseClient,
     team_id: int,
     interval_start: str,
@@ -159,7 +160,7 @@ def iter_records(
     include_events: collections.abc.Iterable[str] | None = None,
     fields: list[BatchExportField] | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
-) -> typing.Generator[tuple[dict[str, typing.Any], pa.Schema], None, None]:
+) -> typing.AsyncGenerator[pa.RecordBatch, None]:
     """Iterate over Arrow batch records for a batch export.
 
     Args:
@@ -224,14 +225,11 @@ def iter_records(
     else:
         query_parameters = base_query_parameters
 
-    for batch in client.stream_query_as_arrow(
+    async for batch in client.stream_query_as_arrow(
         query,
         query_parameters=query_parameters,
     ):
-        schema = batch.schema
-
-        for record in batch.to_pylist():
-            yield (record, schema)
+        yield batch
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:

@@ -306,7 +306,9 @@ class S3InsertInputs:
     kms_key_id: str | None = None
 
 
-async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
+async def initialize_and_resume_multipart_upload(
+    inputs: S3InsertInputs,
+) -> tuple[S3MultiPartUpload, str]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     key = get_s3_key(inputs)
@@ -412,7 +414,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         fields = default_fields()
         # Fields kept for backwards compatibility with legacy apps schema.
         fields.append({"expression": "elements_chain", "alias": "elements_chain"})
-        fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
+        fields.append(
+            {
+                "expression": "nullIf(person_properties, '')",
+                "alias": "person_properties",
+            }
+        )
 
         records_iterator = iter_records(
             client=client,

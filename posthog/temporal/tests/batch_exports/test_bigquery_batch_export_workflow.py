@@ -6,6 +6,7 @@ import typing
 from random import randint
 from uuid import uuid4
 
+import pyarrow as pa
 import pytest
 import pytest_asyncio
 from django.conf import settings
@@ -25,6 +26,7 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportInputs,
     BigQueryBatchExportWorkflow,
     BigQueryInsertInputs,
+    get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -480,3 +482,44 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
     run = runs[0]
     assert run.status == "Cancelled"
     assert run.latest_error == "Cancelled"
+
+
+@pytest.mark.parametrize(
+    "pyrecords,expected_schema",
+    [
+        ([{"test": 1}], [bigquery.SchemaField("test", "INT64")]),
+        ([{"test": "a string"}], [bigquery.SchemaField("test", "STRING")]),
+        ([{"test": b"a bytes"}], [bigquery.SchemaField("test", "BYTES")]),
+        ([{"test": 6.9}], [bigquery.SchemaField("test", "FLOAT64")]),
+        ([{"test": True}], [bigquery.SchemaField("test", "BOOL")]),
+        ([{"test": dt.datetime.now()}], [bigquery.SchemaField("test", "TIMESTAMP")]),
+        ([{"test": dt.datetime.now(tz=dt.timezone.utc)}], [bigquery.SchemaField("test", "TIMESTAMP")]),
+        (
+            [
+                {
+                    "test_int": 1,
+                    "test_str": "a string",
+                    "test_bytes": b"a bytes",
+                    "test_float": 6.9,
+                    "test_bool": False,
+                    "test_timestamp": dt.datetime.now(),
+                    "test_timestamptz": dt.datetime.now(tz=dt.timezone.utc),
+                }
+            ],
+            [
+                bigquery.SchemaField("test_int", "INT64"),
+                bigquery.SchemaField("test_str", "STRING"),
+                bigquery.SchemaField("test_bytes", "BYTES"),
+                bigquery.SchemaField("test_float", "FLOAT64"),
+                bigquery.SchemaField("test_bool", "BOOL"),
+                bigquery.SchemaField("test_timestamp", "TIMESTAMP"),
+                bigquery.SchemaField("test_timestamptz", "TIMESTAMP"),
+            ],
+        ),
+    ],
+)
+def test_get_bigquery_fields_from_record_schema(pyrecords, expected_schema):
+    record_batch = pa.RecordBatch.from_pylist(pyrecords)
+    schema = get_bigquery_fields_from_record_schema(record_batch.schema)
+
+    assert schema == expected_schema

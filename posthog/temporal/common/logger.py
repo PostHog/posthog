@@ -128,7 +128,10 @@ class PutInLogQueueProcessor:
         self.queue = queue
 
     def __call__(
-        self, logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
+        self,
+        logger: logging.Logger,
+        method_name: str,
+        event_dict: structlog.types.EventDict,
     ) -> structlog.types.EventDict:
         """Put a message into the queue, if we have all the necessary details.
 

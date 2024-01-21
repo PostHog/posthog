@@ -19,6 +19,7 @@ def get_export_finished_metric(status: str) -> MetricCounter:
         workflow.metric_meter()
         .with_additional_attributes({"status": status})
         .create_counter(
-            "batch_export_finished", "Number of batch exports finished, for any reason (including failure)."
+            "batch_export_finished",
+            "Number of batch exports finished, for any reason (including failure).",
         )
     )

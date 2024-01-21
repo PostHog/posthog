@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.service import BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportSchema,
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
@@ -64,23 +65,39 @@ async def create_table_in_bigquery(
     return table
 
 
-def get_bigquery_schema_from_record_schema(record_schema, fields) -> list[bigquery.SchemaField]:
-    bq_schema = []
+def get_bigquery_fields_from_record_schema(record_schema: pa.Schema) -> list[bigquery.SchemaField]:
+    """Generate a list of supported BigQuery fields from PyArrow schema.
 
-    for field in fields:
-        pa_field = record_schema.field(field)
+    This function is used to map custom schemas to BigQuery-supported types. Some loss of precision is
+    expected.
+    """
+    bq_schema: list[bigquery.SchemaField] = []
 
-        match pa_field.type:
-            case pa.string():
-                bq_type = "STRING"
+    for name in record_schema.names:
+        pa_field = record_schema.field(name)
 
-            case pa.binary():
-                bq_type = "BYTES"
+        if pa.types.is_string(pa_field.type):
+            bq_type = "STRING"
 
-            case _type:
-                raise TypeError(f"Unsupported type: {_type}")
+        elif pa.types.is_binary(pa_field.type):
+            bq_type = "BYTES"
 
-        bq_schema.append(bigquery.SchemaField(field, bq_type))
+        elif pa.types.is_signed_integer(pa_field.type):
+            bq_type = "INT64"
+
+        elif pa.types.is_floating(pa_field.type):
+            bq_type = "FLOAT64"
+
+        elif pa.types.is_boolean(pa_field.type):
+            bq_type = "BOOL"
+
+        elif pa.types.is_timestamp(pa_field.type):
+            bq_type = "TIMESTAMP"
+
+        else:
+            raise TypeError(f"Unsupported type: {pa_field.type}")
+
+        bq_schema.append(bigquery.SchemaField(name, bq_type))
 
     return bq_schema
 
@@ -109,7 +126,7 @@ class BigQueryInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     use_json_type: bool = False
-    fields: list[dict[str, str]] | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @contextlib.contextmanager
@@ -239,14 +256,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         inserted_at = None
 
         with bigquery_client(inputs) as bq_client:
-            bigquery_table = await create_table_in_bigquery(
-                inputs.project_id,
-                inputs.dataset_id,
-                inputs.table_id,
-                default_table_schema,
-                bq_client,
-            )
-
             with BatchExportTemporaryFile() as jsonl_file:
                 rows_exported = get_rows_exported_metric()
                 bytes_exported = get_bytes_exported_metric()
@@ -262,7 +271,21 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     rows_exported.add(jsonl_file.records_since_last_reset)
                     bytes_exported.add(jsonl_file.bytes_since_last_reset)
 
-                for record, _ in records_iterator:
+                for record, schema in records_iterator:
+                    if bigquery_table is None:
+                        if inputs.batch_export_schema is None:
+                            schema = default_table_schema
+                        else:
+                            schema = get_bigquery_fields_from_record_schema(schema)
+
+                        bigquery_table = await create_table_in_bigquery(
+                            inputs.project_id,
+                            inputs.dataset_id,
+                            inputs.table_id,
+                            schema,
+                            bq_client,
+                        )
+
                     inserted_at = record["inserted_at"]
 
                     row = {
@@ -349,6 +372,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             use_json_type=inputs.use_json_type,
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(

@@ -262,7 +262,9 @@ async def wait_for_schedule_backfill_in_range(
         done = True
 
 
-def check_workflow_executions_not_running(workflow_executions: list[temporalio.client.WorkflowExecution]) -> bool:
+def check_workflow_executions_not_running(
+    workflow_executions: list[temporalio.client.WorkflowExecution],
+) -> bool:
     """Check if a list of Worflow Executions has any still running."""
     return all(
         workflow_execution.status != temporalio.client.WorkflowExecutionStatus.RUNNING

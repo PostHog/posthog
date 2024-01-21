@@ -1,15 +1,15 @@
 import asyncio
 import datetime as dt
-from random import randint
 from uuid import uuid4
 
-import psycopg
+import asyncpg
+import asyncpg.utils
+import orjson
 import pyarrow as pa
 import pytest
 import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
-from psycopg import sql
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -17,16 +17,19 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportSchema,
     create_export_run,
     iter_records,
     update_export_run_status,
 )
+from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
     PostgresInsertInputs,
-    get_postgres_fields_from_record_schema,
+    infer_table_columns_from_record_schema,
     insert_into_postgres_activity,
+    postgres_export_default_fields,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
@@ -41,53 +44,101 @@ pytestmark = [
 ]
 
 
-async def assert_events_in_postgres(connection, schema, table_name, events, exclude_events: list[str] | None = None):
-    """Assert provided events written to a given Postgres table."""
-    inserted_events = []
+async def assert_records_in_postgres_match_records_in_clickhouse(
+    postgres_connection: asyncpg.connection.Connection,
+    clickhouse_client: ClickHouseClient,
+    schema_name: str,
+    table_name: str,
+    team_id: int,
+    batch_export_schema: BatchExportSchema | None,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    exclude_events: list[str] | None = None,
+    include_events: list[str] | None = None,
+):
+    """Assert expected records are written to a given PostgreSQL table.
 
-    async with connection.cursor() as cursor:
-        await cursor.execute(
-            sql.SQL("SELECT * FROM {} ORDER BY event, timestamp").format(sql.Identifier(schema, table_name))
+    The steps this function takes to assert records are written are:
+    1. Read all records inserted into given PostgreSQL table.
+    2. Cast records read from PostgreSQL to a Python list of dicts.
+    3. Assert records read from PostgreSQL have the expected column names.
+    4. Read all records that were supposed to be inserted from ClickHouse.
+    5. Sanity check: Assert records returned from ClickHouse also have the expected column names.
+    6. Cast records returned by ClickHouse to a Python list of dicts.
+    7. Compare each record returned by ClickHouse to each record read from PostgreSQL.
+
+    Caveats:
+    * Casting records to a Python list of dicts means losing some type precision.
+    * Reading records from ClickHouse could be hiding bugs in the `iter_records` function and related.
+        * `iter_records` has its own set of related unit tests to control for this.
+
+    Arguments:
+        postgres_connection: A PostgreSQL connection used to read inserted events.
+        clickhouse_client: A ClickHouseClient used to read events that are expected to be inserted.
+        schema_name: PostgreSQL schema name.
+        table_name: PostgreSQL table name.
+        team_id: The ID of the team that we are testing events for.
+        batch_export_schema: Custom schema used in the batch export.
+    """
+    # We will load these as dictionaries as keys may have changed position at some point.
+    # For all of our purposes, {"key0": 0, "key1": 1} should be equal to {"key1": 1, "key0": 0}.
+    # But this is not the case if we compare strings.
+    known_jsonb_fields = ("properties", "set", "set_once", "elements")
+    inserted_records = []
+
+    qualified_table_name = asyncpg.utils._quote_ident(schema_name) + "." + asyncpg.utils._quote_ident(table_name)
+    rows = await postgres_connection.fetch(f"SELECT * FROM {qualified_table_name}")
+    for row in rows:
+        inserted_records.append(
+            {
+                k: orjson.loads(v.encode("utf-8")) if k in known_jsonb_fields and v is not None else v
+                for k, v in row.items()
+            }
         )
-        columns = [column.name for column in cursor.description]
 
-        for row in await cursor.fetchall():
-            event = dict(zip(columns, row))
-            event["timestamp"] = dt.datetime.fromisoformat(event["timestamp"].isoformat())
-            inserted_events.append(event)
+    expected_records = []
+    if batch_export_schema is not None:
+        schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
+    else:
+        schema_column_names = [
+            "uuid",
+            "event",
+            "properties",
+            "elements",
+            "set",
+            "set_once",
+            "distinct_id",
+            "team_id",
+            "ip",
+            "site_url",
+            "timestamp",
+        ]
 
-    expected_events = []
-    for event in events:
-        event_name = event.get("event")
+    async for records in iter_records(
+        client=clickhouse_client,
+        team_id=team_id,
+        interval_start=data_interval_start.isoformat(),
+        interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        include_events=include_events,
+        fields=batch_export_schema["fields"] if batch_export_schema is not None else postgres_export_default_fields(),
+        extra_query_parameters=batch_export_schema["values"] if batch_export_schema is not None else None,
+    ):
+        for record in records.select(schema_column_names).to_pylist():
+            expected_records.append(
+                {
+                    k: orjson.loads(v.encode("utf-8")) if k in known_jsonb_fields and v is not None else v
+                    for k, v in record.items()
+                }
+            )
 
-        if exclude_events is not None and event_name in exclude_events:
-            continue
+    inserted_column_names = [column_name for column_name in inserted_records[0].keys()]
 
-        properties = event.get("properties", None)
-        elements_chain = event.get("elements_chain", None)
-        expected_event = {
-            "distinct_id": event.get("distinct_id"),
-            "elements": elements_chain,
-            "event": event.get("event"),
-            "ip": properties.get("$ip", None) if properties else None,
-            "properties": event.get("properties"),
-            "set": properties.get("$set", None) if properties else None,
-            "set_once": properties.get("$set_once", None) if properties else None,
-            # Kept for backwards compatibility, but not exported anymore.
-            "site_url": None,
-            # For compatibility with CH which doesn't parse timezone component, so we add it here assuming UTC.
-            "timestamp": dt.datetime.fromisoformat(event.get("timestamp") + "+00:00"),
-            "team_id": event.get("team_id"),
-            "uuid": event.get("uuid"),
-        }
-        expected_events.append(expected_event)
+    assert inserted_records[0] == expected_records[0]
 
-    expected_events.sort(key=lambda x: (x["event"], x["timestamp"]))
-
-    # First check one event, the first one, so that we can get a nice diff if
-    # the included data is different.
-    assert inserted_events[0] == expected_events[0]
-    assert inserted_events == expected_events
+    assert inserted_column_names == schema_column_names
+    assert inserted_records[0] == expected_records[0]
+    assert inserted_records == expected_records
 
 
 @pytest.fixture
@@ -104,10 +155,10 @@ def postgres_config():
 
 @pytest_asyncio.fixture
 async def postgres_connection(postgres_config, setup_postgres_test_db):
-    connection = await psycopg.AsyncConnection.connect(
+    connection = await asyncpg.connect(
         user=postgres_config["user"],
         password=postgres_config["password"],
-        dbname=postgres_config["database"],
+        database=postgres_config["database"],
         host=postgres_config["host"],
         port=postgres_config["port"],
     )
@@ -117,9 +168,31 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
+TEST_SCHEMAS = [
+    {
+        "fields": [
+            {"expression": "event", "alias": "my_event_name"},
+            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
+            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
+        ],
+        "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
+    },
+    {
+        "fields": [
+            {"expression": "event", "alias": "my_event_name"},
+            {"expression": "inserted_at", "alias": "inserted_at"},
+            {"expression": "1 + 1", "alias": "two"},
+        ],
+        "values": {},
+    },
+    None,
+]
+
+
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("batch_export_schema", TEST_SCHEMAS)
 async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
-    clickhouse_client, activity_environment, postgres_connection, postgres_config, exclude_events
+    clickhouse_client, activity_environment, postgres_connection, postgres_config, exclude_events, batch_export_schema
 ):
     """Test that the insert_into_postgres_activity function inserts data into a PostgreSQL table.
 
@@ -141,9 +214,9 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
-    team_id = randint(1, 1000000)
+    team_id = 2
 
-    (events, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=team_id,
         start_time=data_interval_start,
@@ -156,7 +229,7 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    (events_with_no_properties, _, _) = await generate_test_events_in_clickhouse(
+    await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=team_id,
         start_time=data_interval_start,
@@ -187,17 +260,22 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
+        batch_export_schema=batch_export_schema,
         **postgres_config,
     )
 
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
         await activity_environment.run(insert_into_postgres_activity, insert_inputs)
 
-    await assert_events_in_postgres(
-        connection=postgres_connection,
-        schema=postgres_config["schema"],
+    await assert_records_in_postgres_match_records_in_clickhouse(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
         table_name="test_table",
-        events=events + events_with_no_properties,
+        team_id=team_id,
+        batch_export_schema=batch_export_schema,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
         exclude_events=exclude_events,
     )
 
@@ -319,22 +397,15 @@ async def test_postgres_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
 
-    if postgres_batch_export.schema is not None:
-        events = iter_records(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            interval_start=data_interval_start,
-            interval_end=data_interval_end.isoformat(),
-            exclude_events=exclude_events,
-            fields=postgres_batch_export.schema["fields"],
-            extra_query_parameters=postgres_batch_export.schema["values"],
-        )
-
-    await assert_events_in_postgres(
-        postgres_connection,
-        postgres_config["schema"],
-        table_name,
-        events=events,
+    await assert_records_in_postgres_match_records_in_clickhouse(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        batch_export_schema=postgres_batch_export.schema,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
         exclude_events=exclude_events,
     )
 
@@ -440,10 +511,10 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
 @pytest.mark.parametrize(
     "pyrecords,expected_schema",
     [
-        ([{"test": 1}], [("test", "BIGINT")]),  # Python only has long, i.e. BIGINT
+        ([{"test": 1}], [("test", "INT8")]),  # Python only has long, i.e. BIGINT
         ([{"test": "a string"}], [("test", "TEXT")]),
-        ([{"test": 6.9}], [("test", "DOUBLE PRECISION")]),
-        ([{"test": True}], [("test", "BOOLEAN")]),
+        ([{"test": 6.9}], [("test", "FLOAT8")]),
+        ([{"test": True}], [("test", "BOOL")]),
         ([{"test": dt.datetime.now()}], [("test", "TIMESTAMP")]),
         ([{"test": dt.datetime.now(tz=dt.timezone.utc)}], [("test", "TIMESTAMPTZ")]),
         (
@@ -458,32 +529,21 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
                 }
             ],
             [
-                ("test_int", "BIGINT"),
+                ("test_int", "INT8"),
                 ("test_str", "TEXT"),
-                ("test_float", "DOUBLE PRECISION"),
-                ("test_bool", "BOOLEAN"),
+                ("test_float", "FLOAT8"),
+                ("test_bool", "BOOL"),
                 ("test_timestamp", "TIMESTAMP"),
                 ("test_timestamptz", "TIMESTAMPTZ"),
             ],
         ),
     ],
 )
-def test_get_postgres_fields_from_record_schema(pyrecords, expected_schema):
+def test_infer_table_columns_from_record_schema(pyrecords, expected_schema):
     record_batch = pa.RecordBatch.from_pylist(pyrecords)
-    schema = get_postgres_fields_from_record_schema(record_batch.schema)
+    schema = infer_table_columns_from_record_schema(record_batch.schema)
 
     assert schema == expected_schema
-
-
-TEST_SCHEMAS = [
-    {
-        "fields": [
-            {"expression": "event", "alias": "my_event_name"},
-            {"expression": "nullIf(JSONExtractRaw(properties, '$browser'), '')", "alias": "browser"},
-        ],
-        "values": {},
-    },
-]
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
@@ -512,7 +572,7 @@ async def test_postgres_export_workflow_with_schema(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=100,
+        count=5,
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
@@ -527,7 +587,7 @@ async def test_postgres_export_workflow_with_schema(
                 team_id=ateam.pk,
                 start_time=data_interval_start,
                 end_time=data_interval_end,
-                count=5,
+                count=1,
                 count_outside_range=0,
                 count_other_team=0,
                 event_name=event_name,
@@ -571,26 +631,14 @@ async def test_postgres_export_workflow_with_schema(
     run = runs[0]
     assert run.status == "Completed"
 
-    expected_records = [
-        record
-        for record, _ in iter_records(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            interval_start=data_interval_start.isoformat(),
-            interval_end=data_interval_end.isoformat(),
-            exclude_events=exclude_events,
-            fields=postgres_batch_export.schema["fields"],
-            extra_query_parameters=postgres_batch_export.schema["values"],
-        )
-    ]
-
-    inserted_records = []
-    async with postgres_connection.cursor() as cursor:
-        await cursor.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(postgres_config["schema"], table_name)))
-        columns = [column.name for column in cursor.description]
-
-        for row in await cursor.fetchall():
-            event = dict(zip(columns, row))
-            inserted_records.append(event)
-
-    assert expected_records == inserted_records
+    await assert_records_in_postgres_match_records_in_clickhouse(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        batch_export_schema=postgres_batch_export.schema,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+    )

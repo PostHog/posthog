@@ -62,7 +62,7 @@ def generate_test_events(
             "created_at": random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f"),
             "distinct_id": str(uuid.uuid4()),
             "elements": json.dumps("css selectors;"),
-            "elements_chain": "css selectors;",
+            "elements_chain": None,
             "event": event_name.format(i=i),
             "inserted_at": inserted_at_value,
             "person_id": str(uuid.uuid4()),

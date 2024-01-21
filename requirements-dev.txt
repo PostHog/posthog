@@ -14,7 +14,7 @@ asgiref==3.3.2
     # via
     #   -c requirements.txt
     #   django
-async-timeout==4.0.2
+async-timeout==4.0.3
     # via
     #   -c requirements.txt
     #   redis
