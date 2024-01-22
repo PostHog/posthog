@@ -88,7 +88,7 @@ export function ReplayGeneral(): JSX.Element {
                         }}
                         label={
                             <div className="space-x-1">
-                                <LemonTag type="highlight">New</LemonTag>
+                                <LemonTag type="success">New</LemonTag>
                                 <LemonLabel>Capture canvas elements</LemonLabel>
                             </div>
                         }
