@@ -1,9 +1,8 @@
-from typing import Any, List, Optional, Literal
+from typing import Any, List, Literal, Optional
 
 from django.conf import settings
 from django.db import models
 
-from posthog.celery import ee_persist_single_recording
 from posthog.models.person.person import Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
@@ -16,6 +15,7 @@ from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.tasks.tasks import ee_persist_single_recording
 
 
 class SessionRecording(UUIDModel):

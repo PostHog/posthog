@@ -93,6 +93,7 @@ export enum AvailableFeature {
     SURVEYS_STYLING = 'surveys_styling',
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
+    DATA_PIPELINES = 'data_pipelines',
     SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
     RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
     FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
@@ -541,6 +542,7 @@ export enum PipelineAppTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
+    History = 'history',
 }
 
 export enum ProgressStatus {
@@ -1098,6 +1100,7 @@ export interface SessionRecordingType {
     console_error_count?: number
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'object_storage'
+    summary?: string
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1442,6 +1445,8 @@ export interface DashboardBasicType {
 
 export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
+    // matches on template name, description, and tags
+    search?: string
 }
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
@@ -1867,11 +1872,15 @@ export interface PathsFilterType extends FilterType {
     funnel_paths?: FunnelPathType
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
+    /** @asType integer */
     step_limit?: number // Paths Step Limit
     path_replacements?: boolean
     local_path_cleaning_filters?: PathCleaningFilter[]
+    /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
+    /** @asType integer */
     min_edge_weight?: number | undefined // Paths
+    /** @asType integer */
     max_edge_weight?: number | undefined // Paths
 
     // persons only
@@ -2841,9 +2850,9 @@ export interface AppContext {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 
 export interface PathEdgeParameters {
-    edge_limit?: number | undefined
-    min_edge_weight?: number | undefined
-    max_edge_weight?: number | undefined
+    edgeLimit?: number | undefined
+    minEdgeWeight?: number | undefined
+    maxEdgeWeight?: number | undefined
 }
 
 export enum SignificanceCode {

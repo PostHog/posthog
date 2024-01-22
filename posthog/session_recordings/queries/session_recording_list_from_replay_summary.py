@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
 
+from django.conf import settings
 from sentry_sdk import capture_exception
 
 from posthog.client import sync_execute
@@ -429,7 +430,7 @@ class SessionIdEventsQuery(EventQuery):
             # when allowing use of denormalized properties in this query
             # it is likely this can be returned to the default of True in future
             # but would need careful monitoring
-            allow_denormalized_props=False,
+            allow_denormalized_props=settings.ALLOW_DENORMALIZED_PROPS_IN_LISTING,
         )
 
         (
