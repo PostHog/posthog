@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
@@ -218,7 +218,6 @@ export function FeatureFlagReleaseConditions({
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 taxonomicFilterOptionsFromProp={featureFlagTaxonomicOptions}
-                                metadataTaxonomicGroupToPropertyFilterType={PropertyFilterType.Person}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 allowRelativeDateOptions={!!enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]}

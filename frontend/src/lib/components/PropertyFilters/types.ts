@@ -42,7 +42,6 @@ export interface PropertyFilterInternalProps {
     disablePopover: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
-    metadataTaxonomicGroupToPropertyFilterType?: PropertyFilterType
     eventNames?: string[]
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean

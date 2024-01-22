@@ -53,7 +53,7 @@ export interface DataNodeLogicProps {
     doNotLoad?: boolean
 }
 
-const AUTOLOAD_INTERVAL = 30000
+export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {

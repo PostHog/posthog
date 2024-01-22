@@ -2,10 +2,18 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 
 import { AnyDataNode } from '~/queries/schema'
-import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
+import {
+    ActionType,
+    CohortType,
+    EventDefinition,
+    PersonProperty,
+    PropertyDefinition,
+    PropertyFilterType,
+} from '~/types'
 
 export interface SimpleOption {
     name: string
+    propertyFilterType?: PropertyFilterType
 }
 
 export interface TaxonomicFilterProps {

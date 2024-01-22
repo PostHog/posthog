@@ -922,7 +922,7 @@ export function dateFilterToText(
     }
 
     if (dateFrom) {
-        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
         const counter = parseInt(dateFrom.slice(1, -1))
         if (dateOption && counter) {
             let date = null
@@ -1696,7 +1696,13 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
                     continue
                 }
 
-                toReturn[i + '.' + x] = flatObject[x]
+                let j = i
+                if (i.match(/\d+/)) {
+                    // Pad integer values for better sorting
+                    j = i.padStart(3, '0')
+                }
+
+                toReturn[j + '.' + x] = flatObject[x]
             }
         } else {
             toReturn[i] = ob[i]

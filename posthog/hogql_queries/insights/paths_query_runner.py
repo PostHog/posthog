@@ -29,7 +29,7 @@ from posthog.schema import (
 from posthog.schema import PathsQuery
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
-SESSION_TIME_THRESHOLD_DEFAULT_MILLISECONDS = 30 * 60 * 1000  # 30 minutes
+SESSION_TIME_THRESHOLD_DEFAULT_SECONDS = 30 * 60  # 30 minutes
 EDGE_LIMIT_DEFAULT = 50
 
 
@@ -290,6 +290,9 @@ class PathsQueryRunner(QueryRunner):
 
     def paths_per_person_query(self) -> ast.SelectQuery:
         target_point = self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint
+        target_point = (
+            target_point[:-1] if target_point and len(target_point) > 1 and target_point.endswith("/") else target_point
+        )
 
         filtered_paths = self.get_filtered_path_ordering()
         limited_paths = self.get_limited_path_ordering()
@@ -300,7 +303,7 @@ class PathsQueryRunner(QueryRunner):
             "target_point": ast.Constant(value=target_point),
             "target_clause": ast.Constant(value=None),
             "session_threshold_clause": ast.Constant(value=None),
-            "session_time_threshold": ast.Constant(value=SESSION_TIME_THRESHOLD_DEFAULT_MILLISECONDS),
+            "session_time_threshold": ast.Constant(value=SESSION_TIME_THRESHOLD_DEFAULT_SECONDS),
             # TODO: "extra_final_select_statements": ast.Constant(value=None),
             "extra_joined_path_tuple_select_statements": ast.Constant(value=None),
             "extra_array_filter_select_statements": ast.Constant(value=None),
@@ -340,8 +343,8 @@ class PathsQueryRunner(QueryRunner):
                             path_time_tuple.1 as path_basic,
                             path_time_tuple.2 as time,
                             session_index,
-                            arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple,
-                            arraySplit(x -> if(x.3 < {session_time_threshold}, 0, 1), paths_tuple) as session_paths
+                            arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple,
+                            arraySplit(x -> if(x.3 < ({session_time_threshold}), 0, 1), paths_tuple) as session_paths
                         FROM (
                             SELECT
                                 person_id,
@@ -368,7 +371,7 @@ class PathsQueryRunner(QueryRunner):
         table.select.extend(filtered_paths + limited_paths)
 
         other_selects = [
-            "arrayDifference(limited_timings) * 1000 as timings_diff",
+            "arrayDifference(limited_timings) as timings_diff",
             "arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings",
             "concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key /* last path item */",
         ]
@@ -487,7 +490,7 @@ class PathsQueryRunner(QueryRunner):
                 "source": source,
                 "target": target,
                 "value": correct_result_for_sampling(value, self.query.samplingFactor),
-                "average_conversion_time": avg_conversion_time,
+                "average_conversion_time": avg_conversion_time * 1000.0,
             }
             for source, target, value, avg_conversion_time in response.results
         )
