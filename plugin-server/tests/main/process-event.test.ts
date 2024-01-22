@@ -821,10 +821,9 @@ test('capture new person', async () => {
         },
     ]
     for (const element of expected) {
-        console.log(element)
+        // Looping in an array to make it easier to debug
         expect(received).toEqual(expect.arrayContaining([element]))
     }
-    expect(received).toEqual(expect.arrayContaining(expected))
 })
 
 test('capture bad team', async () => {
