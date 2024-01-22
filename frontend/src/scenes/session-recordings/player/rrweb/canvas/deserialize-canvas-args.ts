@@ -1,12 +1,7 @@
-/**
- * Taken from https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/replay/canvas/deserialize-args.ts
- * Modified to limit support to only canvas snapshots (rather than draw commands)
- */
 import { CanvasArg } from '@rrweb/types'
 import { base64ArrayBuffer } from 'lib/utils'
 import { Replayer } from 'rrweb'
 
-// TODO: add ability to wipe this list
 type GLVarMap = Map<string, any[]>
 type CanvasContexts = CanvasRenderingContext2D | WebGLRenderingContext | WebGL2RenderingContext
 const webGLVarMap: Map<CanvasContexts, GLVarMap> = new Map()
