@@ -297,11 +297,11 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // retention filter
     if (isRetentionFilter(filters) && isRetentionQuery(query)) {
         query.retentionFilter = objectCleanWithEmpty({
-            retention_type: filters.retention_type,
-            retention_reference: filters.retention_reference,
-            total_intervals: filters.total_intervals,
-            returning_entity: filters.returning_entity,
-            target_entity: filters.target_entity,
+            retentionType: filters.retention_type,
+            retentionReference: filters.retention_reference,
+            totalIntervals: filters.total_intervals,
+            returningEntity: filters.returning_entity,
+            targetEntity: filters.target_entity,
             period: filters.period,
         })
         // TODO: query.aggregation_group_type_index

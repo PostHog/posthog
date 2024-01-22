@@ -728,17 +728,17 @@ describe('summarizing insights', () => {
             const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
-                    target_entity: {
+                    targetEntity: {
                         id: '$autocapture',
                         name: '$autocapture',
                         type: 'events',
                     },
-                    returning_entity: {
+                    returningEntity: {
                         id: '$autocapture',
                         name: '$autocapture',
                         type: 'events',
                     },
-                    retention_type: RETENTION_FIRST_TIME,
+                    retentionType: RETENTION_FIRST_TIME,
                 },
             }
 
@@ -757,17 +757,17 @@ describe('summarizing insights', () => {
             const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
-                    target_entity: {
+                    targetEntity: {
                         id: 'purchase',
                         name: 'purchase',
                         type: 'events',
                     },
-                    returning_entity: {
+                    returningEntity: {
                         id: '$pageview',
                         name: '$pageview',
                         type: 'events',
                     },
-                    retention_type: RETENTION_RECURRING,
+                    retentionType: RETENTION_RECURRING,
                 },
                 aggregation_group_type_index: 0,
             }

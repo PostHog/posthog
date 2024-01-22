@@ -929,7 +929,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.kind, "RetentionQuery")
 
     def test_base_paths_query(self):
-        filter = {"insight": "PATHS"}
+        filter = {"insight": "PATHS", "step_limit": 2}
 
         query = filter_to_query(filter)
 
@@ -1398,17 +1398,17 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.retentionFilter,
             RetentionFilter(
-                retention_type=RetentionType.retention_first_time,
-                total_intervals=12,
+                retentionType=RetentionType.retention_first_time,
+                totalIntervals=12,
                 period=RetentionPeriod.Week,
-                returning_entity={
+                returningEntity={
                     "id": "$pageview",
                     "name": "$pageview",
                     "type": "events",
                     "custom_name": None,
                     "order": None,
                 },
-                target_entity={
+                targetEntity={
                     "id": "$pageview",
                     "name": "$pageview",
                     "type": "events",
