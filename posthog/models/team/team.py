@@ -184,6 +184,7 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config: models.JSONField = models.JSONField(null=True, blank=True)
+    session_replay_config: models.JSONField = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)

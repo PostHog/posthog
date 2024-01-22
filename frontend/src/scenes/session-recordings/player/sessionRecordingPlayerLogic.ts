@@ -44,6 +44,7 @@ import { createExportedSessionRecording } from '../file-playback/sessionRecordin
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
+import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
@@ -524,6 +525,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 (values.preflight?.cloud || window.location.hostname === 'localhost')
             ) {
                 plugins.push(CorsPlugin)
+            }
+
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CANVAS]) {
+                plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
             }
 
             cache.debug?.('tryInitReplayer', {

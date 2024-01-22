@@ -370,6 +370,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 kind: NodeKind.EventsNode,
                                                 math: BaseMathType.UniqueUsers,
                                                 name: '$pageview',
+                                                custom_name: 'Unique visitors',
                                             },
                                         ],
                                         trendsFilter: {
@@ -400,6 +401,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 kind: NodeKind.EventsNode,
                                                 math: BaseMathType.TotalCount,
                                                 name: '$pageview',
+                                                custom_name: 'Page views',
                                             },
                                         ],
                                         trendsFilter: {
@@ -430,6 +432,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 kind: NodeKind.EventsNode,
                                                 math: BaseMathType.UniqueSessions,
                                                 name: '$pageview',
+                                                custom_name: 'Sessions',
                                             },
                                         ],
                                         trendsFilter: {

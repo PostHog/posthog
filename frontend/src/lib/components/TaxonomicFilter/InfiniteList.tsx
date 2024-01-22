@@ -105,6 +105,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
+        listGroupType === TaxonomicFilterGroupType.Metadata ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -136,7 +137,7 @@ const selectedItemHasPopover = (
     group?: TaxonomicFilterGroup
 ): boolean => {
     return (
-        // NB: also update "renderItemPopover" above
+        // NB: also update "renderItemContents" above
         !!item &&
         !!group?.getValue?.(item) &&
         !!listGroupType &&
@@ -151,6 +152,7 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.Cohorts,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
+            TaxonomicFilterGroupType.Metadata,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
