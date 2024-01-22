@@ -50,6 +50,7 @@ export function FeatureFlagReleaseConditions({
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
+        featureFlagTaxonomicOptions,
     } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
@@ -202,6 +203,7 @@ export function FeatureFlagReleaseConditions({
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
+                                taxonomicFilterOptionsFromProp={featureFlagTaxonomicOptions}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 errorMessages={
