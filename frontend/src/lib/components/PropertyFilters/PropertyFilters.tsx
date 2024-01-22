@@ -2,12 +2,12 @@ import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import React, { useEffect } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode } from '~/queries/schema'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
@@ -20,6 +20,8 @@ interface PropertyFiltersProps {
     showConditionBadge?: boolean
     disablePopover?: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
+    metadataTaxonomicGroupToPropertyFilterType?: PropertyFilterType
     metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
@@ -41,6 +43,8 @@ export function PropertyFilters({
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicGroupTypes,
+    taxonomicFilterOptionsFromProp,
+    metadataTaxonomicGroupToPropertyFilterType,
     metadataSource,
     showNestedArrow = false,
     eventNames = [],
@@ -109,6 +113,10 @@ export function PropertyFilters({
                                                 placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
                                             }}
                                             propertyAllowList={propertyAllowList}
+                                            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                            metadataTaxonomicGroupToPropertyFilterType={
+                                                metadataTaxonomicGroupToPropertyFilterType
+                                            }
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

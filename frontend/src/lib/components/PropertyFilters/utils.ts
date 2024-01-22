@@ -287,18 +287,27 @@ export function propertyFilterTypeToPropertyDefinitionType(
 }
 
 export function taxonomicFilterTypeToPropertyFilterType(
-    filterType?: TaxonomicFilterGroupType
+    filterType?: TaxonomicFilterGroupType,
+    // determines which property type metadata group should map to
+    metadataToPropertyFilterType?: PropertyFilterType
 ): PropertyFilterType | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return PropertyFilterType.Cohort
     }
-    if (filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
+    if (
+        filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ||
+        filterType?.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
+    ) {
         return PropertyFilterType.Group
     }
 
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
         return PropertyFilterType.Event
+    }
+
+    if (filterType === TaxonomicFilterGroupType.Metadata && metadataToPropertyFilterType) {
+        return metadataToPropertyFilterType
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
