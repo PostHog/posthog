@@ -103,7 +103,7 @@ jobs:
 
             - name: Commit update for benchmark results
               if: ${{ github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master' }}
-              uses: stefanzweifel/git-auto-commit-action@v4
+              uses: stefanzweifel/git-auto-commit-action@v5
               with:
                   repository: ee/benchmarks/results
                   branch: master
