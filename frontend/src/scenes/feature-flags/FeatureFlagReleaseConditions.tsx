@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
@@ -50,6 +50,7 @@ export function FeatureFlagReleaseConditions({
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
+        featureFlagTaxonomicOptions,
     } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
@@ -202,6 +203,8 @@ export function FeatureFlagReleaseConditions({
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
+                                taxonomicFilterOptionsFromProp={featureFlagTaxonomicOptions}
+                                metadataTaxonomicGroupToPropertyFilterType={PropertyFilterType.Person}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 errorMessages={
