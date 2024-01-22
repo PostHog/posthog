@@ -513,20 +513,19 @@ describe('PropertyDefinitionsManager()', () => {
                 ])
             })
 
-            it('identifies a numeric type sent as a string', async () => {
+            it('identifies a numeric type sent as a string... as a string', async () => {
                 await manager.updateEventNamesAndProperties(teamId, 'another_test_event', {
                     some_number: String(randomInteger()),
                 })
 
-                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('Numeric')
+                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('String')
 
                 expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                     expect.objectContaining({
                         id: expect.any(String),
                         team_id: teamId,
                         name: 'some_number',
-                        is_numerical: true,
-                        property_type: 'Numeric',
+                        property_type: 'String',
                     }),
                 ])
             })
@@ -604,7 +603,7 @@ describe('PropertyDefinitionsManager()', () => {
                 const toNotMatch = {
                     ...toEdit,
                     propertyKey: toEdit.propertyKey.replace('timestamp', 'as a string'),
-                    expectedPropertyType: PropertyType.String,
+                    expectedPropertyType: typeof toEdit.date === 'number' ? PropertyType.Numeric : PropertyType.String,
                 }
 
                 return [testcase, toMatchWithJustTimeInName, toNotMatch]
