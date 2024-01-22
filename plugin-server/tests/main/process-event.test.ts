@@ -593,9 +593,9 @@ test('capture new person', async () => {
         },
         {
             id: expect.any(String),
-            is_numerical: true,
+            is_numerical: false,
             name: '$browser_version',
-            property_type: 'Numeric',
+            property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
             team_id: 2,
@@ -749,9 +749,9 @@ test('capture new person', async () => {
         },
         {
             id: expect.any(String),
-            is_numerical: true,
+            is_numerical: false,
             name: '$initial_browser_version',
-            property_type: 'Numeric',
+            property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
             team_id: 2,
