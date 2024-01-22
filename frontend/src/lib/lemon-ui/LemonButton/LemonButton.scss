@@ -30,8 +30,15 @@
     --lemon-button-profile-picture-opacity: 0.75; // Profile pictures must be more prominent than icons
     --lemon-button-color: var(--default);
 
-    // Make sure we override .Link's styles where needed, e.g. padding
+    // column-gap: 4px;
+    // flex-direction: row;
+    // flex-shrink: 0;
+    // justify-content: flex-start;
     position: relative;
+
+    // Make sure we override .Link's styles where needed, e.g. padding
+    display: flex;
+    align-items: center;
     padding: 0;
     font-family: var(--font-title);
     appearance: none !important; // Important as this gets overridden by Ant styles...
