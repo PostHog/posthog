@@ -9,14 +9,11 @@
     ); // A bit above navbar for a nicer slider experience when the sidebar is closed
 
     width: var(--resizer-width);
+    cursor: col-resize;
     user-select: none; // Fixes inadvertent selection of scene text when resizing
 
-    &:not(.Resizer--disabled) {
-        cursor: col-resize;
-
-        .Resizer[aria-hidden='true'] & {
-            cursor: e-resize;
-        }
+    .Resizer[aria-hidden='true'] & {
+        cursor: e-resize;
     }
 
     .Resizer__handle {
@@ -58,7 +55,7 @@
         transform: translateX(calc(var(--resizer-width) / 2 * 1));
     }
 
-    &:hover:not(.Resizer--disabled) .Resizer__handle::after,
+    &:hover .Resizer__handle::after,
     &--resizing .Resizer__handle::after {
         opacity: 0.25;
     }

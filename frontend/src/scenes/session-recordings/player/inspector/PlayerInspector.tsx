@@ -42,13 +42,7 @@ export function PlayerInspector({
                 width: inspectorFocus ? desiredWidth ?? '2.5rem' : undefined,
             }}
         >
-            <Resizer
-                logicKey="player-inspector"
-                placement="left"
-                containerRef={ref}
-                closeThreshold={100}
-                // disabled={isWidescreen}
-            />
+            <Resizer logicKey="player-inspector" placement="left" containerRef={ref} closeThreshold={100} />
             {inspectorFocus || isWidescreen ? (
                 <>
                     <PlayerInspectorControls />
