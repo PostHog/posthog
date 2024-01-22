@@ -204,7 +204,7 @@ describe('insightVizDataLogic', () => {
             // merges with existing insight filter
             expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateInsightFilter({
-                    show_values_on_series: true,
+                    showValuesOnSeries: true,
                 })
             }).toMatchValues({
                 query: {
@@ -213,7 +213,7 @@ describe('insightVizDataLogic', () => {
                         ...trendsQueryDefault,
                         trendsFilter: {
                             display: 'ActionsAreaGraph',
-                            show_values_on_series: true,
+                            showValuesOnSeries: true,
                         },
                     },
                 },
@@ -221,7 +221,7 @@ describe('insightVizDataLogic', () => {
 
             expect(builtInsightVizDataLogic.values.insightFilter).toEqual({
                 display: 'ActionsAreaGraph',
-                show_values_on_series: true,
+                showValuesOnSeries: true,
             })
         })
 

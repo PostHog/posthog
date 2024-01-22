@@ -55,7 +55,7 @@ module.exports = {
         // let's save the humans time and let the machines do the work
         // "never" means if the prop does not need the curly braces, they will be removed/errored
         // see https://github.com/jsx-eslint/eslint-plugin-react/blob/master/docs/rules/jsx-curly-brace-presence.md
-        "react/jsx-curly-brace-presence": ['error', { "props": "never", "children": "never", "propElementValues": "always" }],
+        'react/jsx-curly-brace-presence': ['error', { props: 'never', children: 'never', propElementValues: 'always' }],
         'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
         'no-only-tests/no-only-tests': 'error',
