@@ -90,9 +90,11 @@ export function RollingDateRangeFilter({
                         toggleDateOptionsSelector()
                     }}
                     dropdownMatchSelectWidth={false}
-                    options={dateOptions.filter((option) =>
-                        'value' in option ? allowedDateOptions.includes(option.value) : true
-                    )}
+                    options={
+                        dateOptions.filter((option) =>
+                            'value' in option ? allowedDateOptions.includes(option.value) : true
+                        ) as LemonSelectOptions<DateOption>
+                    }
                     menu={{
                         ...popover,
                         className: 'RollingDateRangeFilter__popover',
