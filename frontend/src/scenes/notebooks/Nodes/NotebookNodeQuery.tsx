@@ -1,7 +1,7 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
+import { AnyPartialFilterType, InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -15,6 +15,8 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { IconMagnifier } from 'lib/lemon-ui/icons'
+import { router } from 'kea-router'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -27,6 +29,19 @@ const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
+const generateFiltersFromQuery = (query: QuerySchema): AnyPartialFilterType | null => {
+    switch (query.kind) {
+        case NodeKind.InsightVizNode:
+            return query.source
+        case NodeKind.TrendsQuery:
+            return query
+        case NodeKind.HogQLQuery:
+            return query.filters || null
+        default:
+            return null
+    }
+}
+
 const Component = ({
     attributes,
     updateAttributes,
@@ -34,7 +49,7 @@ const Component = ({
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
-    const { setTitlePlaceholder } = useActions(nodeLogic)
+    const { setTitlePlaceholder, setActions } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
 
     useEffect(() => {
@@ -64,6 +79,18 @@ const Component = ({
         }
 
         setTitlePlaceholder(title)
+
+        const queryFilters = generateFiltersFromQuery(query)
+
+        if (queryFilters) {
+            setActions([
+                {
+                    text: 'Create new insight',
+                    icon: <IconMagnifier />,
+                    onClick: () => router.actions.push(urls.insightNew(queryFilters)),
+                },
+            ])
+        }
     }, [query])
 
     const modifiedQuery = useMemo(() => {
