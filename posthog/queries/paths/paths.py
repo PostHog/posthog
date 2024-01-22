@@ -237,7 +237,7 @@ class Paths:
 
     # Implemented in /ee
     def get_session_threshold_clause(self) -> str:
-        return "arraySplit(x -> if(toInt64(x.3) < %(session_time_threshold)s, 0, 1), paths_tuple)"
+        return "arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple)"
 
     # Implemented in /ee
     def get_target_clause(self) -> Tuple[str, Dict]:

@@ -117,7 +117,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -125,11 +125,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -282,7 +282,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -290,11 +290,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -445,7 +445,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -453,11 +453,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -608,7 +608,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -616,11 +616,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -771,7 +771,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -779,11 +779,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -937,7 +937,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -945,11 +945,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -1110,7 +1110,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -1118,11 +1118,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -1281,7 +1281,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -1289,11 +1289,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -1452,7 +1452,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -1460,11 +1460,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -1623,7 +1623,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -1631,11 +1631,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -1797,7 +1797,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -1805,11 +1805,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -1965,7 +1965,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -1973,11 +1973,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -2133,7 +2133,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -2141,11 +2141,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -2301,7 +2301,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -2309,11 +2309,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -2469,7 +2469,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -2477,11 +2477,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -2636,7 +2636,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -2644,11 +2644,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -2801,7 +2801,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -2809,11 +2809,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -2966,7 +2966,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -2974,11 +2974,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3131,7 +3131,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3139,11 +3139,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3296,7 +3296,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3304,11 +3304,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL 7 DAY, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3377,7 +3377,7 @@
                if(target_index > 0, arrayResize(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, (-1) * 5) as limited_path ,
                arraySlice(filtered_timings, (-1) * 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3385,11 +3385,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3456,7 +3456,7 @@
                if(target_index > 0, arrayResize(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, (-1) * 5) as limited_path ,
                arraySlice(filtered_timings, (-1) * 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3464,11 +3464,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3535,7 +3535,7 @@
                if(target_index > 0, arrayResize(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, (-1) * 5) as limited_path ,
                arraySlice(filtered_timings, (-1) * 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3543,11 +3543,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3614,7 +3614,7 @@
                if(target_index > 0, arrayResize(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, (-1) * 5) as limited_path ,
                arraySlice(filtered_timings, (-1) * 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3622,11 +3622,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3693,7 +3693,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3701,11 +3701,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3773,7 +3773,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3781,11 +3781,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3853,7 +3853,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3861,11 +3861,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -3932,7 +3932,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -3940,11 +3940,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4011,7 +4011,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4019,11 +4019,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4090,7 +4090,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4098,11 +4098,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4169,7 +4169,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4177,11 +4177,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4248,7 +4248,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4256,11 +4256,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4329,7 +4329,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4337,11 +4337,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4411,7 +4411,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4419,11 +4419,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4490,7 +4490,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4498,11 +4498,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4573,7 +4573,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4581,11 +4581,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4656,7 +4656,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4664,11 +4664,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4739,7 +4739,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4747,11 +4747,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4817,7 +4817,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4825,11 +4825,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4891,7 +4891,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4899,11 +4899,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -4964,7 +4964,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -4972,11 +4972,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -5037,7 +5037,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5045,11 +5045,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -5111,7 +5111,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5119,11 +5119,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -5184,7 +5184,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5192,11 +5192,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -5257,7 +5257,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5265,11 +5265,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -5331,7 +5331,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5339,11 +5339,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -5404,7 +5404,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5412,11 +5412,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -5494,7 +5494,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5502,11 +5502,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -5595,7 +5595,7 @@
                arraySlice(filtered_$session_ids, 1, 5) as limited_$session_ids ,
                if(target_index > 0, arraySlice($window_ids, target_index), $window_ids) as filtered_$window_ids ,
                arraySlice(filtered_$window_ids, 1, 5) as limited_$window_ids ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5607,11 +5607,11 @@
                   path_time_tuple.6 as $session_id,
                   path_time_tuple.7 as $window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000, uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
                      groupArray($session_id) as $session_ids,
@@ -5715,7 +5715,7 @@
                arraySlice(filtered_$session_ids, 1, 5) as limited_$session_ids ,
                if(target_index > 0, arraySlice($window_ids, target_index), $window_ids) as filtered_$window_ids ,
                arraySlice(filtered_$window_ids, 1, 5) as limited_$window_ids ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5727,11 +5727,11 @@
                   path_time_tuple.6 as $session_id,
                   path_time_tuple.7 as $window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000, uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
                      groupArray($session_id) as $session_ids,
@@ -5836,7 +5836,7 @@
                arraySlice(filtered_$session_ids, 1, 5) as limited_$session_ids ,
                if(target_index > 0, arraySlice($window_ids, target_index), $window_ids) as filtered_$window_ids ,
                arraySlice(filtered_$window_ids, 1, 5) as limited_$window_ids ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5848,11 +5848,11 @@
                   path_time_tuple.6 as $session_id,
                   path_time_tuple.7 as $window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000, uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
                      groupArray($session_id) as $session_ids,
@@ -5957,7 +5957,7 @@
                arraySlice(filtered_$session_ids, 1, 5) as limited_$session_ids ,
                if(target_index > 0, arraySlice($window_ids, target_index), $window_ids) as filtered_$window_ids ,
                arraySlice(filtered_$window_ids, 1, 5) as limited_$window_ids ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -5969,11 +5969,11 @@
                   path_time_tuple.6 as $session_id,
                   path_time_tuple.7 as $window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000, uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
                      groupArray($session_id) as $session_ids,
@@ -6084,7 +6084,7 @@
                if(start_target_index > 0, arraySlice($window_ids, start_target_index), $window_ids) as start_filtered_$window_ids ,
                if(end_target_index > 0, arrayResize(start_filtered_$window_ids, end_target_index), start_filtered_$window_ids) as filtered_$window_ids ,
                if(length(filtered_$window_ids) > 5, arrayConcat(arraySlice(filtered_$window_ids, 1, intDiv(5, 2)), [filtered_$window_ids[1+intDiv(5, 2)]], arraySlice(filtered_$window_ids, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_$window_ids) AS limited_$window_ids ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuids, limited_timestamps, limited_$session_ids, limited_$window_ids) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6096,11 +6096,11 @@
                   path_time_tuple.6 as $session_id,
                   path_time_tuple.7 as $window_id ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000, uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing), uuids, timestamps, $session_ids, $window_ids) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(uuid) as uuids,
                      groupArray(timestamp) as timestamps,
                      groupArray($session_id) as $session_ids,
@@ -6186,7 +6186,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6194,11 +6194,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6267,7 +6267,7 @@
                if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings ,
                if(length(filtered_path) > 5, arrayConcat(arraySlice(filtered_path, 1, intDiv(5, 2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_path) AS limited_path ,
                if(length(filtered_timings) > 5, arrayConcat(arraySlice(filtered_timings, 1, intDiv(5, 2)), [filtered_timings[1+intDiv(5, 2)]], arraySlice(filtered_timings, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_timings) AS limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6275,11 +6275,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6346,7 +6346,7 @@
                if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings ,
                if(length(filtered_path) > 5, arrayConcat(arraySlice(filtered_path, 1, intDiv(5, 2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_path) AS limited_path ,
                if(length(filtered_timings) > 5, arrayConcat(arraySlice(filtered_timings, 1, intDiv(5, 2)), [filtered_timings[1+intDiv(5, 2)]], arraySlice(filtered_timings, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_timings) AS limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6354,11 +6354,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6427,7 +6427,7 @@
                if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings ,
                if(length(filtered_path) > 4, arrayConcat(arraySlice(filtered_path, 1, intDiv(4, 2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(4, 2), intDiv(4, 2))), filtered_path) AS limited_path ,
                if(length(filtered_timings) > 4, arrayConcat(arraySlice(filtered_timings, 1, intDiv(4, 2)), [filtered_timings[1+intDiv(4, 2)]], arraySlice(filtered_timings, (-1)*intDiv(4, 2), intDiv(4, 2))), filtered_timings) AS limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6435,11 +6435,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6506,7 +6506,7 @@
                if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings ,
                if(length(filtered_path) > 4, arrayConcat(arraySlice(filtered_path, 1, intDiv(4, 2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(4, 2), intDiv(4, 2))), filtered_path) AS limited_path ,
                if(length(filtered_timings) > 4, arrayConcat(arraySlice(filtered_timings, 1, intDiv(4, 2)), [filtered_timings[1+intDiv(4, 2)]], arraySlice(filtered_timings, (-1)*intDiv(4, 2), intDiv(4, 2))), filtered_timings) AS limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6514,11 +6514,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6587,7 +6587,7 @@
                if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings ,
                if(length(filtered_path) > 5, arrayConcat(arraySlice(filtered_path, 1, intDiv(5, 2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_path) AS limited_path ,
                if(length(filtered_timings) > 5, arrayConcat(arraySlice(filtered_timings, 1, intDiv(5, 2)), [filtered_timings[1+intDiv(5, 2)]], arraySlice(filtered_timings, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_timings) AS limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6595,11 +6595,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6666,7 +6666,7 @@
                if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings ,
                if(length(filtered_path) > 5, arrayConcat(arraySlice(filtered_path, 1, intDiv(5, 2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_path) AS limited_path ,
                if(length(filtered_timings) > 5, arrayConcat(arraySlice(filtered_timings, 1, intDiv(5, 2)), [filtered_timings[1+intDiv(5, 2)]], arraySlice(filtered_timings, (-1)*intDiv(5, 2), intDiv(5, 2))), filtered_timings) AS limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6674,11 +6674,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6747,7 +6747,7 @@
                if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings ,
                if(length(filtered_path) > 4, arrayConcat(arraySlice(filtered_path, 1, intDiv(4, 2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(4, 2), intDiv(4, 2))), filtered_path) AS limited_path ,
                if(length(filtered_timings) > 4, arrayConcat(arraySlice(filtered_timings, 1, intDiv(4, 2)), [filtered_timings[1+intDiv(4, 2)]], arraySlice(filtered_timings, (-1)*intDiv(4, 2), intDiv(4, 2))), filtered_timings) AS limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6755,11 +6755,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6826,7 +6826,7 @@
                if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings ,
                if(length(filtered_path) > 4, arrayConcat(arraySlice(filtered_path, 1, intDiv(4, 2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(4, 2), intDiv(4, 2))), filtered_path) AS limited_path ,
                if(length(filtered_timings) > 4, arrayConcat(arraySlice(filtered_timings, 1, intDiv(4, 2)), [filtered_timings[1+intDiv(4, 2)]], arraySlice(filtered_timings, (-1)*intDiv(4, 2), intDiv(4, 2))), filtered_timings) AS limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6834,11 +6834,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6904,7 +6904,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6912,11 +6912,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -6983,7 +6983,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -6991,11 +6991,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7062,7 +7062,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 2) as limited_path ,
                arraySlice(filtered_timings, 1, 2) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7070,11 +7070,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7137,7 +7137,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 2) as limited_path ,
                arraySlice(filtered_timings, 1, 2) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7145,11 +7145,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7210,7 +7210,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 2) as limited_path ,
                arraySlice(filtered_timings, 1, 2) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7218,11 +7218,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7286,7 +7286,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 3) as limited_path ,
                arraySlice(filtered_timings, 1, 3) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7294,11 +7294,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7361,7 +7361,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 3) as limited_path ,
                arraySlice(filtered_timings, 1, 3) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7369,11 +7369,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7437,7 +7437,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7445,11 +7445,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7512,7 +7512,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7520,11 +7520,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7585,7 +7585,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7593,11 +7593,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7658,7 +7658,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7666,11 +7666,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7734,7 +7734,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7742,11 +7742,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7815,7 +7815,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7823,11 +7823,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7896,7 +7896,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7904,11 +7904,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -7977,7 +7977,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -7985,11 +7985,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -8056,7 +8056,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -8064,11 +8064,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -8136,7 +8136,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -8144,11 +8144,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -8214,7 +8214,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 4) as limited_path ,
                arraySlice(filtered_timings, 1, 4) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -8222,11 +8222,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -8293,7 +8293,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -8301,11 +8301,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -8372,7 +8372,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -8380,11 +8380,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -8451,7 +8451,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -8459,11 +8459,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -8531,7 +8531,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -8539,11 +8539,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,
@@ -8610,7 +8610,7 @@
                if(target_index > 0, arraySlice(timings, target_index), timings) as filtered_timings ,
                arraySlice(filtered_path, 1, 5) as limited_path ,
                arraySlice(filtered_timings, 1, 5) as limited_timings ,
-               arrayDifference(limited_timings) * 1000 as timings_diff ,
+               arrayDifference(limited_timings) as timings_diff ,
                arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings ,
                concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key
         FROM
@@ -8618,11 +8618,11 @@
                   path_time_tuple.1 as path_basic ,
                   path_time_tuple.2 as time ,
                   session_index ,
-                  arrayZip(paths, timing, arrayDifference(timing) * 1000) as paths_tuple ,
-                  arraySplit(x -> if(toInt64(x.3) < 1800000, 0, 1), paths_tuple) as session_paths
+                  arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple ,
+                  arraySplit(x -> if(x.3 < 1800000, 0, 1), paths_tuple) as session_paths
            FROM
              (SELECT person_id,
-                     groupArray(timestamp) as timing,
+                     groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
                      groupArray(path_item) as paths
               FROM
                 (SELECT e.timestamp AS timestamp,

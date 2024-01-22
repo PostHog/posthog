@@ -137,9 +137,9 @@ class ClickhousePaths(Paths):
                 funnel_window_interval = 14
                 funnel_window_interval_unit = "DAY"
             # Not possible to directly compare two interval data types, so using a proxy Date.
-            return f"arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(toInt64(x.3 / 1000)) < toDateTime('2018-01-01') + INTERVAL {funnel_window_interval} {funnel_window_interval_unit}, 0, 1), paths_tuple)"
+            return f"arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL {funnel_window_interval} {funnel_window_interval_unit}, 0, 1), paths_tuple)"
 
-        return "arraySplit(x -> if(toInt64(x.3) < %(session_time_threshold)s, 0, 1), paths_tuple)"
+        return "arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple)"
 
     def should_query_funnel(self) -> bool:
         if self._filter.funnel_paths and self._funnel_filter:
