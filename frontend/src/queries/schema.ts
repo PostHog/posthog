@@ -631,6 +631,11 @@ export type PathsFilter = {
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
     funnelPaths?: PathsFilterLegacy['funnel_paths']
     funnelFilter?: PathsFilterLegacy['funnel_filter']
+
+    // persons only
+    pathStartKey?: string
+    pathEndKey?: string
+    pathDropoffKey?: string
 }
 
 export interface PathsQuery extends InsightsQueryBase {
@@ -920,9 +925,9 @@ export type InsightFilter =
 /** @asType integer */
 export type Day = number
 
-export interface InsightActorsQuery {
+export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> {
     kind: NodeKind.InsightActorsQuery
-    source: InsightQuerySource
+    source: T
     day?: string | Day
     status?: string
     /**
