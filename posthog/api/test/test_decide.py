@@ -315,6 +315,31 @@ class TestDecide(BaseTest, QueryMatchingTest):
             expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
 
+    def test_session_replay_config(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert "recordCanvas" not in response["sessionRecording"]
+        assert "canvasFps" not in response["sessionRecording"]
+        assert "canvasQuality" not in response["sessionRecording"]
+
+        self._update_team(
+            {
+                "session_replay_config": {"record_canvas": True},
+            }
+        )
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["recordCanvas"], True)
+        self.assertEqual(response["sessionRecording"]["canvasFps"], 4)
+        self.assertEqual(response["sessionRecording"]["canvasQuality"], "0.6")
+
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()

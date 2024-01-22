@@ -1714,11 +1714,20 @@ export const base64Encode = (str: string): string => {
 }
 
 export const base64Decode = (encodedString: string): string => {
+    const data = base64ToUint8Array(encodedString)
+    return new TextDecoder().decode(data)
+}
+
+export const base64ArrayBuffer = (encodedString: string): ArrayBuffer => {
+    const data = base64ToUint8Array(encodedString)
+    return data.buffer
+}
+
+export const base64ToUint8Array = (encodedString: string): Uint8Array => {
     const binString = atob(encodedString)
     const data = new Uint8Array(binString.length)
     for (let i = 0; i < binString.length; i++) {
         data[i] = binString.charCodeAt(i)
     }
-
-    return new TextDecoder().decode(data)
+    return data
 }
