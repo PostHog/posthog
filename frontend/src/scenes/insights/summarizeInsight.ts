@@ -250,28 +250,28 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         return summary
     } else if (isRetentionQuery(query)) {
         const areTargetAndReturningIdentical =
-            query.retentionFilter?.returning_entity?.id === query.retentionFilter?.target_entity?.id &&
-            query.retentionFilter?.returning_entity?.type === query.retentionFilter?.target_entity?.type
+            query.retentionFilter?.returningEntity?.id === query.retentionFilter?.targetEntity?.id &&
+            query.retentionFilter?.returningEntity?.type === query.retentionFilter?.targetEntity?.type
         return (
             `Retention of ${context.aggregationLabel(query.aggregation_group_type_index, true).plural}` +
             ` based on doing ${getDisplayNameFromEntityFilter(
-                (query.retentionFilter?.target_entity || {}) as EntityFilter
+                (query.retentionFilter?.targetEntity || {}) as EntityFilter
             )}` +
-            ` ${retentionOptions[query.retentionFilter?.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
+            ` ${retentionOptions[query.retentionFilter?.retentionType || RETENTION_FIRST_TIME]} and returning with ` +
             (areTargetAndReturningIdentical
                 ? 'the same event'
-                : getDisplayNameFromEntityFilter((query.retentionFilter?.returning_entity || {}) as EntityFilter))
+                : getDisplayNameFromEntityFilter((query.retentionFilter?.returningEntity || {}) as EntityFilter))
         )
     } else if (isPathsQuery(query)) {
         // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(
+        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.includeEventTypes).join(
             ' and '
         )}`
-        if (query.pathsFilter?.start_point) {
-            summary += ` starting at ${query.pathsFilter?.start_point}`
+        if (query.pathsFilter?.startPoint) {
+            summary += ` starting at ${query.pathsFilter?.startPoint}`
         }
-        if (query.pathsFilter?.end_point) {
-            summary += `${query.pathsFilter?.start_point ? ' and' : ''} ending at ${query.pathsFilter?.end_point}`
+        if (query.pathsFilter?.endPoint) {
+            summary += `${query.pathsFilter?.startPoint ? ' and' : ''} ending at ${query.pathsFilter?.endPoint}`
         }
         return summary
     } else if (isStickinessQuery(query)) {

@@ -134,6 +134,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         team_id=inputs.team_id,
         run_id=inputs.run_id,
     )
+
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
     job_inputs = PipelineInputs(
