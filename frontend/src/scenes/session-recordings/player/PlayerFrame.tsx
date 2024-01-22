@@ -32,7 +32,8 @@ export const PlayerFrame = (): JSX.Element => {
             // sometimes replayer throws errors but playback can continue
             // we don't want to show an error message in that case
             // so let's swallow but report replayer errors
-            if (event.error && event.error.stack?.includes('Replayer.')) {
+            // TODO we need a better way to detect these errors
+            if (event.error && event.error.stack?.includes('applyEventsSynchronously')) {
                 event.preventDefault()
                 event.stopPropagation()
                 playerErrorSeen(event)

@@ -74,6 +74,14 @@ export function PipelineLandingPage(): JSX.Element {
     return <App />
 }
 
+export function PipelineOverviewPage(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipeline(PipelineTab.Overview))
+        pipelineLogic.mount()
+    }, [])
+    return <App />
+}
+
 export function PipelineFilteringPage(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipeline(PipelineTab.Filters))

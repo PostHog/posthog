@@ -8,6 +8,7 @@ import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
 import { BatchExportConfiguration, PluginConfigTypeNew, PluginLogEntryType, PluginType } from '~/types'
 
 import { PipelineLogLevel } from './pipelineNodeLogsLogic'
+import { Destination } from './types'
 
 const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     // frontend apps
@@ -182,4 +183,17 @@ export function LogLevelDisplay(level: PipelineLogLevel): JSX.Element {
 
 export function LogTypeDisplay(type: PluginLogEntryType): JSX.Element {
     return LogLevelDisplay(typeToLogLevel(type))
+}
+
+export const humanFriendlyFrequencyName = (frequency: Destination['interval']): string => {
+    switch (frequency) {
+        case 'realtime':
+            return 'Realtime'
+        case 'day':
+            return 'Daily'
+        case 'hour':
+            return 'Hourly'
+        case 'every 5 minutes':
+            return '5 min'
+    }
 }

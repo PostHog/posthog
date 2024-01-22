@@ -6,17 +6,16 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Sparkline, SparklineTimeSeries } from 'lib/lemon-ui/Sparkline'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
 import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
+import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
-import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
-import { Destination, PipelineBackend } from './types'
+import { Destination } from './types'
 import { RenderApp } from './utils'
 
 export function Destinations(): JSX.Element {
@@ -48,8 +47,7 @@ export function Destinations(): JSX.Element {
 }
 
 function DestinationsTable(): JSX.Element {
-    const { loading, destinations, canConfigurePlugins } = useValues(pipelineDestinationsLogic)
-    const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
+    const { loading, destinations } = useValues(pipelineDestinationsLogic)
 
     return (
         <>
@@ -102,7 +100,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: 'Success rate',
                         render: function RenderSuccessRate(_, destination) {
-                            return <DestinationSparkLine destination={destination} />
+                            return <AppMetricSparkLine pipelineNode={destination} />
                         },
                     },
                     updatedAtColumn() as LemonTableColumn<Destination, any>,
@@ -127,68 +125,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         width: 0,
                         render: function Render(_, destination) {
-                            return (
-                                <More
-                                    overlay={
-                                        <LemonMenuOverlay
-                                            items={[
-                                                {
-                                                    label: destination.enabled
-                                                        ? 'Pause destination'
-                                                        : 'Unpause destination',
-                                                    onClick: () => toggleEnabled(destination, !destination.enabled),
-                                                    disabledReason: canConfigurePlugins
-                                                        ? undefined
-                                                        : 'You do not have permission to enable/disable destinations.',
-                                                },
-                                                {
-                                                    label: canConfigurePlugins
-                                                        ? 'Edit configuration'
-                                                        : 'View configuration',
-                                                    to: urls.pipelineNode(
-                                                        PipelineStage.Destination,
-                                                        destination.id,
-                                                        PipelineNodeTab.Configuration
-                                                    ),
-                                                },
-                                                {
-                                                    label: 'View metrics',
-                                                    to: urls.pipelineNode(
-                                                        PipelineStage.Destination,
-                                                        destination.id,
-                                                        PipelineNodeTab.Metrics
-                                                    ),
-                                                },
-                                                {
-                                                    label: 'View logs',
-                                                    to: urls.pipelineNode(
-                                                        PipelineStage.Destination,
-                                                        destination.id,
-                                                        PipelineNodeTab.Logs
-                                                    ),
-                                                },
-                                                // TODO: Add link to source code for staff
-                                                {
-                                                    label: 'Delete destination',
-                                                    onClick: () => {
-                                                        void deleteWithUndo({
-                                                            endpoint: `plugin_config`, // TODO: Batch exports too
-                                                            object: {
-                                                                id: destination.id,
-                                                                name: destination.name,
-                                                            },
-                                                            callback: loadPluginConfigs,
-                                                        })
-                                                    },
-                                                    disabledReason: canConfigurePlugins
-                                                        ? undefined
-                                                        : 'You do not have permission to delete destinations.',
-                                                },
-                                            ]}
-                                        />
-                                    }
-                                />
-                            )
+                            return <More overlay={<DestinationMoreOverlay destination={destination} />} />
                         },
                     },
                 ]}
@@ -197,34 +134,60 @@ function DestinationsTable(): JSX.Element {
     )
 }
 
-function DestinationSparkLine({ destination }: { destination: Destination }): JSX.Element {
-    if (destination.backend === PipelineBackend.BatchExport) {
-        return <></> // TODO: not ready yet
-    } else {
-        const logic = pipelineNodeMetricsLogic({ pluginConfigId: destination.id })
-        const { appMetricsResponse } = useValues(logic)
+export const DestinationMoreOverlay = ({
+    destination,
+    inOverview = false,
+}: {
+    destination: Destination
+    inOverview?: boolean
+}): JSX.Element => {
+    const { canConfigurePlugins } = useValues(pipelineDestinationsLogic)
+    const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
 
-        const displayData: SparklineTimeSeries[] = [
-            {
-                color: 'success',
-                name: 'Events sent',
-                values: appMetricsResponse ? appMetricsResponse.metrics.successes : [],
-            },
-        ]
-        if (appMetricsResponse?.metrics.failures.some((failure) => failure > 0)) {
-            displayData.push({
-                color: 'danger',
-                name: 'Events dropped',
-                values: appMetricsResponse ? appMetricsResponse.metrics.failures : [],
-            })
-        }
-
-        return (
-            <Sparkline
-                loading={appMetricsResponse === null}
-                labels={appMetricsResponse ? appMetricsResponse.metrics.dates : []}
-                data={displayData}
-            />
-        )
-    }
+    return (
+        <LemonMenuOverlay
+            items={[
+                ...(!inOverview
+                    ? [
+                          {
+                              label: destination.enabled ? 'Pause destination' : 'Unpause destination',
+                              onClick: () => toggleEnabled(destination, !destination.enabled),
+                              disabledReason: canConfigurePlugins
+                                  ? undefined
+                                  : 'You do not have permission to enable/disable destinations.',
+                          },
+                      ]
+                    : []),
+                {
+                    label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
+                    to: urls.pipelineNode(PipelineStage.Destination, destination.id, PipelineNodeTab.Configuration),
+                },
+                {
+                    label: 'View metrics',
+                    to: urls.pipelineNode(PipelineStage.Destination, destination.id, PipelineNodeTab.Metrics),
+                },
+                {
+                    label: 'View logs',
+                    to: urls.pipelineNode(PipelineStage.Destination, destination.id, PipelineNodeTab.Logs),
+                },
+                // TODO: Add link to source code for staff
+                {
+                    label: 'Delete destination',
+                    onClick: () => {
+                        void deleteWithUndo({
+                            endpoint: `plugin_config`, // TODO: Batch exports too
+                            object: {
+                                id: destination.id,
+                                name: destination.name,
+                            },
+                            callback: loadPluginConfigs,
+                        })
+                    },
+                    disabledReason: canConfigurePlugins
+                        ? undefined
+                        : 'You do not have permission to delete destinations.',
+                },
+            ]}
+        />
+    )
 }
