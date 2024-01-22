@@ -2,20 +2,21 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { PlayerInspectorControls } from './PlayerInspectorControls'
 import { PlayerInspectorList } from './PlayerInspectorList'
 import { PlayerInspectorPreview } from './PlayerInspectorPreview'
 
 export function PlayerInspector({
+    inspectorFocus,
     isWidescreen,
-    onFocusChange,
+    setInspectorFocus,
 }: {
+    inspectorFocus: boolean
     isWidescreen: boolean
-    onFocusChange: (focus: boolean) => void
+    setInspectorFocus: (focus: boolean) => void
 }): JSX.Element {
-    const [inspectorFocus, setInspectorFocus] = useState(false)
     const ref = useRef<HTMLDivElement>(null)
 
     const resizerLogicProps: ResizerLogicProps = {
@@ -24,17 +25,10 @@ export function PlayerInspector({
         persistent: true,
         closeThreshold: 100,
         placement: 'left',
-        onToggleClosed: (shouldBeClosed) => {
-            setInspectorFocus(!shouldBeClosed)
-            // shouldBeClosed ? closeSidePanel() : selectedTab ? openSidePanel(selectedTab) : undefined
-        },
+        onToggleClosed: (shouldBeClosed) => setInspectorFocus(!shouldBeClosed),
     }
 
     const { desiredWidth } = useValues(resizerLogic(resizerLogicProps))
-
-    useEffect(() => {
-        onFocusChange(inspectorFocus)
-    }, [inspectorFocus])
 
     return (
         <div
@@ -53,9 +47,7 @@ export function PlayerInspector({
                 placement="left"
                 containerRef={ref}
                 closeThreshold={100}
-                disabled={isWidescreen}
-                // onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}
-                // onDoubleClick={() => toggleNavCollapsed()}
+                // disabled={isWidescreen}
             />
             {inspectorFocus || isWidescreen ? (
                 <>

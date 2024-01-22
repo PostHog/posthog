@@ -183,7 +183,11 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 <PlayerController />
                             </div>
                             {!noInspector && (
-                                <PlayerInspector onFocusChange={setInspectorFocus} isWidescreen={isWidescreen} />
+                                <PlayerInspector
+                                    inspectorFocus={inspectorFocus}
+                                    setInspectorFocus={setInspectorFocus}
+                                    isWidescreen={isWidescreen}
+                                />
                             )}
                         </>
                     )}

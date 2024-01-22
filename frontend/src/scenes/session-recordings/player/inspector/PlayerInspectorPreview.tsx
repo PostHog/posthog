@@ -28,10 +28,7 @@ export function PlayerInspectorPreview(props: { onClick: () => void }): JSX.Elem
     ]
 
     return (
-        <div
-            className="PlayerInspectorPreview bg-side p-2 space-y-2 flex flex-col cursor-pointer"
-            onClick={props.onClick}
-        >
+        <div className="PlayerInspectorPreview bg-side p-2 space-y-2 flex flex-col" onClick={props.onClick}>
             {tabs.map((tabId) => {
                 const TabIcon = TabToIcon[tabId]
                 return (
