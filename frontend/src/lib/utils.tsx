@@ -1683,7 +1683,12 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
                     continue
                 }
 
-                toReturn[i + '.' + x] = flatObject[x]
+                let j = i
+                if (i.match(/\d+/)) {
+                    j = i.padStart(3, '0')
+                }
+
+                toReturn[j + '.' + x] = flatObject[x]
             }
         } else {
             toReturn[i] = ob[i]
