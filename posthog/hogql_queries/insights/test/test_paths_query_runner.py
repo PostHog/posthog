@@ -361,7 +361,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    "include_event_types": ["custom_event"],
+                    "includeEventTypes": ["custom_event"],
                 },
             },
             team=self.team,
@@ -475,8 +475,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    "include_event_types": ["hogql"],
-                    "paths_hogql_expression": "event || properties.a",
+                    "includeEventTypes": ["hogql"],
+                    "pathsHogQLExpression": "event || properties.a",
                 },
             },
             team=self.team,
@@ -582,7 +582,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    "include_event_types": ["$screen"],
+                    "includeEventTypes": ["$screen"],
                 },
             },
             team=self.team,
@@ -845,7 +845,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    "start_point": "/pricing",
+                    "startPoint": "/pricing",
                 },
             },
             team=self.team,
@@ -865,7 +865,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    "start_point": "/pricing/",
+                    "startPoint": "/pricing/",
                 },
             },
             team=self.team,
@@ -884,8 +884,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             query={
                 "kind": "PathsQuery",
                 "pathsFilter": {
-                    "path_type": "$pageview",
-                    "start_point": "/",
+                    "startPoint": "/",
                 },
             },
             team=self.team,
