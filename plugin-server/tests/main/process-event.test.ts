@@ -389,7 +389,7 @@ test('capture new person', async () => {
                 token: team.api_token,
                 utm_medium: 'instagram',
                 $current_url: 'https://test.com/pricing',
-                $browser_version: 80,
+                $browser_version: '80',
                 $browser: 'Firefox',
                 $elements: [
                     { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
@@ -422,7 +422,7 @@ test('capture new person', async () => {
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
         $browser: 'Firefox',
-        $browser_version: 80,
+        $browser_version: '80',
         $current_url: 'https://test.com/pricing',
         $os: 'Mac OS X',
         $referrer: 'https://google.com/?q=posthog',
@@ -441,12 +441,12 @@ test('capture new person', async () => {
     expect(events[1].properties.$set).toEqual({
         utm_medium: 'instagram',
         $browser: 'Firefox',
-        $browser_version: 80,
+        $browser_version: '80',
         $current_url: 'https://test.com/pricing',
     })
     expect(events[1].properties.$set_once).toEqual({
         $initial_browser: 'Firefox',
-        $initial_browser_version: 80,
+        $initial_browser_version: '80',
         $initial_utm_medium: 'instagram',
         $initial_current_url: 'https://test.com/pricing',
     })
@@ -529,9 +529,8 @@ test('capture new person', async () => {
             last_seen_at: expect.any(String),
         },
     ])
-    expect(
-        (await hub.db.fetchPropertyDefinitions()).sort((a, b) => a.name.localeCompare(b.name) || a.type - b.type)
-    ).toEqual(
+    const sortFunction = (a, b) => a.name.localeCompare(b.name) || a.type - b.type
+    expect((await hub.db.fetchPropertyDefinitions()).sort(sortFunction)).toEqual(
         expect.arrayContaining(
             [
                 {
@@ -573,12 +572,36 @@ test('capture new person', async () => {
                 {
                     id: expect.any(String),
                     is_numerical: false,
+                    name: '$browser',
+                    property_type: 'String',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    type: 2,
+                    group_type_index: null,
+                    volume_30_day: null,
+                },
+                {
+                    id: expect.any(String),
+                    is_numerical: false,
                     name: '$current_url',
                     property_type: 'String',
                     property_type_format: null,
                     query_usage_30_day: null,
                     team_id: 2,
                     type: 1,
+                    group_type_index: null,
+                    volume_30_day: null,
+                },
+                {
+                    id: expect.any(String),
+                    is_numerical: false,
+                    name: '$current_url',
+                    property_type: 'String',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    type: 2,
                     group_type_index: null,
                     volume_30_day: null,
                 },
@@ -603,6 +626,18 @@ test('capture new person', async () => {
                     query_usage_30_day: null,
                     team_id: 2,
                     type: 1,
+                    group_type_index: null,
+                    volume_30_day: null,
+                },
+                {
+                    id: expect.any(String),
+                    is_numerical: true,
+                    name: '$browser_version',
+                    property_type: 'String',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    type: 2,
                     group_type_index: null,
                     volume_30_day: null,
                 },
@@ -822,7 +857,7 @@ test('capture new person', async () => {
                     group_type_index: null,
                     volume_30_day: null,
                 },
-            ].sort((a, b) => a.name.localeCompare(b.name) || a.type - b.type)
+            ].sort(sortFunction)
         )
     )
 })
