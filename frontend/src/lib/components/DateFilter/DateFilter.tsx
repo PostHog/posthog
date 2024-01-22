@@ -145,19 +145,18 @@ export function DateFilter({
                         dateOptions,
                         isDateFormatted
                     )
+                    const startOfRangeDateValue = dateFilterToText(
+                        values[0],
+                        undefined,
+                        '',
+                        [],
+                        false,
+                        'MMMM D, YYYY',
+                        true
+                    )
 
                     return (
-                        <Tooltip
-                            key={key}
-                            title={
-                                makeLabel
-                                    ? makeLabel(
-                                          dateValue,
-                                          dateFilterToText(values[0], undefined, '', [], false, 'MMMM D, YYYY', true)
-                                      )
-                                    : undefined
-                            }
-                        >
+                        <Tooltip key={key} title={makeLabel ? makeLabel(dateValue, startOfRangeDateValue) : undefined}>
                             <LemonButton
                                 key={key}
                                 onClick={() => setDate(values[0] || null, values[1] || null)}

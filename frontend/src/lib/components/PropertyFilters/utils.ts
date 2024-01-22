@@ -287,9 +287,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
 }
 
 export function taxonomicFilterTypeToPropertyFilterType(
-    filterType?: TaxonomicFilterGroupType,
-    // determines which property type metadata group should map to
-    metadataToPropertyFilterType?: PropertyFilterType
+    filterType?: TaxonomicFilterGroupType
 ): PropertyFilterType | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return PropertyFilterType.Cohort
@@ -304,10 +302,6 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
         return PropertyFilterType.Event
-    }
-
-    if (filterType === TaxonomicFilterGroupType.Metadata && metadataToPropertyFilterType) {
-        return metadataToPropertyFilterType
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
