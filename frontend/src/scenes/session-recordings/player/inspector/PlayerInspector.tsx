@@ -30,6 +30,8 @@ export function PlayerInspector({
 
     const { desiredWidth } = useValues(resizerLogic(resizerLogicProps))
 
+    const isOpen = inspectorFocus || isWidescreen
+
     return (
         <div
             className={clsx(
@@ -39,11 +41,11 @@ export function PlayerInspector({
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: inspectorFocus ? desiredWidth ?? '2.5rem' : undefined,
+                width: isOpen ? desiredWidth ?? 'var(--inspector-width)' : undefined,
             }}
         >
             <Resizer logicKey="player-inspector" placement="left" containerRef={ref} closeThreshold={100} />
-            {inspectorFocus || isWidescreen ? (
+            {isOpen ? (
                 <>
                     <PlayerInspectorControls />
                     <PlayerInspectorList />

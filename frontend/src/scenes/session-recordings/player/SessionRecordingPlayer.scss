@@ -1,7 +1,7 @@
 @import '../../../styles/mixins';
 
 .SessionRecordingPlayer {
-    --inspector-width: 24rem;
+    --inspector-width: 16rem;
 
     position: relative;
     display: flex;
@@ -93,6 +93,8 @@
         }
 
         .SessionRecordingPlayer__inspector {
+            --inspector-width: 24rem;
+
             position: relative;
 
             .PlayerInspectorPreview {
