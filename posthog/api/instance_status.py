@@ -42,7 +42,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         metrics: List[Dict[str, Union[str, bool, int, float, Dict[str, Any]]]] = []
 
-        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": get_git_commit()})
+        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": get_git_commit() or "unknown"})
 
         helm_info = get_helm_info_env()
         if len(helm_info) > 0:
