@@ -573,6 +573,10 @@ export interface FunnelsQuery extends InsightsQueryBase {
     breakdownFilter?: BreakdownFilter
 }
 
+export interface FunnelsQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
+
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 

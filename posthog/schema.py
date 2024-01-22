@@ -972,6 +972,18 @@ class FunnelsFilter(BaseModel):
     layout: Optional[FunnelLayout] = None
 
 
+class FunnelsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
