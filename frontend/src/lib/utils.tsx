@@ -917,7 +917,7 @@ export function dateFilterToText(
     }
 
     if (dateFrom) {
-        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
         const counter = parseInt(dateFrom.slice(1, -1))
         if (dateOption && counter) {
             let date = null
