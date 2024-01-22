@@ -1873,11 +1873,15 @@ export interface PathsFilterType extends FilterType {
     funnel_paths?: FunnelPathType
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
+    /** @asType integer */
     step_limit?: number // Paths Step Limit
     path_replacements?: boolean
     local_path_cleaning_filters?: PathCleaningFilter[]
+    /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
+    /** @asType integer */
     min_edge_weight?: number | undefined // Paths
+    /** @asType integer */
     max_edge_weight?: number | undefined // Paths
 
     // persons only

@@ -392,41 +392,41 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edgeLimit: Optional[float] = None
+    edgeLimit: Optional[int] = None
     endPoint: Optional[str] = None
     excludeEvents: Optional[List[str]] = None
     funnelFilter: Optional[Dict[str, Any]] = None
     funnelPaths: Optional[FunnelPathType] = None
     includeEventTypes: Optional[List[PathType]] = None
     localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
-    maxEdgeWeight: Optional[float] = None
-    minEdgeWeight: Optional[float] = None
+    maxEdgeWeight: Optional[int] = None
+    minEdgeWeight: Optional[int] = None
     pathGroupings: Optional[List[str]] = None
     pathReplacements: Optional[bool] = None
     pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
-    stepLimit: Optional[float] = None
+    stepLimit: Optional[int] = None
 
 
 class PathsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edge_limit: Optional[float] = None
+    edge_limit: Optional[int] = None
     end_point: Optional[str] = None
     exclude_events: Optional[List[str]] = None
     funnel_filter: Optional[Dict[str, Any]] = None
     funnel_paths: Optional[FunnelPathType] = None
     include_event_types: Optional[List[PathType]] = None
     local_path_cleaning_filters: Optional[List[PathCleaningFilter]] = None
-    max_edge_weight: Optional[float] = None
-    min_edge_weight: Optional[float] = None
+    max_edge_weight: Optional[int] = None
+    min_edge_weight: Optional[int] = None
     path_groupings: Optional[List[str]] = None
     path_replacements: Optional[bool] = None
     path_type: Optional[PathType] = None
     paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
-    step_limit: Optional[float] = None
+    step_limit: Optional[int] = None
 
 
 class PropertyFilterType(str, Enum):
@@ -579,6 +579,14 @@ class RetentionValue(BaseModel):
         extra="forbid",
     )
     count: int
+
+
+class SamplingRate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator: Optional[float] = None
+    numerator: float
 
 
 class SessionPropertyFilter(BaseModel):
@@ -747,6 +755,14 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    forceSamplingRate: Optional[SamplingRate] = None
+
+
 class Kind1(str, Enum):
     unit = "unit"
     duration_s = "duration_s"
@@ -774,6 +790,7 @@ class WebOverviewQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -805,6 +822,7 @@ class WebStatsTableQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -819,6 +837,7 @@ class WebTopClicksQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -1045,6 +1064,18 @@ class Node(BaseModel):
     kind: NodeKind
 
 
+class PathsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class PersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1138,6 +1169,7 @@ class QueryResponseAlternative8(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1151,6 +1183,7 @@ class QueryResponseAlternative9(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -1290,6 +1323,7 @@ class WebAnalyticsQueryBase(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+    sampling: Optional[Sampling] = None
 
 
 class WebOverviewQuery(BaseModel):
@@ -1300,6 +1334,7 @@ class WebOverviewQuery(BaseModel):
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class WebStatsTableQuery(BaseModel):
@@ -1312,6 +1347,7 @@ class WebStatsTableQuery(BaseModel):
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -1322,6 +1358,7 @@ class WebTopClicksQuery(BaseModel):
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class AnyResponseType(
@@ -2081,7 +2118,7 @@ class PathsQuery(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     kind: Literal["PathsQuery"] = "PathsQuery"
-    pathsFilter: Optional[PathsFilter] = Field(default=None, description="Properties specific to the paths insight")
+    pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
     properties: Optional[
         Union[
             List[
@@ -2101,6 +2138,7 @@ class PathsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
+    response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 

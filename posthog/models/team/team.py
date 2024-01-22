@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import posthoganalytics
+import pydantic
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -33,6 +34,7 @@ from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails, PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
+from ...schema import PathCleaningFilter
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -364,6 +366,15 @@ class Team(UUIDClassicModel):
     @property
     def timezone_info(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
+
+    def path_cleaning_filter_models(self) -> list[PathCleaningFilter]:
+        filters = []
+        for f in self.path_cleaning_filters:
+            try:
+                filters.append(PathCleaningFilter.model_validate(f))
+            except pydantic.ValidationError:
+                continue
+        return filters
 
     def __str__(self):
         if self.name:
