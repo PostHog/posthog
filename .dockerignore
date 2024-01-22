@@ -5,7 +5,6 @@
 !posthog
 !plugin-server
 !staticfiles
-!manage.py
 !gunicorn.config.py
 !babel.config.js
 !posthog.json
