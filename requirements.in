@@ -57,6 +57,7 @@ numpy==1.23.3
 openapi-spec-validator==0.7.1
 parso==0.8.1
 pexpect==4.7.0
+pgpq==0.9.0
 pickleshare==0.7.5
 Pillow==9.2.0
 posthoganalytics==3.0.1

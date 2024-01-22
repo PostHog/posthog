@@ -36,10 +36,12 @@ from posthog.temporal.batch_exports.metrics import (
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
+PgConnection = asyncpg.connection.Connection
+
 
 @contextlib.asynccontextmanager
-async def postgres_connection(inputs) -> typing.AsyncIterator[asyncpg.connection.Connection]:
-    """Manage a Postgres connection."""
+async def postgres_connection(inputs) -> typing.AsyncIterator[PgConnection]:
+    """Manage a PostgreSQL connection."""
     kwargs: dict[str, typing.Any] = {}
     if inputs.has_self_signed_cert:
         # Disable certificate verification for self-signed certificates.
@@ -62,6 +64,11 @@ async def postgres_connection(inputs) -> typing.AsyncIterator[asyncpg.connection
 
 
 def postgres_export_default_fields() -> list[BatchExportField]:
+    """Default fields for a PostgreSQL batch export.
+
+    Starting from the common defualt fields, we add and tweak some fields for
+    backwards compatibility.
+    """
     batch_export_fields = default_fields()
     batch_export_fields.append(
         {
@@ -109,7 +116,7 @@ def infer_table_columns_from_record_schema(record_schema: pa.Schema) -> TableCol
 
 
 async def create_table_in_postgres(
-    postgres_connection: asyncpg.connection.Connection,
+    postgres_connection: PgConnection,
     schema_name: str | None,
     table_name: str,
     table_columns: TableColumns,
@@ -146,9 +153,18 @@ T = typing.TypeVar("T")
 async def peek_first_and_rewind(
     gen: collections.abc.AsyncGenerator[T, None]
 ) -> tuple[T, collections.abc.AsyncGenerator[T, None]]:
+    """Peek into the first element in a generator and rewind the advance.
+
+    The generator is advanced and cannot be reversed, so we create a new one that first
+    yields the element we popped before yielding the rest of the generator.
+
+    Returns:
+        A tuple with the first element of the generator and the generator itself.
+    """
     first = await anext(gen)
 
     async def rewind_gen() -> collections.abc.AsyncGenerator[T, None]:
+        """Yield the item we popped to rewind the generator."""
         yield first
         async for i in gen:
             yield i
@@ -156,10 +172,18 @@ async def peek_first_and_rewind(
     return (first, rewind_gen())
 
 
-async def encode_records(
-    records: collections.abc.AsyncGenerator[pa.RecordBatch, None],
+BytesGenerator = collections.abc.AsyncGenerator[bytes, None]
+RecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
+
+
+async def encode_records_generator(
+    records: RecordsGenerator,
     column_names: list[str],
-) -> collections.abc.AsyncGenerator[bytes, None]:
+) -> BytesGenerator:
+    """Generator that yields records encoded in PostgreSQL binary format.
+
+    Certain string fields are encoded as JSONB.
+    """
     first_record_batch, records = await peek_first_and_rewind(records)
     record_schema = first_record_batch.select(column_names).schema
 
@@ -196,12 +220,13 @@ async def encode_records(
 
 
 async def copy_records_to_postgres(
-    postgres_connection: asyncpg.connection.Connection,
-    records: collections.abc.AsyncGenerator[pa.RecordBatch, None],
+    postgres_connection: PgConnection,
+    records: RecordsGenerator,
     schema_name: str,
     table_name: str,
     table_columns: TableColumns,
-):
+    logger,
+) -> tuple[int, int]:
     """Copy records to PostgreSQL table using binary format.
 
     Arguments:
@@ -210,18 +235,83 @@ async def copy_records_to_postgres(
         schema_name: An existing schema where the table to copy to resides.
         table_name: The name of the table to copy to.
         schema_columns: A list of column names.
+
+    References:
+        PostgreSQL COPY: https://www.postgresql.org/docs/current/sql-copy.html
     """
     column_names = [column[0] for column in table_columns]
-    bytes_gen = encode_records(records, column_names)
 
-    await postgres_connection.copy_to_table(
-        table_name, source=bytes_gen, format="binary", columns=column_names, schema_name=schema_name
+    n_rows = 0
+    n_bytes = 0
+
+    async def track_rows_generator(
+        records: RecordsGenerator,
+    ) -> RecordsGenerator:
+        """Yield from a generator of RecordBatches, tracking of the rows in each one."""
+        nonlocal n_rows
+
+        async for record in records:
+            n_rows += record.num_rows
+
+            yield record
+
+    async def track_bytes_generator(
+        encoded: BytesGenerator,
+    ) -> BytesGenerator:
+        """Yield from a generator of bytes, tracking the length of bytes."""
+        nonlocal n_bytes
+
+        async for b in encoded:
+            n_bytes += len(b)
+
+            yield b
+
+    encoded_records_pipeline = track_bytes_generator(
+        encode_records_generator(track_rows_generator(records), column_names)
     )
+
+    result = await postgres_connection.copy_to_table(
+        table_name, source=encoded_records_pipeline, format="binary", columns=column_names, schema_name=schema_name
+    )
+
+    try:
+        # Parsing the resulting 'COPY XXXX'
+        result_n_rows = int(result.split(" ")[1])
+    except ValueError:
+        pass
+    else:
+        if result_n_rows != n_rows:
+            # This could be a problem with the underlying COPY or encoding.
+            # But let's only log it for now, hopefully this never fires.
+            logger.warning(f"Rows copied to PostgreSQL (%s) differ from expected (%s)", result_n_rows, n_rows)
+
+    return n_rows, n_bytes
 
 
 @dataclass
 class PostgresInsertInputs:
-    """Inputs for Postgres insert activity."""
+    """Inputs for Postgres insert activity.
+
+    Attributes:
+        team_id: The ID of the team we are batch exporting to.
+        user: The user used for authentication in PostgreSQL.
+        password: The password for the user.
+        host: The host of the PostgreSQL instance.
+        database: The database where to export data.
+        table_name: The name of the table where to export data. If it doesn't exist, it
+            will be created.
+        data_interval_start: Start of the batch export interval. Needs to be JSON
+            serializable so it should come from a `datetime.datetime.isoformat()`.
+        data_interval_end: Start of the batch export interval. Needs to be JSON
+            serializable so it should come from a `datetime.datetime.isoformat()`.
+        has_self_signed_cert:
+        schema: The name of the schema where to export data.
+        port: The port where the PostgresSQL instance listens on.
+        exclude_events: A list of event names to exclude from the export. If `None` or
+            empty, all events will be exported.
+        include_events: A list of event names to include in the export.
+        batch_export_schema: A dictionary specifying the schema for a batch export.
+    """
 
     team_id: int
     user: str
@@ -241,7 +331,21 @@ class PostgresInsertInputs:
 
 @activity.defn
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
-    """Activity streams data from ClickHouse to Postgres."""
+    """Activity to batch export data from ClickHouse to PostgreSQL.
+
+    For historical reasons, this activity is called `insert_*` but the underlying
+    operation is a PostgreSQL COPY.
+
+    A PostgreSQL table need not exist as one will be created. However, schema changes
+    are not (yet) supported to the point no schema checks are done on an existing table:
+    If it exists, we assume it matches the input's `batch_export_schema`.
+
+    Arguments:
+        inputs: See `PostgresInsertInputs`.
+
+    Returns:
+        A tuple with the number of records and bytes exported.
+    """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
     logger.info(
         "Exporting batch %s - %s",
@@ -270,7 +374,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             )
             return
 
-        logger.info("BatchExporting %s rows", count)
+        logger.info(
+            "Exporting %s rows in batch %s - %s",
+            count,
+            inputs.data_interval_start,
+            inputs.data_interval_end,
+        )
 
         if inputs.batch_export_schema is None:
             batch_export_fields = postgres_export_default_fields()
@@ -321,13 +430,27 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                 table_columns=table_columns,
             )
 
-            await copy_records_to_postgres(
+            n_records, n_bytes = await copy_records_to_postgres(
                 connection,
                 records_iterator,
                 schema_name=inputs.schema,
                 table_name=inputs.table_name,
                 table_columns=table_columns,
+                logger=logger,
             )
+
+        logger.info(
+            "Fishined batch %s - %s with %s rows and %s bytes exported",
+            inputs.data_interval_start,
+            inputs.data_interval_end,
+            n_records,
+            n_bytes,
+        )
+
+        rows_exported.add(n_records)
+        bytes_exported.add(n_bytes)
+
+        return n_records, n_bytes
 
 
 @workflow.defn(name="postgres-export")

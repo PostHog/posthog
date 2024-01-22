@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import random
 from uuid import uuid4
 
 import asyncpg
@@ -63,9 +64,8 @@ async def assert_records_in_postgres_match_records_in_clickhouse(
     2. Cast records read from PostgreSQL to a Python list of dicts.
     3. Assert records read from PostgreSQL have the expected column names.
     4. Read all records that were supposed to be inserted from ClickHouse.
-    5. Sanity check: Assert records returned from ClickHouse also have the expected column names.
-    6. Cast records returned by ClickHouse to a Python list of dicts.
-    7. Compare each record returned by ClickHouse to each record read from PostgreSQL.
+    5. Cast records returned by ClickHouse to a Python list of dicts.
+    6. Compare each record returned by ClickHouse to each record read from PostgreSQL.
 
     Caveats:
     * Casting records to a Python list of dicts means losing some type precision.
@@ -214,14 +214,15 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
-    team_id = 2
+    team_id = random.randint(1, 1000000)
 
+    events_count = 10000
     await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=team_id,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=10000,
+        count=events_count,
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
@@ -229,12 +230,13 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
+    events_count_none_properties = 10
     await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=team_id,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=5,
+        count=events_count_none_properties,
         count_outside_range=0,
         count_other_team=0,
         properties=None,
@@ -265,8 +267,9 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     )
 
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-        await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+        n_rows_result, n_bytes_result = await activity_environment.run(insert_into_postgres_activity, insert_inputs)
 
+    assert n_rows_result == events_count + events_count_none_properties
     await assert_records_in_postgres_match_records_in_clickhouse(
         postgres_connection=postgres_connection,
         clickhouse_client=clickhouse_client,
