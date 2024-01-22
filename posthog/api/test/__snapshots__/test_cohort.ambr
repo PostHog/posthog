@@ -73,7 +73,7 @@
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.11
   '''
-  /* celery:posthog.celery.clickhouse_clear_removed_data */
+  /* celery:posthog.tasks.tasks.clickhouse_clear_removed_data */
   SELECT DISTINCT team_id,
                   cohort_id
   FROM cohortpeople
@@ -168,7 +168,7 @@
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.8
   '''
-  /* celery:posthog.celery.clickhouse_clear_removed_data */
+  /* celery:posthog.tasks.tasks.clickhouse_clear_removed_data */
   SELECT DISTINCT team_id,
                   cohort_id
   FROM cohortpeople
@@ -179,7 +179,7 @@
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.9
   '''
-  /* celery:posthog.celery.clickhouse_clear_removed_data */
+  /* celery:posthog.tasks.tasks.clickhouse_clear_removed_data */
   DELETE
   FROM cohortpeople
   WHERE (team_id = 2

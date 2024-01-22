@@ -150,6 +150,7 @@ export const FEATURE_FLAGS = {
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
+    WEB_ANALYTICS_SAMPLING: 'web-analytics-sampling', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
@@ -165,6 +166,7 @@ export const FEATURE_FLAGS = {
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-replay
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
+    HOGQL_INSIGHTS_PATHS: 'hogql-insights-paths', // owner: @webjunkie
     HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
     HOGQL_INSIGHTS_TRENDS: 'hogql-insights-trends', // owner: @Gilbert09
     HOGQL_INSIGHTS_STICKINESS: 'hogql-insights-stickiness', // owner: @Gilbert09

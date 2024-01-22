@@ -76,7 +76,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isTrendsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
-    const hasPathsHogQL = isPaths && pathsFilter?.include_event_types?.includes(PathType.HogQL)
+    const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
     const editorFilters: InsightEditorFilterGroup[] = [
         {

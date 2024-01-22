@@ -1,4 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -26,7 +27,7 @@ import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { Replayer } from 'rrweb'
-import { ReplayPlugin } from 'rrweb/typings/types'
+import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
@@ -178,8 +179,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
+        // the error is emitted from code we don't control in rrweb so we can't guarantee it's really an Error
+        playerErrorSeen: (error: any) => ({ error }),
+        fingerprintReported: (fingerprint: string) => ({ fingerprint }),
     }),
     reducers(() => ({
+        reportedReplayerErrors: [
+            new Set<string>(),
+            {
+                fingerprintReported: (state, { fingerprint }) => {
+                    const clonedSet = new Set(state)
+                    clonedSet.add(fingerprint)
+                    return clonedSet
+                },
+            },
+        ],
         clickCount: [
             0,
             {
@@ -454,6 +468,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        playerErrorSeen: ({ error }) => {
+            const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
+            if (values.reportedReplayerErrors.has(fingerprint)) {
+                return
+            }
+            const extra = { fingerprint, playbackSessionId: values.sessionRecordingId }
+            captureException(error, {
+                extra,
+                tags: { feature: 'replayer error swallowed' },
+            })
+            if (posthog.config.debug) {
+                posthog.capture('replayer error swallowed', extra)
+            }
+            actions.fingerprintReported(fingerprint)
+        },
         skipPlayerForward: ({ rrWebPlayerTime, skip }) => {
             // if the player has got stuck on the same timestamp for several animation frames
             // then we skip ahead a little to get past the blockage
@@ -503,7 +532,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 snapshots: values.sessionPlayerData.snapshotsByWindowId[windowId],
             })
 
-            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
+            const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
@@ -511,7 +540,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
                 plugins,
-            })
+                onError: (error) => {
+                    actions.playerErrorSeen(error)
+                },
+            }
+            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
             actions.setPlayer({ replayer, windowId })
         },

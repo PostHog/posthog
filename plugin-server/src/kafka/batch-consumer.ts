@@ -197,12 +197,14 @@ export const startBatchConsumer = async ({
 
                 if (!messages) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
+                    consumerBatchSize.labels({ topic, groupId }).observe(0)
                     continue
                 }
 
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                 if (!messages.length) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
+                    consumerBatchSize.labels({ topic, groupId }).observe(0)
                     continue
                 }
 
