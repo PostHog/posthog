@@ -9,8 +9,8 @@ import {
     mutationData,
     removedNodeMutation,
 } from '@rrweb/types'
-import { captureMessage } from '@sentry/react'
-import { isObject } from 'lib/utils'
+import {captureMessage} from '@sentry/react'
+import {isObject} from 'lib/utils'
 
 import {
     attributes,
@@ -51,6 +51,7 @@ import {
     makeStylesString,
     StyleOverride,
 } from './wireframeStyle'
+import {makeStatusBar} from "./status-bar";
 
 const BACKGROUND = '#f3f4ef'
 const FOREGROUND = '#35373e'
@@ -86,6 +87,7 @@ const HTML_ELEMENT_ID = 3
 const HEAD_ID = 4
 const BODY_ID = 5
 const KEYBOARD_ID = 6
+export const STATUS_BAR_ID = 7
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
@@ -179,7 +181,7 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-function _isPositiveInteger(id: unknown): id is number {
+export function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
 }
 
@@ -1030,7 +1032,7 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: convertWireframesFor(mobileEvent.data.wireframes) || [],
+                                childNodes: [makeStatusBar(mobileEvent.data.wireframes, mobileEvent.timestamp, idSequence), ...(convertWireframesFor(mobileEvent.data.wireframes) || [])],
                             },
                         ],
                     },
