@@ -8,7 +8,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 
 import { AnyDataNode } from '~/queries/schema'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyGroupFilter } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 export interface PropertyFilterBaseProps {
     pageKey: string
@@ -31,7 +31,6 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
     filterIndex: number
     eventNames?: string[]
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
-    metadataTaxonomicGroupToPropertyFilterType?: PropertyFilterType
 }
 
 export interface PropertyFilterInternalProps {
@@ -42,7 +41,6 @@ export interface PropertyFilterInternalProps {
     disablePopover: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
-    metadataTaxonomicGroupToPropertyFilterType?: PropertyFilterType
     eventNames?: string[]
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean

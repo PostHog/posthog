@@ -979,7 +979,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
 
                 const taxonomicOptions: TaxonomicFilterProps['optionsFromProp'] = {
-                    [TaxonomicFilterGroupType.Metadata]: [{ name: 'distinct_id' }],
+                    [TaxonomicFilterGroupType.Metadata]: [
+                        { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
+                    ],
                 }
                 return taxonomicOptions
             },

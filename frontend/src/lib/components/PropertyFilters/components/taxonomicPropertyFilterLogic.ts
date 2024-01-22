@@ -51,9 +51,14 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     })),
     actions({
-        selectItem: (taxonomicGroup: TaxonomicFilterGroup, propertyKey?: TaxonomicFilterValue) => ({
+        selectItem: (
+            taxonomicGroup: TaxonomicFilterGroup,
+            propertyKey?: TaxonomicFilterValue,
+            itemPropertyFilterType?: PropertyFilterType
+        ) => ({
             taxonomicGroup,
             propertyKey,
+            itemPropertyFilterType,
         }),
         openDropdown: true,
         closeDropdown: true,
@@ -88,11 +93,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ taxonomicGroup, propertyKey }) => {
-            const propertyType = taxonomicFilterTypeToPropertyFilterType(
-                taxonomicGroup.type,
-                props.metadataTaxonomicGroupToPropertyFilterType
-            )
+        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
+            const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 if (propertyType === PropertyFilterType.Cohort) {
                     const cohortProperty: CohortPropertyFilter = {
@@ -110,12 +112,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, hogQLProperty)
                 } else {
                     const apiType =
-                        propertyFilterTypeToPropertyDefinitionType(
-                            taxonomicFilterTypeToPropertyFilterType(
-                                taxonomicGroup.type,
-                                props.metadataTaxonomicGroupToPropertyFilterType
-                            )
-                        ) ?? PropertyDefinitionType.Event
+                        propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
 
                     const propertyValueType = values.describeProperty(
                         propertyKey,

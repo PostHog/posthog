@@ -45,7 +45,6 @@ export function TaxonomicPropertyFilter({
     metadataSource,
     propertyAllowList,
     taxonomicFilterOptionsFromProp,
-    metadataTaxonomicGroupToPropertyFilterType,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -58,9 +57,10 @@ export function TaxonomicPropertyFilter({
     ]
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
         taxonomicGroup,
-        value
+        value,
+        item
     ) => {
-        selectItem(taxonomicGroup, value)
+        selectItem(taxonomicGroup, value, item?.propertyFilterType)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.Cohorts ||
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression
@@ -79,7 +79,6 @@ export function TaxonomicPropertyFilter({
         taxonomicOnChange,
         eventNames,
         propertyAllowList,
-        metadataTaxonomicGroupToPropertyFilterType,
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
