@@ -385,7 +385,8 @@ class TrendsQueryRunner(QueryRunner):
 
     def update_hogql_modifiers(self) -> None:
         if (
-            self.query.breakdownFilter is not None
+            self.modifiers.inCohortVia == InCohortVia.auto
+            and self.query.breakdownFilter is not None
             and self.query.breakdownFilter.breakdown_type == "cohort"
             and isinstance(self.query.breakdownFilter.breakdown, List)
             and len(self.query.breakdownFilter.breakdown) > 1
