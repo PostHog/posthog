@@ -1,12 +1,12 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { AnyPartialFilterType, InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
+import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { urls } from 'scenes/urls'
@@ -17,6 +17,7 @@ import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { IconMagnifier } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -27,19 +28,6 @@ const DEFAULT_QUERY: QuerySchema = {
         after: '-24h',
         limit: 100,
     },
-}
-
-const generateFiltersFromQuery = (query: QuerySchema): AnyPartialFilterType | null => {
-    switch (query.kind) {
-        case NodeKind.InsightVizNode:
-            return query.source
-        case NodeKind.TrendsQuery:
-            return query
-        case NodeKind.HogQLQuery:
-            return query.filters || null
-        default:
-            return null
-    }
 }
 
 const Component = ({
@@ -80,7 +68,7 @@ const Component = ({
 
         setTitlePlaceholder(title)
 
-        const queryFilters = generateFiltersFromQuery(query)
+        const queryFilters = isInsightVizNode(query) ? queryNodeToFilter(query.source) : null
 
         if (queryFilters) {
             setActions([
