@@ -820,6 +820,10 @@ test('capture new person', async () => {
             volume_30_day: null,
         },
     ]
+    for (const element in expected) {
+        console.log(element)
+        expect(received).toEqual(expect.arrayContaining([element]))
+    }
     expect(received).toEqual(expect.arrayContaining(expected))
 })
 
