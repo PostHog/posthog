@@ -28,7 +28,7 @@ export function SeriesColumnItem({
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     return (
-        <div className="series-name-wrapper-col">
+        <div className="series-name-wrapper-col space-x-1">
             <InsightLabel
                 seriesColor={getSeriesColor(item.seriesIndex, compare || false)}
                 action={item.action}
@@ -51,6 +51,7 @@ export function SeriesColumnItem({
                     onClick={() => handleEditClick(item)}
                     title="Rename graph series"
                     icon={<IconEdit className="edit-icon" />}
+                    size="xsmall"
                 />
             )}
         </div>
