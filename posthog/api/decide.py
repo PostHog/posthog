@@ -267,8 +267,8 @@ def get_decide(request: HttpRequest):
                     "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 }
 
-                if isinstance(team.session_recording_config, Dict):
-                    record_canvas = team.session_recording_config["record_canvas"] or False
+                if isinstance(team.session_replay_config, Dict):
+                    record_canvas = team.session_replay_config["record_canvas"] or False
                     session_recording_response.update(
                         {
                             "recordCanvas": record_canvas,

@@ -714,21 +714,21 @@ class TestTeamAPI(APIBaseTest):
         second_get_response = self.client.get("/api/projects/@current/")
         assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
-    def test_can_set_and_unset_session_recording_config(self) -> None:
+    def test_can_set_and_unset_session_replay_config(self) -> None:
         # can set
         first_patch_response = self.client.patch(
             "/api/projects/@current/",
-            {"session_recording_config": {"record_canvas": True}},
+            {"session_replay_config": {"record_canvas": True}},
         )
         assert first_patch_response.status_code == status.HTTP_200_OK
         get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_recording_config"] == {"record_canvas": True}
+        assert get_response.json()["session_replay_config"] == {"record_canvas": True}
 
         # can unset
-        response = self.client.patch("/api/projects/@current/", {"session_recording_config": None})
+        response = self.client.patch("/api/projects/@current/", {"session_replay_config": None})
         assert response.status_code == status.HTTP_200_OK
         second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_recording_config"] is None
+        assert second_get_response.json()["session_replay_config"] is None
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

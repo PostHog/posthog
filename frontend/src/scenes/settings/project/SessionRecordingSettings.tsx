@@ -80,8 +80,8 @@ export function ReplayGeneral(): JSX.Element {
                         data-attr="opt-in-capture-canvas-switch"
                         onChange={(checked) => {
                             updateCurrentTeam({
-                                session_recording_config: {
-                                    ...currentTeam?.session_recording_config,
+                                session_replay_config: {
+                                    ...currentTeam?.session_replay_config,
                                     record_canvas: checked,
                                 },
                             })
@@ -94,8 +94,8 @@ export function ReplayGeneral(): JSX.Element {
                         }
                         bordered
                         checked={
-                            currentTeam?.session_recording_config
-                                ? !!currentTeam?.session_recording_config?.record_canvas
+                            currentTeam?.session_replay_config
+                                ? !!currentTeam?.session_replay_config?.record_canvas
                                 : false
                         }
                     />

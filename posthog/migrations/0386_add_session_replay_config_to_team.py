@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="team",
-            name="session_recording_config",
+            name="session_replay_config",
             field=models.JSONField(blank=True, null=True),
         ),
     ]

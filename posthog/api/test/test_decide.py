@@ -315,7 +315,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    def test_session_recording_config(self, *args):
+    def test_session_replay_config(self, *args):
         # :TRICKY: Test for regression around caching
 
         self._update_team(
@@ -331,7 +331,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         self._update_team(
             {
-                "session_recording_config": {"record_canvas": True},
+                "session_replay_config": {"record_canvas": True},
             }
         )
 

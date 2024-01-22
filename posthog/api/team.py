@@ -102,7 +102,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
-            "session_recording_config",
+            "session_replay_config",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -147,7 +147,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
-            "session_recording_config",
+            "session_replay_config",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -210,7 +210,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    def validate_session_recording_config(self, value) -> Dict | None:
+    def validate_session_replay_config(self, value) -> Dict | None:
         if value is None:
             return None
 
