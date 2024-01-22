@@ -1,4 +1,4 @@
-import { LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -86,7 +86,12 @@ export function ReplayGeneral(): JSX.Element {
                                 },
                             })
                         }}
-                        label="Capture canvas elements"
+                        label={
+                            <div className="space-x-1">
+                                <LemonTag type="highlight">New</LemonTag>
+                                <LemonLabel>Capture canvas elements</LemonLabel>
+                            </div>
+                        }
                         bordered
                         checked={
                             currentTeam?.session_recording_config
@@ -95,8 +100,13 @@ export function ReplayGeneral(): JSX.Element {
                         }
                     />
                     <p>
-                        This setting controls if browser canvas elements will be captured as part of recordings. There
-                        is no way to mask canvas elements right now so please make sure they are free of PII.
+                        This setting controls if browser canvas elements will be captured as part of recordings.{' '}
+                        <b>
+                            <i>
+                                There is no way to mask canvas elements right now so please make sure they are free of
+                                PII.
+                            </i>
+                        </b>
                     </p>
                 </div>
             )}
