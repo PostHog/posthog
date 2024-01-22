@@ -1685,6 +1685,7 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
 
                 let j = i
                 if (i.match(/\d+/)) {
+                    // Pad integer values for better sorting
                     j = i.padStart(3, '0')
                 }
 
