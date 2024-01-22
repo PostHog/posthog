@@ -518,13 +518,13 @@ export type TrendsFilter = {
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     display?: TrendsFilterLegacy['display']
-    show_legend?: TrendsFilterLegacy['show_legend']
+    showLegend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
-    show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
@@ -574,7 +574,16 @@ export interface FunnelsQuery extends InsightsQueryBase {
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
-export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
+export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
+
+export type RetentionFilter = {
+    retentionType?: RetentionFilterLegacy['retention_type']
+    retentionReference?: RetentionFilterLegacy['retention_reference']
+    totalIntervals?: RetentionFilterLegacy['total_intervals']
+    returningEntity?: RetentionFilterLegacy['returning_entity']
+    targetEntity?: RetentionFilterLegacy['target_entity']
+    period?: RetentionFilterLegacy['period']
+}
 
 export interface RetentionValue {
     /** @asType integer */
@@ -598,23 +607,53 @@ export interface RetentionQuery extends InsightsQueryBase {
     retentionFilter: RetentionFilter
 }
 
+export interface PathsQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
-export type PathsFilter = Omit<
+export type PathsFilterLegacy = Omit<
     PathsFilterType,
     keyof FilterType | 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
 >
+
+export type PathsFilter = {
+    edgeLimit?: PathsFilterLegacy['edge_limit']
+    pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
+    includeEventTypes?: PathsFilterLegacy['include_event_types']
+    startPoint?: PathsFilterLegacy['start_point']
+    endPoint?: PathsFilterLegacy['end_point']
+    pathGroupings?: PathsFilterLegacy['path_groupings']
+    excludeEvents?: PathsFilterLegacy['exclude_events']
+    stepLimit?: PathsFilterLegacy['step_limit']
+    pathReplacements?: PathsFilterLegacy['path_replacements']
+    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
+    minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
+    maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
+    funnelPaths?: PathsFilterLegacy['funnel_paths']
+    funnelFilter?: PathsFilterLegacy['funnel_filter']
+}
+
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
+    response?: PathsQueryResponse
     /** Properties specific to the paths insight */
-    pathsFilter?: PathsFilter
+    pathsFilter: PathsFilter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type StickinessFilter = Omit<
+export type StickinessFilterLegacy = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
+
+export type StickinessFilter = {
+    compare?: StickinessFilterLegacy['compare']
+    display?: StickinessFilterLegacy['display']
+    showLegend?: StickinessFilterLegacy['show_legend']
+    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+    hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
+}
 
 export interface StickinessQueryResponse extends QueryResponse {
     results: Record<string, any>[]
@@ -631,10 +670,15 @@ export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_gr
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
+export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
+
+export type LifecycleFilter = {
+    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+}
 
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
@@ -772,6 +816,10 @@ export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
+    sampling?: {
+        enabled?: boolean
+        forceSamplingRate?: SamplingRate
+    }
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
@@ -788,8 +836,14 @@ export interface WebOverviewItem {
     isIncreaseBad?: boolean
 }
 
+export interface SamplingRate {
+    numerator: number
+    denominator?: number
+}
+
 export interface WebOverviewQueryResponse extends QueryResponse {
     results: WebOverviewItem[]
+    samplingRate?: SamplingRate
 }
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
@@ -800,6 +854,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
     results: unknown[]
     types?: unknown[]
     columns?: unknown[]
+    samplingRate?: SamplingRate
 }
 
 export enum WebStatsBreakdown {
@@ -831,6 +886,7 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
+    samplingRate?: SamplingRate
 }
 
 export type InsightQueryNode =

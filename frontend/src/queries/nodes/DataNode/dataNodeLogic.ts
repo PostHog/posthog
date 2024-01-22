@@ -53,7 +53,7 @@ export interface DataNodeLogicProps {
     doNotLoad?: boolean
 }
 
-const AUTOLOAD_INTERVAL = 30000
+export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
@@ -323,6 +323,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         hogQLInsightsLifecycleFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
+        ],
+        hogQLInsightsPathsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS],
         ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
