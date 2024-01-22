@@ -165,12 +165,12 @@ describe('insightNavLogic', () => {
             //     source: {
             //         kind: NodeKind.RetentionQuery,
             //         retentionFilter: {
-            //             returning_entity: {
+            //             returningEntity: {
             //                 id: 'returning',
             //                 name: 'returning',
             //                 type: 'events',
             //             },
-            //             target_entity: {
+            //             targetEntity: {
             //                 id: 'target',
             //                 name: 'target',
             //                 type: 'events',
