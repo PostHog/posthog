@@ -1251,7 +1251,7 @@ export interface BillingProductV2Type {
     icon_key?: string | null
     image_url?: string | null
     screenshot_url: string | null
-    docs_url: string | null
+    docs_url: string
     free_allocation?: number | null
     subscribed: boolean | null
     tiers?: BillingV2TierType[] | null

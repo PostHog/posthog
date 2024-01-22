@@ -1,8 +1,13 @@
 import './onboarding.scss'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconCheck, IconMap, IconMessage, IconStack } from '@posthog/icons'
+import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { WavingHog } from 'lib/components/hedgehogs'
 import React from 'react'
+import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
+import { billingProductLogic } from 'scenes/billing/billingProductLogic'
+import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
 import { getProductIcon } from 'scenes/products/Products'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -42,31 +47,94 @@ export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType
 
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     return (
-        <div>
+        <div className="flex gap-x-4 items-center">
             <LemonButton
                 to={urls.onboarding(product.type)}
                 type="primary"
                 status="alt"
-                data-attr={`${product.type}-upgrade`}
+                data-attr={`${product.type}-onboarding`}
                 center
                 className="max-w-max"
             >
-                Get started with {product.name}
+                Create your first {product.unit}
             </LemonButton>
+        </div>
+    )
+}
+
+const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+    const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product: product }))
+    const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: product }))
+    const planForStats = currentAndUpgradePlans.upgradePlan || currentAndUpgradePlans.currentPlan
+
+    return (
+        <div className="w-full max-w-screen-xl">
+            <h3 className="mb-4 text-lg font-bold">Usage-based pricing that only scales when you do.</h3>
+            <ul className="pl-2 flex flex-col gap-y-1">
+                {planForStats.tiers?.[0].up_to && (
+                    <>
+                        <li>
+                            <IconCheck className="inline-block mr-2 text-success" />
+                            Get{' '}
+                            <b>
+                                {convertLargeNumberToWords(planForStats.tiers?.[0].up_to, null)} {product.unit}s free
+                            </b>{' '}
+                            every month.
+                        </li>
+                        <li>
+                            <IconCheck className="inline-block mr-2 text-success" />
+                            Then just ${planForStats.tiers?.[1].unit_amount_usd}/{product.unit} after that, with{' '}
+                            <Link onClick={() => toggleIsPricingModalOpen()} className="font-bold">
+                                volume discounts
+                            </Link>{' '}
+                            automatically applied.
+                        </li>
+                        <ProductPricingModal
+                            product={product}
+                            modalOpen={isPricingModalOpen}
+                            planKey={planForStats.plan_key}
+                            onClose={toggleIsPricingModalOpen}
+                        />
+                    </>
+                )}
+                <li>
+                    <IconCheck className="inline-block mr-2 text-success" />
+                    Set <b>usage limits as low as $0</b> so you never get an unexpected bill.
+                </li>
+                <li>
+                    <IconCheck className="inline-block mr-2 text-success" />
+                    Pay only for what you use.
+                </li>
+                <li>
+                    <IconCheck className="inline-block mr-2 text-success" />
+                    Or, stay on our generous free plan if you'd like - you still get{' '}
+                    <b>
+                        {convertLargeNumberToWords(
+                            currentAndUpgradePlans.currentPlan.free_allocation ||
+                                currentAndUpgradePlans.downgradePlan.free_allocation ||
+                                0,
+                            null
+                        )}{' '}
+                        {product.unit}s free
+                    </b>{' '}
+                    every month.
+                </li>
+            </ul>
         </div>
     )
 }
 
 export function OnboardingProductIntroduction(): JSX.Element | null {
     const { product } = useValues(onboardingLogic)
+
     return product ? (
         <>
             <div className="unsubscribed-product-landing-page">
-                <header className="bg-primary-alt-highlight border-b border-t border-border">
-                    <div className="grid grid-cols-2 items-center gap-8 max-w-screen-xl">
+                <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center">
+                    <div className="grid grid-cols-2 items-center justify-between gap-8 w-full max-w-screen-xl">
                         <div className="px-8">
                             <h2 className="text-2xl font-bold">{product.name}</h2>
-                            <p className="text-base font-bold">{product.headline}</p>
+                            <h3 className="text-4xl font-bold">{product.headline}</h3>
                             <p>{product.description}</p>
                             <GetStartedButton product={product} />
                         </div>
@@ -76,40 +144,77 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                     </div>
                 </header>
                 {product.screenshot_url && (
-                    <div className="max-w-screen-xl flex justify-center">
+                    <div className="flex justify-center">
                         <div className="max-w-6xl mt-12">
                             <img src={product.screenshot_url || undefined} className="w-full" />
                         </div>
                     </div>
                 )}
-                <div className="features p-8 py-12 border-t border-border">
-                    <h3 className="mb-4 text-lg font-bold">Features</h3>
-                    <ul className="list-none p-0 grid grid-cols-3 gap-8 mb-8 max-w-screen-xl">
-                        {product.features
-                            .filter((feature) => feature.type == 'primary')
-                            .map((feature, i) => {
-                                return (
-                                    <React.Fragment key={`${product.type}-feature-${i}`}>
-                                        <Feature {...feature} />
-                                    </React.Fragment>
-                                )
-                            })}
-                    </ul>
+                <div className="features p-8 py-12 border-t border-border flex justify-center">
+                    <div className="max-w-screen-xl ">
+                        <h3 className="mb-4 text-lg font-bold">Features</h3>
+                        <ul className="list-none p-0 grid grid-cols-3 gap-8 mb-8 ">
+                            {product.features
+                                .filter((feature) => feature.type == 'primary')
+                                .map((feature, i) => {
+                                    return (
+                                        <React.Fragment key={`${product.type}-feature-${i}`}>
+                                            <Feature {...feature} />
+                                        </React.Fragment>
+                                    )
+                                })}
+                        </ul>
 
-                    <ul className="subfeatures list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4 max-w-screen-xl">
-                        {product.features
-                            .filter((feature) => feature.type == 'secondary')
-                            .map((subfeature, i) => {
-                                return (
-                                    <React.Fragment key={`${product.type}-subfeature-${i}`}>
-                                        <Subfeature {...subfeature} />
-                                    </React.Fragment>
-                                )
-                            })}
-                    </ul>
+                        <ul className="subfeatures list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4">
+                            {product.features
+                                .filter((feature) => feature.type == 'secondary')
+                                .map((subfeature, i) => {
+                                    return (
+                                        <React.Fragment key={`${product.type}-subfeature-${i}`}>
+                                            <Subfeature {...subfeature} />
+                                        </React.Fragment>
+                                    )
+                                })}
+                        </ul>
+                        <div className="mt-16">
+                            <h3 className="mb-4 text-lg font-bold">Get the most out of {product.name}</h3>
+                            <ul className="flex gap-x-8">
+                                <li>
+                                    <Link to={product.docs_url} target="_blank">
+                                        <IconStack className="mr-2 text-xl" />
+                                        <span className="font-bold">Product docs</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link to={product.docs_url} target="_blank">
+                                        <IconMap className="mr-2 text-xl" />
+                                        <span className="font-bold">Tutorials</span>
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link to={product.docs_url} target="_blank">
+                                        <IconMessage className="mr-2 text-xl" />
+                                        <span className="font-bold">Community</span>
+                                    </Link>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
-                <div className="pb-12 px-8 max-w-screen-xl flex justify-center">
-                    <GetStartedButton product={product} />
+                <div className="features p-8 py-12 border-t border-border flex justify-center">
+                    <PricingSection product={product} />
+                </div>
+                <div className="p-8 mb-12 flex justify-center">
+                    <div className="w-full max-w-screen-xl rounded bg-white border border-border p-6 flex justify-between items-center">
+                        <div>
+                            <h3 className="mb-4 text-lg font-bold">Get started with {product.name}</h3>
+                            <p className="text-[15px]">{product.description}</p>
+                            <GetStartedButton product={product} />
+                        </div>
+                        <div className="h-30">
+                            <WavingHog className="h-full w-full" />
+                        </div>
+                    </div>
                 </div>
             </div>
         </>
