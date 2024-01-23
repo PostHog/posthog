@@ -174,7 +174,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                   sideIcon: <IconLink />,
               }
             : null,
-
         isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
         isEditable && hasDiscussions
             ? sourceComment
