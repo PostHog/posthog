@@ -11,6 +11,7 @@ const pathsWithoutProjectId = [
     'login',
     'signup',
     'create-organization',
+    'account',
 ]
 
 function isPathWithoutProjectId(path: string): boolean {
