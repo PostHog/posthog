@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, Dict, cast
+from typing import List, Optional, Any, Dict, cast
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -74,7 +74,7 @@ class FunnelsQueryRunner(QueryRunner):
     def calculate(self):
         query = self.to_query()
 
-        res = []
+        res: List[Dict[str, Any]] = []
         timings = []
 
         response = execute_hogql_query(
