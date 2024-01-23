@@ -4,6 +4,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.utils.date_range import DateRange
 from posthog.hogql_queries.utils.properties import Properties
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
@@ -89,20 +90,7 @@ class FunnelEventQuery:
             return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=query.samplingFactor)))
 
     def _date_range_expr(self) -> ast.Expr:
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"]),
-                    right=ast.Constant(value=self.query_date_range.date_from()),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"]),
-                    right=ast.Constant(value=self.query_date_range.date_to()),
-                ),
-            ]
-        )
+        return DateRange(context=self.context).to_expr(field=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"]))
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
         team, query = self.context.team, self.context.query
