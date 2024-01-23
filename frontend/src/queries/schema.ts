@@ -908,6 +908,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     breakdownBy: WebStatsBreakdown
     response?: WebStatsTableQueryResponse
     includeScrollDepth?: boolean
+    includeBounceRate?: boolean // automatically sets includeScrollDepth to true
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
