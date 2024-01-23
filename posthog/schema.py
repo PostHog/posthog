@@ -279,6 +279,7 @@ class HogQLNotice(BaseModel):
 
 
 class InCohortVia(str, Enum):
+    auto = "auto"
     leftjoin = "leftjoin"
     subquery = "subquery"
     leftjoin_conjoined = "leftjoin_conjoined"
