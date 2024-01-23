@@ -1,5 +1,6 @@
 from abc import ABC
 from typing import Optional
+from datetime import datetime
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -19,6 +20,7 @@ class QueryContext(ABC):
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
     hogql_context: HogQLContext
+    now: datetime
 
     def __init__(
         self,
@@ -27,6 +29,7 @@ class QueryContext(ABC):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        now: Optional[datetime] = None,
     ):
         self.query = query
         self.team = team
@@ -39,3 +42,4 @@ class QueryContext(ABC):
             timings=self.timings,
             modifiers=self.modifiers,
         )
+        self.now = now or datetime.now()
