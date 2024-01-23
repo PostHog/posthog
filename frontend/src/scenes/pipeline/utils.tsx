@@ -3,12 +3,12 @@ import api from 'lib/api'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import posthog from 'posthog-js'
+import BigQueryIcon from 'public/pipeline/BigQuery.png'
+import PostgresIcon from 'public/pipeline/Postgres.png'
+import RedshiftIcon from 'public/pipeline/Redshift.svg'
+import S3Icon from 'public/pipeline/S3.png'
+import SnowflakeIcon from 'public/pipeline/Snowflake.png'
 import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
-import BigQueryIcon from 'src/scenes/pipeline/icons/BigQuery.png'
-import PostgresIcon from 'src/scenes/pipeline/icons/Postgres.png'
-import RedshiftIcon from 'src/scenes/pipeline/icons/Redshift.svg'
-import S3Icon from 'src/scenes/pipeline/icons/S3.png'
-import SnowflakeIcon from 'src/scenes/pipeline/icons/Snowflake.png'
 
 import {
     BatchExportConfiguration,
