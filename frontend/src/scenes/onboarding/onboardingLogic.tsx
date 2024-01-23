@@ -251,10 +251,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey(/intro)': ({ productKey }, { success, upgraded, step }) => {
+        '/onboarding/:productKey(/:intro)': ({ productKey, intro }, { success, upgraded, step }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
+            }
+            if (intro === 'intro') {
+                // this prevents us from jumping straight back into onboarding if they are trying to see the intro again
+                actions.setAllOnboardingSteps([])
             }
             if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)

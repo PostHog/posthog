@@ -134,6 +134,13 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
 export function OnboardingProductIntroduction(): JSX.Element | null {
     const { product } = useValues(onboardingLogic)
+    const websiteSlug: Partial<Record<ProductKey, string>> = {
+        [ProductKey.SESSION_REPLAY]: 'session-replay',
+        [ProductKey.FEATURE_FLAGS]: 'feature-flags',
+        [ProductKey.SURVEYS]: 'surveys',
+        [ProductKey.EXPERIMENTS]: 'experimentation',
+        [ProductKey.PRODUCT_ANALYTICS]: 'product-analytics',
+    }
 
     return product ? (
         <>
@@ -195,13 +202,19 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                                     </Link>
                                 </li>
                                 <li>
-                                    <Link to={product.docs_url} target="_blank">
+                                    <Link
+                                        to={`https://posthog.com/tutorials/${websiteSlug[product.type]}`}
+                                        target="_blank"
+                                    >
                                         <IconMap className="mr-2 text-xl" />
                                         <span className="font-bold">Tutorials</span>
                                     </Link>
                                 </li>
                                 <li>
-                                    <Link to={product.docs_url} target="_blank">
+                                    <Link
+                                        to={`https://posthog.com/questions/topic/${websiteSlug[product.type]}`}
+                                        target="_blank"
+                                    >
                                         <IconMessage className="mr-2 text-xl" />
                                         <span className="font-bold">Community</span>
                                     </Link>
