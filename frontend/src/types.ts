@@ -897,7 +897,7 @@ interface CommonActorType {
     /** @format date-time */
     created_at: string
     matched_recordings: MatchedRecording[]
-    value_at_data_point: number | null
+    value_at_data_point: number | string | null
 }
 
 export interface PersonActorType extends CommonActorType {

@@ -504,23 +504,23 @@ class PathsQueryRunner(QueryRunner):
         if self.query.pathsFilter.pathDropoffKey:
             conditions.append(
                 parse_expr(
-                    "path_dropoff_key = {path_dropoff_key} AND path_dropoff_key = path_key",
-                    {"path_dropoff_key": ast.Constant(value=self.query.pathsFilter.pathDropoffKey)},
+                    "path_dropoff_key = {key} AND path_dropoff_key = path_key",
+                    {"key": ast.Constant(value=self.query.pathsFilter.pathDropoffKey)},
                 )
             )
         else:
             if self.query.pathsFilter.pathStartKey:
                 conditions.append(
                     parse_expr(
-                        "last_path_key = {path_start_key}",
-                        {"path_start_key": ast.Constant(value=self.query.pathsFilter.pathStartKey)},
+                        "path_key = {key}",
+                        {"key": ast.Constant(value=self.query.pathsFilter.pathStartKey)},
                     )
                 )
             if self.query.pathsFilter.pathEndKey:
                 conditions.append(
                     parse_expr(
-                        "path_key = {path_end_key}",
-                        {"path_end_key": ast.Constant(value=self.query.pathsFilter.pathEndKey)},
+                        "last_path_key = {key}",
+                        {"key": ast.Constant(value=self.query.pathsFilter.pathEndKey)},
                     )
                 )
             else:
@@ -532,7 +532,8 @@ class PathsQueryRunner(QueryRunner):
         actors_query = parse_select(
             """
                 SELECT DISTINCT
-                    person_id as actor_id
+                    person_id as actor_id,
+                    conversion_time
                 FROM {paths_per_person_query}
                 WHERE {conditions}
                 ORDER BY actor_id

@@ -48,6 +48,8 @@ export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
         value: string
     }[]
     title: React.ReactNode | ((actorLabel: string) => React.ReactNode)
+    additionalFields?: string[]
+    mapFields?: (result: any[]) => Record<string, any>
 }
 
 export function PersonsModal({
@@ -58,6 +60,8 @@ export function PersonsModal({
     title,
     onAfterClose,
     inline,
+    additionalFields,
+    mapFields,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
@@ -65,6 +69,8 @@ export function PersonsModal({
     const logic = personsModalLogic({
         url: originalUrl,
         query: _query,
+        additionalFields,
+        mapFields,
     })
 
     const {
@@ -413,12 +419,20 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
 
             {actor.value_at_data_point !== null && (
                 <Tooltip title={`${name}'s value for this data point.`}>
-                    <LemonBadge.Number
-                        count={actor.value_at_data_point}
-                        maxDigits={Infinity}
-                        position="top-right"
-                        style={{ pointerEvents: 'auto' }}
-                    />
+                    {typeof actor.value_at_data_point === 'number' ? (
+                        <LemonBadge.Number
+                            count={actor.value_at_data_point}
+                            maxDigits={Infinity}
+                            position="top-right"
+                            style={{ pointerEvents: 'auto' }}
+                        />
+                    ) : (
+                        <LemonBadge
+                            content={actor.value_at_data_point}
+                            position="top-right"
+                            style={{ pointerEvents: 'auto' }}
+                        />
+                    )}
                 </Tooltip>
             )}
         </div>

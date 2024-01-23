@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDuration } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
@@ -146,6 +147,10 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     title: pathsTitle({
                         label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                         isDropOff: Boolean(path_dropoff_key),
+                    }),
+                    additionalFields: ['conversion_time'],
+                    mapFields: (result: any[]) => ({
+                        value_at_data_point: humanFriendlyDuration(result[2], 3),
                     }),
                 })
             } else if (personsUrl) {
