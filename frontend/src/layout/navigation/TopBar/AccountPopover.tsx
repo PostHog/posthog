@@ -139,10 +139,12 @@ function InstanceSettings(): JSX.Element | null {
             to={urls.instanceStatus()}
             sideAction={{
                 tooltip: 'Async migrations',
+                tooltipPlacement: 'right',
                 icon: <IconCheckCircle />,
                 to: urls.asyncMigrations(),
                 onClick: closeAccountPopover,
             }}
+            data-attr="top-menu-instance-panel"
         >
             Instance panel
         </LemonButton>
