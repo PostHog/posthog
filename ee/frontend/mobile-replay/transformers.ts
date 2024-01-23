@@ -40,6 +40,7 @@ import {
     wireframeText,
     wireframeToggle,
 } from './mobile.types'
+import {makeStatusBar} from "./status-bar";
 import {
     makeBodyStyles,
     makeColorStyles,
@@ -51,7 +52,6 @@ import {
     makeStylesString,
     StyleOverride,
 } from './wireframeStyle'
-import {makeStatusBar} from "./status-bar";
 
 const BACKGROUND = '#f3f4ef'
 const FOREGROUND = '#35373e'
@@ -786,7 +786,7 @@ function makeRectangleElement(
 
 function chooseConverter<T extends wireframe>(
     wireframe: T
-): (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null {
+): (wireframe: T, children: serializedNodeWithId[], timestamp?: number, idSequence?: Generator<number>) => serializedNodeWithId | null {
     // in theory type is always present
     // but since this is coming over the wire we can't really be sure,
     // and so we default to div
@@ -804,23 +804,26 @@ function chooseConverter<T extends wireframe>(
         radio_group: makeRadioGroupElement as any,
         web_view: makeWebViewElement as any,
         placeholder: makePlaceholderElement as any,
+        status_bar: makeStatusBar as any,
+        // we could add in a converter for this, but it's fine without any chrome for now
+        navigation_bar: makeDivElement as any,
     }
     return converterMapping[converterType]
 }
 
-function convertWireframe(wireframe: wireframe): serializedNodeWithId | null {
+function convertWireframe(wireframe: wireframe, timestamp?: number, idSequence?: Generator<number>): serializedNodeWithId | null {
     const children = convertWireframesFor(wireframe.childWireframes)
     const converter = chooseConverter(wireframe)
-    return converter?.(wireframe, children) || null
+    return converter?.(wireframe, children, timestamp, idSequence) || null
 }
 
-function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNodeWithId[] {
+function convertWireframesFor(wireframes: wireframe[] | undefined, timestamp?: number): serializedNodeWithId[] {
     if (!wireframes) {
         return []
     }
 
     return wireframes.reduce((acc, wireframe) => {
-        const convertedEl = convertWireframe(wireframe)
+        const convertedEl = convertWireframe(wireframe, timestamp)
         if (convertedEl !== null) {
             acc.push(convertedEl)
         }
@@ -1032,7 +1035,7 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: [makeStatusBar(mobileEvent.data.wireframes, mobileEvent.timestamp, idSequence), ...(convertWireframesFor(mobileEvent.data.wireframes) || [])],
+                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, mobileEvent.timestamp) || [],
                             },
                         ],
                     },

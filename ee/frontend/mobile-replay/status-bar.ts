@@ -1,39 +1,6 @@
-import {NodeType, serializedNodeWithId, wireframe} from "./mobile.types";
-import {_isPositiveInteger, STATUS_BAR_ID} from "./transformers";
-
-// in case the status bar is not a fixed height we can guess its height by
-// finding the lowest y value in the wireframes that isn't 0
-function seekStatusBarHeight(wireframes: wireframe[], startingValue = Infinity): number {
-    let statusBarHeight = startingValue;
-    wireframes.forEach((wireframe) => {
-        if (_isPositiveInteger(wireframe.y) && wireframe.y !== 0 && wireframe.y < statusBarHeight) {
-            statusBarHeight = wireframe.y;
-        }
-        statusBarHeight = seekStatusBarHeight(wireframe.childWireframes || [], statusBarHeight);
-    })
-    return statusBarHeight;
-}
-
-function makeStatusBarStyle(height: number): string {
-    const styles: string[] = [
-        'position:absolute',
-        'top:0',
-        'left:0',
-        'width:100%',
-        'z-index:999999',
-        'overflow:hidden',
-        'white-space:nowrap',
-        'background-color:#000000',
-        'color:#ffffff',
-        `height:${height}px`,
-        'display:flex',
-        'align-items:center',
-        'justify-content:space-between',
-        'flex-direction:row',
-
-    ]
-    return styles.join(';')
-}
+import {NodeType, serializedNodeWithId, wireframeStatusBar} from "./mobile.types";
+import {STATUS_BAR_ID} from "./transformers";
+import {makeStylesString} from "./wireframeStyle";
 
 function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
     const spacerId = idSequence.next().value;
@@ -49,8 +16,10 @@ function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
     }
 }
 
-export function makeStatusBar(wireframes: wireframe[], timestamp: number, idSequence: Generator<number>): serializedNodeWithId {
-    const statusBarHeight = seekStatusBarHeight(wireframes)
+/**
+ * tricky: we need to accept children because that's the interface of converters, but we don't use them
+ */
+export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializedNodeWithId[], timestamp: number, idSequence: Generator<number>): serializedNodeWithId {
     const clockId = idSequence.next().value;
     // convert the wireframe timestamp to a date time, then get just the hour and minute of the time from that
     const clockTime = new Date(timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
@@ -69,63 +38,18 @@ export function makeStatusBar(wireframes: wireframe[], timestamp: number, idSequ
             },
         ]
     };
-    const battery: serializedNodeWithId = {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            'data-rrweb-id': idSequence.next().value,
-        },
-        id: idSequence.next().value,
-        childNodes: [
-            {
-                type: NodeType.Text,
-                textContent: '🔋',
-                id: idSequence.next().value,
-            },
-        ]
-    }
 
-    // the left block holds things like the clock and system notifications e.g. usb debugging is active
-    const leftBlockId = idSequence.next().value;
-    const leftBlock: serializedNodeWithId = {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            style: 'display:flex;flex-direction:row;align-items:center;',
-            'data-rrweb-id': leftBlockId,
-        },
-        id: leftBlockId,
-        childNodes: [
-            spacerDiv(idSequence),
-            clock,
-        ]
-    }
-
-    // the right block holds things like the battery and wifi status
-    const rightBlockId = idSequence.next().value;
-    const rightBlock: serializedNodeWithId = {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            style: 'display:flex;flex-direction:row;align-items:center;',
-            'data-rrweb-id': rightBlockId,
-        },
-        id: rightBlockId,
-        childNodes: [
-            battery,
-            spacerDiv(idSequence),
-        ]
-    }
     return {
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
-            style: makeStatusBarStyle(statusBarHeight),
+            style: makeStylesString(wireframe) + 'display:flex;flex-direction:row;align-items:center',
             'data-rrweb-id': STATUS_BAR_ID,
         },
         id: STATUS_BAR_ID,
         childNodes: [
-            leftBlock, rightBlock
+            spacerDiv(idSequence),
+            clock
         ],
     }
 }
