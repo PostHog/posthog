@@ -209,13 +209,17 @@ export function makeColorStyles(wireframe: wireframe, styleOverride?: StyleOverr
     return styles
 }
 
+function alwaysEndsWithSemicolon(styles: string): string {
+    return styles.length > 0 && styles[styles.length - 1] !== ';' ? styles + ';' : styles
+}
+
 export function makeStylesString(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     styles += makeColorStyles(wireframe, styleOverride)
     styles += makeMinimalStyles(wireframe, styleOverride)
 
-    return styles
+    return alwaysEndsWithSemicolon(styles)
 }
 
 export function makeHTMLStyles(): string {

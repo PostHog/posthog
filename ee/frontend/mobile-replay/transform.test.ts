@@ -346,6 +346,7 @@ describe('replay/transform', () => {
             ])
             expect(textEvent).toMatchSnapshot()
         })
+
         test('omitting x and y is equivalent to setting them to 0', () => {
             expect(
                 posthogEEModule.mobileReplay?.transformToWeb([
@@ -366,6 +367,102 @@ describe('replay/transform', () => {
                 ])
             ).toMatchSnapshot()
         })
+
+        test('can convert status bar', () => {
+            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+                {
+                    data: {
+                        width: 300,
+                        height: 600,
+                    },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 2,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 12345,
+                                type: 'status_bar',
+                                // _we'll process the x and y, but they should always be 0
+                                x: 0,
+                                y: 0,
+                                // we'll process the width
+                                // width: 100,
+                                height: 30,
+                                style: {
+                                    // we can't expect to receive all of these values,
+                                    // but we'll handle them, because that's easier than not doing
+                                    color: '#ee3ee4',
+                                    borderColor: '#ee3ee4',
+                                    borderWidth: '4',
+                                    borderRadius: '10px',
+                                    backgroundColor: '#000000',
+                                },
+                            },
+                            {
+                                id: 12345,
+                                type: 'status_bar',
+                                x: 13,
+                                y: 17,
+                                width: 100,
+                                // zero height is respected
+                                height: 0,
+                                // as with styling we don't expect to receive these values,
+                                // but we'll respect them if they are present
+                                horizontalAlign: 'right',
+                                verticalAlign: 'top',
+                                fontSize: '12px',
+                                fontFamily: 'sans-serif',
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(converted).toMatchSnapshot()
+        })
+        test('can convert navigation bar', () => {
+            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+                {
+                    data: {
+                        width: 300,
+                        height: 600,
+                    },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 2,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 12345,
+                                type: 'navigation_bar',
+                                // we respect x and y but expect this to be at the bottom of the screen
+                                x: 11,
+                                y: 12,
+                                // we respect width but expect it to be fullscreen
+                                width: 100,
+                                height: 30,
+                                // as with status bar, we don't expect to receive all of these values,
+                                // but we'll respect them if they are present
+                                style: {
+                                    color: '#ee3ee4',
+                                    borderColor: '#ee3ee4',
+                                    borderWidth: '4',
+                                    borderRadius: '10px',
+                                },
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(converted).toMatchSnapshot()
+        })
+
         describe('inputs', () => {
             test('buttons with nested elements', () => {
                 expect(

@@ -320,25 +320,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsLifecycleFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
-        ],
-        hogQLInsightsPathsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS],
-        ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
-        ],
-        hogQLInsightsTrendsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
-        ],
-        hogQLInsightsStickinessFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
