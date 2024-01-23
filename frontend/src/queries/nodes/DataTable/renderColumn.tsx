@@ -233,9 +233,9 @@ export function renderColumn(
 
         if (isActorsQuery(query.source) && value) {
             displayProps.person = value
-            displayProps.href = value.id
-                ? urls.personByUUID(value.id)
-                : urls.personByDistinctId(value.distinct_ids?.[0] ?? '-')
+            displayProps.href = value.distinct_ids?.[0]
+                ? urls.personByDistinctId(value.distinct_ids[0])
+                : urls.personByUUID(value.id)
         }
 
         return <PersonDisplay {...displayProps} />
