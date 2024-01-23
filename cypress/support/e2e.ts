@@ -34,6 +34,7 @@ beforeEach(() => {
                 'surveys-results-visualizations': true,
                 'auto-redirect': true,
                 notebooks: true,
+                experimentation: true,
             })
         )
     )

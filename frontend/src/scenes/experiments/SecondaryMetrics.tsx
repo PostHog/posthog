@@ -153,7 +153,7 @@ export function SecondaryMetrics({
                     className="space-y-4"
                 >
                     <Field name="name" label="Name">
-                        <LemonInput />
+                        <LemonInput data-attr="secondary-metric-name" />
                     </Field>
                     <Field name="filters" label="Query">
                         <MetricSelector
@@ -230,7 +230,11 @@ export function SecondaryMetrics({
                         ))}
                         {metrics && !(metrics.length > 2) && (
                             <div className="mb-2 mt-4">
-                                <LemonButton type="secondary" onClick={openModalToCreateSecondaryMetric}>
+                                <LemonButton
+                                    data-attr="add-secondary-metric-btn"
+                                    type="secondary"
+                                    onClick={openModalToCreateSecondaryMetric}
+                                >
                                     Add metric
                                 </LemonButton>
                             </div>
