@@ -269,14 +269,18 @@ function makePlaceholderElement(
     }
 }
 
+export function dataURIOrPNG(src: string):string {
+    if (!src.startsWith('data:image/')) {
+        return 'data:image/png;base64,' + src
+    }
+    return src;
+}
+
 function makeImageElement(wireframe: wireframeImage, children: serializedNodeWithId[]): serializedNodeWithId | null {
     if (!wireframe.base64) {
         return makePlaceholderElement(wireframe, children)
     }
-    let src = wireframe.base64
-    if (!src.startsWith('data:image/')) {
-        src = 'data:image/png;base64,' + src
-    }
+    const src = dataURIOrPNG(wireframe.base64);
     return {
         type: NodeType.Element,
         tagName: 'img',

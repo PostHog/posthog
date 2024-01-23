@@ -86,6 +86,10 @@ export type MobileStyles = {
      */
     backgroundColor?: string
     /**
+     * @description if provided this will be used as a base64 encoded image source for the backgroundImage css property, with no other attributes it is assumed to be a PNG
+     */
+    backgroundImage?: string
+    /**
      * @description if borderWidth is present, then border style is assumed to be solid
      */
     borderWidth?: string | number
