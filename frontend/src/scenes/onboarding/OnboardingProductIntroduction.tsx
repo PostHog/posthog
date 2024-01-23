@@ -12,7 +12,7 @@ import { getProductIcon } from 'scenes/products/Products'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingProductV2Type, BillingV2FeatureType } from '~/types'
+import { BillingProductV2Type, BillingV2FeatureType, ProductKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 
@@ -46,6 +46,12 @@ export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType
 }
 
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+    const cta: Partial<Record<ProductKey, string>> = {
+        [ProductKey.SESSION_REPLAY]: 'Start recording my website',
+        [ProductKey.FEATURE_FLAGS]: 'Create a feature flag',
+        [ProductKey.SURVEYS]: 'Create a survey',
+    }
+
     return (
         <div className="flex gap-x-4 items-center">
             <LemonButton
@@ -56,7 +62,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                 center
                 className="max-w-max"
             >
-                Create your first {product.unit}
+                {cta[product.type] || 'Get started'}
             </LemonButton>
         </div>
     )
