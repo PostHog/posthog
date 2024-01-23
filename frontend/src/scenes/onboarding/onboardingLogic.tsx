@@ -29,10 +29,11 @@ export enum OnboardingStepKey {
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlagsSet): string => {
+export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlagsSet): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return featureFlags[FEATURE_FLAGS.REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
+            return featureFlags &&
+                featureFlags[FEATURE_FLAGS.REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
                 ? combineUrl(urls.insights(), { onboarding_completed: true }).url
                 : combineUrl(urls.events(), { onboarding_completed: true }).url
         case ProductKey.SESSION_REPLAY:
