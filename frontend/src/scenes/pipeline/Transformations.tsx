@@ -49,7 +49,7 @@ export function Transformations(): JSX.Element {
         canConfigurePlugins,
         shouldShowProductIntroduction,
     } = useValues(pipelineTransformationsLogic)
-    const { openReorderModal, toggleEnabled, loadPluginConfigs } = useActions(pipelineTransformationsLogic)
+    const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
     const shouldShowEmptyState = sortedEnabledPluginConfigs.length === 0 && disabledPluginConfigs.length === 0
 
@@ -160,114 +160,107 @@ export function Transformations(): JSX.Element {
                             {
                                 width: 0,
                                 render: function Render(_, pluginConfig) {
-                                    return (
-                                        <More
-                                            overlay={
-                                                <>
-                                                    <LemonButton
-                                                        onClick={() => {
-                                                            toggleEnabled({
-                                                                enabled: !pluginConfig.enabled,
-                                                                id: pluginConfig.id,
-                                                            })
-                                                        }}
-                                                        id={`app-${pluginConfig.id}-enable-switch`}
-                                                        disabledReason={
-                                                            canConfigurePlugins
-                                                                ? undefined
-                                                                : 'You do not have permission to enable/disable apps.'
-                                                        }
-                                                        fullWidth
-                                                    >
-                                                        {pluginConfig.enabled ? 'Disable' : 'Enable'} app
-                                                    </LemonButton>
-                                                    {pluginConfig.enabled && (
-                                                        <LemonButton
-                                                            onClick={openReorderModal}
-                                                            id="app-reorder"
-                                                            disabledReason={
-                                                                canConfigurePlugins
-                                                                    ? undefined
-                                                                    : 'You do not have permission to reorder apps.'
-                                                            }
-                                                            fullWidth
-                                                        >
-                                                            Reorder apps
-                                                        </LemonButton>
-                                                    )}
-                                                    <LemonButton
-                                                        to={urls.pipelineApp(
-                                                            PipelineAppKind.Transformation,
-                                                            pluginConfig.id,
-                                                            PipelineAppTab.Configuration
-                                                        )}
-                                                        id={`app-${pluginConfig.id}-configuration`}
-                                                        fullWidth
-                                                    >
-                                                        {canConfigurePlugins ? 'Edit' : 'View'} app configuration
-                                                    </LemonButton>
-                                                    <LemonButton
-                                                        to={urls.pipelineApp(
-                                                            PipelineAppKind.Transformation,
-                                                            pluginConfig.id,
-                                                            PipelineAppTab.Metrics
-                                                        )}
-                                                        id={`app-${pluginConfig.id}-metrics`}
-                                                        fullWidth
-                                                    >
-                                                        View app metrics
-                                                    </LemonButton>
-                                                    <LemonButton
-                                                        to={urls.pipelineApp(
-                                                            PipelineAppKind.Transformation,
-                                                            pluginConfig.id,
-                                                            PipelineAppTab.Logs
-                                                        )}
-                                                        id={`app-${pluginConfig.id}-logs`}
-                                                        fullWidth
-                                                    >
-                                                        View app logs
-                                                    </LemonButton>
-                                                    <LemonButton
-                                                        to={pluginConfig.plugin_info?.url}
-                                                        targetBlank={true}
-                                                        loading={!pluginConfig.plugin_info?.url}
-                                                        id={`app-${pluginConfig.id}-source-code`}
-                                                        fullWidth
-                                                    >
-                                                        View app source code
-                                                    </LemonButton>
-                                                    <LemonDivider />
-                                                    <LemonButton
-                                                        status="danger"
-                                                        onClick={() => {
-                                                            void deleteWithUndo({
-                                                                endpoint: `plugin_config`,
-                                                                object: {
-                                                                    id: pluginConfig.id,
-                                                                    name: pluginConfig.name,
-                                                                },
-                                                                callback: loadPluginConfigs,
-                                                            })
-                                                        }}
-                                                        id="app-delete"
-                                                        disabledReason={
-                                                            canConfigurePlugins
-                                                                ? undefined
-                                                                : 'You do not have permission to delete apps.'
-                                                        }
-                                                        fullWidth
-                                                    >
-                                                        Delete app
-                                                    </LemonButton>
-                                                </>
-                                            }
-                                        />
-                                    )
+                                    return <More overlay={<TransformationsMoreOverlay pluginConfig={pluginConfig} />} />
                                 },
                             },
                         ]}
                     />
+                </>
+            )}
+        </>
+    )
+}
+
+export const TransformationsMoreOverlay = ({
+    pluginConfig,
+    inOverview = false,
+}: {
+    pluginConfig: PluginConfigWithPluginInfoNew
+    inOverview?: boolean
+}): JSX.Element => {
+    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { openReorderModal, toggleEnabled, loadPluginConfigs } = useActions(pipelineTransformationsLogic)
+
+    return (
+        <>
+            {!inOverview && (
+                <LemonButton
+                    onClick={() => {
+                        toggleEnabled({
+                            enabled: !pluginConfig.enabled,
+                            id: pluginConfig.id,
+                        })
+                    }}
+                    id={`app-${pluginConfig.id}-enable-switch`}
+                    disabledReason={
+                        canConfigurePlugins ? undefined : 'You do not have permission to enable/disable apps.'
+                    }
+                    fullWidth
+                >
+                    {pluginConfig.enabled ? 'Disable' : 'Enable'} app
+                </LemonButton>
+            )}
+            {!inOverview && pluginConfig.enabled && (
+                <LemonButton
+                    onClick={openReorderModal}
+                    id="app-reorder"
+                    disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to reorder apps.'}
+                    fullWidth
+                >
+                    Reorder apps
+                </LemonButton>
+            )}
+            <LemonButton
+                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Configuration)}
+                id={`app-${pluginConfig.id}-configuration`}
+                fullWidth
+            >
+                {canConfigurePlugins ? 'Edit' : 'View'} app configuration
+            </LemonButton>
+            <LemonButton
+                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Metrics)}
+                id={`app-${pluginConfig.id}-metrics`}
+                fullWidth
+            >
+                View app metrics
+            </LemonButton>
+            <LemonButton
+                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Logs)}
+                id={`app-${pluginConfig.id}-logs`}
+                fullWidth
+            >
+                View app logs
+            </LemonButton>
+            <LemonButton
+                to={pluginConfig.plugin_info?.url}
+                targetBlank={true}
+                loading={!pluginConfig.plugin_info?.url}
+                id={`app-${pluginConfig.id}-source-code`}
+                fullWidth
+            >
+                View app source code
+            </LemonButton>
+            {!inOverview && (
+                <>
+                    <LemonDivider />
+                    <LemonButton
+                        status="danger"
+                        onClick={() => {
+                            void deleteWithUndo({
+                                endpoint: `plugin_config`,
+                                object: {
+                                    id: pluginConfig.id,
+                                    name: pluginConfig.name,
+                                },
+                                callback: loadPluginConfigs,
+                            })
+                        }}
+                        id="app-delete"
+                        disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to delete apps.'}
+                        fullWidth
+                    >
+                        Delete app
+                    </LemonButton>
                 </>
             )}
         </>

@@ -1,8 +1,7 @@
-import { captureException, captureMessage } from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
-import { parse } from 'simdjson'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
@@ -177,13 +176,8 @@ export const parseKafkaMessage = async (
     let event: PipelineEvent
 
     try {
-        // we only read distinct_id, team_id, token, and data from the message payload
-        // data is read into event
-        // TODO: simd json can lazily parse json, so if we could avoid parsing "events" from the data
-        // we'd get the biggest perf win, since that is the potentially large "blob" of data
-        // see: https://github.com/luizperes/simdjson_nodejs?tab=readme-ov-file#parsing-a-json-string-lazily
-        messagePayload = parse(message.value.toString())
-        event = parse(messagePayload.data)
+        messagePayload = JSON.parse(message.value.toString())
+        event = JSON.parse(messagePayload.data)
     } catch (error) {
         return dropMessage('invalid_json', { error })
     }
@@ -220,29 +214,11 @@ export const parseKafkaMessage = async (
     }
     // end of deprecated mechanism
 
-    const invalidEvents: any[] = []
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
-        if (!event || !event.timestamp) {
-            invalidEvents.push(event)
-            return false
-        }
-        return true
+        // we sometimes see events that are null
+        // there will always be some unexpected data but, we should try to filter out the worst of it
+        return event && event.timestamp
     })
-
-    if (invalidEvents.length) {
-        captureMessage('[session-manager]: invalid rrweb events filtered out from message', {
-            extra: {
-                invalidEvents,
-                eventsCount: events.length,
-                invalidEventsCount: invalidEvents.length,
-                event,
-            },
-            tags: {
-                team_id: teamIdWithConfig.teamId,
-                session_id: $session_id,
-            },
-        })
-    }
 
     if (!events.length) {
         return dropMessage('message_contained_no_valid_rrweb_events', {

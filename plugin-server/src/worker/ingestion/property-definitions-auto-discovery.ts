@@ -3,10 +3,6 @@ import { DateTimePropertyTypeFormat, PropertyType, UnixTimestampPropertyTypeForm
 // magic copied from https://stackoverflow.com/a/54930905
 // allows candidate to be typed as any
 
-export const isNumericString = (candidate: any): boolean => {
-    return !(candidate instanceof Array) && candidate - parseFloat(candidate) + 1 >= 0
-}
-
 export const unixTimestampPropertyTypeFormatPatterns: Record<keyof typeof UnixTimestampPropertyTypeFormat, RegExp> = {
     UNIX_TIMESTAMP: /^\d{10}(\.\d*)?$/,
     UNIX_TIMESTAMP_MILLISECONDS: /^\d{13}$/,
@@ -106,18 +102,12 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
     if (typeof value === 'string') {
         propertyType = PropertyType.String
 
-        if (isNumericString(value)) {
-            propertyType = PropertyType.Numeric
-        }
-
         Object.values(dateTimePropertyTypeFormatPatterns).find((pattern) => {
             if (value.match(pattern)) {
                 propertyType = PropertyType.DateTime
                 return true
             }
         })
-
-        detectUnixTimestamps()
     }
 
     if (

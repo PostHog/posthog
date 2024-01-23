@@ -292,7 +292,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return PropertyFilterType.Cohort
     }
-    if (filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
+    if (
+        filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ||
+        filterType?.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
+    ) {
         return PropertyFilterType.Group
     }
 

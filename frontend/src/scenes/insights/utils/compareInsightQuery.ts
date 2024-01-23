@@ -48,9 +48,9 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
         cleanedQuery[insightFilterKey] = {
             ...insightFilter,
-            show_legend: undefined,
+            showLegend: undefined,
             showPercentStackView: undefined,
-            show_values_on_series: undefined,
+            showValuesOnSeries: undefined,
             aggregationAxisFormat: undefined,
             aggregationAxisPrefix: undefined,
             aggregationAxisPostfix: undefined,

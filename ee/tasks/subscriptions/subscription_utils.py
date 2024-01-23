@@ -1,4 +1,4 @@
-from datetime import timedelta
+import datetime
 from typing import List, Tuple, Union
 from django.conf import settings
 import structlog
@@ -56,11 +56,14 @@ def generate_assets(
         # Wait for all assets to be exported
         tasks = [exporter.export_asset.si(asset.id) for asset in assets]
         # run them one after the other, so we don't exhaust celery workers
-        parallel_job = chain(*tasks).apply_async()
+        exports_expire = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(
+            minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES
+        )
+        parallel_job = chain(*tasks).apply_async(expires=exports_expire, retry=False)
 
         wait_for_parallel_celery_group(
             parallel_job,
-            max_timeout=timedelta(minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES),
+            expires=exports_expire,
         )
 
         return insights, assets

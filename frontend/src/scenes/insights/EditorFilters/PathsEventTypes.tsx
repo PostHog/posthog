@@ -4,7 +4,8 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { EditorFilterProps, PathsFilterType, PathType } from '~/types'
+import { PathsFilter } from '~/queries/schema'
+import { EditorFilterProps, PathType } from '~/types'
 
 import { humanizePathsEventTypes } from '../utils'
 
@@ -12,9 +13,9 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const includeEventTypes = pathsFilter?.include_event_types
-    const setIncludeEventTypes = (includeEventTypes: PathsFilterType['include_event_types']): void => {
-        updateInsightFilter({ include_event_types: includeEventTypes })
+    const includeEventTypes = pathsFilter?.includeEventTypes
+    const setIncludeEventTypes = (includeEventTypes: PathsFilter['includeEventTypes']): void => {
+        updateInsightFilter({ includeEventTypes: includeEventTypes })
     }
 
     const options = [

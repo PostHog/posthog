@@ -134,7 +134,6 @@ export const insightLogic = kea<insightLogicType>([
             callback,
         }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
-        toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
     }),
@@ -693,13 +692,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
-        },
-        toggleInsightLegend: () => {
-            const newFilters: Partial<TrendsFilterType> = {
-                ...values.filters,
-                show_legend: !(values.filters as Partial<TrendsFilterType>).show_legend,
-            }
-            actions.setFilters(newFilters)
         },
         toggleVisibility: ({ index }) => {
             const currentIsHidden = !!values.hiddenLegendKeys?.[index]
