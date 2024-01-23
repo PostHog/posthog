@@ -9,4 +9,4 @@ class TestAPIDocsSchema(APIBaseTest):
         # the response does have data, but mypy doesn't know that
         assert isinstance(schema_response.data, dict)  # type: ignore
         assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
-        assert int(schema_response.headers.get("Content-Length")) > 0
+        assert int(str(schema_response.headers.get("Content-Length"))) > 0
