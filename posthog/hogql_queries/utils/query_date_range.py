@@ -118,7 +118,7 @@ class QueryDateRange:
     def all_values(self) -> List[str]:
         start: datetime = self.date_from()
         end: datetime = self.date_to()
-        interval = self.interval_name or "day"
+        interval = self.interval_name
 
         if interval == "hour":
             start = start.replace(minute=0, second=0, microsecond=0)
@@ -139,7 +139,12 @@ class QueryDateRange:
                 values.append(start.strftime("%Y-%m-%d %H:%M:%S"))
             else:
                 values.append(start.strftime("%Y-%m-%d"))
-            start += relativedelta(**{f"{interval}s": 1})
+            start += relativedelta(
+                days=1 if interval == "day" else 0,
+                weeks=1 if interval == "week" else 0,
+                months=1 if interval == "month" else 0,
+                hours=1 if interval == "hour" else 0,
+            )
         return values
 
     def date_to_as_hogql(self) -> ast.Expr:
