@@ -41,8 +41,8 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
                         status="danger"
                         onClick={() => {
                             updateInsightFilter({
-                                funnel_order_type: undefined,
-                                funnel_step_reference: undefined,
+                                funnelOrderType: undefined,
+                                funnelStepReference: undefined,
                                 exclusions: undefined,
                             })
                         }}

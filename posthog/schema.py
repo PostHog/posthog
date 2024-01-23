@@ -219,6 +219,20 @@ class FunnelExclusion(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
+    funnelFromStep: Optional[float] = None
+    funnelToStep: Optional[float] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+
+
+class FunnelExclusionLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_to_step: Optional[float] = None
     id: Optional[Union[str, float]] = None
@@ -439,8 +453,11 @@ class PathsFilter(BaseModel):
     localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
     maxEdgeWeight: Optional[int] = None
     minEdgeWeight: Optional[int] = None
+    pathDropoffKey: Optional[str] = None
+    pathEndKey: Optional[str] = None
     pathGroupings: Optional[List[str]] = None
     pathReplacements: Optional[bool] = None
+    pathStartKey: Optional[str] = None
     pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[int] = None
@@ -1003,10 +1020,30 @@ class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    binCount: Optional[Union[float, str]] = None
+    breakdownAttributionType: Optional[BreakdownAttributionType] = None
+    breakdownAttributionValue: Optional[float] = None
+    exclusions: Optional[List[FunnelExclusion]] = None
+    funnelAggregateByHogQL: Optional[str] = None
+    funnelFromStep: Optional[float] = None
+    funnelOrderType: Optional[StepOrderValue] = None
+    funnelStepReference: Optional[FunnelStepReference] = None
+    funnelToStep: Optional[float] = None
+    funnelVizType: Optional[FunnelVizType] = None
+    funnelWindowInterval: Optional[float] = None
+    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
+    layout: Optional[FunnelLayout] = None
+
+
+class FunnelsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     bin_count: Optional[Union[float, str]] = None
     breakdown_attribution_type: Optional[BreakdownAttributionType] = None
     breakdown_attribution_value: Optional[float] = None
-    exclusions: Optional[List[FunnelExclusion]] = None
+    exclusions: Optional[List[FunnelExclusionLegacy]] = None
     funnel_aggregate_by_hogql: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_order_type: Optional[StepOrderValue] = None
@@ -1017,6 +1054,18 @@ class FunnelsFilter(BaseModel):
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
     hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
+
+
+class FunnelsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class GroupPropertyFilter(BaseModel):
