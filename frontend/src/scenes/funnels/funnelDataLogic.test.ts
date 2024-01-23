@@ -74,7 +74,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
 
@@ -93,7 +93,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                    funnelVizType: FunnelVizType.TimeToConvert,
                 },
             }
 
@@ -112,7 +112,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Trends,
+                    funnelVizType: FunnelVizType.Trends,
                 },
             }
 
@@ -242,7 +242,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -759,7 +759,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -799,7 +799,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -825,7 +825,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -848,7 +848,7 @@ describe('funnelDataLogic', () => {
                     kind: NodeKind.FunnelsQuery,
                     series: [],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                        funnelVizType: FunnelVizType.TimeToConvert,
                     },
                 }
                 const insight: Partial<InsightModel> = {
@@ -882,7 +882,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
 
@@ -906,7 +906,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                    funnelVizType: FunnelVizType.TimeToConvert,
                 },
             }
 
@@ -930,7 +930,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Trends,
+                    funnelVizType: FunnelVizType.Trends,
                 },
             }
 
@@ -956,7 +956,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
 
@@ -984,7 +984,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                    funnelVizType: FunnelVizType.TimeToConvert,
                 },
             }
             const insight: Partial<InsightModel> = {
@@ -1011,7 +1011,7 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Trends,
+                    funnelVizType: FunnelVizType.Trends,
                 },
             }
 
@@ -1039,8 +1039,8 @@ describe('funnelDataLogic', () => {
         it('with defaults', async () => {
             await expectLogic(logic).toMatchValues({
                 conversionWindow: {
-                    funnel_window_interval: 14,
-                    funnel_window_interval_unit: 'day',
+                    funnelWindowInterval: 14,
+                    funnelWindowIntervalUnit: 'day',
                 },
             })
         })
@@ -1050,8 +1050,8 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_window_interval: 3,
-                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Week,
+                    funnelWindowInterval: 3,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Week,
                 },
             }
 
@@ -1059,8 +1059,8 @@ describe('funnelDataLogic', () => {
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 conversionWindow: {
-                    funnel_window_interval: 3,
-                    funnel_window_interval_unit: 'week',
+                    funnelWindowInterval: 3,
+                    funnelWindowIntervalUnit: 'week',
                 },
             })
         })
@@ -1096,8 +1096,8 @@ describe('funnelDataLogic', () => {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
                 funnelsFilter: {
-                    funnel_window_interval: 2,
-                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+                    funnelWindowInterval: 2,
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
                 },
             }
 

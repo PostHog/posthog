@@ -55,14 +55,14 @@ export function AggregationSelect({
         isLifecycleQuery(querySource) || isStickinessQuery(querySource)
             ? undefined
             : querySource.aggregation_group_type_index,
-        isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnel_aggregate_by_hogql : undefined
+        isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelAggregateByHogQL : undefined
     )
     const onChange = (value: string): void => {
         const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
         if (isFunnelsQuery(querySource)) {
             updateQuerySource({
                 aggregation_group_type_index: groupIndex,
-                funnelsFilter: { ...querySource.funnelsFilter, funnel_aggregate_by_hogql: aggregationQuery },
+                funnelsFilter: { ...querySource.funnelsFilter, funnelAggregateByHogQL: aggregationQuery },
             } as FunnelsQuery)
         } else {
             updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)

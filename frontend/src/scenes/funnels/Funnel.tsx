@@ -15,12 +15,12 @@ import { FunnelHistogram } from './FunnelHistogram'
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
-    const { funnel_viz_type, layout } = funnelsFilter || {}
+    const { funnelVizType, layout } = funnelsFilter || {}
 
     let viz: JSX.Element | null = null
-    if (funnel_viz_type == FunnelVizType.Trends) {
+    if (funnelVizType == FunnelVizType.Trends) {
         viz = <FunnelLineGraph {...props} />
-    } else if (funnel_viz_type == FunnelVizType.TimeToConvert) {
+    } else if (funnelVizType == FunnelVizType.TimeToConvert) {
         viz = <FunnelHistogram />
     } else if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
         viz = <FunnelBarChart {...props} />
@@ -30,8 +30,8 @@ export function Funnel(props: ChartParams): JSX.Element {
 
     return (
         <div
-            className={`FunnelInsight FunnelInsight--type-${funnel_viz_type?.toLowerCase()}${
-                funnel_viz_type === FunnelVizType.Steps ? '-' + (layout ?? FunnelLayout.vertical) : ''
+            className={`FunnelInsight FunnelInsight--type-${funnelVizType?.toLowerCase()}${
+                funnelVizType === FunnelVizType.Steps ? '-' + (layout ?? FunnelLayout.vertical) : ''
             }`}
         >
             {viz}

@@ -1354,26 +1354,26 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.funnelsFilter,
             FunnelsFilter(
-                funnel_viz_type=FunnelVizType.steps,
-                funnel_from_step=1,
-                funnel_to_step=2,
-                funnel_window_interval_unit=FunnelConversionWindowTimeUnit.hour,
-                funnel_window_interval=13,
-                breakdown_attribution_type=BreakdownAttributionType.step,
-                breakdown_attribution_value=2,
-                funnel_order_type=StepOrderValue.strict,
+                funnelVizType=FunnelVizType.steps,
+                funnelFromStep=1,
+                funnelToStep=2,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.hour,
+                funnelWindowInterval=13,
+                breakdownAttributionType=BreakdownAttributionType.step,
+                breakdownAttributionValue=2,
+                funnelOrderType=StepOrderValue.strict,
                 exclusions=[
                     FunnelExclusion(
                         id="$pageview",
                         type=EntityType.events,
                         order=0,
                         name="$pageview",
-                        funnel_from_step=1,
-                        funnel_to_step=2,
+                        funnelFromStep=1,
+                        funnelToStep=2,
                     )
                 ],
-                bin_count=15,
-                funnel_aggregate_by_hogql="person_id",
+                binCount=15,
+                funnelAggregateByHogQL="person_id",
                 # funnel_step_reference=FunnelStepReference.previous,
             ),
         )

@@ -25,6 +25,7 @@ import {
     isDataTableNode,
     isDataVisualizationNode,
     isEventsQuery,
+    isFunnelsQuery,
     isHogQLQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -163,6 +164,9 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsStickinessFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]
     )
+    const hogQLInsightsFunnelsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
+    )
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
     )
@@ -208,7 +212,8 @@ export async function query<N extends DataNode = DataNode>(
                 (hogQLInsightsPathsFlagEnabled && isPathsQuery(queryNode)) ||
                 (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
                 (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
-                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode))
+                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode)) ||
+                (hogQLInsightsFunnelsFlagEnabled && isFunnelsQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
                     let legacyResponse

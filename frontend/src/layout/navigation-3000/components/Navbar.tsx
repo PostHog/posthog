@@ -121,6 +121,7 @@ export function Navbar(): JSX.Element {
                 </div>
                 {!mobileLayout && (
                     <Resizer
+                        logicKey="navbar"
                         placement="right"
                         containerRef={containerRef}
                         closeThreshold={100}

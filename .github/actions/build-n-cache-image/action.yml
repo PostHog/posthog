@@ -20,6 +20,9 @@ outputs:
 runs:
     using: 'composite'
     steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
         - name: Set up Depot CLI
           uses: depot/setup-action@v1
 
@@ -32,6 +35,7 @@ runs:
           id: build
           uses: depot/build-push-action@v1
           with:
+              context: .
               buildx-fallback: false # buildx is so slow it's better to just fail
               tags: ${{ steps.emit.outputs.tag }}
               platforms: linux/amd64,linux/arm64
