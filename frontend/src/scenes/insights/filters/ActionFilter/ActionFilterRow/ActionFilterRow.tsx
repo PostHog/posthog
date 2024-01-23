@@ -21,7 +21,6 @@ import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
@@ -495,10 +494,10 @@ function useMathSelectorOptions({
     mathAvailability,
     onMathSelect,
 }: MathSelectorProps): LemonSelectOptions<string> {
-    const { insightProps } = useValues(insightLogic)
-    const { query } = useValues(insightDataLogic(insightProps))
+    const mountedInsightDataLogic = insightDataLogic.findMounted()
+    const query = mountedInsightDataLogic?.values?.query
 
-    const isStickiness = isInsightVizNode(query) && isStickinessQuery(query.source)
+    const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
 
     const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
         useValues(mathsLogic)
