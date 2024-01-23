@@ -17,7 +17,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
+import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -91,12 +91,12 @@ export function PersonsModal({
             return title(capitalizeFirstLetter(actorLabel.plural))
         }
 
-        if (title === BREAKDOWN_OTHER_STRING_LABEL) {
+        if (isOtherBreakdown(title)) {
             return 'Other'
         }
 
         return title
-    }, [title])
+    }, [title, actorLabel.plural])
 
     return (
         <>
