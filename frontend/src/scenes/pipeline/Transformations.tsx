@@ -24,11 +24,11 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineNodeTab, PipelineStage, PluginConfigTypeNew, ProductKey } from '~/types'
+import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
-import { convertToPipelineNode, Transformation } from './types'
+import { Transformation } from './types'
 import { RenderApp } from './utils'
 
 export function Transformations(): JSX.Element {
@@ -38,15 +38,14 @@ export function Transformations(): JSX.Element {
     }
     const {
         loading,
-        sortedEnabledPluginConfigs,
-        disabledPluginConfigs,
-        displayablePluginConfigs,
+        transformations,
+        sortedEnabledTransformations,
         canConfigurePlugins,
         shouldShowProductIntroduction,
     } = useValues(pipelineTransformationsLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
-    const shouldShowEmptyState = sortedEnabledPluginConfigs.length === 0 && disabledPluginConfigs.length === 0
+    const shouldShowEmptyState = sortedEnabledTransformations.length === 0
 
     return (
         <>
@@ -63,7 +62,7 @@ export function Transformations(): JSX.Element {
             )}
             {!shouldShowEmptyState && (
                 <>
-                    {sortedEnabledPluginConfigs.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
+                    {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
                         <>
                             <ReorderModal />
                             <div className="flex items-center gap-2">
@@ -84,9 +83,7 @@ export function Transformations(): JSX.Element {
                         </>
                     )}
                     <LemonTable
-                        dataSource={displayablePluginConfigs.map((pluginConfig) =>
-                            convertToPipelineNode(pluginConfig, PipelineStage.Transformation)
-                        )}
+                        dataSource={transformations}
                         size="xs"
                         loading={loading}
                         columns={[
@@ -94,13 +91,13 @@ export function Transformations(): JSX.Element {
                                 title: 'Order',
                                 key: 'order',
                                 sticky: true,
-                                render: function RenderOrdering(_, pluginConfig) {
-                                    if (!pluginConfig.enabled) {
+                                render: function RenderOrdering(_, transformation) {
+                                    if (!transformation.enabled) {
                                         return null
                                     }
                                     // We can't use pluginConfig.order directly as it's not nicely set for everything,
                                     // e.g. geoIP, disabled plugins, especially if we disable them via django admin
-                                    return sortedEnabledPluginConfigs.findIndex((pc) => pc.id === pluginConfig.id) + 1
+                                    return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
                                 },
                             },
                             {
@@ -269,19 +266,19 @@ export const TransformationsMoreOverlay = ({
 }
 
 function ReorderModal(): JSX.Element {
-    const { reorderModalOpen, sortedEnabledPluginConfigs, temporaryOrder, pluginConfigsLoading } =
+    const { reorderModalOpen, sortedEnabledTransformations, temporaryOrder, pluginConfigsLoading } =
         useValues(pipelineTransformationsLogic)
     const { closeReorderModal, setTemporaryOrder, savePluginConfigsOrder } = useActions(pipelineTransformationsLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (active.id && over && active.id !== over.id) {
             // Create new sortedEnabledPluginConfigs in the order after the move
-            const from = sortedEnabledPluginConfigs.findIndex((config) => config.id === active.id)
-            const to = sortedEnabledPluginConfigs.findIndex((config) => config.id === over.id)
-            const newSortedEnabledPluginConfigs = arrayMove(sortedEnabledPluginConfigs, from, to)
+            const from = sortedEnabledTransformations.findIndex((t) => t.id === active.id)
+            const to = sortedEnabledTransformations.findIndex((t) => t.id === over.id)
+            const newSortedEnabledTransformations = arrayMove(sortedEnabledTransformations, from, to)
             // Create new temporaryOrder by assinging pluginConfigIds to the index in the map of newSortedEnabledPluginConfigs
             // See comment in savePluginConfigsOrder about races
-            const newTemporaryOrder = newSortedEnabledPluginConfigs.reduce((acc, pluginConfig, index) => {
+            const newTemporaryOrder = newSortedEnabledTransformations.reduce((acc, pluginConfig, index) => {
                 return {
                     ...acc,
                     [pluginConfig.id]: index + 1,
@@ -320,9 +317,9 @@ function ReorderModal(): JSX.Element {
         >
             <div className="flex flex-col gap-2">
                 <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
-                    <SortableContext items={sortedEnabledPluginConfigs} strategy={verticalListSortingStrategy}>
-                        {sortedEnabledPluginConfigs.map((item, index) => (
-                            <MinimalAppView key={item.id} pluginConfig={item} order={index} />
+                    <SortableContext items={sortedEnabledTransformations} strategy={verticalListSortingStrategy}>
+                        {sortedEnabledTransformations.map((t, index) => (
+                            <MinimalAppView key={t.id} transformation={t} order={index} />
                         ))}
                     </SortableContext>
                 </DndContext>
@@ -331,13 +328,11 @@ function ReorderModal(): JSX.Element {
     )
 }
 
-const MinimalAppView = ({ pluginConfig, order }: { pluginConfig: PluginConfigTypeNew; order: number }): JSX.Element => {
-    const { plugins } = useValues(pipelineTransformationsLogic)
+const MinimalAppView = ({ transformation, order }: { transformation: Transformation; order: number }): JSX.Element => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-        id: pluginConfig.id,
+        id: transformation.id,
     })
 
-    const plugin = plugins[pluginConfig.plugin]
     return (
         <div
             ref={setNodeRef}
@@ -353,8 +348,8 @@ const MinimalAppView = ({ pluginConfig, order }: { pluginConfig: PluginConfigTyp
             {...listeners}
         >
             <LemonBadge.Number count={order + 1} maxDigits={3} />
-            <PluginImage plugin={plugin} size="small" />
-            <span className="font-semibold">{pluginConfig.name}</span>
+            <PluginImage plugin={transformation.plugin} size="small" />
+            <span className="font-semibold">{transformation.name}</span>
         </div>
     )
 }

@@ -5,9 +5,10 @@ import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
+import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
 
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
+import { convertToPipelineNode, Transformation } from './types'
 import { capturePluginEvent } from './utils'
 
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
@@ -96,10 +97,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     // See comment in savePluginConfigsOrder about races
                     let order = {}
                     if (enabled) {
-                        const maxOrder = Math.max(
-                            ...Object.values(values.enabledPluginConfigs).map((pc) => pc.order),
-                            0
-                        )
+                        const maxOrder = Math.max(...Object.values(values.transformations).map((pc) => pc.order), 0)
                         order = { order: maxOrder + 1 }
                     }
                     const response = await api.update(`api/plugin_config/${id}`, {
@@ -116,38 +114,33 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             (s) => [s.pluginsLoading, s.pluginConfigsLoading],
             (pluginsLoading, pluginConfigsLoading) => pluginsLoading || pluginConfigsLoading,
         ],
-        enabledPluginConfigs: [
-            (s) => [s.pluginConfigs],
-            (pluginConfigs) => {
-                return Object.values(pluginConfigs).filter((pc) => pc.enabled)
-            },
-        ],
-        sortedEnabledPluginConfigs: [
-            (s) => [s.pluginConfigs, s.enabledPluginConfigs, s.temporaryOrder],
-            (pluginConfigs, enabledPluginConfigs, temporaryOrder) => {
-                if (!temporaryOrder || Object.keys(temporaryOrder).length === 0) {
-                    return enabledPluginConfigs.sort((a, b) => a.order - b.order)
-                }
-                // If temp order is set return the pluginConfigs in that order
-                const result = Object.entries(temporaryOrder)
-                    .sort(([, aIdx], [, bIdx]) => aIdx - bIdx)
-                    .map(([pluginId]) => pluginConfigs[Number(pluginId)])
-                return result
-            },
-        ],
-        disabledPluginConfigs: [
-            (s) => [s.pluginConfigs],
-            (pluginConfigs) => Object.values(pluginConfigs).filter((pc) => !pc.enabled),
-        ],
-        displayablePluginConfigs: [
-            (s) => [s.sortedEnabledPluginConfigs, s.disabledPluginConfigs, s.plugins],
-            (sortedEnabledPluginConfigs, disabledPluginConfigs, plugins) => {
-                const combined = sortedEnabledPluginConfigs.concat(disabledPluginConfigs)
-                const withPluginInfo = combined.map<PluginConfigWithPluginInfoNew>((pluginConfig) => ({
+        transformations: [
+            (s) => [s.pluginConfigs, s.plugins],
+            (pluginConfigs, plugins): Transformation[] => {
+                const rawTransformations: PluginConfigWithPluginInfoNew[] = Object.values(
+                    pluginConfigs
+                ).map<PluginConfigWithPluginInfoNew>((pluginConfig) => ({
                     ...pluginConfig,
                     plugin_info: plugins[pluginConfig.plugin] || null,
                 }))
-                return withPluginInfo
+                const convertedTransformations = rawTransformations.map((t) =>
+                    convertToPipelineNode(t, PipelineStage.Transformation)
+                )
+                return convertedTransformations
+            },
+        ],
+        sortedEnabledTransformations: [
+            (s) => [s.transformations, s.temporaryOrder],
+            (transformations, temporaryOrder) => {
+                transformations = transformations.filter((t) => t.enabled)
+                if (temporaryOrder && Object.keys(temporaryOrder).length > 0) {
+                    transformations = Object.entries(temporaryOrder)
+                        .sort(([, aIdx], [, bIdx]) => aIdx - bIdx)
+                        .map(([pluginId]) => transformations.find((t) => t.id === Number(pluginId)) as Transformation)
+                } else {
+                    transformations = transformations.sort((a, b) => a.order - b.order)
+                }
+                return transformations
             },
         ],
         // This is currently an organization level setting but might in the future be user level

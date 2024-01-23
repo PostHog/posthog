@@ -14,7 +14,7 @@ import { DestinationMoreOverlay } from './Destinations'
 import { pipelineOverviewLogic } from './overviewLogic'
 import { TransformationsMoreOverlay } from './Transformations'
 import { pipelineTransformationsLogic } from './transformationsLogic'
-import { convertToPipelineNode, Destination, PipelineBackend, Transformation } from './types'
+import { Destination, PipelineBackend, Transformation } from './types'
 import { humanFriendlyFrequencyName } from './utils'
 
 type PipelineStepProps = {
@@ -82,11 +82,11 @@ const PipelineStepSkeleton = (): JSX.Element => (
 )
 
 const PipelineStepTransformation = ({ transformation }: { transformation: Transformation }): JSX.Element => {
-    const { sortedEnabledPluginConfigs } = useValues(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations } = useValues(pipelineTransformationsLogic)
 
     return (
         <PipelineStep
-            order={sortedEnabledPluginConfigs.findIndex((pc) => pc.id === transformation.id) + 1}
+            order={sortedEnabledTransformations.findIndex((pc) => pc.id === transformation.id) + 1}
             name={transformation.name}
             to={urls.pipelineNode(PipelineStage.Transformation, transformation.id, PipelineNodeTab.Configuration)}
             description={transformation.description}
@@ -146,12 +146,7 @@ export function Overview(): JSX.Element {
                     transformations &&
                     transformations
                         .filter((t) => t.enabled)
-                        .map((t) => (
-                            <PipelineStepTransformation
-                                key={t.id}
-                                transformation={convertToPipelineNode(t, PipelineStage.Transformation)}
-                            />
-                        ))
+                        .map((t) => <PipelineStepTransformation key={t.id} transformation={t} />)
                 )}
             </div>
 

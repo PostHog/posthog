@@ -23,10 +23,9 @@ export function Destinations(): JSX.Element {
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
         return <p>Pipeline 3000 not available yet</p>
     }
-    const { enabledPluginConfigs, disabledPluginConfigs, shouldShowProductIntroduction } =
-        useValues(pipelineDestinationsLogic)
+    const { destinations, shouldShowProductIntroduction } = useValues(pipelineDestinationsLogic)
 
-    const shouldShowEmptyState = enabledPluginConfigs.length === 0 && disabledPluginConfigs.length === 0
+    const shouldShowEmptyState = !destinations.some((destination) => destination.enabled)
 
     return (
         <>

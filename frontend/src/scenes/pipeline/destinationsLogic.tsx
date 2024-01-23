@@ -109,40 +109,21 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading) =>
                 pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading,
         ],
-        enabledPluginConfigs: [
-            (s) => [s.pluginConfigs],
-            (pluginConfigs) => {
-                return Object.values(pluginConfigs).filter((pc) => pc.enabled)
-            },
-        ],
-        disabledPluginConfigs: [
-            (s) => [s.pluginConfigs],
-            (pluginConfigs) => Object.values(pluginConfigs).filter((pc) => !pc.enabled),
-        ],
-        displayablePluginConfigs: [
-            (s) => [s.pluginConfigs, s.plugins],
-            (pluginConfigs, plugins) => {
-                const enabledFirst = Object.values(pluginConfigs).sort((a, b) => Number(b.enabled) - Number(a.enabled))
-                const withPluginInfo = enabledFirst.map<PluginConfigWithPluginInfoNew>((pluginConfig) => ({
-                    ...pluginConfig,
-                    plugin_info: plugins[pluginConfig.plugin] || null,
-                }))
-                return withPluginInfo
-            },
-        ],
         destinations: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
             (pluginConfigs, plugins, batchExportConfigs): Destination[] => {
                 const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration)[] = Object.values(
                     pluginConfigs
-                ).map((pluginConfig) => ({
-                    ...pluginConfig,
-                    plugin_info: plugins[pluginConfig.plugin] || null,
-                }))
-                const enabledFirst = rawDestinations
+                )
+                    .map<PluginConfigWithPluginInfoNew | BatchExportConfiguration>((pluginConfig) => ({
+                        ...pluginConfig,
+                        plugin_info: plugins[pluginConfig.plugin] || null,
+                    }))
                     .concat(Object.values(batchExportConfigs))
-                    .map((config) => convertToPipelineNode(config, PipelineStage.Destination))
-                    .sort((a, b) => Number(b.enabled) - Number(a.enabled))
+                const convertedDestinations = rawDestinations.map((d) =>
+                    convertToPipelineNode(d, PipelineStage.Destination)
+                )
+                const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
             },
         ],
