@@ -21,7 +21,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
 import { Field } from 'lib/forms/Field'
-import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { IconDelete, IconPlusMini, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -38,7 +38,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
+import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
@@ -615,6 +615,15 @@ export function Experiment(): JSX.Element {
                                 {experiment.feature_flag && (
                                     <div className="block ml-10">
                                         <div className="exp-flag-copy-label">Feature flag</div>
+                                        {getExperimentStatus(experiment) === ProgressStatus.Running &&
+                                            !experiment.feature_flag.active && (
+                                                <Tooltip
+                                                    placement="bottom"
+                                                    title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                                >
+                                                    <IconWarning className="mr-1 text-danger" fontSize="18px" />
+                                                </Tooltip>
+                                            )}
                                         <CopyToClipboardInline
                                             iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
                                             className="font-normal text-sm"
