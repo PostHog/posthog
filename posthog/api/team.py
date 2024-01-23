@@ -324,10 +324,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return super().get_serializer_class()
 
     def check_permissions(self, request):
-        # This is a hack to make sure that the permissions are checked against the organization
-        # that was used to validate the request, not the one that is being accessed
-        # This is needed because the organization is inferred from the current user
-        # and the organization is used to validate permissions
         if self.action and self.action == "create":
             organization = getattr(self.request.user, "organization", None)
             if not organization:
