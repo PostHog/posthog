@@ -164,7 +164,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setProduct: ({ product }) => {
             if (!product) {
                 window.location.href = urls.default()
-                return
+            } else {
+                actions.resetStepKey()
             }
         },
         setProductKey: ({ productKey }) => {
