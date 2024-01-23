@@ -3,7 +3,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import translate_hogql
-from posthog.hogql.modifiers import set_default_in_cohort_via
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -28,7 +27,6 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team)
-    query_modifiers = set_default_in_cohort_via(query_modifiers)
 
     try:
         if isinstance(query.expr, str):

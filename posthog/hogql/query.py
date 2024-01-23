@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.hogql.printer import (
@@ -42,7 +42,6 @@ def execute_hogql_query(
         timings = HogQLTimings()
 
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
-    query_modifiers = set_default_in_cohort_via(query_modifiers)
 
     with timings.measure("query"):
         if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
