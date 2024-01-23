@@ -69,7 +69,7 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
     return (
         <div className="w-full max-w-screen-xl">
-            <h3 className="mb-4 text-lg font-bold">Usage-based pricing that only scales when you do.</h3>
+            <h3 className="mb-4 text-2xl font-bold">Usage-based pricing that only scales when you do</h3>
             <ul className="pl-2 flex flex-col gap-y-1">
                 {planForStats.tiers?.[0].up_to && (
                     <>
@@ -130,16 +130,16 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
     return product ? (
         <>
             <div className="unsubscribed-product-landing-page">
-                <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center">
-                    <div className="grid grid-cols-2 items-center justify-between gap-8 w-full max-w-screen-xl">
-                        <div className="px-8">
+                <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
+                    <div className="grid grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
+                        <div className="">
                             <h2 className="text-2xl font-bold">{product.name}</h2>
                             <h3 className="text-4xl font-bold">{product.headline}</h3>
                             <p>{product.description}</p>
                             <GetStartedButton product={product} />
                         </div>
                         <aside className="text-right my-2">
-                            <img src={product.image_url || undefined} className="max-w-full" />
+                            <img src={product.image_url || undefined} className="max-w-96" />
                         </aside>
                     </div>
                 </header>
@@ -150,9 +150,10 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                         </div>
                     </div>
                 )}
+
                 <div className="features p-8 py-12 border-t border-border flex justify-center">
-                    <div className="max-w-screen-xl ">
-                        <h3 className="mb-4 text-lg font-bold">Features</h3>
+                    <div className="max-w-screen-xl">
+                        <h3 className="mb-6 text-2xl font-bold">Features</h3>
                         <ul className="list-none p-0 grid grid-cols-3 gap-8 mb-8 ">
                             {product.features
                                 .filter((feature) => feature.type == 'primary')
@@ -201,13 +202,15 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                         </div>
                     </div>
                 </div>
-                <div className="features p-8 py-12 border-t border-border flex justify-center">
-                    <PricingSection product={product} />
+                <div className="features p-8 py-12 border-t border-border">
+                    <div className="max-w-screen-xl m-auto">
+                        <PricingSection product={product} />
+                    </div>
                 </div>
-                <div className="p-8 mb-12 flex justify-center">
+                <div className="mb-12 flex justify-center">
                     <div className="w-full max-w-screen-xl rounded bg-white border border-border p-6 flex justify-between items-center">
                         <div>
-                            <h3 className="mb-4 text-lg font-bold">Get started with {product.name}</h3>
+                            <h3 className="mb-4 text-2xl font-bold">Get started with {product.name}</h3>
                             <p className="text-[15px]">{product.description}</p>
                             <GetStartedButton product={product} />
                         </div>
