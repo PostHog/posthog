@@ -5,10 +5,11 @@ from typing import Any, Dict, List, Optional, Union
 
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, inline_serializer
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -58,6 +59,30 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
+class UncountedLimitOffsetPagination(LimitOffsetPagination):
+    """
+    the events api works with the default LimitOffsetPagination, but the
+    results don't have a count, so we need to override the pagination class
+    to remove the count from the response schema
+    """
+
+    def get_paginated_response_schema(self, schema):
+        return {
+            "type": "object",
+            "properties": {
+                "next": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "http://api.example.org/accounts/?{offset_param}=400&{limit_param}=100".format(
+                        offset_param=self.offset_query_param, limit_param=self.limit_query_param
+                    ),
+                },
+                "results": schema,
+            },
+        }
+
+
 class EventViewSet(
     StructuredViewSetMixin,
     mixins.RetrieveModelMixin,
@@ -72,6 +97,7 @@ class EventViewSet(
         TeamMemberAccessPermission,
     ]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    pagination_class = UncountedLimitOffsetPagination
 
     def _build_next_url(
         self,
@@ -90,20 +116,12 @@ class EventViewSet(
 
     @extend_schema(
         description="""
-        This endpoint allows you to list and filter events. It is effectively deprecated and is kept only for backwards compatibility.
+        This endpoint allows you to list and filter events.
+        It is effectively deprecated and is kept only for backwards compatibility.
         If you ever ask about it you will be advised to not use it...
         If you want to ad-hoc list or aggregate events, use the Query endpoint instead.
         If you want to export all events or many pages of events you should use our CDP/Batch Exports products instead.
         """,
-        responses={
-            200: inline_serializer(
-                name="EventsAPIResponse",
-                fields={
-                    "next": serializers.CharField(),
-                    "results": ClickhouseEventSerializer(many=True),
-                },
-            ),
-        },
         parameters=[
             OpenApiParameter(
                 "event",
