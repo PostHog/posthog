@@ -10956,17 +10956,6 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.16
   '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard_list.17
-  '''
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -10976,7 +10965,7 @@
          AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.18
+# name: TestDashboard.test_retrieve_dashboard_list.17
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -11000,7 +10989,7 @@
   LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.19
+# name: TestDashboard.test_retrieve_dashboard_list.18
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
@@ -11010,6 +10999,20 @@
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."insight_id" IS NULL)) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  '''
+# ---
+# name: TestDashboard.test_retrieve_dashboard_list.19
+  '''
+  SELECT "posthog_sharingconfiguration"."id",
+         "posthog_sharingconfiguration"."team_id",
+         "posthog_sharingconfiguration"."dashboard_id",
+         "posthog_sharingconfiguration"."insight_id",
+         "posthog_sharingconfiguration"."recording_id",
+         "posthog_sharingconfiguration"."created_at",
+         "posthog_sharingconfiguration"."enabled",
+         "posthog_sharingconfiguration"."access_token"
+  FROM "posthog_sharingconfiguration"
+  WHERE "posthog_sharingconfiguration"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.2
@@ -11044,26 +11047,12 @@
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.20
   '''
-  SELECT "posthog_sharingconfiguration"."id",
-         "posthog_sharingconfiguration"."team_id",
-         "posthog_sharingconfiguration"."dashboard_id",
-         "posthog_sharingconfiguration"."insight_id",
-         "posthog_sharingconfiguration"."recording_id",
-         "posthog_sharingconfiguration"."created_at",
-         "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
-  FROM "posthog_sharingconfiguration"
-  WHERE "posthog_sharingconfiguration"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard_list.21
-  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.22
+# name: TestDashboard.test_retrieve_dashboard_list.21
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -11122,7 +11111,7 @@
   LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.23
+# name: TestDashboard.test_retrieve_dashboard_list.22
   '''
   SELECT "posthog_sharingconfiguration"."id",
          "posthog_sharingconfiguration"."team_id",
@@ -11136,7 +11125,7 @@
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.24
+# name: TestDashboard.test_retrieve_dashboard_list.23
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -11304,7 +11293,7 @@
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.25
+# name: TestDashboard.test_retrieve_dashboard_list.24
   '''
   SELECT "posthog_tag"."name"
   FROM "posthog_taggeditem"
@@ -11312,7 +11301,7 @@
   WHERE "posthog_taggeditem"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.26
+# name: TestDashboard.test_retrieve_dashboard_list.25
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -11343,7 +11332,7 @@
   LIMIT 21 /**/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.27
+# name: TestDashboard.test_retrieve_dashboard_list.26
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -11395,7 +11384,7 @@
   LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.28
+# name: TestDashboard.test_retrieve_dashboard_list.27
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -11425,7 +11414,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.29
+# name: TestDashboard.test_retrieve_dashboard_list.28
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -11449,6 +11438,14 @@
   LIMIT 21 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
+# name: TestDashboard.test_retrieve_dashboard_list.29
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboard"
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."team_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  '''
+# ---
 # name: TestDashboard.test_retrieve_dashboard_list.3
   '''
   SELECT "posthog_instancesetting"."id",
@@ -11461,14 +11458,6 @@
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.30
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."team_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard_list.31
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -11590,7 +11579,7 @@
   LIMIT 100 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
-# name: TestDashboard.test_retrieve_dashboard_list.32
+# name: TestDashboard.test_retrieve_dashboard_list.31
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -11610,6 +11599,24 @@
                                                 3,
                                                 4,
                                                 5 /* ... */) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  '''
+# ---
+# name: TestDashboard.test_retrieve_dashboard_list.32
+  '''
+  SELECT "posthog_sharingconfiguration"."id",
+         "posthog_sharingconfiguration"."team_id",
+         "posthog_sharingconfiguration"."dashboard_id",
+         "posthog_sharingconfiguration"."insight_id",
+         "posthog_sharingconfiguration"."recording_id",
+         "posthog_sharingconfiguration"."created_at",
+         "posthog_sharingconfiguration"."enabled",
+         "posthog_sharingconfiguration"."access_token"
+  FROM "posthog_sharingconfiguration"
+  WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
+                                                          2,
+                                                          3,
+                                                          4,
+                                                          5 /* ... */) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.33
