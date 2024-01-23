@@ -1750,13 +1750,22 @@
                     },
                     "type": "array"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "type": "integer"
                 },
                 "query": {
                     "description": "Input query string",
@@ -2786,13 +2795,22 @@
                             },
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query",
                             "type": "string"
                         },
+                        "limit": {
+                            "type": "integer"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "query": {
                             "description": "Input query string",

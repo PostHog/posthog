@@ -3,13 +3,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema'
-import { isActorsQuery, isPersonsNode } from '~/queries/utils'
+import { isActorsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 
 interface LoadNextProps {
     query: DataNode
 }
 export function LoadNext({ query }: LoadNextProps): JSX.Element {
-    const { canLoadNextData, nextDataLoading, numberOfRows } = useValues(dataNodeLogic)
+    const { canLoadNextData, nextDataLoading, numberOfRows, hasMoreData } = useValues(dataNodeLogic)
     const { loadNextData } = useActions(dataNodeLogic)
 
     return (
@@ -25,6 +25,7 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                     ? 'event'
                     : 'events'}
                 {canLoadNextData ? '. Click to load more.' : '. Reached the end of results.'}
+                {isHogQLQuery(query) && !canLoadNextData && hasMoreData && ' Try adding or adjusting a LIMIT clause.'}
             </LemonButton>
         </div>
     )

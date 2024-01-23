@@ -7,6 +7,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLQuery,
@@ -20,6 +21,10 @@ from posthog.schema import (
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
     query_type = HogQLQuery
+
+    def __init__(self, *args, **kwargs):
+        self.paginator = None  # Determined later based on query having limit or not
+        super().__init__(*args, **kwargs)
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
@@ -41,9 +46,13 @@ class HogQLQueryRunner(QueryRunner):
         return self.to_query()
 
     def calculate(self) -> HogQLQueryResponse:
-        return execute_hogql_query(
+        query = self.to_query()
+        if not query.limit:
+            self.paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+        func = execute_hogql_query if self.paginator is None else self.paginator.execute_hogql_query
+        response = func(
             query_type="HogQLQuery",
-            query=self.to_query(),
+            query=query,
             filters=self.query.filters,
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
@@ -52,6 +61,11 @@ class HogQLQueryRunner(QueryRunner):
             limit_context=self.limit_context,
             explain=bool(self.query.explain),
         )
+        if self.paginator:
+            response = response.model_copy(
+                update={**self.paginator.response_params(), "results": self.paginator.results}
+            )
+        return response
 
     def _is_stale(self, cached_result_package):
         return True
