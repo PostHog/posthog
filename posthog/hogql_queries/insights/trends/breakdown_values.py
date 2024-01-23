@@ -83,7 +83,7 @@ class BreakdownValues:
         if self.chart_display_type == ChartDisplayType.WorldMap:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
         else:
-            breakdown_limit = self.breakdown_limit or BREAKDOWN_VALUES_LIMIT
+            breakdown_limit = int(self.breakdown_limit) if self.breakdown_limit is not None else BREAKDOWN_VALUES_LIMIT
 
         inner_events_query = parse_select(
             """

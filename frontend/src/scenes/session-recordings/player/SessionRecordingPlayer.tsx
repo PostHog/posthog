@@ -7,7 +7,7 @@ import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotke
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { PlayerController } from 'scenes/session-recordings/player/controller/PlayerController'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
@@ -139,9 +139,17 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         }
     )
 
-    const [inspectorFocus, setInspectorFocus] = useState(false)
+    const isWidescreen = !isFullScreen && size === 'medium'
+
+    const [inspectorExpanded, setInspectorExpanded] = useState(isWidescreen)
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
+
+    useEffect(() => {
+        if (isWidescreen) {
+            setInspectorExpanded(true)
+        }
+    }, [isWidescreen])
 
     if (isNotFound) {
         return (
@@ -151,8 +159,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         )
     }
 
-    const isWidescreen = !isFullScreen && size === 'medium'
-
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <div
@@ -161,7 +167,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     'SessionRecordingPlayer--fullscreen': isFullScreen,
                     'SessionRecordingPlayer--no-border': noBorder,
                     'SessionRecordingPlayer--widescreen': isWidescreen,
-                    'SessionRecordingPlayer--inspector-focus': inspectorFocus || isWidescreen,
+                    'SessionRecordingPlayer--inspector-focus': inspectorExpanded || isWidescreen,
                     'SessionRecordingPlayer--inspector-hidden': noInspector || size === 'tiny',
                     'SessionRecordingPlayer--buffering': isBuffering,
                 })}
@@ -172,7 +178,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                         <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                     ) : (
                         <>
-                            <div className="SessionRecordingPlayer__main">
+                            <div
+                                className="SessionRecordingPlayer__main"
+                                onClick={() => {
+                                    if (!isWidescreen) {
+                                        setInspectorExpanded(false)
+                                    }
+                                }}
+                            >
                                 {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
 
                                 <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
@@ -182,7 +195,12 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 <LemonDivider className="my-0" />
                                 <PlayerController />
                             </div>
-                            {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
+                            {!noInspector && (
+                                <PlayerInspector
+                                    inspectorExpanded={inspectorExpanded}
+                                    setInspectorExpanded={setInspectorExpanded}
+                                />
+                            )}
                         </>
                     )}
                 </FloatingContainerContext.Provider>

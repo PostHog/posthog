@@ -12,9 +12,8 @@ export type ResizerEvent = {
 }
 
 export type ResizerLogicProps = {
-    /** Specifying a persistence key, will store the desired resize values in localstorage */
-    persistentKey?: string
-    /** Where the resizer is placed - the width increases as the mouse moves {placement}   */
+    logicKey: string
+    persistent?: boolean
     placement: 'left' | 'right'
     containerRef: React.RefObject<HTMLDivElement>
     onResize?: (event: ResizerEvent) => void
@@ -36,7 +35,7 @@ const removeAllListeners = (cache: Record<string, any>): void => {
 
 export const resizerLogic = kea<resizerLogicType>([
     props({} as ResizerLogicProps),
-    key((props) => props.persistentKey ?? 'temporary'),
+    key((props) => props.logicKey),
     path((key) => ['components', 'resizer', 'resizerLogic', key]),
     actions({
         beginResize: (startX: number) => ({ startX }),
@@ -45,7 +44,7 @@ export const resizerLogic = kea<resizerLogicType>([
         setDesiredWidth: (width: number | null) => ({ width }),
         resetDesiredWidth: true,
     }),
-    reducers({
+    reducers(({ props }) => ({
         isResizeInProgress: [
             false,
             {
@@ -55,7 +54,7 @@ export const resizerLogic = kea<resizerLogicType>([
         ],
         width: [
             null as number | null,
-            { persist: true },
+            { persist: props.persistent },
             {
                 setDesiredWidth: (_, { width }) => width,
                 resetDesiredWidth: () => null,
@@ -69,7 +68,7 @@ export const resizerLogic = kea<resizerLogicType>([
                 endResize: () => null,
             },
         ],
-    }),
+    })),
     selectors({
         desiredWidth: [
             (s) => [s.width, s.resizingWidth, s.isResizeInProgress],
@@ -145,7 +144,7 @@ export const resizerLogic = kea<resizerLogicType>([
                         props.onResize?.(event)
 
                         posthog.capture('element resized', {
-                            key: props.persistentKey,
+                            key: props.logicKey,
                             newWidth: event.desiredWidth,
                             originalWidth: originContainerBounds.width,
                             isClosed,
