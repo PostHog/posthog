@@ -429,13 +429,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         hasMoreData: [
             (s) => [s.response],
             (response): boolean => {
-                if (!response) {
+                if (!response?.hasMore) {
                     return false
                 }
-                if ('hasMore' in response) {
-                    return response.hasMore
+                return response.hasMore
+            },
+        ],
+        dataLimit: [
+            // get limit from response
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response?.limit) {
+                    return null
                 }
-                return false
+                return response.limit
             },
         ],
         backToSourceQuery: [

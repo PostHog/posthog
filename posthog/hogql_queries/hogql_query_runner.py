@@ -23,7 +23,6 @@ class HogQLQueryRunner(QueryRunner):
     query_type = HogQLQuery
 
     def __init__(self, *args, **kwargs):
-        self.paginator = None  # Determined later based on query having limit or not
         super().__init__(*args, **kwargs)
 
     def to_query(self) -> ast.SelectQuery:
@@ -47,9 +46,10 @@ class HogQLQueryRunner(QueryRunner):
 
     def calculate(self) -> HogQLQueryResponse:
         query = self.to_query()
+        paginator = None
         if not query.limit:
-            self.paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
-        func = execute_hogql_query if self.paginator is None else self.paginator.execute_hogql_query
+            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+        func = execute_hogql_query if paginator is None else paginator.execute_hogql_query
         response = func(
             query_type="HogQLQuery",
             query=query,
@@ -61,10 +61,8 @@ class HogQLQueryRunner(QueryRunner):
             limit_context=self.limit_context,
             explain=bool(self.query.explain),
         )
-        if self.paginator:
-            response = response.model_copy(
-                update={**self.paginator.response_params(), "results": self.paginator.results}
-            )
+        if paginator:
+            response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
         return response
 
     def _is_stale(self, cached_result_package):
