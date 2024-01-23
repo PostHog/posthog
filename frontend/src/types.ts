@@ -1,6 +1,5 @@
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { eventWithTime } from '@rrweb/types'
-import { UploadFile } from 'antd/lib/upload/interface'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -977,7 +976,7 @@ export interface CohortType {
     last_calculation?: string
     is_static?: boolean
     name?: string
-    csv?: UploadFile
+    csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
     filters: {
         properties: CohortCriteriaGroupFilter
