@@ -621,7 +621,11 @@ export function Experiment(): JSX.Element {
                                                     placement="bottom"
                                                     title="Your experiment is running, but the linked flag is disabled. No data is being collected."
                                                 >
-                                                    <IconWarning className="mr-1 text-danger" fontSize="18px" />
+                                                    <IconWarning
+                                                        style={{ transform: 'translateY(2px)' }}
+                                                        className="mr-1 text-danger"
+                                                        fontSize="18px"
+                                                    />
                                                 </Tooltip>
                                             )}
                                         <CopyToClipboardInline
@@ -689,7 +693,7 @@ export function Experiment(): JSX.Element {
                                 for more information.{' '}
                             </LemonBanner>
                         )}
-                        {showWarning && experiment.end_date && (
+                        {showWarning && experiment.end_date && experiment.feature_flag?.active && (
                             <LemonBanner type="info" onClose={() => setShowWarning(false)}>
                                 <strong>Your experiment is complete, but the feature flag is still enabled.</strong> We
                                 recommend removing the feature flag from your code completely, instead of relying on
