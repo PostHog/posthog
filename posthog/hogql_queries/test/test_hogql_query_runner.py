@@ -63,6 +63,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_default_hogql_query_with_limit(self):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
         response = runner.calculate()
+        assert response.results is not None
         self.assertEqual(len(response.results), 5)
         self.assertNotIn("hasMore", response)
 
