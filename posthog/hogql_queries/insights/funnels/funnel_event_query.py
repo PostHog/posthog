@@ -1,11 +1,13 @@
-from typing import List, Optional
+from typing import List, Optional, Set, Union
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.models.action.action import Action
 from posthog.models.team.team import Team
-from posthog.schema import FunnelsQuery, HogQLQueryModifiers
+from posthog.schema import ActionsNode, EventsNode, FunnelsQuery, HogQLQueryModifiers
+from rest_framework.exceptions import ValidationError
 
 
 class FunnelEventQuery(FunnelQueryContext):
@@ -23,22 +25,24 @@ class FunnelEventQuery(FunnelQueryContext):
 
     def to_query(
         self,
-        # entities=None,
-        # entity_name="events",
-        # skip_entity_filter=False,
+        # entities=None, # TODO: implement passed in entities when needed
+        skip_entity_filter=False,
     ) -> ast.SelectQuery:
         select: List[ast.Expr] = [
             ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
-            ast.Alias(alias="aggregation_target", expr=ast.Field(chain=[self.aggregation_target_column()])),
+            ast.Alias(alias="aggregation_target", expr=ast.Field(chain=[self._aggregation_target_column()])),
         ]
 
         select_from = ast.JoinExpr(
             table=ast.Field(chain=["events"]),
             alias=self.EVENT_TABLE_ALIAS,
-            sample=self.sample_expr(),
+            sample=self._sample_expr(),
         )
 
-        where_exprs = [self.date_range_expr()]
+        where_exprs = [
+            self._date_range_expr(),
+            self._entity_expr(skip_entity_filter),
+        ]
 
         # prop_query = self._get_prop_groups(
         #     self._filter.property_groups,
@@ -46,19 +50,15 @@ class FunnelEventQuery(FunnelQueryContext):
         #     person_id_joined_alias=self._person_id_alias,
         # )
 
-        # if not skip_entity_filter:
-        #     entity_query = self._get_entity_query(entities, entity_name)
-
         # person_query = self._get_person_query()
 
         # query = f"""
         #     {self._get_person_ids_query()}
         #     {person_query}
         #     WHERE
-        #     {entity_query}
         #     {prop_query}
         # """
-        where = ast.And(exprs=where_exprs)
+        where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         # return query, self.params
         stmt = ast.SelectQuery(
@@ -68,7 +68,7 @@ class FunnelEventQuery(FunnelQueryContext):
         )
         return stmt
 
-    def aggregation_target_column(self) -> str:
+    def _aggregation_target_column(self) -> str:
         # Aggregating by group
         if self.query.aggregation_group_type_index is not None:
             aggregation_target = f'{self.EVENT_TABLE_ALIAS}."$group_{self.query.aggregation_group_type_index}"'
@@ -92,13 +92,13 @@ class FunnelEventQuery(FunnelQueryContext):
 
         return aggregation_target
 
-    def sample_expr(self) -> ast.SampleExpr | None:
+    def _sample_expr(self) -> ast.SampleExpr | None:
         if self.query.samplingFactor is None:
             return None
         else:
             return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor)))
 
-    def date_range_expr(self) -> ast.Expr:
+    def _date_range_expr(self) -> ast.Expr:
         return ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -114,19 +114,27 @@ class FunnelEventQuery(FunnelQueryContext):
             ]
         )
 
-    # def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
-    #     events: Set[Union[int, str, None]] = set()
-    #     entities_to_use = entities or self._filter.entities
+    def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
+        if skip_entity_filter is True:
+            return None
 
-    #     for entity in entities_to_use:
-    #         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-    #             action = entity.get_action()
-    #             events.update(action.get_step_events())
-    #         else:
-    #             events.add(entity.id)
+        events: Set[Union[int, str, None]] = set()
 
-    #     # If selecting for "All events", disable entity pre-filtering
-    #     if None in events:
-    #         return "AND 1 = 1", {}
+        for node in self.query.series:
+            if isinstance(node, EventsNode):
+                events.add(node.event)
+            elif isinstance(node, ActionsNode):
+                action = Action.objects.get(pk=int(node.id), team=self.team)
+                events.add(action.name)
+            else:
+                raise ValidationError("Series must either be events or actions")
 
-    #     return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}
+        # Disable entity pre-filtering for "All events"
+        if None in events:
+            return None
+
+        return ast.CompareOperation(
+            left=ast.Field(chain=["event"]),
+            right=ast.Tuple(exprs=[ast.Constant(value=event) for event in events]),
+            op=ast.CompareOperationOp.In,
+        )
