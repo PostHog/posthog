@@ -1,17 +1,18 @@
-import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconEye } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonDivider, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LaptopHog1 } from 'lib/components/hedgehogs'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useEffect } from 'react'
 import React from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
 import { ProductKey, SDKInstructionsMap } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { sdksLogic, snippetOnlyProducts } from './sdksLogic'
+import { multiInstallProducts, sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
 export function SDKs({
@@ -25,8 +26,14 @@ export function SDKs({
     subtitle?: string
     stepKey?: OnboardingStepKey
 }): JSX.Element {
-    const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
-        useActions(sdksLogic)
+    const {
+        setSourceFilter,
+        setSelectedSDK,
+        setAvailableSDKInstructionsMap,
+        setShowSideBySide,
+        setPanel,
+        setHasSnippetEvents,
+    } = useActions(sdksLogic)
     const {
         sourceFilter,
         sdks,
@@ -38,8 +45,10 @@ export function SDKs({
         hasSnippetEvents,
     } = useValues(sdksLogic)
     const { productKey, product } = useValues(onboardingLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { width } = useWindowSize()
     const minimumSideBySideSize = 768
+    const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
 
     useEffect(() => {
         setAvailableSDKInstructionsMap(sdkInstructionMap)
@@ -49,19 +58,27 @@ export function SDKs({
         width && setShowSideBySide(width > minimumSideBySideSize)
     }, [width])
 
-    return snippetOnlyProducts.includes((product?.type ?? '') as ProductKey) && hasSnippetEvents === null ? (
+    return !isFirstProduct && hasSnippetEvents === null ? (
         <OnboardingStep title="Checking for snippet installation..." stepKey={stepKey} hedgehog={<LaptopHog1 />}>
             <div className="flex justify-center mt-6">
                 <Spinner className="text-xl" />
             </div>
         </OnboardingStep>
-    ) : snippetOnlyProducts.includes((product?.type ?? '') as ProductKey) && hasSnippetEvents ? (
+    ) : !isFirstProduct && hasSnippetEvents ? (
         <OnboardingStep
             title={`Huzzah! You've already installed PostHog.js.`}
             stepKey={stepKey}
             hedgehog={<LaptopHog1 />}
         >
             <p>{product?.name} works with PostHog.js with no extra installation required. Easy peasy, huh?</p>
+            {multiInstallProducts.includes(productKey as ProductKey) && (
+                <p>
+                    Need to install somewhere else?{' '}
+                    <Link onClick={() => setHasSnippetEvents(false)}>
+                        <IconEye /> Show SDK instructions
+                    </Link>
+                </p>
+            )}
         </OnboardingStep>
     ) : (
         <OnboardingStep

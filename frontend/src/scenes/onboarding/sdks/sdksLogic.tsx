@@ -32,7 +32,10 @@ const getSourceOptions = (availableSDKInstructionsMap: SDKInstructionsMap): Lemo
     return selectOptions
 }
 
-export const snippetOnlyProducts = [ProductKey.SESSION_REPLAY, ProductKey.FEATURE_FLAGS, ProductKey.SURVEYS]
+/*
+Products that will often be installed in multiple places, eg. web and mobile
+*/
+export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FEATURE_FLAGS]
 
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
@@ -49,6 +52,7 @@ export const sdksLogic = kea<sdksLogicType>([
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
         setShowSideBySide: (showSideBySide: boolean) => ({ showSideBySide }),
         setPanel: (panel: 'instructions' | 'options') => ({ panel }),
+        setHasSnippetEvents: (hasSnippetEvents: boolean) => ({ hasSnippetEvents }),
     }),
     reducers({
         sourceFilter: [
@@ -93,6 +97,9 @@ export const sdksLogic = kea<sdksLogicType>([
                 setPanel: (_, { panel }) => panel,
             },
         ],
+        hasSnippetEvents: {
+            setHasSnippetEvents: (_, { hasSnippetEvents }) => hasSnippetEvents,
+        },
     }),
     selectors({
         showSourceOptionsSelect: [
@@ -113,7 +120,7 @@ export const sdksLogic = kea<sdksLogicType>([
                         kind: NodeKind.HogQLQuery,
                         query: hogql`SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
                                 FROM events
-                                WHERE timestamp >= now() - INTERVAL 3 DAY 
+                                WHERE timestamp >= now() - INTERVAL 10 DAY 
                                 AND timestamp <= now()
                                 AND properties.$lib = 'web'
                                 GROUP BY lib_version
