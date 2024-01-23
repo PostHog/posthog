@@ -22,9 +22,6 @@ class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
     query_type = HogQLQuery
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
             self.timings = HogQLTimings()
