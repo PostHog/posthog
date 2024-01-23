@@ -74,11 +74,9 @@ class FunnelEventQuery(FunnelQueryContext):
             aggregation_target = f'{self.EVENT_TABLE_ALIAS}."$group_{self.query.aggregation_group_type_index}"'
 
         # Aggregating by HogQL
-        elif (
-            self.funnelsFilter.funnel_aggregate_by_hogql and self.funnelsFilter.funnel_aggregate_by_hogql != "person_id"
-        ):
+        elif self.funnelsFilter.funnelAggregateByHogQL and self.funnelsFilter.funnelAggregateByHogQL != "person_id":
             aggregation_target = translate_hogql(
-                self.funnelsFilter.funnel_aggregate_by_hogql,
+                self.funnelsFilter.funnelAggregateByHogQL,
                 events_table_alias=self.EVENT_TABLE_ALIAS,
                 context=self.hogql_context,
             )
