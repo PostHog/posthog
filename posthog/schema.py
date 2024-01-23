@@ -401,8 +401,11 @@ class PathsFilter(BaseModel):
     localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
     maxEdgeWeight: Optional[int] = None
     minEdgeWeight: Optional[int] = None
+    pathDropoffKey: Optional[str] = None
+    pathEndKey: Optional[str] = None
     pathGroupings: Optional[List[str]] = None
     pathReplacements: Optional[bool] = None
+    pathStartKey: Optional[str] = None
     pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[int] = None

@@ -2261,6 +2261,12 @@
                 "minEdgeWeight": {
                     "type": "integer"
                 },
+                "pathDropoffKey": {
+                    "type": "string"
+                },
+                "pathEndKey": {
+                    "type": "string"
+                },
                 "pathGroupings": {
                     "items": {
                         "type": "string"
@@ -2269,6 +2275,9 @@
                 },
                 "pathReplacements": {
                     "type": "boolean"
+                },
+                "pathStartKey": {
+                    "type": "string"
                 },
                 "pathsHogQLExpression": {
                     "type": "string"
