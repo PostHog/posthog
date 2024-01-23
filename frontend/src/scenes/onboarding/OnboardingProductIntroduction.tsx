@@ -66,61 +66,62 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const { currentAndUpgradePlans, isPricingModalOpen } = useValues(billingProductLogic({ product: product }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: product }))
     const planForStats = currentAndUpgradePlans.upgradePlan || currentAndUpgradePlans.currentPlan
+    const pricingListItems = [
+        planForStats.tiers?.[0].up_to && (
+            <>
+                Get{' '}
+                <b>
+                    {convertLargeNumberToWords(planForStats.tiers?.[0].up_to, null)} {product.unit}s free
+                </b>{' '}
+                every month.
+            </>
+        ),
+        planForStats.tiers?.[0].up_to && (
+            <>
+                Then just <span className="font-bold">${planForStats.tiers?.[1].unit_amount_usd}</span>/{product.unit}{' '}
+                after that, with{' '}
+                <Link onClick={() => toggleIsPricingModalOpen()} className="font-bold">
+                    volume discounts
+                </Link>{' '}
+                automatically applied.
+            </>
+        ),
+        <>
+            Set <b>usage limits as low as $0</b> so you never get an unexpected bill.
+        </>,
+        <>Pay only for what you use.</>,
+        <>
+            Or, stay on our generous free plan if you'd like - you still get{' '}
+            <b>
+                {convertLargeNumberToWords(
+                    currentAndUpgradePlans.currentPlan.free_allocation ||
+                        currentAndUpgradePlans.downgradePlan.free_allocation ||
+                        0,
+                    null
+                )}{' '}
+                {product.unit}s free
+            </b>{' '}
+            every month.
+        </>,
+    ]
 
     return (
         <div className="w-full max-w-screen-xl">
             <h3 className="mb-4 text-2xl font-bold">Usage-based pricing that only scales when you do</h3>
             <ul className="pl-2 flex flex-col gap-y-1">
-                {planForStats.tiers?.[0].up_to && (
-                    <>
-                        <li>
-                            <IconCheck className="inline-block mr-2 text-success" />
-                            Get{' '}
-                            <b>
-                                {convertLargeNumberToWords(planForStats.tiers?.[0].up_to, null)} {product.unit}s free
-                            </b>{' '}
-                            every month.
-                        </li>
-                        <li>
-                            <IconCheck className="inline-block mr-2 text-success" />
-                            Then just <span className="font-bold">${planForStats.tiers?.[1].unit_amount_usd}</span>/
-                            {product.unit} after that, with{' '}
-                            <Link onClick={() => toggleIsPricingModalOpen()} className="font-bold">
-                                volume discounts
-                            </Link>{' '}
-                            automatically applied.
-                        </li>
-                        <ProductPricingModal
-                            product={product}
-                            modalOpen={isPricingModalOpen}
-                            planKey={planForStats.plan_key}
-                            onClose={toggleIsPricingModalOpen}
-                        />
-                    </>
-                )}
-                <li>
-                    <IconCheck className="inline-block mr-2 text-success" />
-                    Set <b>usage limits as low as $0</b> so you never get an unexpected bill.
-                </li>
-                <li>
-                    <IconCheck className="inline-block mr-2 text-success" />
-                    Pay only for what you use.
-                </li>
-                <li>
-                    <IconCheck className="inline-block mr-2 text-success" />
-                    Or, stay on our generous free plan if you'd like - you still get{' '}
-                    <b>
-                        {convertLargeNumberToWords(
-                            currentAndUpgradePlans.currentPlan.free_allocation ||
-                                currentAndUpgradePlans.downgradePlan.free_allocation ||
-                                0,
-                            null
-                        )}{' '}
-                        {product.unit}s free
-                    </b>{' '}
-                    every month.
-                </li>
+                {pricingListItems.map((item, i) => (
+                    <li className="flex gap-x-2 items-start" key={`pricing-item-${i}`}>
+                        <IconCheck className="inline-block text-success shrink-0 mt-1" />
+                        <span>{item}</span>
+                    </li>
+                ))}
             </ul>
+            <ProductPricingModal
+                product={product}
+                modalOpen={isPricingModalOpen}
+                planKey={planForStats.plan_key}
+                onClose={toggleIsPricingModalOpen}
+            />
         </div>
     )
 }
@@ -180,7 +181,7 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                         </ul>
                         <div className="mt-16">
                             <h3 className="mb-4 text-lg font-bold">Get the most out of {product.name}</h3>
-                            <ul className="flex gap-x-8">
+                            <ul className="flex flex-col sm:flex-row gap-x-8 gap-y-2">
                                 <li>
                                     <Link to={product.docs_url} target="_blank">
                                         <IconStack className="mr-2 text-xl" />
