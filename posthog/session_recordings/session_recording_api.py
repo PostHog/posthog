@@ -511,6 +511,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         timings = summary.pop("timings", None)
         cache.set(cache_key, summary, timeout=30)
 
+        posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
+
         # let the browser cache for half the time we cache on the server
         r = Response(summary, headers={"Cache-Control": "max-age=15"})
         if timings:

@@ -27,7 +27,7 @@ import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { Replayer } from 'rrweb'
-import { ReplayPlugin } from 'rrweb/typings/types'
+import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
@@ -44,6 +44,7 @@ import { createExportedSessionRecording } from '../file-playback/sessionRecordin
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
+import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
@@ -179,7 +180,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
-        playerErrorSeen: (errorEvent: ErrorEvent) => ({ errorEvent }),
+        // the error is emitted from code we don't control in rrweb so we can't guarantee it's really an Error
+        playerErrorSeen: (error: any) => ({ error }),
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
     }),
     reducers(() => ({
@@ -467,15 +469,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
-        playerErrorSeen: ({ errorEvent }) => {
-            const fingerprint = encodeURIComponent(
-                errorEvent.message + errorEvent.filename + errorEvent.lineno + errorEvent.colno
-            )
+        playerErrorSeen: ({ error }) => {
+            const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
             if (values.reportedReplayerErrors.has(fingerprint)) {
                 return
             }
-            const extra = { fingerprint, recordingId: values.sessionRecordingId }
-            captureException(errorEvent.error, {
+            const extra = { fingerprint, playbackSessionId: values.sessionRecordingId }
+            captureException(error, {
                 extra,
                 tags: { feature: 'replayer error swallowed' },
             })
@@ -527,13 +527,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CANVAS]) {
+                plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            }
+
             cache.debug?.('tryInitReplayer', {
                 windowId,
                 rootFrame: values.rootFrame,
                 snapshots: values.sessionPlayerData.snapshotsByWindowId[windowId],
             })
 
-            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
+            const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
@@ -541,7 +545,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
                 plugins,
-            })
+                onError: (error) => {
+                    actions.playerErrorSeen(error)
+                },
+            }
+            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
             actions.setPlayer({ replayer, windowId })
         },

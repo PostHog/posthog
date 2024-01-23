@@ -59,6 +59,7 @@ jobs:
               id: build
               uses: depot/build-push-action@v1
               with:
+                  context: .
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}
