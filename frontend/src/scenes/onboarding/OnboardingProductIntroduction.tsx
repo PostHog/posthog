@@ -48,7 +48,7 @@ export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const cta: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'Start recording my website',
-        [ProductKey.FEATURE_FLAGS]: 'Create a feature flag',
+        [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
         [ProductKey.SURVEYS]: 'Create a survey',
     }
 
@@ -160,13 +160,13 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                 </header>
                 {product.screenshot_url && (
                     <div className="flex justify-center">
-                        <div className="max-w-6xl mt-12">
+                        <div className="max-w-6xl mt-8 -mb-12">
                             <img src={product.screenshot_url || undefined} className="w-full" />
                         </div>
                     </div>
                 )}
 
-                <div className="features p-8 py-12 border-t border-border flex justify-center">
+                <div className="features p-8 py-8 border-t border-border flex justify-center">
                     <div className="max-w-screen-xl">
                         <h3 className="mb-6 text-2xl font-bold">Features</h3>
                         <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
