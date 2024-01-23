@@ -323,6 +323,20 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
+    def check_permissions(self, request):
+        # This is a hack to make sure that the permissions are checked against the organization
+        # that was used to validate the request, not the one that is being accessed
+        # This is needed because the organization is inferred from the current user
+        # and the organization is used to validate permissions
+        if self.action and self.action == "create":
+            organization = getattr(self.request.user, "organization", None)
+            if not organization:
+                raise exceptions.ValidationError("You need to belong to an organization.")
+            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+            self.organization = organization
+
+        return super().check_permissions(request)
+
     def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
@@ -330,20 +344,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
         base_permissions = [permission() for permission in self.permission_classes]
 
-        # TRICKY: DRF Spectacular thinks it is safe to call this, and fails on any exception.
-        # but we do a lot in this method here so, let's return early
-        # because we know anonymous users have no permissions
-        if self.request.user.is_anonymous or not self.request.user.is_authenticated:
-            return base_permissions
-
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
-                organization = getattr(self.request.user, "organization", None)
-                if not organization:
-                    raise exceptions.ValidationError("You need to belong to an organization.")
-                # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-                self.organization = organization
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     base_permissions.append(OrganizationAdminWritePermissions())
                 elif "is_demo" in self.request.data:
