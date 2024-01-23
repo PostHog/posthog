@@ -21,6 +21,8 @@ import {
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 import { captureBatchExportEvent, capturePluginEvent } from './utils'
 
+export type DestinationFrequency = 'realtime' | BatchExportConfiguration['interval']
+
 interface DestinationTypeBase {
     name: string
     description?: string
@@ -29,8 +31,9 @@ interface DestinationTypeBase {
     metrics_url: string
     logs_url: string
     updated_at: string
-    frequency: 'realtime' | BatchExportConfiguration['interval']
+    frequency: DestinationFrequency
 }
+
 export enum PipelineAppBackend {
     BatchExport = 'batch_export',
     Plugin = 'plugin',

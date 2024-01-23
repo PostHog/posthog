@@ -18,6 +18,7 @@ import {
     PluginType,
 } from '~/types'
 
+import { DestinationFrequency } from './destinationsLogic'
 import { PipelineAppLogLevel } from './pipelineAppLogsLogic'
 
 const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
@@ -211,4 +212,17 @@ export function LogLevelDisplay(level: PipelineAppLogLevel): JSX.Element {
 
 export function LogTypeDisplay(type: PluginLogEntryType): JSX.Element {
     return LogLevelDisplay(typeToLogLevel(type))
+}
+
+export const humanFriendlyFrequencyName = (frequency: DestinationFrequency): string => {
+    switch (frequency) {
+        case 'realtime':
+            return 'Realtime'
+        case 'day':
+            return 'Daily'
+        case 'hour':
+            return 'Hourly'
+        case 'every 5 minutes':
+            return '5 min'
+    }
 }

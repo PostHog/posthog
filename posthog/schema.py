@@ -215,6 +215,20 @@ class FunnelExclusion(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
+    funnelFromStep: Optional[float] = None
+    funnelToStep: Optional[float] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+
+
+class FunnelExclusionLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_to_step: Optional[float] = None
     id: Optional[Union[str, float]] = None
@@ -265,6 +279,7 @@ class HogQLNotice(BaseModel):
 
 
 class InCohortVia(str, Enum):
+    auto = "auto"
     leftjoin = "leftjoin"
     subquery = "subquery"
     leftjoin_conjoined = "leftjoin_conjoined"
@@ -392,21 +407,44 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edge_limit: Optional[float] = None
+    edgeLimit: Optional[int] = None
+    endPoint: Optional[str] = None
+    excludeEvents: Optional[List[str]] = None
+    funnelFilter: Optional[Dict[str, Any]] = None
+    funnelPaths: Optional[FunnelPathType] = None
+    includeEventTypes: Optional[List[PathType]] = None
+    localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
+    maxEdgeWeight: Optional[int] = None
+    minEdgeWeight: Optional[int] = None
+    pathDropoffKey: Optional[str] = None
+    pathEndKey: Optional[str] = None
+    pathGroupings: Optional[List[str]] = None
+    pathReplacements: Optional[bool] = None
+    pathStartKey: Optional[str] = None
+    pathsHogQLExpression: Optional[str] = None
+    startPoint: Optional[str] = None
+    stepLimit: Optional[int] = None
+
+
+class PathsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edge_limit: Optional[int] = None
     end_point: Optional[str] = None
     exclude_events: Optional[List[str]] = None
     funnel_filter: Optional[Dict[str, Any]] = None
     funnel_paths: Optional[FunnelPathType] = None
     include_event_types: Optional[List[PathType]] = None
     local_path_cleaning_filters: Optional[List[PathCleaningFilter]] = None
-    max_edge_weight: Optional[float] = None
-    min_edge_weight: Optional[float] = None
+    max_edge_weight: Optional[int] = None
+    min_edge_weight: Optional[int] = None
     path_groupings: Optional[List[str]] = None
     path_replacements: Optional[bool] = None
     path_type: Optional[PathType] = None
     paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
-    step_limit: Optional[float] = None
+    step_limit: Optional[int] = None
 
 
 class PropertyFilterType(str, Enum):
@@ -561,6 +599,14 @@ class RetentionValue(BaseModel):
     count: int
 
 
+class SamplingRate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator: Optional[float] = None
+    numerator: float
+
+
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -579,6 +625,17 @@ class StepOrderValue(str, Enum):
 
 
 class StickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[bool] = None
+    display: Optional[ChartDisplayType] = None
+    hidden_legend_indexes: Optional[List[float]] = None
+    showLegend: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
+
+
+class StickinessFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -653,9 +710,9 @@ class TrendsFilter(BaseModel):
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
     showLabelsOnSeries: Optional[bool] = None
+    showLegend: Optional[bool] = None
     showPercentStackView: Optional[bool] = None
-    show_legend: Optional[bool] = None
-    show_values_on_series: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
     smoothingIntervals: Optional[float] = None
 
 
@@ -716,6 +773,14 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    forceSamplingRate: Optional[SamplingRate] = None
+
+
 class Kind1(str, Enum):
     unit = "unit"
     duration_s = "duration_s"
@@ -743,6 +808,7 @@ class WebOverviewQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -774,6 +840,7 @@ class WebStatsTableQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -788,6 +855,7 @@ class WebTopClicksQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -906,10 +974,30 @@ class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    binCount: Optional[Union[float, str]] = None
+    breakdownAttributionType: Optional[BreakdownAttributionType] = None
+    breakdownAttributionValue: Optional[float] = None
+    exclusions: Optional[List[FunnelExclusion]] = None
+    funnelAggregateByHogQL: Optional[str] = None
+    funnelFromStep: Optional[float] = None
+    funnelOrderType: Optional[StepOrderValue] = None
+    funnelStepReference: Optional[FunnelStepReference] = None
+    funnelToStep: Optional[float] = None
+    funnelVizType: Optional[FunnelVizType] = None
+    funnelWindowInterval: Optional[float] = None
+    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
+    layout: Optional[FunnelLayout] = None
+
+
+class FunnelsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     bin_count: Optional[Union[float, str]] = None
     breakdown_attribution_type: Optional[BreakdownAttributionType] = None
     breakdown_attribution_value: Optional[float] = None
-    exclusions: Optional[List[FunnelExclusion]] = None
+    exclusions: Optional[List[FunnelExclusionLegacy]] = None
     funnel_aggregate_by_hogql: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_order_type: Optional[StepOrderValue] = None
@@ -920,6 +1008,18 @@ class FunnelsFilter(BaseModel):
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
     hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
+
+
+class FunnelsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class GroupPropertyFilter(BaseModel):
@@ -983,6 +1083,14 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    showValuesOnSeries: Optional[bool] = None
+    toggledLifecycles: Optional[List[LifecycleToggle]] = None
+
+
+class LifecycleFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     show_values_on_series: Optional[bool] = None
     toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
@@ -1004,6 +1112,18 @@ class Node(BaseModel):
         extra="forbid",
     )
     kind: NodeKind
+
+
+class PathsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class PersonPropertyFilter(BaseModel):
@@ -1099,6 +1219,7 @@ class QueryResponseAlternative8(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1112,6 +1233,7 @@ class QueryResponseAlternative9(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -1129,6 +1251,18 @@ class QueryResponseAlternative11(BaseModel):
 
 
 class RetentionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: Optional[RetentionPeriod] = None
+    retentionReference: Optional[RetentionReference] = None
+    retentionType: Optional[RetentionType] = None
+    returningEntity: Optional[RetentionEntity] = None
+    targetEntity: Optional[RetentionEntity] = None
+    totalIntervals: Optional[int] = None
+
+
+class RetentionFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1239,6 +1373,7 @@ class WebAnalyticsQueryBase(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+    sampling: Optional[Sampling] = None
 
 
 class WebOverviewQuery(BaseModel):
@@ -1249,6 +1384,7 @@ class WebOverviewQuery(BaseModel):
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class WebStatsTableQuery(BaseModel):
@@ -1261,6 +1397,7 @@ class WebStatsTableQuery(BaseModel):
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -1271,6 +1408,7 @@ class WebTopClicksQuery(BaseModel):
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class AnyResponseType(
@@ -2030,7 +2168,7 @@ class PathsQuery(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     kind: Literal["PathsQuery"] = "PathsQuery"
-    pathsFilter: Optional[PathsFilter] = Field(default=None, description="Properties specific to the paths insight")
+    pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
     properties: Optional[
         Union[
             List[
@@ -2050,6 +2188,7 @@ class PathsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
+    response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 

@@ -63,6 +63,7 @@ class TrendsQueryRunner(QueryRunner):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        self.update_hogql_modifiers()
         self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):
@@ -108,7 +109,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self, time_frame: Optional[str | int]) -> ast.SelectQuery | ast.SelectUnionQuery:  # type: ignore
         queries = []
         with self.timings.measure("trends_persons_query"):
             for series in self.series:
@@ -124,10 +125,18 @@ class TrendsQueryRunner(QueryRunner):
                     series=series.series,
                     timings=self.timings,
                     modifiers=self.modifiers,
+                    person_query_time_frame=time_frame,
                 )
-                queries.append(query_builder.build_persons_query())
+                queries.append(query_builder.build_query())
 
-        return ast.SelectUnionQuery(select_queries=queries)
+        select_queries: List[ast.SelectQuery] = []
+        for query in queries:
+            if isinstance(query, ast.SelectUnionQuery):
+                select_queries.extend(query.select_queries)
+            else:
+                select_queries.append(query)
+
+        return ast.SelectUnionQuery(select_queries=select_queries)
 
     def calculate(self):
         queries = self.to_query()
@@ -381,6 +390,17 @@ class TrendsQueryRunner(QueryRunner):
             action = Action.objects.get(pk=int(series.id), team=self.team)
             return action.name
         return None
+
+    def update_hogql_modifiers(self) -> None:
+        if (
+            self.modifiers.inCohortVia == InCohortVia.auto
+            and self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+            and isinstance(self.query.breakdownFilter.breakdown, List)
+            and len(self.query.breakdownFilter.breakdown) > 1
+            and not any(value == "all" for value in self.query.breakdownFilter.breakdown)
+        ):
+            self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
 
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [

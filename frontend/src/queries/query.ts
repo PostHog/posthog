@@ -25,10 +25,12 @@ import {
     isDataTableNode,
     isDataVisualizationNode,
     isEventsQuery,
+    isFunnelsQuery,
     isHogQLQuery,
     isInsightQueryNode,
     isInsightVizNode,
     isLifecycleQuery,
+    isPathsQuery,
     isPersonsNode,
     isRetentionQuery,
     isStickinessQuery,
@@ -150,6 +152,9 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsLifecycleFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
     )
+    const hogQLInsightsPathsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS]
+    )
     const hogQLInsightsRetentionFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
     )
@@ -158,6 +163,9 @@ export async function query<N extends DataNode = DataNode>(
     )
     const hogQLInsightsStickinessFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]
+    )
+    const hogQLInsightsFunnelsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
     )
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
@@ -201,9 +209,11 @@ export async function query<N extends DataNode = DataNode>(
         } else if (isInsightQueryNode(queryNode)) {
             if (
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
+                (hogQLInsightsPathsFlagEnabled && isPathsQuery(queryNode)) ||
                 (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
                 (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
-                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode))
+                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode)) ||
+                (hogQLInsightsFunnelsFlagEnabled && isFunnelsQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
                     let legacyResponse

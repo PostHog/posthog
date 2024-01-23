@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { useEffect } from 'react'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { AUTOLOAD_INTERVAL, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 export function AutoLoad(): JSX.Element {
     const { autoLoadToggled } = useValues(dataNodeLogic)
@@ -25,6 +25,7 @@ export function AutoLoad(): JSX.Element {
                 label="Automatically load new events"
                 checked={autoLoadToggled}
                 onChange={toggleAutoLoad}
+                tooltip={`Load new events every ${AUTOLOAD_INTERVAL / 1000} seconds.`}
             />
         </div>
     )

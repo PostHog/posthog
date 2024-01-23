@@ -1,3 +1,4 @@
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import {
@@ -27,7 +28,7 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
-export function PlayerInspectorControls(): JSX.Element {
+export function PlayerInspectorControls({ onClose }: { onClose: () => void }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
     const { windowIdFilter, tab, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
@@ -53,7 +54,7 @@ export function PlayerInspectorControls(): JSX.Element {
 
     return (
         <div className="bg-side p-2 space-y-2 border-b">
-            <div className="flex justify-between gap-2 flex-wrap">
+            <div className="flex justify-between gap-2 flex-nowrap">
                 <div className="flex flex-1 items-center gap-1">
                     {tabs.map((tabId) => {
                         const TabIcon = TabToIcon[tabId]
@@ -79,73 +80,73 @@ export function PlayerInspectorControls(): JSX.Element {
                         )
                     })}
                 </div>
-
-                <div className="flex items-center gap-2 flex-1">
-                    <LemonInput
-                        className="min-w-[10rem]"
-                        size="small"
-                        onChange={(e) => setSearchQuery(e)}
-                        placeholder="Search..."
-                        type="search"
-                        value={searchQuery}
-                        fullWidth
-                        suffix={
-                            <Tooltip title={<InspectorSearchInfo />}>
-                                <IconInfo />
-                            </Tooltip>
-                        }
-                    />
-                </div>
-                {windowIds.length > 1 ? (
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <LemonSelect
-                            size="small"
-                            data-attr="player-window-select"
-                            value={windowIdFilter}
-                            onChange={(val) => setWindowIdFilter(val || null)}
-                            options={[
-                                {
-                                    value: null,
-                                    label: 'All windows',
-                                    icon: <IconWindow size="small" value="A" className="text-muted" />,
-                                },
-                                ...windowIds.map((windowId, index) => ({
-                                    value: windowId,
-                                    label: `Window ${index + 1}`,
-                                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
-                                })),
-                            ]}
-                        />
-                        <Tooltip
-                            title="Each recording window translates to a distinct browser tab or window."
-                            className="text-base text-muted-alt"
-                        >
-                            <IconInfo />
-                        </Tooltip>
-                    </div>
-                ) : null}
+                <LemonButton size="small" icon={<IconX />} onClick={onClose} />
             </div>
 
-            <div className="flex items-center gap-2 justify-between">
-                <div
-                    className="flex items-center gap-1 flex-wrap font-medium text-primary-alt"
-                    data-attr="mini-filters"
-                >
-                    {miniFilters.map((filter) => (
-                        <LemonButton
-                            key={filter.key}
+            <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt" data-attr="mini-filters">
+                {miniFilters.map((filter) => (
+                    <LemonButton
+                        key={filter.key}
+                        size="small"
+                        noPadding
+                        active={filter.enabled}
+                        onClick={() => {
+                            // "alone" should always be a select-to-true action
+                            setMiniFilter(filter.key, filter.alone || !filter.enabled)
+                        }}
+                        tooltip={filter.tooltip}
+                    >
+                        <span className="p-1 text-xs">{filter.name}</span>
+                    </LemonButton>
+                ))}
+            </div>
+
+            <div className="flex items-center gap-8 justify-between">
+                <div className="flex items-center gap-2 flex-1">
+                    <div className="flex flex-1">
+                        <LemonInput
                             size="small"
-                            noPadding
-                            active={filter.enabled}
-                            onClick={() => {
-                                // "alone" should always be a select-to-true action
-                                setMiniFilter(filter.key, filter.alone || !filter.enabled)
-                            }}
-                            tooltip={filter.tooltip}
-                        >
-                            <span className="p-1 text-xs">{filter.name}</span>
-                        </LemonButton>
-                    ))}
+                            onChange={(e) => setSearchQuery(e)}
+                            placeholder="Search..."
+                            type="search"
+                            value={searchQuery}
+                            fullWidth
+                            suffix={
+                                <Tooltip title={<InspectorSearchInfo />}>
+                                    <IconInfo />
+                                </Tooltip>
+                            }
+                        />
+                    </div>
+
+                    {windowIds.length > 1 ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <LemonSelect
+                                size="small"
+                                data-attr="player-window-select"
+                                value={windowIdFilter}
+                                onChange={(val) => setWindowIdFilter(val || null)}
+                                options={[
+                                    {
+                                        value: null,
+                                        label: 'All windows',
+                                        icon: <IconWindow size="small" value="A" className="text-muted" />,
+                                    },
+                                    ...windowIds.map((windowId, index) => ({
+                                        value: windowId,
+                                        label: `Window ${index + 1}`,
+                                        icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
+                                    })),
+                                ]}
+                            />
+                            <Tooltip
+                                title="Each recording window translates to a distinct browser tab or window."
+                                className="text-base text-muted-alt"
+                            >
+                                <IconInfo />
+                            </Tooltip>
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-1">

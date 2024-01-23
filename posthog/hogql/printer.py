@@ -30,7 +30,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
 )
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
-from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
@@ -98,6 +98,8 @@ def prepare_ast_for_printing(
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
         context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
+
+    context.modifiers = set_default_in_cohort_via(context.modifiers)
 
     if context.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
@@ -467,9 +469,13 @@ class _Printer(Visitor):
             raise HogQLException(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
         return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):

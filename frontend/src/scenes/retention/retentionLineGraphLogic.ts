@@ -29,7 +29,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
         trendSeries: [
             (s) => [s.results, s.retentionFilter],
             (results, retentionFilter): RetentionTrendPayload[] => {
-                const { period, retention_reference } = retentionFilter || {}
+                const { period, retentionReference } = retentionFilter || {}
                 // If the retention reference option is specified as previous,
                 // then translate retention rates to relative to previous,
                 // otherwise, just use what the result was originally.
@@ -39,7 +39,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
                 //   Cohort 1 | 1000 | 120 | 190 | 170 | 140
                 //   Cohort 2 | 6003 | 300 | 100 | 120 | 50
                 //
-                // If `retentionFilter.retention_reference` is not "previous"
+                // If `retentionFilter.retentionReference` is not "previous"
                 // we want to calculate the percentages of the sizes compared
                 // to the first value. If we have "previous" we want to go
                 // further and translate these numbers into percentage of the
@@ -74,7 +74,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
                                 : dayjs(cohortRetention.date).format('MMM D')
                             : cohortRetention.label,
                         data:
-                            retention_reference === 'previous'
+                            retentionReference === 'previous'
                                 ? retentionPercentages
                                       // Zip together the current a previous values, filling
                                       // in with 100 for the first index
