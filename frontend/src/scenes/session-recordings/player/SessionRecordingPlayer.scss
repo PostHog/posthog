@@ -1,7 +1,7 @@
 @import '../../../styles/mixins';
 
 .SessionRecordingPlayer {
-    --inspector-width: 16rem;
+    --inspector-min-width: 24rem;
 
     position: relative;
     display: flex;
@@ -29,6 +29,7 @@
 
     .SessionRecordingPlayer__main {
         flex: 1;
+        padding-right: 2.5rem;
     }
 
     &--fullscreen {
@@ -49,7 +50,6 @@
 
     .SessionRecordingPlayer__main,
     .SessionRecordingPlayer__inspector {
-        position: relative;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -62,13 +62,17 @@
     }
 
     .SessionRecordingPlayer__inspector {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
         z-index: 10;
         flex-shrink: 0;
-        min-width: var(--inspector-width);
-        max-width: 65%;
+        min-width: var(--inspector-min-width);
+        max-width: 95%;
 
         &--collapsed {
-            --inspector-width: 2.5rem;
+            --inspector-min-width: 2.5rem;
         }
 
         .PlayerInspectorPreview {
@@ -80,26 +84,14 @@
         }
     }
 
-    &--inspector-focus {
-        .SessionRecordingPlayer__inspector .PlayerInspectorPreview {
-            pointer-events: none;
-            opacity: 0;
-        }
-    }
-
     &--widescreen {
         .SessionRecordingPlayer__main {
             padding-right: 0;
         }
 
         .SessionRecordingPlayer__inspector {
-            --inspector-width: 24rem;
-
             position: relative;
-
-            .PlayerInspectorPreview {
-                display: none;
-            }
+            max-width: 75%;
         }
     }
 
