@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, PathsFilter } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
@@ -26,7 +26,6 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    PathsFilterType,
     PathType,
     TrendsFilterType,
 } from '~/types'
@@ -162,25 +161,25 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
               .results[0]?.id
 }
 
-export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
+export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeEventTypes']): string[] {
     let humanEventTypes: string[] = []
-    if (include_event_types) {
-        if (include_event_types.includes(PathType.PageView)) {
+    if (includeEventTypes) {
+        if (includeEventTypes.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
         }
-        if (include_event_types.includes(PathType.Screen)) {
+        if (includeEventTypes.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
         }
-        if (include_event_types.includes(PathType.CustomEvent)) {
+        if (includeEventTypes.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
         }
         if (
-            (humanEventTypes.length === 0 && !include_event_types.includes(PathType.HogQL)) ||
+            (humanEventTypes.length === 0 && !includeEventTypes.includes(PathType.HogQL)) ||
             humanEventTypes.length === 3
         ) {
             humanEventTypes = ['all events']
         }
-        if (include_event_types.includes(PathType.HogQL)) {
+        if (includeEventTypes.includes(PathType.HogQL)) {
             humanEventTypes.push('HogQL expression')
         }
     }
@@ -220,7 +219,7 @@ export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
 export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 
-export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
     return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
 }
 

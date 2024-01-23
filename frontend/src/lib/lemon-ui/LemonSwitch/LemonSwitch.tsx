@@ -18,6 +18,7 @@ export interface LemonSwitchProps {
     disabledReason?: string | null | false
     'data-attr'?: string
     icon?: React.ReactElement | null
+    tooltip?: string | null
     handleContent?: React.ReactElement | null
     'aria-label'?: string
 }
@@ -37,6 +38,7 @@ export function LemonSwitch({
     label,
     labelClassName,
     icon,
+    tooltip,
     'data-attr': dataAttr,
     'aria-label': ariaLabel,
     handleContent,
@@ -53,6 +55,8 @@ export function LemonSwitch({
     if (disabledReason) {
         disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
         tooltipContent = <span className="italic">{disabledReason}</span>
+    } else if (tooltip) {
+        tooltipContent = <span>{tooltip}</span>
     }
     let buttonComponent = (
         <button

@@ -15,7 +15,7 @@
                     "type": "array"
                 },
                 "id": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "kind": {
                     "const": "ActionsNode",
@@ -334,16 +334,16 @@
                     "$ref": "#/definitions/BreakdownKeyType"
                 },
                 "breakdown_group_type_index": {
-                    "type": ["number", "null"]
+                    "type": "integer"
                 },
                 "breakdown_hide_other_aggregation": {
                     "type": ["boolean", "null"]
                 },
                 "breakdown_histogram_bin_count": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown_limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -965,7 +965,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "math": {
                     "anyOf": [
@@ -1322,6 +1322,36 @@
                 "custom_name": {
                     "type": ["string", "null"]
                 },
+                "funnelFromStep": {
+                    "type": "number"
+                },
+                "funnelToStep": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "type": "object"
+        },
+        "FunnelExclusionLegacy": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
                 "funnel_from_step": {
                     "type": "number"
                 },
@@ -1364,6 +1394,60 @@
         },
         "FunnelsFilter": {
             "additionalProperties": false,
+            "properties": {
+                "binCount": {
+                    "$ref": "#/definitions/BinCountValue"
+                },
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/BreakdownAttributionType"
+                },
+                "breakdownAttributionValue": {
+                    "type": "number"
+                },
+                "exclusions": {
+                    "items": {
+                        "$ref": "#/definitions/FunnelExclusion"
+                    },
+                    "type": "array"
+                },
+                "funnelAggregateByHogQL": {
+                    "type": "string"
+                },
+                "funnelFromStep": {
+                    "type": "number"
+                },
+                "funnelOrderType": {
+                    "$ref": "#/definitions/StepOrderValue"
+                },
+                "funnelStepReference": {
+                    "$ref": "#/definitions/FunnelStepReference"
+                },
+                "funnelToStep": {
+                    "type": "number"
+                },
+                "funnelVizType": {
+                    "$ref": "#/definitions/FunnelVizType"
+                },
+                "funnelWindowInterval": {
+                    "type": "number"
+                },
+                "funnelWindowIntervalUnit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "hidden_legend_breakdowns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "layout": {
+                    "$ref": "#/definitions/FunnelLayout"
+                }
+            },
+            "type": "object"
+        },
+        "FunnelsFilterLegacy": {
+            "additionalProperties": false,
             "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
             "properties": {
                 "bin_count": {
@@ -1377,7 +1461,7 @@
                 },
                 "exclusions": {
                     "items": {
-                        "$ref": "#/definitions/FunnelExclusion"
+                        "$ref": "#/definitions/FunnelExclusionLegacy"
                     },
                     "type": "array"
                 },
@@ -1482,6 +1566,37 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "FunnelsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "GoalLine": {
@@ -1709,7 +1824,7 @@
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
                 "inCohortVia": {
-                    "enum": ["leftjoin", "subquery", "leftjoin_conjoined"],
+                    "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
                 },
                 "materializationMode": {
@@ -1996,6 +2111,21 @@
         },
         "LifecycleFilter": {
             "additionalProperties": false,
+            "properties": {
+                "showValuesOnSeries": {
+                    "type": "boolean"
+                },
+                "toggledLifecycles": {
+                    "items": {
+                        "$ref": "#/definitions/LifecycleToggle"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "LifecycleFilterLegacy": {
+            "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "show_values_on_series": {
@@ -2178,10 +2308,79 @@
         },
         "PathsFilter": {
             "additionalProperties": false,
+            "properties": {
+                "edgeLimit": {
+                    "type": "integer"
+                },
+                "endPoint": {
+                    "type": "string"
+                },
+                "excludeEvents": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnelFilter": {
+                    "type": "object"
+                },
+                "funnelPaths": {
+                    "$ref": "#/definitions/FunnelPathType"
+                },
+                "includeEventTypes": {
+                    "items": {
+                        "$ref": "#/definitions/PathType"
+                    },
+                    "type": "array"
+                },
+                "localPathCleaningFilters": {
+                    "items": {
+                        "$ref": "#/definitions/PathCleaningFilter"
+                    },
+                    "type": "array"
+                },
+                "maxEdgeWeight": {
+                    "type": "integer"
+                },
+                "minEdgeWeight": {
+                    "type": "integer"
+                },
+                "pathDropoffKey": {
+                    "type": "string"
+                },
+                "pathEndKey": {
+                    "type": "string"
+                },
+                "pathGroupings": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "pathReplacements": {
+                    "type": "boolean"
+                },
+                "pathStartKey": {
+                    "type": "string"
+                },
+                "pathsHogQLExpression": {
+                    "type": "string"
+                },
+                "startPoint": {
+                    "type": "string"
+                },
+                "stepLimit": {
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "PathsFilterLegacy": {
+            "additionalProperties": false,
             "description": "`PathsFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
                 "edge_limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "end_point": {
                     "type": "string"
@@ -2211,10 +2410,10 @@
                     "type": "array"
                 },
                 "max_edge_weight": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "min_edge_weight": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "path_groupings": {
                     "items": {
@@ -2235,7 +2434,7 @@
                     "type": "string"
                 },
                 "step_limit": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -2277,12 +2476,46 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/PathsQueryResponse"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "pathsFilter"],
+            "type": "object"
+        },
+        "PathsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "PersonPropertyFilter": {
@@ -2314,7 +2547,7 @@
             "additionalProperties": false,
             "properties": {
                 "cohort": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "distinctId": {
                     "type": "string"
@@ -2331,10 +2564,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "offset": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -2767,6 +3000,9 @@
                             },
                             "type": "array"
                         },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
                         "timings": {
                             "items": {
                                 "$ref": "#/definitions/QueryTiming"
@@ -2799,6 +3035,9 @@
                         "results": {
                             "items": {},
                             "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
                         },
                         "timings": {
                             "items": {
@@ -2836,6 +3075,9 @@
                         "results": {
                             "items": {},
                             "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
                         },
                         "timings": {
                             "items": {
@@ -2900,6 +3142,37 @@
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/RetentionResult"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "hogql": {
+                            "type": "string"
+                        },
+                        "is_cached": {
+                            "type": "boolean"
+                        },
+                        "last_refresh": {
+                            "type": "string"
+                        },
+                        "next_allowed_client_refresh": {
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "type": "object"
                             },
                             "type": "array"
                         },
@@ -3153,6 +3426,31 @@
         },
         "RetentionFilter": {
             "additionalProperties": false,
+            "properties": {
+                "period": {
+                    "$ref": "#/definitions/RetentionPeriod"
+                },
+                "retentionReference": {
+                    "enum": ["total", "previous"],
+                    "type": "string"
+                },
+                "retentionType": {
+                    "$ref": "#/definitions/RetentionType"
+                },
+                "returningEntity": {
+                    "$ref": "#/definitions/RetentionEntity"
+                },
+                "targetEntity": {
+                    "$ref": "#/definitions/RetentionEntity"
+                },
+                "totalIntervals": {
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "RetentionFilterLegacy": {
+            "additionalProperties": false,
             "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "period": {
@@ -3292,6 +3590,19 @@
                 }
             },
             "required": ["count"],
+            "type": "object"
+        },
+        "SamplingRate": {
+            "additionalProperties": false,
+            "properties": {
+                "denominator": {
+                    "type": "number"
+                },
+                "numerator": {
+                    "type": "number"
+                }
+            },
+            "required": ["numerator"],
             "type": "object"
         },
         "SavedInsightNode": {
@@ -3500,6 +3811,30 @@
         },
         "StickinessFilter": {
             "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "hidden_legend_indexes": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "showLegend": {
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "StickinessFilterLegacy": {
+            "additionalProperties": false,
             "description": "`StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "compare": {
@@ -3661,7 +3996,7 @@
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["kind"],
@@ -3684,7 +4019,7 @@
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["kind"],
@@ -3774,13 +4109,13 @@
                 "showLabelsOnSeries": {
                     "type": "boolean"
                 },
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "showPercentStackView": {
                     "type": "boolean"
                 },
-                "show_legend": {
-                    "type": "boolean"
-                },
-                "show_values_on_series": {
+                "showValuesOnSeries": {
                     "type": "boolean"
                 },
                 "smoothingIntervals": {
@@ -4000,6 +4335,18 @@
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["properties"],
@@ -4046,6 +4393,18 @@
                 },
                 "response": {
                     "$ref": "#/definitions/WebOverviewQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["kind", "properties"],
@@ -4071,6 +4430,9 @@
                         "$ref": "#/definitions/WebOverviewItem"
                     },
                     "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
                 },
                 "timings": {
                     "items": {
@@ -4123,6 +4485,18 @@
                 },
                 "response": {
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -4150,6 +4524,9 @@
                 "results": {
                     "items": {},
                     "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
                 },
                 "timings": {
                     "items": {
@@ -4180,6 +4557,18 @@
                 },
                 "response": {
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": ["kind", "properties"],
@@ -4207,6 +4596,9 @@
                 "results": {
                     "items": {},
                     "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
                 },
                 "timings": {
                     "items": {

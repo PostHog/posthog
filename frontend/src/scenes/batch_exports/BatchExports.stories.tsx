@@ -5,6 +5,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
+import { AvailableFeature } from '~/types'
 
 import { createExportServiceHandlers } from './__mocks__/api-mocks'
 
@@ -84,6 +86,7 @@ export default {
 } as Meta
 
 export const Exports: StoryFn = () => {
+    useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
     useEffect(() => {
         router.actions.push(urls.batchExports())
     })
@@ -96,6 +99,7 @@ Exports.parameters = {
 }
 
 export const CreateExport: StoryFn = () => {
+    useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
     useEffect(() => {
         router.actions.push(urls.batchExportNew())
     })
@@ -103,6 +107,7 @@ export const CreateExport: StoryFn = () => {
 }
 
 export const ViewExport: StoryFn = () => {
+    useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
     useEffect(() => {
         router.actions.push(urls.batchExport('1'))
     })

@@ -31,7 +31,7 @@ describe('pathsDataLogic', () => {
     it('selects taxonomicGroupTypes from pathsFilter', async () => {
         await expectLogic(logic, () => {
             logic.actions.updateInsightFilter({
-                include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+                includeEventTypes: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
             })
         }).toMatchValues(logic, {
             taxonomicGroupTypes: [

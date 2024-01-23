@@ -1,13 +1,13 @@
 import './FeatureFlag.scss'
 
 import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
-import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -50,6 +50,7 @@ export function FeatureFlagReleaseConditions({
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
+        featureFlagTaxonomicOptions,
     } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
@@ -59,12 +60,13 @@ export function FeatureFlagReleaseConditions({
         addConditionSet,
     } = useActions(logic)
     const { cohortsById } = useValues(cohortsModel)
+    const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const filterGroups: FeatureFlagGroupType[] = isSuper
         ? featureFlag.filters.super_groups || []
         : featureFlag.filters.groups
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
-    const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
+    const matchByGroupsIntroductionOption = GroupsIntroductionOption()
     const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
         return !!properties.find(
             (property) => property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
@@ -78,6 +80,11 @@ export function FeatureFlagReleaseConditions({
             group.properties?.some((property) => property.key === '$feature_enrollment/' + featureFlag.key)
         )
     }
+
+    const includeGroupsIntroductionOption = (): boolean =>
+        [GroupsAccessStatus.HasAccess, GroupsAccessStatus.HasGroupTypes, GroupsAccessStatus.NoAccess].includes(
+            groupsAccessStatus
+        )
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
@@ -196,6 +203,7 @@ export function FeatureFlagReleaseConditions({
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
+                                taxonomicFilterOptionsFromProp={featureFlagTaxonomicOptions}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 errorMessages={
@@ -423,34 +431,45 @@ export function FeatureFlagReleaseConditions({
                 {!readOnly && showGroupsOptions && usageContext !== 'schedule' && (
                     <div className="centered">
                         Match by
-                        <Select
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            className="ml-2"
+                            data-attr="feature-flag-aggregation-filter"
+                            onChange={(value) => {
+                                // MatchByGroupsIntroductionOption
+                                if (value == -2) {
+                                    return
+                                }
+
+                                const groupTypeIndex = value !== -1 ? value : null
+                                setAggregationGroupTypeIndex(groupTypeIndex)
+                            }}
                             value={
                                 featureFlag.filters.aggregation_group_type_index != null
                                     ? featureFlag.filters.aggregation_group_type_index
                                     : -1
                             }
-                            onChange={(value) => {
-                                const groupTypeIndex = value !== -1 ? value : null
-                                setAggregationGroupTypeIndex(groupTypeIndex)
-                            }}
-                            style={{ marginLeft: 8 }}
-                            data-attr="feature-flag-aggregation-filter"
-                            dropdownMatchSelectWidth={false}
-                            dropdownAlign={{
-                                // Align this dropdown by the right-hand-side of button
-                                points: ['tr', 'br'],
-                            }}
-                        >
-                            <Select.Option key={-1} value={-1}>
-                                Users
-                            </Select.Option>
-                            {Array.from(groupTypes.values()).map((groupType) => (
-                                <Select.Option key={groupType.group_type_index} value={groupType.group_type_index}>
-                                    {capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural)}
-                                </Select.Option>
-                            ))}
-                            {matchByGroupsIntroductionOption}
-                        </Select>
+                            options={[
+                                { value: -1, label: 'Users' },
+                                ...Array.from(groupTypes.values()).map((groupType) => ({
+                                    value: groupType.group_type_index,
+                                    label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                                    disabledReason:
+                                        !featureFlag?.features || featureFlag.features.length > 0
+                                            ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
+                                            : null,
+                                })),
+                                ...(includeGroupsIntroductionOption()
+                                    ? [
+                                          {
+                                              value: -2,
+                                              label: 'MatchByGroupsIntroductionOption',
+                                              labelInMenu: matchByGroupsIntroductionOption,
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
                     </div>
                 )}
             </div>

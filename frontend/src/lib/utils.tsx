@@ -917,18 +917,18 @@ export function dateFilterToText(
     }
 
     if (dateFrom) {
-        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
         const counter = parseInt(dateFrom.slice(1, -1))
         if (dateOption && counter) {
             let date = null
             switch (dateOption) {
-                case 'quarters':
+                case 'quarter':
                     date = dayjs().subtract(counter * 3, 'M')
                     break
-                case 'months':
+                case 'month':
                     date = dayjs().subtract(counter, 'M')
                     break
-                case 'weeks':
+                case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
                     break
                 default:
@@ -1683,7 +1683,13 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
                     continue
                 }
 
-                toReturn[i + '.' + x] = flatObject[x]
+                let j = i
+                if (i.match(/\d+/)) {
+                    // Pad integer values for better sorting
+                    j = i.padStart(3, '0')
+                }
+
+                toReturn[j + '.' + x] = flatObject[x]
             }
         } else {
             toReturn[i] = ob[i]
@@ -1708,11 +1714,20 @@ export const base64Encode = (str: string): string => {
 }
 
 export const base64Decode = (encodedString: string): string => {
+    const data = base64ToUint8Array(encodedString)
+    return new TextDecoder().decode(data)
+}
+
+export const base64ArrayBuffer = (encodedString: string): ArrayBuffer => {
+    const data = base64ToUint8Array(encodedString)
+    return data.buffer
+}
+
+export const base64ToUint8Array = (encodedString: string): Uint8Array => {
     const binString = atob(encodedString)
     const data = new Uint8Array(binString.length)
     for (let i = 0; i < binString.length; i++) {
         data[i] = binString.charCodeAt(i)
     }
-
-    return new TextDecoder().decode(data)
+    return data
 }

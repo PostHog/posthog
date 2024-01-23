@@ -200,6 +200,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
     return tq
 
 
+@override_settings(IN_UNIT_TESTING=True)
 class TestTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
@@ -6475,8 +6476,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-        self.assertEqual(res[0]["count"], 1)
-        self.assertEqual(res[1]["count"], 2)
+        self.assertEqual(res[0]["count"], 2)
+        self.assertEqual(res[1]["count"], 1)
 
     @also_test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_single_cohort(self):

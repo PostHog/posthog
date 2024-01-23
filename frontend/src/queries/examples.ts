@@ -204,7 +204,7 @@ const InsightFunnelsQuery: FunnelsQuery = {
     },
     series,
     funnelsFilter: {
-        funnel_order_type: StepOrderValue.ORDERED,
+        funnelOrderType: StepOrderValue.ORDERED,
     },
     breakdownFilter: {
         breakdown: '$geoip_country_code',
@@ -218,8 +218,8 @@ const InsightRetentionQuery: RetentionQuery = {
     filterTestAccounts,
     retentionFilter: {
         // TODO: this should be typed as (EventsNode | ActionsNode)[] without math and properties
-        target_entity: { type: 'events', id: '$pageview', name: '$pageview' },
-        returning_entity: { type: 'events', id: '$pageview', name: '$pageview' },
+        targetEntity: { type: 'events', id: '$pageview', name: '$pageview' },
+        returningEntity: { type: 'events', id: '$pageview', name: '$pageview' },
     },
 }
 

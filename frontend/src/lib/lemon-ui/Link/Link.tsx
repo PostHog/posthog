@@ -53,6 +53,10 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
+const isDirectLink = (url: string): boolean => {
+    return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
+}
+
 // NOTE: Temporarily disabled - owner @corywatilo
 // const isPostHogComDocs = (url: string): boolean => {
 //     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
@@ -125,7 +129,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
         const href = to
             ? typeof to === 'string'
-                ? to.includes('://')
+                ? isDirectLink(to)
                     ? to
                     : addProjectIdIfMissing(to)
                 : '#'

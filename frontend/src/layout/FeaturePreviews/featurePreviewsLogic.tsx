@@ -58,6 +58,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         kind: 'feedback',
                         // NOTE: We don't know which area the flag should be - for now we just override it to be the key...
                         target_area: values.activeFeedbackFlagKey as any,
+                        severity_level: 'low',
                         message,
                     })
                     return null

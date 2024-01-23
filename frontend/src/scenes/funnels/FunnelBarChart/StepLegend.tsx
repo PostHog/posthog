@@ -25,7 +25,7 @@ type StepLegendProps = {
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -78,7 +78,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                     }
                     placement="right"
                 >
-                    {!!showPersonsModal && canOpenPersonModal ? (
+                    {!!showPersonsModal && canOpenPersonModal && !isInExperimentContext ? (
                         <ValueInspectorButton
                             onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
                         >
@@ -107,7 +107,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                             }
                             placement="right"
                         >
-                            {showPersonsModal && stepIndex ? (
+                            {showPersonsModal && stepIndex && !isInExperimentContext ? (
                                 <ValueInspectorButton
                                     onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
                                 >
