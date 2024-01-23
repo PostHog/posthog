@@ -145,6 +145,12 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
 
+    useEffect(() => {
+        if (isWidescreen) {
+            setInspectorExpanded(true)
+        }
+    }, [isWidescreen])
+
     if (isNotFound) {
         return (
             <div className="text-center">
@@ -152,12 +158,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             </div>
         )
     }
-
-    useEffect(() => {
-        if (isWidescreen) {
-            setInspectorExpanded(true)
-        }
-    }, [isWidescreen])
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
