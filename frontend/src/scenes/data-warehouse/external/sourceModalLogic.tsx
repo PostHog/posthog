@@ -5,8 +5,9 @@ import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import type { sourceModalLogicType } from './sourceModalLogicType'
-import { ExternalDataSourceType } from '~/types'
+import { ExternalDataPostgresSchema, ExternalDataSourceType } from '~/types'
 import { Link } from '@posthog/lemon-ui'
+import { sourceFormLogic } from './sourceFormLogic'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
@@ -134,7 +135,10 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
         onForward: true,
         onClear: true,
-        onBack: true
+        onBack: true,
+        onNext: true,
+        setDatabaseSchemas: (schemas: ExternalDataPostgresSchema[]) => ({ schemas }),
+        selectSchema: (schema: ExternalDataPostgresSchema) => ({ schema })
     }),
     connect({
         values: [
@@ -174,6 +178,16 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                 onBack: (state, _) => state - 1,
                 onClear: () => 1,
             },
+        ],
+        databaseSchema: [
+            [] as ExternalDataPostgresSchema[],
+            {
+                setDatabaseSchemas: (_, { schemas }) => schemas,
+                selectSchema: (state, { schema }) => {
+                    const newSchema = state.map((s) => ({ ...s, should_sync: s.table === schema.table ? !s.should_sync : s.should_sync }))
+                    return newSchema
+                }
+            }
         ]
     }),
     selectors({
@@ -231,6 +245,10 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                     return 'Link your data source'
                 }
 
+                if (currentStep === 3) {
+                    return 'Select tables to import'
+                }
+
                 return ''
             },
         ],
@@ -246,11 +264,39 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             },
         ]
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         onClear: () => {
             actions.selectConnector(null)
             actions.toggleManualLinkFormVisible(false)
             actions.resetTable()
         },
+        onNext: () => {
+
+            if (values.currentStep === 2) {
+                if (values.selectedConnector?.name === 'Postgres') {
+                    sourceFormLogic({ sourceType: 'Postgres' }).actions.submitDatabaseSchemaForm()
+                } else if (values.selectedConnector?.name) {
+                    sourceFormLogic({ sourceType: values.selectedConnector?.name }).actions.submitExternalDataSource()
+                }
+
+                // actions.onForward()
+            }
+
+            if (values.currentStep === 3) {
+
+                const logic = sourceFormLogic({ sourceType: 'Postgres' })
+
+                sourceFormLogic({ sourceType: 'Postgres' }).actions.setExternalDataSourceValue(
+                    'payload', {
+                        ...logic.values.databaseSchemaForm.payload,
+                        schemas: values.databaseSchema.filter((schema) => schema.should_sync).map((schema) => schema.table)
+                    }
+                )
+                sourceFormLogic({ sourceType: 'Postgres' }).actions.setExternalDataSourceValue(
+                    'prefix', logic.values.databaseSchemaForm.prefix
+                )
+                sourceFormLogic({ sourceType: 'Postgres' }).actions.submitExternalDataSource()
+            }
+        }
     })),
 ])

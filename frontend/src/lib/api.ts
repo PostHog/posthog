@@ -72,6 +72,7 @@ import {
     TeamType,
     UserBasicType,
     UserType,
+    ExternalDataPostgresSchema
 } from '~/types'
 
 import {
@@ -1820,7 +1821,7 @@ const api = {
         async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
-        async database_schema(host: string, port: string, dbname: string, user: string, password: string, schema: string, sslmode: string): Promise<string[]> {
+        async database_schema(host: string, port: string, dbname: string, user: string, password: string, schema: string, sslmode: string): Promise<ExternalDataPostgresSchema[]> {
             
             const queryParams = toParams({ host, port, dbname, user, password, schema, sslmode })
 

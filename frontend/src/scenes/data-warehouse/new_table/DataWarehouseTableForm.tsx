@@ -4,11 +4,7 @@ import { Field } from 'lib/forms/Field'
 
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 
-interface DataWarehouseTableFormProps {
-    footer?: JSX.Element
-}
-
-export function DatawarehouseTableForm({ footer }: DataWarehouseTableFormProps): JSX.Element {
+export function DatawarehouseTableForm(): JSX.Element {
     return (
         <Form formKey="table" logic={dataWarehouseTableLogic} className="space-y-4" enableFormOnSubmit>
             <div className="flex flex-col gap-2 max-w-160">
@@ -76,7 +72,6 @@ export function DatawarehouseTableForm({ footer }: DataWarehouseTableFormProps):
                     />
                 </Field>
             </div>
-            {footer}
         </Form>
     )
 }

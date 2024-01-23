@@ -139,7 +139,11 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
-        schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+        if source_type == ExternalDataSource.Type.POSTGRES:
+            schemas = new_source_model.job_inputs["table_names"]
+        else:
+            schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+
         for schema in schemas:
             ExternalDataSchema.objects.create(
                 name=schema,
@@ -210,11 +214,13 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         host = payload.get("host")
         port = payload.get("port")
-        database = payload.get("database")
+        database = payload.get("dbname")
 
         user = payload.get("user")
         password = payload.get("password")
         sslmode = payload.get("sslmode")
+        schema = payload.get("schema")
+        table_names = payload.get("schemas")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -230,6 +236,8 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "user": user,
                 "password": password,
                 "sslmode": sslmode,
+                "schema": schema,
+                "table_names": table_names,
             },
             prefix=prefix,
         )
@@ -324,6 +332,6 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
             )
             result = cursor.fetchall()
-            result = [row[0] for row in result]
+            result = [{"table": row[0], "should_sync": False} for row in result]
 
         return Response(status=status.HTTP_200_OK, data=result)

@@ -183,8 +183,19 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         password = model.pipeline.job_inputs.get("password")
         database = model.pipeline.job_inputs.get("database")
         sslmode = model.pipeline.job_inputs.get("sslmode")
+        schema = model.pipeline.job_inputs.get("schema")
+        table_names = model.pipeline.job_inputs.get("table_names")
 
-        source = postgres_source(host=host, port=port, user=user, password=password, database=database, sslmode=sslmode)
+        source = postgres_source(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            sslmode=sslmode,
+            schema=schema,
+            table_names=table_names,
+        )
 
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")

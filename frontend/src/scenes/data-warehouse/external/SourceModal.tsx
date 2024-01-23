@@ -1,5 +1,5 @@
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Field } from 'lib/forms/Field'
@@ -10,7 +10,7 @@ import stripeLogo from 'public/stripe-logo.svg'
 import { ExternalDataSourceType } from '~/types'
 
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
-import {  sourceFormLogic } from './sourceFormLogic'
+import { sourceFormLogic } from './sourceFormLogic'
 import { SOURCE_DETAILS, SourceConfig } from './sourceModalLogic'
 import { sourceModalLogic } from './sourceModalLogic'
 
@@ -19,8 +19,9 @@ interface SourceModalProps extends LemonModalProps { }
 export default function SourceModal(props: SourceModalProps): JSX.Element {
     const { tableLoading, selectedConnector, connectors, addToHubspotButtonUrl, modalTitle, modalCaption } =
         useValues(sourceModalLogic)
-    const { selectConnector, toggleManualLinkFormVisible, onClear, onBack, onForward } = useActions(sourceModalLogic)
+    const { selectConnector, toggleManualLinkFormVisible, onClear, onBack, onForward, onNext } = useActions(sourceModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentStep } = useValues(sourceModalLogic)
 
     const MenuButton = (config: SourceConfig): JSX.Element => {
         const onClick = (): void => {
@@ -61,12 +62,35 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         onForward()
     }
 
+    const footer = () => {
+        if (currentStep === 1) {
+            return null
+        }
+
+        return (
+            <div className="mt-2 flex flex-row justify-end gap-2">
+                <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
+                    Back
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    center
+                    onClick={() => onNext()}
+                    data-attr="source-link"
+                >
+                    Link
+                </LemonButton>
+            </div>
+        )
+    }
+
     return (
         <LemonModal
             {...props}
             onAfterClose={() => onClear()}
             title={modalTitle}
             description={modalCaption}
+            footer={footer()}
         >
             <ModalPage page={1}>
                 <div className="flex flex-col gap-2">
@@ -82,38 +106,12 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
                 {selectedConnector ? <SourceForm sourceType={selectedConnector.name} /> :
                     <div>
                         <DatawarehouseTableForm
-                            footer={
-                                <>
-                                    <LemonDivider className="mt-4" />
-                                    <div className="mt-2 flex flex-row justify-end gap-2">
-                                        <LemonButton
-                                            type="secondary"
-                                            center
-                                            data-attr="source-modal-back-button"
-                                            onClick={onBack}
-                                        >
-                                            Back
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="primary"
-                                            center
-                                            htmlType="submit"
-                                            data-attr="source-link"
-                                            loading={tableLoading}
-                                        >
-                                            Link
-                                        </LemonButton>
-                                    </div>
-                                </>
-                            }
                         />
                     </div>
                 }
             </ModalPage>
             <ModalPage page={3}>
-                <div className="flex flex-col gap-2">
-                    <div className="text-lg font-bold">Linking...</div>
-                </div>
+                <PostgresSchemaForm />
             </ModalPage>
         </LemonModal>
     )
@@ -152,7 +150,7 @@ function SourceForm({ sourceType }: SourceFormProps): JSX.Element {
         <Form
             logic={sourceFormLogic}
             props={{ sourceType }}
-            formKey={sourceType == 'Postgres' ? "databaseSchema" :  "externalDataSource"}
+            formKey={sourceType == 'Postgres' ? "databaseSchemaForm" : "externalDataSource"}
             className="space-y-4"
             enableFormOnSubmit
         >
@@ -164,21 +162,44 @@ function SourceForm({ sourceType }: SourceFormProps): JSX.Element {
             <Field name="prefix" label="Table Prefix (optional)">
                 <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
             </Field>
-            <LemonDivider className="mt-4" />
-            <div className="mt-2 flex flex-row justify-end gap-2">
-                <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onCancel}>
-                    Back
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    center
-                    htmlType="submit"
-                    data-attr="source-link"
-                    loading={isExternalDataSourceSubmitting}
-                >
-                    Link
-                </LemonButton>
-            </div>
         </Form>
+    )
+}
+
+function PostgresSchemaForm(): JSX.Element {
+    useMountedLogic(sourceFormLogic({ sourceType: 'Postgres' }))
+    const { selectSchema } = useActions(sourceModalLogic)
+    const { databaseSchema } = useValues(sourceModalLogic)
+
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div>
+                <LemonTable
+                    dataSource={databaseSchema}
+                    columns={[
+                        {
+                            title: 'Table',
+                            key: 'table',
+                            render: function RenderTable(_, schema) {
+                                return schema.table
+                            },
+                        },
+                        {
+                            title: 'Sync',
+                            key: 'should_sync',
+                            render: function RenderShouldSync(_, schema) {
+                                return (< LemonSwitch
+                                    checked={schema.should_sync}
+                                    onChange={() => {
+                                        selectSchema(schema)
+                                    }}
+                                />)
+                            },
+                        },
+                    ]}
+                />
+            </div>
+        </div>
     )
 }

@@ -3406,6 +3406,11 @@ export interface SimpleExternalDataSourceSchema {
     last_synced_at?: Dayjs
 }
 
+export interface ExternalDataPostgresSchema {
+    table: string
+    should_sync: boolean
+}
+
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
 }

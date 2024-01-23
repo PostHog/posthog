@@ -19,11 +19,13 @@ from .helpers import (
 )
 
 
-def postgres_source(host: str, port: int, user: str, password: str, database: str, sslmode: str) -> DltResource:
+def postgres_source(
+    host: str, port: int, user: str, password: str, database: str, sslmode: str, schema: str, table_names: list[str]
+) -> DltResource:
     credentials = ConnectionStringCredentials(
         f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
     )
-    db_source = sql_database(credentials)
+    db_source = sql_database(credentials, schema=schema, table_names=table_names)
 
     return db_source
 

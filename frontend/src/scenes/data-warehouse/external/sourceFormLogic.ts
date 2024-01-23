@@ -44,7 +44,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceFormLogic']),
     props({} as SourceFormProps),
     connect({
-        actions: [sourceModalLogic, ['onBack', 'selectConnector', 'toggleSourceModal', 'loadSources']],
+        actions: [sourceModalLogic, ['setDatabaseSchemas', 'onBack', 'onForward', 'selectConnector', 'toggleSourceModal', 'loadSources']],
     }),
     actions({
         onCancel: true,
@@ -90,7 +90,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
             actions.handleRedirect(kind, searchParams)
         },
     })),
-    forms(({ props }) => ({
+    forms(({ props, actions }) => ({
         externalDataSource: {
             defaults: {
                 prefix: '',
@@ -103,21 +103,22 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                 return newResource
             },
         },
-        databaseSchema: {
+        databaseSchemaForm: {
             defaults: {
+                prefix: '',
                 payload: {
                     host: '',
-                    port: '',
-                    dbname: '',
-                    user: '',
-                    password: '',
-                    schema: '',
-                    sslmode: '',
+                    port: '5432',
+                    dbname: 'posthog',
+                    user: 'posthog',
+                    password: 'posthog',
+                    schema: 'public',
+                    sslmode: 'disable',
                 }
             },
             errors: ({ payload: {
                 host, port, dbname, user, password, schema, sslmode
-            }}) => ({
+            } }) => ({
                 payload: {
                     host: !host && 'Please enter a host.',
                     port: !port && 'Please enter a port.',
@@ -131,12 +132,21 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
             submit: async ({
                 payload: {
                     host, port, dbname, user, password, schema, sslmode
-                }
+                },
+                prefix
             }) => {
                 const schemas = await api.externalDataSources.database_schema(
                     host, port, dbname, user, password, schema, sslmode
                 )
-                console.log(schemas)
+                actions.setDatabaseSchemas(schemas)
+                actions.onForward()
+
+                return {
+                    payload: {
+                        host, port, dbname, user, password, schema, sslmode
+                    },
+                    prefix
+                }
             },
         }
     })),
