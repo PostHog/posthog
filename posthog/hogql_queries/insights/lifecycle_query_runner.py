@@ -125,16 +125,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         return InsightActorsQueryOptionsResponse(
-            day=[
-                {
-                    "label": "From",
-                    "value": self.query_date_range.date_from_str,
-                },
-                {
-                    "label": "To",
-                    "value": self.query_date_range.date_to_str,
-                },
-            ],
+            day=[{"label": day, "value": day} for day in self.query_date_range.all_values()],
             status=[
                 {
                     "label": "Dormant",
