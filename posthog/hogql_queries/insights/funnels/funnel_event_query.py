@@ -41,21 +41,6 @@ class FunnelEventQuery(FunnelQueryContext):
         )
 
         where_exprs = [self._date_range_expr(), self._entity_expr(skip_entity_filter), self._properties_expr()]
-
-        # prop_query = self._get_prop_groups(
-        #     self._filter.property_groups,
-        #     person_properties_mode=get_person_properties_mode(self._team),
-        #     person_id_joined_alias=self._person_id_alias,
-        # )
-
-        # person_query = self._get_person_query()
-        # person_ids_query = self._get_person_ids_query()
-
-        # query = f"""
-        #     {person_ids_query}
-        #     {person_query}
-        #     WHERE
-        # """
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         stmt = ast.SelectQuery(
