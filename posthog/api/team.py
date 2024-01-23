@@ -327,7 +327,14 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
+
         base_permissions = [permission() for permission in self.permission_classes]
+
+        # TRICKY: DRF Spectacular thinks it is safe to call this, and fails on any exception.
+        # but we do a lot in this method here so, let's return early
+        # because we know anonymous users have no permissions
+        if self.request.user.is_anonymous or not self.request.user.is_authenticated:
+            return base_permissions
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
