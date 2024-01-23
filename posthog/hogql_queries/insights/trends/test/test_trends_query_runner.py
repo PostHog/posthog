@@ -1280,7 +1280,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             hogql_modifiers=modifiers,
         )
 
-        assert modifiers.inCohortVia == InCohortVia.subquery
+        assert modifiers.inCohortVia == InCohortVia.auto
 
     @patch("posthog.hogql_queries.query_runner.create_default_modifiers_for_team")
     def test_cohort_modifier_with_too_few_cohorts(self, patch_create_default_modifiers_for_team):
@@ -1334,7 +1334,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             hogql_modifiers=modifiers,
         )
 
-        assert modifiers.inCohortVia == InCohortVia.subquery
+        assert modifiers.inCohortVia == InCohortVia.auto
 
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):

@@ -3,6 +3,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import translate_hogql
+from posthog.hogql.modifiers import set_default_in_cohort_via
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -26,9 +27,12 @@ def get_hogql_metadata(
         notices=[],
     )
 
+    query_modifiers = create_default_modifiers_for_team(team)
+    query_modifiers = set_default_in_cohort_via(query_modifiers)
+
     try:
         if isinstance(query.expr, str):
-            context = HogQLContext(team_id=team.pk, modifiers=create_default_modifiers_for_team(team))
+            context = HogQLContext(team_id=team.pk, modifiers=query_modifiers)
             if query.exprSource is not None:
                 source_query = get_query_runner(query.exprSource, team).to_query()
                 translate_hogql(query.expr, context=context, metadata_source=source_query)
@@ -37,7 +41,7 @@ def get_hogql_metadata(
         elif isinstance(query.select, str):
             context = HogQLContext(
                 team_id=team.pk,
-                modifiers=create_default_modifiers_for_team(team),
+                modifiers=query_modifiers,
                 enable_select_queries=True,
             )
 
