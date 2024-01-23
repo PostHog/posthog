@@ -11,7 +11,14 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { query as performQuery } from '~/queries/query'
-import { ActorsQuery, DataTableNode, InsightActorsQuery, NodeKind } from '~/queries/schema'
+import {
+    ActorsQuery,
+    DataTableNode,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    InsightActorsQueryOptionsResponse,
+    NodeKind,
+} from '~/queries/schema'
 import {
     ActorType,
     BreakdownType,
@@ -66,6 +73,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             offset,
         }),
         loadNextActors: true,
+        loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
     connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
@@ -129,9 +137,31 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 },
             },
         ],
+        insightActorsQueryOptions: [
+            null as InsightActorsQueryOptionsResponse | null,
+            {
+                loadActorsQueryOptions: async ({ query }) => {
+                    if (!query) {
+                        return values.insightActorsQueryOptions || null
+                    }
+                    const optionsQuery: InsightActorsQueryOptions = {
+                        kind: NodeKind.InsightActorsQueryOptions,
+                        source: query,
+                    }
+                    const response = await performQuery(optionsQuery)
+                    return response
+                },
+            },
+        ],
     })),
 
-    reducers(() => ({
+    reducers(({ props }) => ({
+        query: [
+            props.query as InsightActorsQuery | null,
+            {
+                loadActors: (_, { query }) => query || null,
+            },
+        ],
         actors: [
             [] as ActorType[],
             {
@@ -173,7 +203,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     listeners(({ actions, values, props }) => ({
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(500)
-            actions.loadActors({ query: props.query, url: props.url, clear: true })
+            actions.loadActors({ query: values.query, url: props.url, clear: true })
         },
         saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {
@@ -213,7 +243,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 actions.loadActors({ url: values.actorsResponse.next })
             }
             if (values.actorsResponse?.next_offset) {
-                actions.loadActors({ query: props.query, offset: values.actorsResponse.next_offset })
+                actions.loadActors({ query: values.query, offset: values.actorsResponse.next_offset })
             }
         },
     })),
@@ -257,7 +287,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         ActorsQuery: [
-            (s) => [(_, p) => p.query, s.searchTerm],
+            (s) => [s.query, s.searchTerm],
             (query, searchTerm): ActorsQuery | null => {
                 if (!query) {
                     return null
@@ -290,6 +320,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
     afterMount(({ actions, props }) => {
         actions.loadActors({ query: props.query, url: props.url })
+        if (props.query) {
+            actions.loadActorsQueryOptions(props.query)
+        }
 
         actions.reportPersonsModalViewed({
             url: props.url,

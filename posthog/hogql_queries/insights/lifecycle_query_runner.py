@@ -23,6 +23,7 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     LifecycleQueryResponse,
+    InsightActorsQueryOptionsResponse,
 )
 
 
@@ -121,6 +122,38 @@ class LifecycleQueryRunner(QueryRunner):
                     "where": ast.And(exprs=exprs) if len(exprs) > 0 else ast.Constant(value=1),
                 },
             )
+
+    def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
+        return InsightActorsQueryOptionsResponse(
+            day=[
+                {
+                    "label": "From",
+                    "value": self.query_date_range.date_from_str,
+                },
+                {
+                    "label": "To",
+                    "value": self.query_date_range.date_to_str,
+                },
+            ],
+            status=[
+                {
+                    "label": "Dormant",
+                    "value": "dormant",
+                },
+                {
+                    "label": "New",
+                    "value": "new",
+                },
+                {
+                    "label": "Resurrecting",
+                    "value": "resurrecting",
+                },
+                {
+                    "label": "Returning",
+                    "value": "returning",
+                },
+            ],
+        )
 
     def calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()

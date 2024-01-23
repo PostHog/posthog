@@ -53,7 +53,7 @@ export function PersonsModal({
     url: _url,
     urlsIndex,
     urls,
-    query,
+    query: _query,
     title,
     onAfterClose,
     inline,
@@ -63,13 +63,15 @@ export function PersonsModal({
 
     const logic = personsModalLogic({
         url: originalUrl,
-        query: query,
+        query: _query,
     })
 
     const {
+        query: query,
         actors,
         actorsResponseLoading,
         actorsResponse,
+        insightActorsQueryOptions,
         searchTerm,
         actorLabel,
         isCohortModalOpen,
@@ -79,10 +81,10 @@ export function PersonsModal({
         exploreUrl,
         ActorsQuery,
     } = useValues(logic)
-    const { setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
+    const { loadActors, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
+        useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
-
     const totalActorsCount = missingActorsCount + actors.length
 
     return (
@@ -128,6 +130,27 @@ export function PersonsModal({
                             }))}
                         />
                     ) : null}
+
+                    {query &&
+                        Object.entries(insightActorsQueryOptions ?? {})
+                            .filter(([, value]) => !!value)
+                            .map(([key, options]) => (
+                                <div key={key}>
+                                    <LemonSelect
+                                        fullWidth
+                                        className="mb-2"
+                                        value={query?.[key] ?? null}
+                                        onChange={(v) => {
+                                            loadActors({
+                                                query: { ...query, [key]: v },
+                                                clear: true,
+                                                offset: 0,
+                                            })
+                                        }}
+                                        options={options}
+                                    />
+                                </div>
+                            ))}
 
                     <div className="flex items-center gap-2 text-muted">
                         {actorsResponseLoading ? (
