@@ -6,6 +6,8 @@ from freezegun import freeze_time
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.models.action.action import Action
 from posthog.models.action_step import ActionStep
+from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
@@ -19,6 +21,7 @@ from posthog.schema import (
     GroupPropertyFilter,
     HogQLPropertyFilter,
     IntervalType,
+    MathGroupTypeIndex,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyOperator,
@@ -110,6 +113,15 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         return person_result
 
+    def _create_test_groups(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+        )
+
     def _create_test_events(self):
         self._create_events(
             [
@@ -145,7 +157,7 @@ class TestStickinessQueryRunner(APIBaseTest):
                             ],
                         ),
                     ],
-                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True},
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
                 ),
                 SeriesTestData(
                     distinct_id="p2",
@@ -171,7 +183,7 @@ class TestStickinessQueryRunner(APIBaseTest):
                             ],
                         ),
                     ],
-                    properties={"$browser": "Firefox", "prop": 20, "bool_field": False},
+                    properties={"$browser": "Firefox", "prop": 10, "bool_field": False, "$group_0": "org:1"},
                 ),
             ]
         )
@@ -482,6 +494,57 @@ class TestStickinessQueryRunner(APIBaseTest):
         self.team.save()
 
         response = self._run_query(filter_test_accounts=True)
+
+        result = response.results[0]
+
+        assert result["data"] == [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+        ]
+
+    def test_group_aggregations(self):
+        self._create_test_groups()
+        self._create_test_events()
+
+        series: List[EventsNode | ActionsNode] = [  # type: ignore
+            EventsNode(event="$pageview", math="unique_group", math_group_type_index=MathGroupTypeIndex.number_0)
+        ]
+
+        response = self._run_query(series=series)
+
+        result = response.results[0]
+
+        assert result["data"] == [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+        ]
+
+    def test_hogql_aggregations(self):
+        self._create_test_events()
+
+        series: List[EventsNode | ActionsNode] = [
+            EventsNode(event="$pageview", math="hogql", math_hogql="e.properties.prop")
+        ]
+
+        response = self._run_query(series=series)
 
         result = response.results[0]
 
