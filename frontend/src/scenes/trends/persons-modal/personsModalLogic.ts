@@ -246,6 +246,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 actions.loadActors({ query: values.query, offset: values.actorsResponse.next_offset })
             }
         },
+        loadActors: ({ query }) => {
+            if (query) {
+                actions.loadActorsQueryOptions(query)
+            }
+        },
     })),
 
     selectors({
@@ -320,9 +325,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
     afterMount(({ actions, props }) => {
         actions.loadActors({ query: props.query, url: props.url })
-        if (props.query) {
-            actions.loadActorsQueryOptions(props.query)
-        }
 
         actions.reportPersonsModalViewed({
             url: props.url,
