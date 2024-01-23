@@ -4,6 +4,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.utils.properties import Properties
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.schema import ActionsNode, EventsNode, FunnelsQuery, HogQLQueryModifiers
@@ -39,10 +40,7 @@ class FunnelEventQuery(FunnelQueryContext):
             sample=self._sample_expr(),
         )
 
-        where_exprs = [
-            self._date_range_expr(),
-            self._entity_expr(skip_entity_filter),
-        ]
+        where_exprs = [self._date_range_expr(), self._entity_expr(skip_entity_filter), self._properties_expr()]
 
         # prop_query = self._get_prop_groups(
         #     self._filter.property_groups,
@@ -51,16 +49,15 @@ class FunnelEventQuery(FunnelQueryContext):
         # )
 
         # person_query = self._get_person_query()
+        # person_ids_query = self._get_person_ids_query()
 
         # query = f"""
-        #     {self._get_person_ids_query()}
+        #     {person_ids_query}
         #     {person_query}
         #     WHERE
-        #     {prop_query}
         # """
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
-        # return query, self.params
         stmt = ast.SelectQuery(
             select=select,
             select_from=select_from,
@@ -138,3 +135,8 @@ class FunnelEventQuery(FunnelQueryContext):
             right=ast.Tuple(exprs=[ast.Constant(value=event) for event in events]),
             op=ast.CompareOperationOp.In,
         )
+
+    def _properties_expr(self) -> List[ast.Expr]:
+        return Properties(
+            team=self.team, properties=self.query.properties, filterTestAccounts=self.query.filterTestAccounts
+        ).to_exprs()
