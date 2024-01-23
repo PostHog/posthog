@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Callable, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
@@ -46,7 +47,10 @@ class HogQLQueryRunner(QueryRunner):
         paginator = None
         if not query.limit:
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
-        func = execute_hogql_query if paginator is None else paginator.execute_hogql_query
+        func = cast(
+            Callable[..., HogQLQueryResponse],
+            execute_hogql_query if paginator is None else paginator.execute_hogql_query,
+        )
         response = func(
             query_type="HogQLQuery",
             query=query,
