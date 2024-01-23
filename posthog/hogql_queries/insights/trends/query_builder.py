@@ -23,6 +23,8 @@ class TrendsQueryBuilder:
     series: EventsNode | ActionsNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
+    person_query_time_frame: Optional[str | int]
+    is_person_query: bool
 
     def __init__(
         self,
@@ -32,6 +34,7 @@ class TrendsQueryBuilder:
         series: EventsNode | ActionsNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
+        person_query_time_frame: Optional[str | int] = None,
     ):
         self.query = trends_query
         self.team = team
@@ -39,8 +42,13 @@ class TrendsQueryBuilder:
         self.series = series
         self.timings = timings
         self.modifiers = modifiers
+        self.person_query_time_frame = person_query_time_frame
+        self.is_person_query = person_query_time_frame is not None
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if self.is_person_query:
+            return self._get_events_subquery(True)
+
         if self._trends_display.should_aggregate_values():
             events_query = self._get_events_subquery(False)
         else:
@@ -53,15 +61,6 @@ class TrendsQueryBuilder:
         full_query = self._outer_select_query(inner_select)
 
         return full_query
-
-    def build_persons_query(self) -> ast.SelectQuery:
-        event_query = self._get_events_subquery(True)
-
-        event_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
-        event_query.distinct = True
-        event_query.group_by = None
-
-        return event_query
 
     def _get_date_subqueries(self, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
         if not self._breakdown.enabled or ignore_breakdowns:
@@ -165,6 +164,12 @@ class TrendsQueryBuilder:
         if not self._trends_display.should_aggregate_values():
             default_query.select.append(day_start)
             default_query.group_by.append(ast.Field(chain=["day_start"]))
+
+        # TODO: Move this logic into the below branches when working on adding breakdown support for the person modal
+        if self.is_person_query:
+            default_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
+            default_query.distinct = True
+            default_query.group_by = None
 
         # No breakdowns and no complex series aggregation
         if (
@@ -356,7 +361,16 @@ class TrendsQueryBuilder:
         filters: List[ast.Expr] = []
 
         # Dates
-        if not self._aggregation_operation.requires_query_orchestration():
+        if self.is_person_query:
+            to_start_of_time_frame = f"toStartOf{self.query_date_range.interval_name.capitalize()}"
+            filters.append(
+                ast.CompareOperation(
+                    left=ast.Call(name=to_start_of_time_frame, args=[ast.Field(chain=["timestamp"])]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Call(name="toDateTime", args=[ast.Constant(value=self.person_query_time_frame)]),
+                )
+            )
+        elif not self._aggregation_operation.requires_query_orchestration():
             filters.extend(
                 [
                     parse_expr(
