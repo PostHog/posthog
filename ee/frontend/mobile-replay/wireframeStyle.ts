@@ -197,8 +197,15 @@ export function makeBackgroundStyles(wireframe: wireframe, styleOverride?: Style
     if (combinedStyles.backgroundColor) {
         styles += `background-color: ${combinedStyles.backgroundColor};`
     }
+
     if (combinedStyles.backgroundImage) {
-        styles += `background-image: url(${dataURIOrPNG(combinedStyles.backgroundImage)});background-repeat: no-repeat;`
+        const backgroundImageStyles = [
+            `background-image: url(${dataURIOrPNG(combinedStyles.backgroundImage)})`,
+            `background-size: ${combinedStyles.backgroundSize || 'auto'}`,
+            'background-repeat: no-repeat'
+        ]
+
+        styles += backgroundImageStyles.join(';')
     }
 
     return styles

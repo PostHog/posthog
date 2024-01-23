@@ -90,6 +90,10 @@ export type MobileStyles = {
      */
     backgroundImage?: string
     /**
+     * @description can be used alongside the background image property to specify how the image is rendered. Accepts a subset of the valid values for CSS background-size property. If not provided (and backgroundImage is present) defaults to 'auto'
+     */
+    backgroundSize?: 'contain' | 'cover' | 'auto'
+    /**
      * @description if borderWidth is present, then border style is assumed to be solid
      */
     borderWidth?: string | number
