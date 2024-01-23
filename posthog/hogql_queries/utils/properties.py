@@ -1,7 +1,7 @@
 from typing import List
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
-from posthog.models.team.team import Team
+from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.schema import (
     CohortPropertyFilter,
     ElementPropertyFilter,
@@ -35,34 +35,30 @@ PropertiesType = (
 
 
 class Properties:
-    team: Team
-    properties: PropertiesType
-    filterTestAccounts: bool | None
+    context: QueryContext
 
     def __init__(
         self,
-        team: Team,
-        properties: PropertiesType,
-        filterTestAccounts: bool | None,
+        context: QueryContext,
     ) -> None:
-        self.team = team
-        self.properties = properties
-        self.filterTestAccounts = filterTestAccounts
+        self.context = context
 
     def to_exprs(self) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []
 
+        team, query = self.context.team, self.context.query
+
         # Filter Test Accounts
         if (
-            self.filterTestAccounts
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
+            query.filterTestAccounts
+            and isinstance(team.test_account_filters, list)
+            and len(team.test_account_filters) > 0
         ):
-            for property in self.team.test_account_filters:
-                exprs.append(property_to_expr(property, self.team))
+            for property in team.test_account_filters:
+                exprs.append(property_to_expr(property, team))
 
         # Properties
-        if self.properties is not None and self.properties != []:
-            exprs.append(property_to_expr(self.properties, self.team))
+        if query.properties is not None and query.properties != []:
+            exprs.append(property_to_expr(query.properties, team))
 
         return exprs

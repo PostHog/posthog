@@ -11,7 +11,9 @@ from posthog.schema import ActionsNode, EventsNode, FunnelsQuery, HogQLQueryModi
 from rest_framework.exceptions import ValidationError
 
 
-class FunnelEventQuery(FunnelQueryContext):
+class FunnelEventQuery:
+    context: FunnelQueryContext
+
     EVENT_TABLE_ALIAS = "e"
 
     def __init__(
@@ -22,7 +24,9 @@ class FunnelEventQuery(FunnelQueryContext):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        self.context = FunnelQueryContext(
+            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
+        )
 
     def to_query(
         self,
@@ -51,16 +55,18 @@ class FunnelEventQuery(FunnelQueryContext):
         return stmt
 
     def _aggregation_target_column(self) -> str:
+        query, funnelsFilter = self.context.query, self.context.funnelsFilter
+
         # Aggregating by group
-        if self.query.aggregation_group_type_index is not None:
-            aggregation_target = f'{self.EVENT_TABLE_ALIAS}."$group_{self.query.aggregation_group_type_index}"'
+        if query.aggregation_group_type_index is not None:
+            aggregation_target = f'{self.EVENT_TABLE_ALIAS}."$group_{query.aggregation_group_type_index}"'
 
         # Aggregating by HogQL
-        elif self.funnelsFilter.funnelAggregateByHogQL and self.funnelsFilter.funnelAggregateByHogQL != "person_id":
+        elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
             aggregation_target = translate_hogql(
-                self.funnelsFilter.funnelAggregateByHogQL,
+                funnelsFilter.funnelAggregateByHogQL,
                 events_table_alias=self.EVENT_TABLE_ALIAS,
-                context=self.hogql_context,
+                context=self.context.hogql_context,
             )
 
         # TODO: is this still relevant?
@@ -75,10 +81,12 @@ class FunnelEventQuery(FunnelQueryContext):
         return aggregation_target
 
     def _sample_expr(self) -> ast.SampleExpr | None:
-        if self.query.samplingFactor is None:
+        query = self.context.query
+
+        if query.samplingFactor is None:
             return None
         else:
-            return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor)))
+            return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=query.samplingFactor)))
 
     def _date_range_expr(self) -> ast.Expr:
         return ast.And(
@@ -97,16 +105,18 @@ class FunnelEventQuery(FunnelQueryContext):
         )
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
+        team, query = self.context.team, self.context.query
+
         if skip_entity_filter is True:
             return None
 
         events: Set[Union[int, str, None]] = set()
 
-        for node in self.query.series:
+        for node in query.series:
             if isinstance(node, EventsNode):
                 events.add(node.event)
             elif isinstance(node, ActionsNode):
-                action = Action.objects.get(pk=int(node.id), team=self.team)
+                action = Action.objects.get(pk=int(node.id), team=team)
                 events.add(action.name)
             else:
                 raise ValidationError("Series must either be events or actions")
@@ -122,6 +132,4 @@ class FunnelEventQuery(FunnelQueryContext):
         )
 
     def _properties_expr(self) -> List[ast.Expr]:
-        return Properties(
-            team=self.team, properties=self.query.properties, filterTestAccounts=self.query.filterTestAccounts
-        ).to_exprs()
+        return Properties(context=self.context).to_exprs()
