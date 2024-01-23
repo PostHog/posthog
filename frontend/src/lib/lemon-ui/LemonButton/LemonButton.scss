@@ -193,10 +193,6 @@
         }
     }
 
-    &.LemonButton--no-content {
-        --lemon-button-padding-horizontal: 0.5rem;
-    }
-
     &.LemonButton--primary {
         --lemon-button-bg-color: var(--primary-3000-button-bg);
         --lemon-button-bg-color-active: var(--primary-3000-button-bg);
