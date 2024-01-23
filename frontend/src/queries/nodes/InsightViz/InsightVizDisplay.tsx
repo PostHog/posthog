@@ -151,7 +151,7 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            funnelsFilter?.funnel_viz_type === FunnelVizType.Steps &&
+            funnelsFilter?.funnelVizType === FunnelVizType.Steps &&
             !disableTable
         ) {
             return (

@@ -11,15 +11,15 @@ export function FunnelStepsPicker(): JSX.Element | null {
     const { series, isFunnelWithEnoughSteps, funnelsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const onChange = (funnel_from_step?: number, funnel_to_step?: number): void => {
-        updateInsightFilter({ funnel_from_step, funnel_to_step })
+    const onChange = (funnelFromStep?: number, funnelToStep?: number): void => {
+        updateInsightFilter({ funnelFromStep, funnelToStep })
     }
 
     const filterSteps = series || []
     const numberOfSeries = series?.length || 0
     const fromRange = isFunnelWithEnoughSteps ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice(0, -1) : [0]
     const toRange = isFunnelWithEnoughSteps
-        ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice((funnelsFilter?.funnel_from_step ?? 0) + 1)
+        ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice((funnelsFilter?.funnelFromStep ?? 0) + 1)
         : [1]
 
     const optionsForRange = (range: number[]): LemonSelectOptions<number> => {
@@ -51,9 +51,9 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 optionTooltipPlacement="bottomLeft"
                 disabled={!isFunnelWithEnoughSteps}
                 options={optionsForRange(fromRange)}
-                value={funnelsFilter?.funnel_from_step || 0}
+                value={funnelsFilter?.funnelFromStep || 0}
                 onChange={(fromStep: number | null) =>
-                    fromStep != null && onChange(fromStep, funnelsFilter?.funnel_to_step)
+                    fromStep != null && onChange(fromStep, funnelsFilter?.funnelToStep)
                 }
             />
             <span className="text-muted-alt">to</span>
@@ -64,10 +64,8 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 optionTooltipPlacement="bottomLeft"
                 disabled={!isFunnelWithEnoughSteps}
                 options={optionsForRange(toRange)}
-                value={funnelsFilter?.funnel_to_step || Math.max(numberOfSeries - 1, 1)}
-                onChange={(toStep: number | null) =>
-                    toStep != null && onChange(funnelsFilter?.funnel_from_step, toStep)
-                }
+                value={funnelsFilter?.funnelToStep || Math.max(numberOfSeries - 1, 1)}
+                onChange={(toStep: number | null) => toStep != null && onChange(funnelsFilter?.funnelFromStep, toStep)}
             />
         </div>
     )

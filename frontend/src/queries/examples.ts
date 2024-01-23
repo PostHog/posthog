@@ -204,7 +204,7 @@ const InsightFunnelsQuery: FunnelsQuery = {
     },
     series,
     funnelsFilter: {
-        funnel_order_type: StepOrderValue.ORDERED,
+        funnelOrderType: StepOrderValue.ORDERED,
     },
     breakdownFilter: {
         breakdown: '$geoip_country_code',

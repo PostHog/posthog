@@ -277,20 +277,27 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // funnels filter
     if (isFunnelsFilter(filters) && isFunnelsQuery(query)) {
         query.funnelsFilter = objectCleanWithEmpty({
-            funnel_viz_type: filters.funnel_viz_type,
-            funnel_from_step: filters.funnel_from_step,
-            funnel_to_step: filters.funnel_to_step,
-            funnel_step_reference: filters.funnel_step_reference,
-            breakdown_attribution_type: filters.breakdown_attribution_type,
-            breakdown_attribution_value: filters.breakdown_attribution_value,
-            bin_count: filters.bin_count,
-            funnel_window_interval_unit: filters.funnel_window_interval_unit,
-            funnel_window_interval: filters.funnel_window_interval,
-            funnel_order_type: filters.funnel_order_type,
-            exclusions: filters.exclusions,
+            funnelVizType: filters.funnel_viz_type,
+            funnelFromStep: filters.funnel_from_step,
+            funnelToStep: filters.funnel_to_step,
+            funnelStepReference: filters.funnel_step_reference,
+            breakdownAttributionType: filters.breakdown_attribution_type,
+            breakdownAttributionValue: filters.breakdown_attribution_value,
+            binCount: filters.bin_count,
+            funnelWindowIntervalUnit: filters.funnel_window_interval_unit,
+            funnelWindowInterval: filters.funnel_window_interval,
+            funnelOrderType: filters.funnel_order_type,
+            exclusions:
+                filters.exclusions !== undefined
+                    ? filters.exclusions.map(({ funnel_from_step, funnel_to_step, ...rest }) => ({
+                          funnelFromStep: funnel_from_step,
+                          funnelToStep: funnel_to_step,
+                          ...rest,
+                      }))
+                    : undefined,
             layout: filters.layout,
             hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
-            funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql,
+            funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
         })
     }
 

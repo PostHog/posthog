@@ -332,27 +332,27 @@ def _insight_filter(filter: Dict):
     elif _insight_type(filter) == "FUNNELS":
         insight_filter = {
             "funnelsFilter": FunnelsFilter(
-                funnel_viz_type=filter.get("funnel_viz_type"),
-                funnel_order_type=filter.get("funnel_order_type"),
-                funnel_from_step=filter.get("funnel_from_step"),
-                funnel_to_step=filter.get("funnel_to_step"),
-                funnel_window_interval_unit=filter.get("funnel_window_interval_unit"),
-                funnel_window_interval=filter.get("funnel_window_interval"),
-                funnel_step_reference=filter.get("funnel_step_reference"),
-                breakdown_attribution_type=filter.get("breakdown_attribution_type"),
-                breakdown_attribution_value=filter.get("breakdown_attribution_value"),
-                bin_count=filter.get("bin_count"),
+                funnelVizType=filter.get("funnel_viz_type"),
+                funnelOrderType=filter.get("funnel_order_type"),
+                funnelFromStep=filter.get("funnel_from_step"),
+                funnelToStep=filter.get("funnel_to_step"),
+                funnelWindowIntervalUnit=filter.get("funnel_window_interval_unit"),
+                funnelWindowInterval=filter.get("funnel_window_interval"),
+                funnelStepReference=filter.get("funnel_step_reference"),
+                breakdownAttributionType=filter.get("breakdown_attribution_type"),
+                breakdownAttributionValue=filter.get("breakdown_attribution_value"),
+                binCount=filter.get("bin_count"),
                 exclusions=[
                     FunnelExclusion(
                         **to_base_entity_dict(entity),
-                        funnel_from_step=entity.get("funnel_from_step"),
-                        funnel_to_step=entity.get("funnel_to_step"),
+                        funnelFromStep=entity.get("funnel_from_step"),
+                        funnelToStep=entity.get("funnel_to_step"),
                     )
                     for entity in filter.get("exclusions", [])
                 ],
                 layout=filter.get("layout"),
                 # hidden_legend_breakdowns: cleanHiddenLegendSeries(filter.get('hidden_legend_keys')),
-                funnel_aggregate_by_hogql=filter.get("funnel_aggregate_by_hogql"),
+                funnelAggregateByHogQL=filter.get("funnel_aggregate_by_hogql"),
             ),
         }
     elif _insight_type(filter) == "RETENTION":

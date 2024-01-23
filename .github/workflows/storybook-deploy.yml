@@ -54,7 +54,7 @@ jobs:
               run: echo "msg=Storybook build for ${{ github.sha }}" >> $GITHUB_OUTPUT
 
             - name: Commit update
-              uses: stefanzweifel/git-auto-commit-action@v4
+              uses: stefanzweifel/git-auto-commit-action@v5
               with:
                   repository: storybook-build
                   commit_message: ${{ steps.commit-message.outputs.msg }}

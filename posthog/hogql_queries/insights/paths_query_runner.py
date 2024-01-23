@@ -496,3 +496,51 @@ class PathsQueryRunner(QueryRunner):
         )
 
         return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql)
+
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        path_per_person_query = self.paths_per_person_query()
+
+        conditions = []
+        if self.query.pathsFilter.pathDropoffKey:
+            conditions.append(
+                parse_expr(
+                    "path_dropoff_key = {path_dropoff_key} AND path_dropoff_key = path_key",
+                    {"path_dropoff_key": ast.Constant(value=self.query.pathsFilter.pathDropoffKey)},
+                )
+            )
+        else:
+            if self.query.pathsFilter.pathStartKey:
+                conditions.append(
+                    parse_expr(
+                        "last_path_key = {path_start_key}",
+                        {"path_start_key": ast.Constant(value=self.query.pathsFilter.pathStartKey)},
+                    )
+                )
+            if self.query.pathsFilter.pathEndKey:
+                conditions.append(
+                    parse_expr(
+                        "path_key = {path_end_key}",
+                        {"path_end_key": ast.Constant(value=self.query.pathsFilter.pathEndKey)},
+                    )
+                )
+            else:
+                conditions.append(parse_expr("1=1"))
+
+        # TODO: Funnel?
+        # TODO: Include recordings?
+
+        actors_query = parse_select(
+            """
+                SELECT DISTINCT
+                    person_id as actor_id
+                FROM {paths_per_person_query}
+                WHERE {conditions}
+                ORDER BY actor_id
+            """,
+            placeholders={
+                "paths_per_person_query": path_per_person_query,
+                "conditions": ast.And(exprs=conditions),
+            },
+            timings=self.timings,
+        )
+        return actors_query

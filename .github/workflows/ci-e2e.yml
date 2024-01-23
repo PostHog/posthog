@@ -135,7 +135,7 @@ jobs:
               id: cypress-cache-dir
               run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v3
+            - uses: actions/cache@v4
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache
               with:
