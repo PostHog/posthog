@@ -6,7 +6,7 @@ describe('System Status', () => {
         cy.wait(500)
         cy.get('[data-attr=menu-item-me]').click()
         cy.get('[data-attr=top-menu-instance-panel]').click()
-        cy.get('h1').should('contain', 'Instance status')
+        cy.get('h1').should('contain', 'Instance panel')
         cy.get('table').should('contain', 'Events in ClickHouse')
     })
 })
