@@ -22,7 +22,7 @@ function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
 export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializedNodeWithId[], timestamp: number, idSequence: Generator<number>): serializedNodeWithId {
     const clockId = idSequence.next().value;
     // convert the wireframe timestamp to a date time, then get just the hour and minute of the time from that
-    const clockTime = new Date(timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
+    const clockTime = timestamp ? new Date(timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : ""
     const clock: serializedNodeWithId = {
         type: NodeType.Element,
         tagName: 'div',

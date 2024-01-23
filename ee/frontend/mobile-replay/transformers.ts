@@ -812,7 +812,7 @@ function chooseConverter<T extends wireframe>(
 }
 
 function convertWireframe(wireframe: wireframe, timestamp?: number, idSequence?: Generator<number>): serializedNodeWithId | null {
-    const children = convertWireframesFor(wireframe.childWireframes)
+    const children = convertWireframesFor(wireframe.childWireframes, timestamp)
     const converter = chooseConverter(wireframe)
     return converter?.(wireframe, children, timestamp, idSequence) || null
 }
@@ -823,7 +823,7 @@ function convertWireframesFor(wireframes: wireframe[] | undefined, timestamp?: n
     }
 
     return wireframes.reduce((acc, wireframe) => {
-        const convertedEl = convertWireframe(wireframe, timestamp)
+        const convertedEl = convertWireframe(wireframe, timestamp, idSequence)
         if (convertedEl !== null) {
             acc.push(convertedEl)
         }
@@ -851,7 +851,7 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
 }
 
 function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation[] | null {
-    const converted = convertWireframe(add.wireframe)
+    const converted = convertWireframe(add.wireframe, undefined, idSequence)
     if (!converted) {
         return null
     }
