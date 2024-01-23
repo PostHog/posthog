@@ -1,12 +1,14 @@
 import posthogEE from '@posthog/ee/exports'
-import { EventType } from '@rrweb/types'
-import { ifEeDescribe } from 'lib/ee.test'
+import {EventType} from '@rrweb/types'
+import {ifEeDescribe} from 'lib/ee.test'
 
-import { PostHogEE } from '../../../frontend/@posthog/ee/types'
-import { validateAgainstWebSchema, validateFromMobile } from './index'
+import {PostHogEE} from '../../../frontend/@posthog/ee/types'
+import {validateAgainstWebSchema, validateFromMobile} from './index'
+
+const unspecifiedBase64ImageURL = 'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII='
 
 const heartEyesEmojiURL =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII='
+    'data:image/png;base64,' + unspecifiedBase64ImageURL
 
 describe('replay/transform', () => {
     describe('validation', () => {
@@ -21,7 +23,7 @@ describe('replay/transform', () => {
 
         test('example of validating mobile meta event', () => {
             const validData = {
-                data: { width: 1, height: 1 },
+                data: {width: 1, height: 1},
                 timestamp: 1,
                 type: EventType.Meta,
             }
@@ -38,7 +40,7 @@ describe('replay/transform', () => {
             })
 
             test('should be valid when...', () => {
-                expect(validateAgainstWebSchema({ data: {}, timestamp: 12345, type: 0 })).toBeTruthy()
+                expect(validateAgainstWebSchema({data: {}, timestamp: 12345, type: 0})).toBeTruthy()
             })
         })
     })
@@ -52,16 +54,16 @@ describe('replay/transform', () => {
             expect(
                 posthogEEModule.mobileReplay?.transformToWeb([
                     {
-                        data: { width: 300, height: 600 },
+                        data: {width: 300, height: 600},
                         timestamp: 1,
                         type: 4,
                     },
                     {
-                        data: { href: 'included when present', width: 300, height: 600 },
+                        data: {href: 'included when present', width: 300, height: 600},
                         timestamp: 1,
                         type: 4,
                     },
-                    { type: 9999 },
+                    {type: 9999},
                     {
                         type: 2,
                         data: {
@@ -85,7 +87,7 @@ describe('replay/transform', () => {
         test('can ignore unknown wireframe types', () => {
             const unexpectedWireframeType = posthogEEModule.mobileReplay?.transformToWeb([
                 {
-                    data: { screen: 'App Home Page', width: 300, height: 600 },
+                    data: {screen: 'App Home Page', width: 300, height: 600},
                     timestamp: 1,
                     type: 4,
                 },
@@ -112,14 +114,14 @@ describe('replay/transform', () => {
         test('can short-circuit non-mobile full snapshot', () => {
             const allWeb = posthogEEModule.mobileReplay?.transformToWeb([
                 {
-                    data: { href: 'https://my-awesome.site', width: 300, height: 600 },
+                    data: {href: 'https://my-awesome.site', width: 300, height: 600},
                     timestamp: 1,
                     type: 4,
                 },
                 {
                     type: 2,
                     data: {
-                        node: { the: 'payload' },
+                        node: {the: 'payload'},
                     },
                     timestamp: 1,
                 },
@@ -233,7 +235,7 @@ describe('replay/transform', () => {
         test('child wireframes are processed', () => {
             const textEvent = posthogEEModule.mobileReplay?.transformToWeb([
                 {
-                    data: { screen: 'App Home Page', width: 300, height: 600 },
+                    data: {screen: 'App Home Page', width: 300, height: 600},
                     timestamp: 1,
                     type: 4,
                 },
@@ -423,6 +425,7 @@ describe('replay/transform', () => {
             ])
             expect(converted).toMatchSnapshot()
         })
+
         test('can convert navigation bar', () => {
             const converted = posthogEEModule.mobileReplay?.transformToWeb([
                 {
@@ -454,6 +457,61 @@ describe('replay/transform', () => {
                                     borderWidth: '4',
                                     borderRadius: '10px',
                                 },
+                            },
+                        ],
+                    },
+                    timestamp: 1,
+                },
+            ])
+            expect(converted).toMatchSnapshot()
+        })
+
+        test('can set background image to base64 png', () => {
+            const converted = posthogEEModule.mobileReplay?.transformToWeb([
+                {
+                    data: {
+                        width: 300,
+                        height: 600,
+                    },
+                    timestamp: 1,
+                    type: 4,
+                },
+                {
+                    type: 2,
+                    data: {
+                        wireframes: [
+                            {
+                                id: 12345,
+                                type: 'div',
+                                x: 0,
+                                y: 0,
+                                height: 30,
+                                style: {backgroundImage: heartEyesEmojiURL,}
+                            },
+                            {
+                                id: 12346,
+                                type: 'div',
+                                x: 0,
+                                y: 0,
+                                height: 30,
+                                style: {backgroundImage: unspecifiedBase64ImageURL,}
+                            },
+                            {
+                                id: 12346,
+                                type: 'div',
+                                x: 0,
+                                y: 0,
+                                height: 30,
+                                style: {backgroundImage: unspecifiedBase64ImageURL, backgroundSize: 'cover'}
+                            },
+                            {
+                                id: 12346,
+                                type: 'div',
+                                x: 0,
+                                y: 0,
+                                height: 30,
+                                // should be ignored
+                                style: {backgroundImage: null,}
                             },
                         ],
                     },
@@ -562,7 +620,7 @@ describe('replay/transform', () => {
                                     height: 30,
                                     type: 'input',
                                     inputType: 'progress',
-                                    style: { bar: 'rating' },
+                                    style: {bar: 'rating'},
                                     max: '12',
                                     value: '6.5',
                                 },
@@ -578,7 +636,7 @@ describe('replay/transform', () => {
                     posthogEEModule.mobileReplay?.transformEventToWeb({
                         timestamp: 1,
                         type: EventType.Custom,
-                        data: { tag: 'keyboard', payload: { open: true, height: 150 } },
+                        data: {tag: 'keyboard', payload: {open: true, height: 150}},
                     })
                 ).toMatchSnapshot()
             })
@@ -599,7 +657,7 @@ describe('replay/transform', () => {
                                         height: 30,
                                         type: 'input',
                                         inputType: 'progress',
-                                        style: { bar: 'rating' },
+                                        style: {bar: 'rating'},
                                         max: '12',
                                         value: '6.5',
                                     },
@@ -617,7 +675,7 @@ describe('replay/transform', () => {
                         type: EventType.IncrementalSnapshot,
                         data: {
                             source: 0,
-                            removes: [{ parentId: 54321, id: 12345 }],
+                            removes: [{parentId: 54321, id: 12345}],
                         },
                     })
                 ).toMatchSnapshot()
@@ -641,7 +699,7 @@ describe('replay/transform', () => {
                                         height: 30,
                                         type: 'input',
                                         inputType: 'progress',
-                                        style: { bar: 'rating' },
+                                        style: {bar: 'rating'},
                                         max: '12',
                                         value: '6.5',
                                     },
@@ -657,7 +715,7 @@ describe('replay/transform', () => {
                     posthogEEModule.mobileReplay?.transformEventToWeb({
                         timestamp: 1,
                         type: EventType.Custom,
-                        data: { tag: 'keyboard', payload: { open: false } },
+                        data: {tag: 'keyboard', payload: {open: false}},
                     })
                 ).toMatchSnapshot()
             })
@@ -931,7 +989,7 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'input',
                     inputType: 'progress',
-                    style: { bar: 'circular' },
+                    style: {bar: 'circular'},
                 },
                 {
                     id: 12365,
@@ -939,7 +997,7 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'input',
                     inputType: 'progress',
-                    style: { bar: 'horizontal' },
+                    style: {bar: 'horizontal'},
                 },
                 {
                     id: 12365,
@@ -947,7 +1005,7 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'input',
                     inputType: 'progress',
-                    style: { bar: 'horizontal' },
+                    style: {bar: 'horizontal'},
                     value: 0.75,
                 },
                 {
@@ -956,7 +1014,7 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'input',
                     inputType: 'progress',
-                    style: { bar: 'horizontal' },
+                    style: {bar: 'horizontal'},
                     value: 0.75,
                     max: 2.5,
                 },

@@ -296,6 +296,15 @@
                     "description": "maps to CSS background-color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000",
                     "type": "string"
                 },
+                "backgroundImage": {
+                    "description": "if provided this will be used as a base64 encoded image source for the backgroundImage css property, with no other attributes it is assumed to be a PNG",
+                    "type": "string"
+                },
+                "backgroundSize": {
+                    "description": "can be used alongside the background image property to specify how the image is rendered. Accepts a subset of the valid values for CSS background-size property. If not provided (and backgroundImage is present) defaults to 'auto'",
+                    "enum": ["contain", "cover", "auto"],
+                    "type": "string"
+                },
                 "borderColor": {
                     "description": "if borderColor is present, then border style is assumed to be solid",
                     "type": "string"
