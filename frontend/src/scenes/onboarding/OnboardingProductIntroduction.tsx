@@ -24,7 +24,7 @@ export const scene: SceneExport = {
 export const Feature = ({ name, description, images }: BillingV2FeatureType): JSX.Element => {
     return images ? (
         <li className="text-center">
-            <div className="mb-2 w-full border border-border rounded">
+            <div className="mb-2 w-full rounded">
                 <img src={images.light} className="w-full rounded" />
             </div>
             <h4 className="mb-1 leading-tight text-lg">{name}</h4>
@@ -83,7 +83,8 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                         </li>
                         <li>
                             <IconCheck className="inline-block mr-2 text-success" />
-                            Then just ${planForStats.tiers?.[1].unit_amount_usd}/{product.unit} after that, with{' '}
+                            Then just <span className="font-bold">${planForStats.tiers?.[1].unit_amount_usd}</span>/
+                            {product.unit} after that, with{' '}
                             <Link onClick={() => toggleIsPricingModalOpen()} className="font-bold">
                                 volume discounts
                             </Link>{' '}
@@ -131,14 +132,14 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
         <>
             <div className="unsubscribed-product-landing-page">
                 <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
-                    <div className="grid grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
+                    <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                         <div className="">
                             <h2 className="text-2xl font-bold">{product.name}</h2>
                             <h3 className="text-4xl font-bold">{product.headline}</h3>
                             <p>{product.description}</p>
                             <GetStartedButton product={product} />
                         </div>
-                        <aside className="text-right my-2">
+                        <aside className="text-right my-2 hidden md:block">
                             <img src={product.image_url || undefined} className="max-w-96" />
                         </aside>
                     </div>
@@ -154,7 +155,7 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                 <div className="features p-8 py-12 border-t border-border flex justify-center">
                     <div className="max-w-screen-xl">
                         <h3 className="mb-6 text-2xl font-bold">Features</h3>
-                        <ul className="list-none p-0 grid grid-cols-3 gap-8 mb-8 ">
+                        <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
                             {product.features
                                 .filter((feature) => feature.type == 'primary')
                                 .map((feature, i) => {
@@ -207,14 +208,14 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                         <PricingSection product={product} />
                     </div>
                 </div>
-                <div className="mb-12 flex justify-center">
-                    <div className="w-full max-w-screen-xl rounded bg-white border border-border p-6 flex justify-between items-center">
+                <div className="mb-12 flex justify-center p-8">
+                    <div className="w-full max-w-screen-xl rounded bg-white border border-border p-6 flex justify-between items-center gap-x-12">
                         <div>
                             <h3 className="mb-4 text-2xl font-bold">Get started with {product.name}</h3>
-                            <p className="text-[15px]">{product.description}</p>
+                            <p className="text-sm max-w-2xl">{product.description}</p>
                             <GetStartedButton product={product} />
                         </div>
-                        <div className="h-30">
+                        <div className="w-24 hidden sm:block">
                             <WavingHog className="h-full w-full" />
                         </div>
                     </div>
