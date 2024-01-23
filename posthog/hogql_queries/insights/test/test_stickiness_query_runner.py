@@ -515,7 +515,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         self._create_test_groups()
         self._create_test_events()
 
-        series: List[EventsNode | ActionsNode] = [  # type: ignore
+        series: List[EventsNode | ActionsNode] = [
             EventsNode(event="$pageview", math="unique_group", math_group_type_index=MathGroupTypeIndex.number_0)
         ]
 
