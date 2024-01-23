@@ -137,7 +137,7 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
 
     return product ? (
         <>
-            <div className="unsubscribed-product-landing-page">
+            <div className="unsubscribed-product-landing-page -m-4">
                 <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
                     <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                         <div className="">
