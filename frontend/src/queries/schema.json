@@ -1322,6 +1322,36 @@
                 "custom_name": {
                     "type": ["string", "null"]
                 },
+                "funnelFromStep": {
+                    "type": "number"
+                },
+                "funnelToStep": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "type": "object"
+        },
+        "FunnelExclusionLegacy": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
                 "funnel_from_step": {
                     "type": "number"
                 },
@@ -1364,6 +1394,60 @@
         },
         "FunnelsFilter": {
             "additionalProperties": false,
+            "properties": {
+                "binCount": {
+                    "$ref": "#/definitions/BinCountValue"
+                },
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/BreakdownAttributionType"
+                },
+                "breakdownAttributionValue": {
+                    "type": "number"
+                },
+                "exclusions": {
+                    "items": {
+                        "$ref": "#/definitions/FunnelExclusion"
+                    },
+                    "type": "array"
+                },
+                "funnelAggregateByHogQL": {
+                    "type": "string"
+                },
+                "funnelFromStep": {
+                    "type": "number"
+                },
+                "funnelOrderType": {
+                    "$ref": "#/definitions/StepOrderValue"
+                },
+                "funnelStepReference": {
+                    "$ref": "#/definitions/FunnelStepReference"
+                },
+                "funnelToStep": {
+                    "type": "number"
+                },
+                "funnelVizType": {
+                    "$ref": "#/definitions/FunnelVizType"
+                },
+                "funnelWindowInterval": {
+                    "type": "number"
+                },
+                "funnelWindowIntervalUnit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "hidden_legend_breakdowns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "layout": {
+                    "$ref": "#/definitions/FunnelLayout"
+                }
+            },
+            "type": "object"
+        },
+        "FunnelsFilterLegacy": {
+            "additionalProperties": false,
             "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
             "properties": {
                 "bin_count": {
@@ -1377,7 +1461,7 @@
                 },
                 "exclusions": {
                     "items": {
-                        "$ref": "#/definitions/FunnelExclusion"
+                        "$ref": "#/definitions/FunnelExclusionLegacy"
                     },
                     "type": "array"
                 },

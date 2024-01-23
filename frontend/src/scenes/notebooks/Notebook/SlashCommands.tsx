@@ -144,7 +144,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                         },
                     ],
                     funnelsFilter: {
-                        funnel_viz_type: FunnelVizType.Steps,
+                        funnelVizType: FunnelVizType.Steps,
                     },
                 })
             ),

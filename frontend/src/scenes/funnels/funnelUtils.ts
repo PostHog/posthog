@@ -19,7 +19,6 @@ import {
     FunnelCorrelationResultsType,
     FunnelExclusion,
     FunnelResultType,
-    FunnelsFilterType,
     FunnelStep,
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
@@ -220,87 +219,33 @@ export const getBreakdownStepValues = (
     return EMPTY_BREAKDOWN_VALUES
 }
 
-export const isStepsEmpty = (filters: FunnelsFilterType): boolean =>
-    [...(filters.actions || []), ...(filters.events || [])].length === 0
-
-export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
-    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
-
-export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): FunnelExclusion[] | undefined => {
-    if (!filters.exclusions) {
-        return undefined
-    }
-
-    const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    const exclusions = filters.exclusions.map((event) => {
-        const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
-        return {
-            ...event,
-            ...{ funnel_from_step },
-            ...{
-                funnel_to_step: event.funnel_to_step
-                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
-                    : lastIndex,
-            },
-        }
-    })
-    return exclusions.length > 0 ? exclusions : undefined
-}
-
 const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
     candidates.find((s) => typeof s === 'number')
 
-export const getClampedStepRangeFilter = ({
-    stepRange,
-    filters,
-}: {
-    stepRange?: FunnelExclusion
-    filters: FunnelsFilterType
-}): FunnelExclusion => {
-    const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-
-    let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
-    let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, filters.funnel_to_step])
-
-    const funnelFromStepIsSet = typeof funnel_from_step === 'number'
-    const funnelToStepIsSet = typeof funnel_to_step === 'number'
-
-    if (funnelFromStepIsSet && funnelToStepIsSet) {
-        funnel_from_step = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
-        funnel_to_step = clamp(funnel_to_step ?? maxStepIndex, funnel_from_step + 1, maxStepIndex)
-    }
-
-    return {
-        ...(stepRange || {}),
-        funnel_from_step,
-        funnel_to_step,
-    }
-}
-
-export const getClampedStepRangeFilterDataExploration = ({
+export const getClampedStepRange = ({
     stepRange,
     query,
 }: {
     stepRange?: FunnelExclusion
     query: FunnelsQuery
 }): FunnelExclusion => {
-    const maxStepIndex = Math.max(query.series.length || 0 - 1, 1)
+    const maxStepIndex = Math.max((query.series.length || 0) - 1, 1)
 
-    let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, query.funnelsFilter?.funnel_from_step])
-    let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, query.funnelsFilter?.funnel_to_step])
+    let funnelFromStep = findFirstNumber([stepRange?.funnelFromStep, query.funnelsFilter?.funnelFromStep])
+    let funnelToStep = findFirstNumber([stepRange?.funnelToStep, query.funnelsFilter?.funnelToStep])
 
-    const funnelFromStepIsSet = typeof funnel_from_step === 'number'
-    const funnelToStepIsSet = typeof funnel_to_step === 'number'
+    const funnelFromStepIsSet = typeof funnelFromStep === 'number'
+    const funnelToStepIsSet = typeof funnelToStep === 'number'
 
     if (funnelFromStepIsSet && funnelToStepIsSet) {
-        funnel_from_step = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
-        funnel_to_step = clamp(funnel_to_step ?? maxStepIndex, funnel_from_step + 1, maxStepIndex)
+        funnelFromStep = clamp(funnelFromStep ?? 0, 0, maxStepIndex)
+        funnelToStep = clamp(funnelToStep ?? maxStepIndex, funnelFromStep + 1, maxStepIndex)
     }
 
     return {
         ...(stepRange || {}),
-        funnel_from_step,
-        funnel_to_step,
+        funnelFromStep,
+        funnelToStep,
     }
 }
 
@@ -323,8 +268,8 @@ export function getIncompleteConversionWindowStartDate(
     window: FunnelConversionWindow,
     startDate: dayjs.Dayjs = dayjs()
 ): dayjs.Dayjs {
-    const { funnel_window_interval, funnel_window_interval_unit } = window
-    return startDate.subtract(funnel_window_interval, funnel_window_interval_unit)
+    const { funnelWindowInterval, funnelWindowIntervalUnit } = window
+    return startDate.subtract(funnelWindowInterval, funnelWindowIntervalUnit)
 }
 
 export function generateBaselineConversionUrl(url?: string | null): string {
@@ -643,11 +588,11 @@ export const appendToCorrelationConfig = (
     })
 }
 
-export function aggregationLabelForHogQL(funnel_aggregate_by_hogql: string): Noun {
-    if (funnel_aggregate_by_hogql === 'person_id') {
+export function aggregationLabelForHogQL(funnelAggregateByHogQL: string): Noun {
+    if (funnelAggregateByHogQL === 'person_id') {
         return { singular: 'person', plural: 'persons' }
     }
-    if (funnel_aggregate_by_hogql === 'properties.$session_id') {
+    if (funnelAggregateByHogQL === 'properties.$session_id') {
         return { singular: 'session', plural: 'sessions' }
     }
     return { singular: 'result', plural: 'results' }
