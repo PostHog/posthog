@@ -145,7 +145,7 @@ class TrendsQueryRunner(QueryRunner):
                     resonse_hogql_query.select_queries.extend(query.select_queries)
 
         with self.timings.measure("printing_hogql_for_response"):
-            response_hogql = to_printed_hogql(resonse_hogql_query, self.team)
+            response_hogql = to_printed_hogql(resonse_hogql_query, self.team, self.modifiers)
 
         res_matrix: List[List[Any] | Any | None] = [None] * len(queries)
         timings_matrix: List[List[QueryTiming] | None] = [None] * len(queries)
