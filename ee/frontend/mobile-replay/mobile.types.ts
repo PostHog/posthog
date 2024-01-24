@@ -73,6 +73,8 @@ export type MobileNodeType =
     | 'input'
     | 'div'
     | 'radio_group'
+    | 'status_bar'
+    | 'navigation_bar'
 
 export type MobileStyles = {
     /**
@@ -83,6 +85,14 @@ export type MobileStyles = {
      * @description maps to CSS background-color. Accepts any valid CSS color value. Expects a #RGB value e.g. #000 or #000000
      */
     backgroundColor?: string
+    /**
+     * @description if provided this will be used as a base64 encoded image source for the backgroundImage css property, with no other attributes it is assumed to be a PNG
+     */
+    backgroundImage?: string
+    /**
+     * @description can be used alongside the background image property to specify how the image is rendered. Accepts a subset of the valid values for CSS background-size property. If not provided (and backgroundImage is present) defaults to 'auto'
+     */
+    backgroundSize?: 'contain' | 'cover' | 'auto'
     /**
      * @description if borderWidth is present, then border style is assumed to be solid
      */
@@ -253,6 +263,20 @@ export type wireframeDiv = wireframeBase & {
     type: 'div'
 }
 
+/**
+ * @description the status bar respects styling and positioning, but it is expected to be at the top of the screen with limited styling and no child elements
+ */
+export type wireframeStatusBar = wireframeBase & {
+    type: 'status_bar'
+}
+
+/**
+ * @description the navigation bar respects styling and positioning, but it is expected to be at the bottom of the screen with limited styling and no child elements
+ */
+export type wireframeNavigationBar = wireframeBase & {
+    type: 'navigation_bar'
+}
+
 export type wireframe =
     | wireframeText
     | wireframeImage
@@ -262,6 +286,8 @@ export type wireframe =
     | wireframeRadioGroup
     | wireframeWebView
     | wireframePlaceholder
+    | wireframeStatusBar
+    | wireframeNavigationBar
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {

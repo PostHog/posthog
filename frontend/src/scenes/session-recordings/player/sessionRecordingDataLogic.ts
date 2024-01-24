@@ -295,13 +295,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 duration: Math.round(performance.now() - cache.snapshotsStartTime),
             }
 
-            actions.reportViewed()
             actions.reportUsageIfFullyLoaded()
 
             const nextSourceToLoad = sources?.find((s) => !s.loaded)
 
             if (nextSourceToLoad) {
                 actions.loadRecordingSnapshots(nextSourceToLoad)
+            } else {
+                actions.reportViewed()
             }
         },
         loadEventsSuccess: () => {
