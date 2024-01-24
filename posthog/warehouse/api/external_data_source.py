@@ -1,7 +1,6 @@
 import uuid
 from typing import Any
 
-import psycopg
 import structlog
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -29,6 +28,8 @@ from posthog.temporal.data_imports.pipelines.schemas import (
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_access_token_from_code,
 )
+from posthog.warehouse.models.external_data_schema import get_postgres_schemas
+
 import temporalio
 
 logger = structlog.get_logger(__name__)
@@ -135,12 +136,12 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.HUBSPOT:
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.POSTGRES:
-            new_source_model = self._handle_postgres_source(request, *args, **kwargs)
+            new_source_model, table_names = self._handle_postgres_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
         if source_type == ExternalDataSource.Type.POSTGRES:
-            schemas = new_source_model.job_inputs["table_names"]
+            schemas = table_names
         else:
             schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
 
@@ -207,7 +208,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
-    def _handle_postgres_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+    def _handle_postgres_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -237,12 +238,11 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "password": password,
                 "sslmode": sslmode,
                 "schema": schema,
-                "table_names": table_names,
             },
             prefix=prefix,
         )
 
-        return new_source_model
+        return new_source_model, table_names
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()
@@ -318,20 +318,6 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         sslmode = request.query_params.get("sslmode")
         schema = request.query_params.get("schema")
 
-        connection = psycopg.Connection.connect(
-            host=host,
-            port=port,
-            dbname=database,
-            user=user,
-            password=password,
-            sslmode=sslmode,
-        )
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
-            )
-            result = cursor.fetchall()
-            result = [{"table": row[0], "should_sync": False} for row in result]
-
-        return Response(status=status.HTTP_200_OK, data=result)
+        result = get_postgres_schemas(host, port, database, user, password, sslmode, schema)
+        result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
+        return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)

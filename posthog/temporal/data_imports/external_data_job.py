@@ -24,6 +24,7 @@ from posthog.warehouse.models import (
     sync_old_schemas_with_new_schemas,
     ExternalDataSource,
 )
+from posthog.warehouse.models.external_data_schema import get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Tuple
 import asyncio
@@ -49,9 +50,22 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
     source.status = "Running"
     await sync_to_async(source.save)()  # type: ignore
 
-    # Sync schemas if they have changed
+    if source.source_type == ExternalDataSource.Type.POSTGRES:
+        host = source.job_inputs.get("host")
+        port = source.job_inputs.get("port")
+        user = source.job_inputs.get("user")
+        password = source.job_inputs.get("password")
+        database = source.job_inputs.get("database")
+        sslmode = source.job_inputs.get("sslmode")
+        schema = source.job_inputs.get("schema")
+        schemas_to_sync = await sync_to_async(get_postgres_schemas)(
+            host, port, database, user, password, sslmode, schema
+        )
+    else:
+        schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type])
+
     await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-        list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type]),  # type: ignore
+        schemas_to_sync,  # type: ignore
         source_id=inputs.external_data_source_id,
         team_id=inputs.team_id,
     )
@@ -184,7 +198,6 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         database = model.pipeline.job_inputs.get("database")
         sslmode = model.pipeline.job_inputs.get("sslmode")
         schema = model.pipeline.job_inputs.get("schema")
-        table_names = model.pipeline.job_inputs.get("table_names")
 
         source = postgres_source(
             host=host,
@@ -194,7 +207,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             database=database,
             sslmode=sslmode,
             schema=schema,
-            table_names=table_names,
+            table_names=inputs.schemas,
         )
 
     else:
