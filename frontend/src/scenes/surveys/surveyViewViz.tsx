@@ -297,7 +297,7 @@ export function SingleChoiceQuestionPieChart({
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">Single choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className="h-80 border rounded pt-4 pb-2 flex">
+                    <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <PieChart

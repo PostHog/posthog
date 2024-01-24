@@ -31,7 +31,9 @@ export const PlayerFrame = (): JSX.Element => {
         player.replayer.on('resize', updatePlayerDimensions as Handler)
         window.addEventListener('resize', windowResize)
 
-        return () => window.removeEventListener('resize', windowResize)
+        return () => {
+            window.removeEventListener('resize', windowResize)
+        }
     }, [player?.replayer])
 
     // Recalculate the player size when the player changes dimensions

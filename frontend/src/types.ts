@@ -360,6 +360,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
+    session_replay_config: { record_canvas?: boolean } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -526,6 +527,7 @@ export enum ExperimentsTabs {
 }
 
 export enum PipelineTab {
+    Overview = 'overview',
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
@@ -542,6 +544,7 @@ export enum PipelineAppTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
+    History = 'history',
 }
 
 export enum ProgressStatus {
@@ -822,9 +825,14 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelExclusion extends Partial<EntityFilter> {
+export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step?: number
     funnel_to_step?: number
+}
+
+export interface FunnelExclusion extends Partial<EntityFilter> {
+    funnelFromStep?: number
+    funnelToStep?: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
@@ -1099,6 +1107,7 @@ export interface SessionRecordingType {
     console_error_count?: number
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'object_storage'
+    summary?: string
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1451,6 +1460,8 @@ export interface DashboardBasicType {
 
 export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
+    // matches on template name, description, and tags
+    search?: string
 }
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
@@ -1849,7 +1860,7 @@ export interface FunnelsFilterType extends FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelExclusion[] // used in funnel exclusion filters
+    exclusions?: FunnelExclusionLegacy[] // used in funnel exclusion filters
     funnel_aggregate_by_hogql?: string
 
     // frontend only
@@ -1876,11 +1887,15 @@ export interface PathsFilterType extends FilterType {
     funnel_paths?: FunnelPathType
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
+    /** @asType integer */
     step_limit?: number // Paths Step Limit
     path_replacements?: boolean
     local_path_cleaning_filters?: PathCleaningFilter[]
+    /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
+    /** @asType integer */
     min_edge_weight?: number | undefined // Paths
+    /** @asType integer */
     max_edge_weight?: number | undefined // Paths
 
     // persons only
@@ -2115,8 +2130,8 @@ export interface FunnelTimeConversionMetrics {
 }
 
 export interface FunnelConversionWindow {
-    funnel_window_interval_unit: FunnelConversionWindowTimeUnit
-    funnel_window_interval: number
+    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
+    funnelWindowInterval: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
@@ -2850,9 +2865,9 @@ export interface AppContext {
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 
 export interface PathEdgeParameters {
-    edge_limit?: number | undefined
-    min_edge_weight?: number | undefined
-    max_edge_weight?: number | undefined
+    edgeLimit?: number | undefined
+    minEdgeWeight?: number | undefined
+    maxEdgeWeight?: number | undefined
 }
 
 export enum SignificanceCode {

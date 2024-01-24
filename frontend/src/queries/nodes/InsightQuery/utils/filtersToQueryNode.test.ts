@@ -325,7 +325,7 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.TrendsQuery,
                 trendsFilter: {
                     smoothingIntervals: 1,
-                    show_legend: true,
+                    showLegend: true,
                     hidden_legend_indexes: [0, 10],
                     compare: true,
                     aggregationAxisFormat: 'numeric',
@@ -381,20 +381,20 @@ describe('filtersToQueryNode', () => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
-                    funnel_from_step: 1,
-                    funnel_to_step: 2,
-                    funnel_step_reference: FunnelStepReference.total,
-                    breakdown_attribution_type: BreakdownAttributionType.AllSteps,
-                    breakdown_attribution_value: 1,
-                    bin_count: 'auto',
-                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
-                    funnel_window_interval: 7,
-                    funnel_order_type: StepOrderValue.ORDERED,
+                    funnelVizType: FunnelVizType.Steps,
+                    funnelFromStep: 1,
+                    funnelToStep: 2,
+                    funnelStepReference: FunnelStepReference.total,
+                    breakdownAttributionType: BreakdownAttributionType.AllSteps,
+                    breakdownAttributionValue: 1,
+                    binCount: 'auto',
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                    funnelWindowInterval: 7,
+                    funnelOrderType: StepOrderValue.ORDERED,
                     exclusions: [
                         {
-                            funnel_from_step: 0,
-                            funnel_to_step: 1,
+                            funnelFromStep: 0,
+                            funnelToStep: 1,
                         },
                     ],
                     layout: FunnelLayout.horizontal,
@@ -423,11 +423,11 @@ describe('filtersToQueryNode', () => {
             const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
-                    retention_type: 'retention_first_time',
-                    retention_reference: 'total',
-                    total_intervals: 2,
-                    returning_entity: { id: '1' },
-                    target_entity: { id: '1' },
+                    retentionType: 'retention_first_time',
+                    retentionReference: 'total',
+                    totalIntervals: 2,
+                    returningEntity: { id: '1' },
+                    targetEntity: { id: '1' },
                     period: RetentionPeriod.Day,
                 },
             }
@@ -439,7 +439,6 @@ describe('filtersToQueryNode', () => {
         it('converts all properties', () => {
             const filters: Partial<PathsFilterType> = {
                 insight: InsightType.PATHS,
-                path_type: PathType.Screen,
                 include_event_types: [PathType.Screen, PathType.PageView],
                 start_point: 'a',
                 end_point: 'b',
@@ -463,20 +462,19 @@ describe('filtersToQueryNode', () => {
             const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
-                    path_type: PathType.Screen,
-                    include_event_types: [PathType.Screen, PathType.PageView],
-                    start_point: 'a',
-                    end_point: 'b',
-                    path_groupings: ['c', 'd'],
-                    funnel_paths: FunnelPathType.between,
-                    funnel_filter: { a: 1 },
-                    exclude_events: ['e', 'f'],
-                    step_limit: 1,
-                    path_replacements: true,
-                    local_path_cleaning_filters: [{ alias: 'home' }],
-                    edge_limit: 1,
-                    min_edge_weight: 1,
-                    max_edge_weight: 1,
+                    includeEventTypes: [PathType.Screen, PathType.PageView],
+                    startPoint: 'a',
+                    endPoint: 'b',
+                    pathGroupings: ['c', 'd'],
+                    funnelPaths: FunnelPathType.between,
+                    funnelFilter: { a: 1 },
+                    excludeEvents: ['e', 'f'],
+                    stepLimit: 1,
+                    pathReplacements: true,
+                    localPathCleaningFilters: [{ alias: 'home' }],
+                    edgeLimit: 1,
+                    minEdgeWeight: 1,
+                    maxEdgeWeight: 1,
                 },
             }
             expect(result).toEqual(query)
@@ -500,7 +498,7 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
                     compare: true,
-                    show_legend: true,
+                    showLegend: true,
                     hidden_legend_indexes: [0, 10],
                     display: ChartDisplayType.ActionsLineGraph,
                 },
@@ -676,15 +674,15 @@ describe('filtersToQueryNode', () => {
                 },
                 retentionFilter: {
                     period: RetentionPeriod.Week,
-                    target_entity: {
+                    targetEntity: {
                         id: 'signed_up',
                         name: 'signed_up',
                         type: 'events',
                         order: 0,
                     },
-                    retention_type: 'retention_first_time',
-                    total_intervals: 9,
-                    returning_entity: {
+                    retentionType: 'retention_first_time',
+                    totalIntervals: 9,
+                    returningEntity: {
                         id: 1,
                         name: 'Interacted with file',
                         type: 'actions',
@@ -1103,7 +1101,7 @@ describe('filtersToQueryNode', () => {
                 ],
                 filterTestAccounts: true,
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
             expect(result).toEqual(query)
@@ -1173,7 +1171,7 @@ describe('filtersToQueryNode', () => {
                 ],
                 filterTestAccounts: true,
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
             expect(result).toEqual(query)
@@ -1332,11 +1330,11 @@ describe('filtersToQueryNode', () => {
                     date_to: null,
                 },
                 pathsFilter: {
-                    start_point: 'https://hedgebox.net/',
-                    step_limit: 5,
-                    include_event_types: [PathType.PageView],
-                    path_groupings: ['/files/*'],
-                    edge_limit: 50,
+                    startPoint: 'https://hedgebox.net/',
+                    stepLimit: 5,
+                    includeEventTypes: [PathType.PageView],
+                    pathGroupings: ['/files/*'],
+                    edgeLimit: 50,
                 },
                 properties: {
                     type: FilterLogicalOperator.And,

@@ -29,6 +29,8 @@ export default {
                 // TODO: Differentiate between transformation and destination mocks for nicer mocks
                 '/api/organizations/@current/pipeline_destinations/': plugins,
                 '/api/projects/:team_id/pipeline_destination_configs/': pluginConfigs,
+                '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
+                '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
             },
         }),
     ],
@@ -52,6 +54,14 @@ export function PipelineLandingPage(): JSX.Element {
     // also Destinations page
     useEffect(() => {
         router.actions.push(urls.pipeline())
+        pipelineLogic.mount()
+    }, [])
+    return <App />
+}
+
+export function PipelineOverviewPage(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipeline(PipelineTab.Overview))
         pipelineLogic.mount()
     }, [])
     return <App />
@@ -117,12 +127,6 @@ export function PipelineAppConfiguration404(): JSX.Element {
 }
 
 export function PipelineAppMetrics(): JSX.Element {
-    useStorybookMocks({
-        get: {
-            '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
-            '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
-        },
-    })
     useEffect(() => {
         router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, geoIpConfigId, PipelineAppTab.Metrics))
         pipelineAppMetricsLogic({ pluginConfigId: geoIpConfigId }).mount()
@@ -131,12 +135,6 @@ export function PipelineAppMetrics(): JSX.Element {
 }
 
 export function PipelineAppMetricsErrorModal(): JSX.Element {
-    useStorybookMocks({
-        get: {
-            '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
-            '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
-        },
-    })
     useEffect(() => {
         router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, geoIpConfigId, PipelineAppTab.Metrics))
         const logic = pipelineAppMetricsLogic({ pluginConfigId: geoIpConfigId })

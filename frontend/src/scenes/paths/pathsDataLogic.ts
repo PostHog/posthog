@@ -8,7 +8,7 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightActorsQuery, NodeKind, PathsQuery } from '~/queries/schema'
 import { isPathsQuery } from '~/queries/utils'
 import {
     ActionFilter,
@@ -90,14 +90,14 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             (s) => [s.pathsFilter],
             (pathsFilter) => {
                 const taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
-                if (pathsFilter?.include_event_types) {
-                    if (pathsFilter?.include_event_types.includes(PathType.PageView)) {
+                if (pathsFilter?.includeEventTypes) {
+                    if (pathsFilter?.includeEventTypes.includes(PathType.PageView)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.PageviewUrls)
                     }
-                    if (pathsFilter?.include_event_types.includes(PathType.Screen)) {
+                    if (pathsFilter?.includeEventTypes.includes(PathType.Screen)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.Screens)
                     }
-                    if (pathsFilter?.include_event_types.includes(PathType.CustomEvent)) {
+                    if (pathsFilter?.includeEventTypes.includes(PathType.CustomEvent)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.CustomEvents)
                     }
                 }
@@ -110,7 +110,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
     listeners(({ values }) => ({
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             const filters: Partial<PathsFilterType> = {
-                ...queryNodeToFilter(values.vizQuerySource as InsightQueryNode),
+                ...queryNodeToFilter(values.vizQuerySource as PathsQuery),
                 path_start_key,
                 path_end_key,
                 path_dropoff_key,
@@ -120,7 +120,27 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 filters,
                 response: values.insightData,
             })
-            if (personsUrl) {
+            if (values.vizQuerySource?.kind === NodeKind.PathsQuery) {
+                const pathsActorsQuery: InsightActorsQuery<PathsQuery> = {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: {
+                        ...values.vizQuerySource,
+                        pathsFilter: {
+                            ...values.vizQuerySource.pathsFilter,
+                            pathStartKey: path_start_key,
+                            pathEndKey: path_end_key,
+                            pathDropoffKey: path_dropoff_key,
+                        },
+                    },
+                }
+                openPersonsModal({
+                    query: pathsActorsQuery,
+                    title: pathsTitle({
+                        label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
+                        isDropOff: Boolean(path_dropoff_key),
+                    }),
+                })
+            } else if (personsUrl) {
                 openPersonsModal({
                     url: personsUrl,
                     title: pathsTitle({

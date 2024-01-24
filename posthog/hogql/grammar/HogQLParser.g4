@@ -9,7 +9,8 @@ options {
 select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN;
+selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder;
+
 selectStmt:
     with=withClause?
     SELECT DISTINCT? topClause?
