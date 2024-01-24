@@ -120,7 +120,7 @@ export const sdksLogic = kea<sdksLogicType>([
                         kind: NodeKind.HogQLQuery,
                         query: hogql`SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
                                 FROM events
-                                WHERE timestamp >= now() - INTERVAL 10 DAY 
+                                WHERE timestamp >= now() - INTERVAL 3 DAY 
                                 AND timestamp <= now()
                                 AND properties.$lib = 'web'
                                 GROUP BY lib_version
