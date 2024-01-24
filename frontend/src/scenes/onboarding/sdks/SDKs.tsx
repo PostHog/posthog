@@ -6,7 +6,7 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useEffect } from 'react'
 import React from 'react'
 
-import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
+import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { SDKInstructionsMap } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
