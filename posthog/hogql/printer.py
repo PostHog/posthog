@@ -41,7 +41,7 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import InCohortVia, MaterializationMode
+from posthog.schema import HogQLQueryModifiers, InCohortVia, MaterializationMode
 from posthog.utils import PersonOnEventsMode
 
 
@@ -58,13 +58,13 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     )
 
 
-def to_printed_hogql(query: ast.Expr, team: Team) -> str:
+def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQueryModifiers] = None) -> str:
     """Prints the HogQL query without mutating the node"""
     return print_ast(
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
-            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team)
+            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team, modifiers)
         ),
         pretty=True,
     )

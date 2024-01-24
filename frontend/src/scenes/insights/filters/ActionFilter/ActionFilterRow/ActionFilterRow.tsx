@@ -20,6 +20,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
@@ -31,6 +32,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
+import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -492,6 +494,11 @@ function useMathSelectorOptions({
     mathAvailability,
     onMathSelect,
 }: MathSelectorProps): LemonSelectOptions<string> {
+    const mountedInsightDataLogic = insightDataLogic.findMounted()
+    const query = mountedInsightDataLogic?.values?.query
+
+    const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
+
     const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
         useValues(mathsLogic)
 
@@ -504,12 +511,21 @@ function useMathSelectorOptions({
 
     const options: LemonSelectOption<string>[] = Object.entries(
         mathAvailability != MathAvailability.ActorsOnly ? staticMathDefinitions : staticActorsOnlyMathDefinitions
-    ).map(([key, definition]) => ({
-        value: key,
-        label: definition.name,
-        tooltip: definition.description,
-        'data-attr': `math-${key}-${index}`,
-    }))
+    )
+        .filter(([key]) => {
+            if (!isStickiness) {
+                return true
+            }
+
+            // Remove WAU and MAU from stickiness insights
+            return key !== BaseMathType.WeeklyActiveUsers && key !== BaseMathType.MonthlyActiveUsers
+        })
+        .map(([key, definition]) => ({
+            value: key,
+            label: definition.name,
+            tooltip: definition.description,
+            'data-attr': `math-${key}-${index}`,
+        }))
 
     if (mathAvailability !== MathAvailability.ActorsOnly) {
         options.splice(1, 0, {

@@ -110,6 +110,7 @@ CROSS JOIN sessions_query
             timings=self.timings,
             modifiers=self.modifiers,
         )
+        assert response.results
 
         row = response.results[0]
 

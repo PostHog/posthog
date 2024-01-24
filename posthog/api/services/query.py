@@ -32,6 +32,7 @@ from posthog.schema import (
     TimeToSeeDataQuery,
     StickinessQuery,
     PathsQuery,
+    InsightActorsQueryOptions,
 )
 
 logger = structlog.get_logger(__name__)
@@ -47,7 +48,7 @@ QUERY_WITH_RUNNER = (
     | WebTopClicksQuery
     | WebStatsTableQuery
 )
-QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTimelineQuery
+QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTimelineQuery | InsightActorsQueryOptions
 
 
 def process_query(
