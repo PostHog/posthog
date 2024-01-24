@@ -224,7 +224,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                     timeInRecording: timeInRecording,
                                     search: tag,
                                     windowId: windowId,
-                                    highlightColor: tag === 'browser offline' ? 'warning' : undefined,
+                                    highlightColor: 'warning',
                                 } satisfies InspectorListOfflineStatusChange)
                             }
                         }
