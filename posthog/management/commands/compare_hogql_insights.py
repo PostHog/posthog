@@ -29,8 +29,8 @@ class Command(BaseCommand):
                 if insight.filters.get("aggregation_group_type_index", None) is not None:
                     del insight.filters["aggregation_group_type_index"]
                 if insight_type == "STICKINESS":
-                    filter = StickinessFilter(insight.filters, team=insight.team)
-                    legacy_results = Stickiness().run(filter, insight.team)
+                    sticky_filter = StickinessFilter(insight.filters, team=insight.team)
+                    legacy_results = Stickiness().run(sticky_filter, insight.team)
                 else:
                     # insight.team.week_start_day = 1
                     filter = Filter(insight.filters, team=insight.team)
