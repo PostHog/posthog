@@ -1,13 +1,13 @@
 import './RollingDateRangeFilter.scss'
 
-import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
-const dateOptions: LemonSelectOptions<DateOption> = [
+const dateOptions: LemonSelectOptionLeaf<DateOption>[] = [
     { value: 'hours', label: 'hours' },
     { value: 'days', label: 'days' },
     { value: 'weeks', label: 'weeks' },
@@ -90,11 +90,7 @@ export function RollingDateRangeFilter({
                         toggleDateOptionsSelector()
                     }}
                     dropdownMatchSelectWidth={false}
-                    options={
-                        dateOptions.filter((option) =>
-                            'value' in option ? allowedDateOptions.includes(option.value) : true
-                        ) as LemonSelectOptions<DateOption>
-                    }
+                    options={dateOptions.filter((option) => allowedDateOptions.includes(option.value))}
                     menu={{
                         ...popover,
                         className: 'RollingDateRangeFilter__popover',
