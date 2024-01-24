@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
+    BatchExportDestination,
     PipelineAppKind,
     PipelineAppTab,
     PluginConfigTypeNew,
@@ -38,9 +39,10 @@ export enum PipelineAppBackend {
     Plugin = 'plugin',
 }
 
-export interface BatchExportDestination extends DestinationTypeBase {
+interface BatchExportDestinationType extends DestinationTypeBase {
     backend: PipelineAppBackend.BatchExport
     id: string
+    data_storage_type: BatchExportDestination['type']
     app_source_code_url?: never
 }
 export interface WebhookDestination extends DestinationTypeBase {
@@ -49,7 +51,7 @@ export interface WebhookDestination extends DestinationTypeBase {
     plugin: PluginType
     app_source_code_url?: string
 }
-export type DestinationType = BatchExportDestination | WebhookDestination
+export type DestinationType = BatchExportDestinationType | WebhookDestination
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
@@ -189,6 +191,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     id: batchExport.id,
                     name: batchExport.name,
                     description: `${batchExport.destination.type} batch export`, // TODO: add to backend
+                    data_storage_type: batchExport.destination.type,
                     enabled: !batchExport.paused,
                     config_url: urls.pipelineApp(
                         PipelineAppKind.Destination,
