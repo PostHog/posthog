@@ -199,6 +199,9 @@
                     "$ref": "#/definitions/InsightActorsQuery"
                 },
                 {
+                    "$ref": "#/definitions/InsightActorsQueryOptions"
+                },
+                {
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
@@ -1865,13 +1868,22 @@
                     },
                     "type": "array"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "type": "integer"
                 },
                 "query": {
                     "description": "Input query string",
@@ -1929,6 +1941,85 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "InsightActorsQueryOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightActorsQueryOptions",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/InsightActorsQueryOptionsResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightActorsQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "InsightActorsQueryOptionsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/Day"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "interval": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "An interval selected out of available intervals in source query",
+                                "type": "integer"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "status": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "InsightFilter": {
@@ -2279,6 +2370,7 @@
                 "StickinessQuery",
                 "LifecycleQuery",
                 "InsightActorsQuery",
+                "InsightActorsQueryOptions",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -2865,6 +2957,68 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "day": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/Day"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "interval": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "An interval selected out of available intervals in source query",
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "status": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -2910,13 +3064,22 @@
                             },
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query",
                             "type": "string"
                         },
+                        "limit": {
+                            "type": "integer"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "query": {
                             "description": "Input query string",
@@ -3253,6 +3416,9 @@
                 },
                 {
                     "$ref": "#/definitions/InsightActorsQuery"
+                },
+                {
+                    "$ref": "#/definitions/InsightActorsQueryOptions"
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"
@@ -4472,6 +4638,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeBounceRate": {
+                    "type": "boolean"
                 },
                 "includeScrollDepth": {
                     "type": "boolean"

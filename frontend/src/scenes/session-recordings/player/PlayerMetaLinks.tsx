@@ -17,9 +17,36 @@ import { NotebookNodeType } from '~/types'
 import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 
+function PinToPlaylistButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
+    const nodeLogic = useNotebookNode()
+
+    return logicProps.setPinned ? (
+        <LemonButton
+            onClick={() => {
+                if (nodeLogic && !logicProps.pinned) {
+                    // If we are in a node, then pinning should persist the recording
+                    maybePersistRecording()
+                }
+
+                logicProps.setPinned?.(!logicProps.pinned)
+            }}
+            size="small"
+            tooltip={logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'}
+            data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
+            icon={logicProps.pinned ? <IconPinFilled /> : <IconPinOutline />}
+        />
+    ) : (
+        <PlaylistPopoverButton size="small">
+            <span>Pin</span>
+        </PlaylistPopoverButton>
+    )
+}
+
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, deleteRecording, maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
+    const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
@@ -108,25 +135,7 @@ export function PlayerMetaLinks(): JSX.Element {
                         />
                     ) : null}
 
-                    {logicProps.setPinned ? (
-                        <LemonButton
-                            onClick={() => {
-                                if (nodeLogic && !logicProps.pinned) {
-                                    // If we are in a node, then pinning should persist the recording
-                                    maybePersistRecording()
-                                }
-
-                                logicProps.setPinned?.(!logicProps.pinned)
-                            }}
-                            size="small"
-                            tooltip={logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'}
-                            icon={logicProps.pinned ? <IconPinFilled /> : <IconPinOutline />}
-                        />
-                    ) : (
-                        <PlaylistPopoverButton {...commonProps}>
-                            <span>Pin</span>
-                        </PlaylistPopoverButton>
-                    )}
+                    <PinToPlaylistButton />
 
                     {logicProps.playerKey !== 'modal' && (
                         <LemonButton

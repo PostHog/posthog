@@ -7,7 +7,7 @@ import { useEffect } from 'react'
 import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
+import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { ProductKey, SDKInstructionsMap } from '~/types'
 
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'

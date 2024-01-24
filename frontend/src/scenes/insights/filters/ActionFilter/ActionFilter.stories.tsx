@@ -1,15 +1,16 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useMountedLogic, useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet, uuid } from 'lib/utils'
 import { useRef, useState } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { FilterType, InsightType } from '~/types'
+import { FilterType, InsightLogicProps, InsightType } from '~/types'
 
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
@@ -20,6 +21,8 @@ const meta: Meta<typeof ActionFilter> = {
     decorators: [taxonomicFilterMocksDecorator],
 }
 export default meta
+
+let uniqueNode = 0
 
 const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilterProps>) => {
     useMountedLogic(cohortsModel)
@@ -47,39 +50,48 @@ const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilt
         ],
     })
 
+    const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
+    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+
     return (
-        <ActionFilter
-            filters={filters}
-            setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
-            typeKey={`trends_${id.current}`}
-            buttonCopy="Add graph series"
-            showSeriesIndicator
-            entitiesLimit={
-                isLifecycleFilter(filters) ||
-                (isFilterWithDisplay(filters) &&
-                    filters.display &&
-                    SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
-                    ? 1
-                    : alphabet.length
-            }
-            mathAvailability={
-                filters.insight === InsightType.LIFECYCLE
-                    ? MathAvailability.None
-                    : filters.insight === InsightType.STICKINESS
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.All
-            }
-            propertiesTaxonomicGroupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.EventFeatureFlags,
-                ...groupsTaxonomicTypes,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.Elements,
-                TaxonomicFilterGroupType.HogQLExpression,
-            ]}
-            {...props}
-        />
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <ActionFilter
+                filters={filters}
+                setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
+                typeKey={`trends_${id.current}`}
+                buttonCopy="Add graph series"
+                showSeriesIndicator
+                entitiesLimit={
+                    isLifecycleFilter(filters) ||
+                    (isFilterWithDisplay(filters) &&
+                        filters.display &&
+                        SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
+                        ? 1
+                        : alphabet.length
+                }
+                mathAvailability={
+                    filters.insight === InsightType.LIFECYCLE
+                        ? MathAvailability.None
+                        : filters.insight === InsightType.STICKINESS
+                        ? MathAvailability.ActorsOnly
+                        : MathAvailability.All
+                }
+                propertiesTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ]}
+                {...props}
+            />
+        </BindLogic>
     )
 }
 

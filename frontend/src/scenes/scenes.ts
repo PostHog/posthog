@@ -326,7 +326,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     // Instance management routes
     [Scene.SystemStatus]: {
         instanceLevel: true,
-        name: 'Instance status & settings',
+        name: 'Instance panel',
     },
     [Scene.AsyncMigrations]: {
         instanceLevel: true,
@@ -440,6 +440,7 @@ export const redirects: Record<
     '/pipeline': urls.pipeline(),
     '/project/apps': preserveParams(urls.projectApps()),
     '/project/apps/:id': ({ id }) => urls.projectApp(id),
+    '/instance': urls.instanceStatus(),
 }
 
 export const routes: Record<string, Scene> = {

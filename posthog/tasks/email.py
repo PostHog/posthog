@@ -9,7 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from posthog.cloud_utils import is_cloud
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -31,12 +31,7 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_invite(invite_id: str) -> None:
     campaign_key: str = f"invite_email_{invite_id}"
     invite: OrganizationInvite = OrganizationInvite.objects.select_related("created_by", "organization").get(
@@ -56,12 +51,7 @@ def send_invite(invite_id: str) -> None:
     message.send()
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     invitee: User = User.objects.get(uuid=invitee_uuid)
     organization: Organization = Organization.objects.get(id=organization_id)
@@ -80,12 +70,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         message.send()
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_password_reset(user_id: int, token: str) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -104,12 +89,7 @@ def send_password_reset(user_id: int, token: str) -> None:
     message.send()
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_email_verification(user_id: int, token: str) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -131,12 +111,7 @@ def send_email_verification(user_id: int, token: str) -> None:
     )
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_fatal_plugin_error(
     plugin_config_id: int,
     plugin_config_updated_at: Optional[str],
@@ -182,12 +157,7 @@ def send_fatal_plugin_error(
         message.send(send_async=False)
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_canary_email(user_email: str) -> None:
     message = EmailMessage(
         campaign_key=f"canary_email_{uuid.uuid4()}",
@@ -199,12 +169,7 @@ def send_canary_email(user_email: str) -> None:
     message.send()
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
     message_old_address = EmailMessage(
         campaign_key=f"email_change_old_address_{now_iso}",
@@ -232,12 +197,7 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
     message_new_address.send(send_async=False)
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_async_migration_complete_email(migration_key: str, time: str) -> None:
     message = EmailMessage(
         campaign_key=f"async_migration_complete_{migration_key}",
@@ -251,12 +211,7 @@ def send_async_migration_complete_email(migration_key: str, time: str) -> None:
     send_message_to_all_staff_users(message)
 
 
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_async_migration_errored_email(migration_key: str, time: str, error: str) -> None:
     message = EmailMessage(
         campaign_key=f"async_migration_error_{migration_key}",

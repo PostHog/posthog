@@ -460,7 +460,6 @@ posthog/hogql_queries/insights/lifecycle_query_runner.py:0: note: Consider using
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Argument 1 to "sorted" has incompatible type "list[Any] | None"; expected "Iterable[Any]"  [arg-type]
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "SelectUnionQuery" of "SelectQuery | SelectUnionQuery" has no attribute "select_from"  [union-attr]
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "None" of "JoinExpr | Any | None" has no attribute "sample"  [union-attr]
-posthog/hogql_queries/web_analytics/web_overview.py:0: error: Value of type "list[Any] | None" is not indexable  [index]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "PathFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "StickinessFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "Filter", variable has type "RetentionFilter")  [assignment]
