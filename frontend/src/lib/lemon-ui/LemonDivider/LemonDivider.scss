@@ -45,18 +45,13 @@
 
         &::before,
         &::after {
+            position: relative;
             top: 50%;
             display: block;
+            width: 50%;
             content: '';
+            border-top: 1px solid var(--border);
             transform: translateY(50%);
-        }
-
-        &::before {
-            width: 1.5%;
-        }
-
-        &::after {
-            width: 95%;
         }
     }
 }

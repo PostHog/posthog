@@ -11,8 +11,8 @@ export interface LemonDividerProps {
     dashed?: boolean
     /** Adding a className will remove the default margin class names, allowing the greatest flexibility */
     className?: string
-    /** to be filled in */
-    label?: string
+    /** A label to display within the divider */
+    label?: string | React.ReactElement
 }
 
 /** A line separator for separating rows of content
@@ -41,7 +41,7 @@ export function LemonDivider({
             )}
             role="separator"
         >
-            {label && <div className="px-3 text-xs">{label}</div>}
+            {label && <div className="px-3 text-xs whitespace-nowrap font-semibold">{label}</div>}
         </div>
     )
 }

@@ -43,6 +43,10 @@
         &::before {
             width: 1.5%;
         }
+
+        &::after {
+            width: 95%;
+        }
     }
 
     .CohortCriteriaRow__inline-divider {

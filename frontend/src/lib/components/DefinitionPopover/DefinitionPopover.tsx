@@ -196,7 +196,12 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
 }
 
 function HorizontalLine({ className, label }: { className?: string; label?: string }): JSX.Element {
-    return <LemonDivider className={clsx('definition-popover-divider', className)} label={label} />
+    return (
+        <LemonDivider
+            className={clsx('items-start', className)}
+            label={<span className="definition-popover-divider">{label}</span>}
+        />
+    )
 }
 
 interface GridProps {

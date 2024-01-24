@@ -1,3 +1,4 @@
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import {
@@ -32,7 +33,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
     }
     return cohort.filters?.properties ? (
         <>
-            {(cohort.filters.properties?.values?.length || 0 > 0) && <DefinitionPopover.HorizontalLine />}
+            {(cohort.filters.properties?.values?.length || 0 > 0) && <LemonDivider />}
             {cohort.filters.properties.values.slice(0, MAX_CRITERIA_GROUPS).map(
                 (cohortGroup, cohortGroupIndex) =>
                     isCohortCriteriaGroup(cohortGroup) && (
@@ -100,7 +101,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
         </>
     ) : (
         <>
-            {(cohort.groups?.length || 0 > 0) && <DefinitionPopover.HorizontalLine />}
+            {(cohort.groups?.length || 0 > 0) && <LemonDivider />}
             {cohort.groups &&
                 cohort.groups.map((group, index) => (
                     <DefinitionPopover.Section key={index}>
