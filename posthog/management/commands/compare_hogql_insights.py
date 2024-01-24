@@ -6,15 +6,16 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from posthog.schema import HogQLQueryModifiers, MaterializationMode
-        from posthog.models import Insight, Filter
+        from posthog.models import Insight, Filter, RetentionFilter
         from posthog.models.filters import StickinessFilter
+        from posthog.queries.retention import Retention
         from posthog.queries.trends.trends import Trends
         from posthog.queries.stickiness.stickiness import Stickiness
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
         from posthog.hogql_queries.query_runner import get_query_runner
 
         insights = (
-            Insight.objects.filter(filters__contains={"insight": "STICKINESS"}, saved=True, deleted=False)
+            Insight.objects.filter(filters__contains={"insight": "RETENTION"}, saved=True, deleted=False)
             .order_by("id")
             .all()
         )
@@ -31,6 +32,9 @@ class Command(BaseCommand):
                 if insight_type == "STICKINESS":
                     sticky_filter = StickinessFilter(insight.filters, team=insight.team)
                     legacy_results = Stickiness().run(sticky_filter, insight.team)
+                elif insight_type == "RETENTION":
+                    sticky_filter = RetentionFilter(insight.filters, team=insight.team)
+                    legacy_results = Retention().run(sticky_filter, insight.team)
                 else:
                     # insight.team.week_start_day = 1
                     filter = Filter(insight.filters, team=insight.team)
@@ -47,6 +51,16 @@ class Command(BaseCommand):
                 for legacy_result, hogql_result in zip(legacy_results, hogql_results):
                     if insight_type == "LIFECYCLE":
                         fields = ["data", "days", "count", "labels", "label", "status"]
+                    elif insight_type == "RETENTION":
+                        if legacy_result.get("date") != hogql_result.date:
+                            print("Date: ", legacy_result.get("date"), hogql_result.date)  # noqa: T201
+                        if legacy_result.get("label") != hogql_result.label:
+                            print("Label: ", legacy_result.get("label"), hogql_result.label)  # noqa: T201
+                        legacy_values = [c.get("count") for c in legacy_result.get("values")]
+                        hogql_values = [c.count for c in hogql_result.values]
+                        if legacy_values != hogql_values:
+                            print("Values: ", legacy_values, hogql_values)  # noqa: T201
+                        continue
                     else:
                         fields = ["label", "count", "data", "labels", "days"]
                     for field in fields:
