@@ -1,6 +1,7 @@
 from typing import List
+
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 
@@ -30,19 +31,91 @@ class Funnel(FunnelBase):
 
     """
 
+    def get_query(self):
+        # max_steps = self.context.max_steps
+
+        breakdown_exprs = self._get_breakdown_prop()
+
+        select: List[ast.Expr] = [
+            # {self._get_count_columns(max_steps)}
+            # {self._get_step_time_avgs(max_steps)}
+            # {self._get_step_time_median(max_steps)}
+            *breakdown_exprs
+        ]
+
+        return ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(table=self.get_step_counts_query()),
+            group_by=[ast.Field(chain=["prop"])] if len(breakdown_exprs) > 0 else None,
+        )
+
+    def get_step_counts_query(self):
+        # max_steps = self.context.max_steps
+        step_counts_without_aggregation_query = self.get_step_counts_without_aggregation_query()
+        breakdown_exprs = self._get_breakdown_prop()
+        inner_timestamps, outer_timestamps = self._get_timestamp_selects()
+        person_and_group_properties = self._get_person_and_group_properties()
+
+        group_by_columns: List[ast.Expr] = [
+            ast.Field(chain=["aggregation_target"]),
+            ast.Field(chain=["steps"]),
+            *breakdown_exprs,
+        ]
+
+        outer_select: List[ast.Expr] = [
+            *group_by_columns,
+            # {self._get_step_time_avgs(max_steps, inner_query=True)}
+            # {self._get_step_time_median(max_steps, inner_query=True)}
+            # {self._get_matching_event_arrays(max_steps)}
+            *breakdown_exprs,
+            *outer_timestamps,
+            *person_and_group_properties,
+        ]
+
+        inner_select: List[ast.Expr] = [
+            *group_by_columns,
+            # max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps
+            # {self._get_step_time_names(max_steps)}
+            # {self._get_matching_events(max_steps)}
+            *breakdown_exprs,
+            *inner_timestamps,
+            *person_and_group_properties,
+        ]
+
+        return parse_select(
+            """
+            SELECT {outer_select} FROM (
+                SELECT {inner_select} FROM (
+                    {step_counts_without_aggregation_query}
+                )
+            ) GROUP BY {group_by_columns}
+            HAVING steps = max_steps
+            """,
+            placeholders={
+                "outer_select": outer_select,
+                "inner_select": inner_select,
+                "group_by_columns": group_by_columns,
+                "step_counts_without_aggregation_query": step_counts_without_aggregation_query,
+            },
+        )
+
     def get_step_counts_without_aggregation_query(self):
         max_steps = self.context.max_steps
         if max_steps < 2:
             raise ValidationError("Funnels require at least two steps before calculating.")
 
-        formatted_query = self.build_step_subquery(2, max_steps)
-        # breakdown_query = self._get_breakdown_prop()
+        formatted_query = self._build_step_subquery(2, max_steps)
+        breakdown_exprs = self._get_breakdown_prop()
 
         # exclusion_clause = self._get_exclusion_condition()
 
         select: List[ast.Expr] = [
             ast.Field(chain=["*"]),
             ast.Alias(alias="steps", expr=self._get_sorting_condition(max_steps, max_steps)),
+            # {exclusion_clause}
+            # {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)}
+            *breakdown_exprs
+            # {self._get_person_and_group_properties()}
         ]
 
         # return f"""
@@ -69,55 +142,44 @@ class Funnel(FunnelBase):
 
         return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=formatted_query), where=where)
 
-    def build_step_subquery(self, level_index: int, max_steps: int) -> ast.SelectQuery:
+    def _build_step_subquery(self, level_index: int, max_steps: int) -> ast.SelectQuery:
         select: List[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["timestamp"]),
         ]
 
         if level_index >= max_steps:
-            # SELECT
-            # aggregation_target,
-            # timestamp,
-            # {self._get_partition_cols(1, max_steps)}
-            # {self._get_breakdown_prop(group_remaining=True)}
-            # {self._get_person_and_group_properties()}
+            select = [
+                *select,
+                *self._get_partition_cols(1, max_steps),
+                *self._get_breakdown_prop(group_remaining=True),
+                *self._get_person_and_group_properties(),
+            ]
+
             # FROM ({self._get_inner_event_query()})
-
-            select.extend(self._get_partition_cols(1, max_steps))
-
             event_query = FunnelEventQuery(context=self.context).to_query()
 
             return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=event_query))
         else:
-            # SELECT
-            # aggregation_target,
-            # timestamp,
-            # {self._get_partition_cols(level_index, max_steps)}
-            # {self._get_breakdown_prop()}
-            # {self._get_person_and_group_properties()}
-            # FROM (
-            #     SELECT
-            #     aggregation_target,
-            #     timestamp,
-            #     {self.get_comparison_cols(level_index, max_steps)}
-            #     {self._get_breakdown_prop()}
-            #     {self._get_person_and_group_properties()}
-            #     FROM ({self.build_step_subquery(level_index + 1, max_steps)})
-            # )
-
-            outer_select = select.copy()
-            outer_select.extend(self._get_partition_cols(level_index, max_steps))
-
-            inner_select = select.copy()
-            inner_select.extend(self._get_comparison_cols(level_index, max_steps))
+            outer_select = [
+                *select,
+                *self._get_partition_cols(level_index, max_steps),
+                *self._get_breakdown_prop(),
+                *self._get_person_and_group_properties(),
+            ]
+            inner_select = [
+                *select,
+                *self._get_comparison_cols(level_index, max_steps),
+                *self._get_breakdown_prop(),
+                *self._get_person_and_group_properties(),
+            ]
 
             return ast.SelectQuery(
                 select=outer_select,
                 select_from=ast.JoinExpr(
                     table=ast.SelectQuery(
                         select=inner_select,
-                        select_from=ast.JoinExpr(table=self.build_step_subquery(level_index + 1, max_steps)),
+                        select_from=ast.JoinExpr(table=self._build_step_subquery(level_index + 1, max_steps)),
                     )
                 ),
             )

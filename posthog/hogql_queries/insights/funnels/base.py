@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -10,7 +10,7 @@ from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.property.property import PropertyName
 from posthog.models.team.team import Team
-from posthog.schema import FunnelsQuery, HogQLQueryModifiers
+from posthog.schema import BreakdownFilter, FunnelsQuery, HogQLQueryModifiers
 
 
 class FunnelBase(ABC):
@@ -40,6 +40,45 @@ class FunnelBase(ABC):
     @property
     def extra_event_fields_and_properties(self):
         return self._extra_event_fields + self._extra_event_properties
+
+    def _get_timestamp_selects(self) -> Tuple[List[ast.Expr], List[ast.Expr]]:
+        """
+        Returns timestamp selectors for the target step and optionally the preceding step.
+        In the former case, always returns the timestamp for the first and last step as well.
+        """
+        # target_step = self._filter.funnel_step # TODO: implement with actors
+        # final_step = self.context.max_steps - 1
+        # first_step = 0
+
+        # if not target_step:
+        #     return "", ""
+
+        # if target_step < 0:
+        #     # the first valid dropoff argument for funnel_step is -2
+        #     # -2 refers to persons who performed the first step but never made it to the second
+        #     if target_step == -1:
+        #         raise ValueError("To request dropoff of initial step use -2")
+
+        #     target_step = abs(target_step) - 2
+        # else:
+        #     target_step -= 1
+
+        # if self._include_preceding_timestamp:
+        #     if target_step == 0:
+        #         raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
+
+        #     return (
+        #         f", latest_{target_step}, latest_{target_step - 1}",
+        #         f", argMax(latest_{target_step}, steps) as max_timestamp, argMax(latest_{target_step - 1}, steps) as min_timestamp",
+        #     )
+        # elif self._include_timestamp:
+        #     return (
+        #         f", latest_{target_step}, latest_{final_step}, latest_{first_step}",
+        #         f", argMax(latest_{target_step}, steps) as timestamp, argMax(latest_{final_step}, steps) as final_timestamp, argMax(latest_{first_step}, steps) as first_timestamp",
+        #     )
+        # else:
+        #     return "", ""
+        return [], []
 
     def _get_partition_cols(self, level_index: int, max_steps: int) -> List[ast.Expr]:
         # funnelsFilter = self.context.query.funnelsFilter or FunnelsFilter()
@@ -87,9 +126,25 @@ class FunnelBase(ABC):
 
         return exprs
 
-    def _get_breakdown_prop(self):
-        # TODO: implement
-        return ""
+    def _get_breakdown_prop(self, group_remaining=False) -> List[ast.Expr]:
+        # if self._filter.breakdown:
+        #     other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
+        #     if group_remaining and self._filter.breakdown_type in [
+        #         "person",
+        #         "event",
+        #         "group",
+        #     ]:
+        #         return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
+        #     else:
+        #         # Cohorts don't have "Other" aggregation
+        #         return ", prop"
+        # else:
+        #     return ""
+        return []
+
+    def _query_has_array_breakdown(self) -> bool:
+        breakdown, breakdown_type = self.context.breakdownFilter.breakdown, self.context.breakdownFilter.breakdown_type
+        return not isinstance(breakdown, str) and breakdown_type != "cohort"
 
     def _get_sorting_condition(self, curr_index: int, max_steps: int) -> ast.Expr:
         series = self.context.query.series
@@ -119,3 +174,12 @@ class FunnelBase(ABC):
                 self._get_sorting_condition(curr_index - 1, max_steps),
             ],
         )
+
+    def _get_person_and_group_properties(self) -> List[ast.Expr]:
+        exprs: List[ast.Expr] = []
+
+        # for prop in self._include_properties:
+        #     exprs.append(f"any({prop}) as {prop}" if aggregate else prop)
+
+        return exprs
+
