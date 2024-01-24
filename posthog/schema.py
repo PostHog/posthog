@@ -111,6 +111,10 @@ class DateRange(BaseModel):
     date_to: Optional[str] = None
 
 
+class Day(RootModel[int]):
+    root: int
+
+
 class Key(str, Enum):
     tag_name = "tag_name"
     text = "text"
@@ -215,6 +219,20 @@ class FunnelExclusion(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
+    funnelFromStep: Optional[float] = None
+    funnelToStep: Optional[float] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+
+
+class FunnelExclusionLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_to_step: Optional[float] = None
     id: Optional[Union[str, float]] = None
@@ -265,6 +283,7 @@ class HogQLNotice(BaseModel):
 
 
 class InCohortVia(str, Enum):
+    auto = "auto"
     leftjoin = "leftjoin"
     subquery = "subquery"
     leftjoin_conjoined = "leftjoin_conjoined"
@@ -298,6 +317,39 @@ class HogQLQueryModifiers(BaseModel):
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+
+
+class DayItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: Union[str, int]
+
+
+class IntervalItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: int = Field(..., description="An interval selected out of available intervals in source query")
+
+
+class StatusItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str
+
+
+class InsightActorsQueryOptionsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: Optional[List[DayItem]] = None
+    interval: Optional[List[IntervalItem]] = None
+    status: Optional[List[StatusItem]] = None
 
 
 class InsightFilterProperty(str, Enum):
@@ -363,6 +415,7 @@ class NodeKind(str, Enum):
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
     InsightActorsQuery = "InsightActorsQuery"
+    InsightActorsQueryOptions = "InsightActorsQueryOptions"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -392,21 +445,44 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edge_limit: Optional[float] = None
+    edgeLimit: Optional[int] = None
+    endPoint: Optional[str] = None
+    excludeEvents: Optional[List[str]] = None
+    funnelFilter: Optional[Dict[str, Any]] = None
+    funnelPaths: Optional[FunnelPathType] = None
+    includeEventTypes: Optional[List[PathType]] = None
+    localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
+    maxEdgeWeight: Optional[int] = None
+    minEdgeWeight: Optional[int] = None
+    pathDropoffKey: Optional[str] = None
+    pathEndKey: Optional[str] = None
+    pathGroupings: Optional[List[str]] = None
+    pathReplacements: Optional[bool] = None
+    pathStartKey: Optional[str] = None
+    pathsHogQLExpression: Optional[str] = None
+    startPoint: Optional[str] = None
+    stepLimit: Optional[int] = None
+
+
+class PathsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edge_limit: Optional[int] = None
     end_point: Optional[str] = None
     exclude_events: Optional[List[str]] = None
     funnel_filter: Optional[Dict[str, Any]] = None
     funnel_paths: Optional[FunnelPathType] = None
     include_event_types: Optional[List[PathType]] = None
     local_path_cleaning_filters: Optional[List[PathCleaningFilter]] = None
-    max_edge_weight: Optional[float] = None
-    min_edge_weight: Optional[float] = None
+    max_edge_weight: Optional[int] = None
+    min_edge_weight: Optional[int] = None
     path_groupings: Optional[List[str]] = None
     path_replacements: Optional[bool] = None
     path_type: Optional[PathType] = None
     paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
-    step_limit: Optional[float] = None
+    step_limit: Optional[int] = None
 
 
 class PropertyFilterType(str, Enum):
@@ -470,7 +546,16 @@ class QueryResponseAlternative2(BaseModel):
     results: List[Dict[str, Any]]
 
 
-class QueryResponseAlternative7(BaseModel):
+class QueryResponseAlternative5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: Optional[List[DayItem]] = None
+    interval: Optional[List[IntervalItem]] = None
+    status: Optional[List[StatusItem]] = None
+
+
+class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -561,6 +646,14 @@ class RetentionValue(BaseModel):
     count: int
 
 
+class SamplingRate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator: Optional[float] = None
+    numerator: float
+
+
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -579,6 +672,17 @@ class StepOrderValue(str, Enum):
 
 
 class StickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[bool] = None
+    display: Optional[ChartDisplayType] = None
+    hidden_legend_indexes: Optional[List[float]] = None
+    showLegend: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
+
+
+class StickinessFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -612,7 +716,7 @@ class TimeToSeeDataQuery(BaseModel):
     sessionStart: Optional[str] = Field(
         default=None, description="Session start time. Defaults to current time - 2 hours"
     )
-    teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
+    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
 
 class TimeToSeeDataSessionsQueryResponse(BaseModel):
@@ -653,9 +757,9 @@ class TrendsFilter(BaseModel):
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
     showLabelsOnSeries: Optional[bool] = None
+    showLegend: Optional[bool] = None
     showPercentStackView: Optional[bool] = None
-    show_legend: Optional[bool] = None
-    show_values_on_series: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
     smoothingIntervals: Optional[float] = None
 
 
@@ -716,6 +820,14 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    forceSamplingRate: Optional[SamplingRate] = None
+
+
 class Kind1(str, Enum):
     unit = "unit"
     duration_s = "duration_s"
@@ -743,6 +855,7 @@ class WebOverviewQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -774,6 +887,7 @@ class WebStatsTableQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -788,6 +902,7 @@ class WebTopClicksQueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
@@ -829,10 +944,10 @@ class BreakdownFilter(BaseModel):
         extra="forbid",
     )
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
-    breakdown_group_type_index: Optional[float] = None
+    breakdown_group_type_index: Optional[int] = None
     breakdown_hide_other_aggregation: Optional[bool] = None
-    breakdown_histogram_bin_count: Optional[float] = None
-    breakdown_limit: Optional[float] = None
+    breakdown_histogram_bin_count: Optional[int] = None
+    breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
@@ -906,10 +1021,30 @@ class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    binCount: Optional[Union[float, str]] = None
+    breakdownAttributionType: Optional[BreakdownAttributionType] = None
+    breakdownAttributionValue: Optional[float] = None
+    exclusions: Optional[List[FunnelExclusion]] = None
+    funnelAggregateByHogQL: Optional[str] = None
+    funnelFromStep: Optional[float] = None
+    funnelOrderType: Optional[StepOrderValue] = None
+    funnelStepReference: Optional[FunnelStepReference] = None
+    funnelToStep: Optional[float] = None
+    funnelVizType: Optional[FunnelVizType] = None
+    funnelWindowInterval: Optional[float] = None
+    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
+    layout: Optional[FunnelLayout] = None
+
+
+class FunnelsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     bin_count: Optional[Union[float, str]] = None
     breakdown_attribution_type: Optional[BreakdownAttributionType] = None
     breakdown_attribution_value: Optional[float] = None
-    exclusions: Optional[List[FunnelExclusion]] = None
+    exclusions: Optional[List[FunnelExclusionLegacy]] = None
     funnel_aggregate_by_hogql: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_order_type: Optional[StepOrderValue] = None
@@ -920,6 +1055,18 @@ class FunnelsFilter(BaseModel):
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
     hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
+
+
+class FunnelsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class GroupPropertyFilter(BaseModel):
@@ -967,10 +1114,13 @@ class HogQLQueryResponse(BaseModel):
         default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
     )
     explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
     results: Optional[List] = Field(default=None, description="Query results")
     timings: Optional[List[QueryTiming]] = Field(
@@ -980,6 +1130,14 @@ class HogQLQueryResponse(BaseModel):
 
 
 class LifecycleFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showValuesOnSeries: Optional[bool] = None
+    toggledLifecycles: Optional[List[LifecycleToggle]] = None
+
+
+class LifecycleFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1004,6 +1162,18 @@ class Node(BaseModel):
         extra="forbid",
     )
     kind: NodeKind
+
+
+class PathsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class PersonPropertyFilter(BaseModel):
@@ -1058,7 +1228,7 @@ class QueryResponseAlternative4(BaseModel):
     types: List[str]
 
 
-class QueryResponseAlternative5(BaseModel):
+class QueryResponseAlternative6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1068,7 +1238,7 @@ class QueryResponseAlternative5(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
-class QueryResponseAlternative6(BaseModel):
+class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1078,10 +1248,13 @@ class QueryResponseAlternative6(BaseModel):
         default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
     )
     explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
     results: Optional[List] = Field(default=None, description="Query results")
     timings: Optional[List[QueryTiming]] = Field(
@@ -1090,7 +1263,7 @@ class QueryResponseAlternative6(BaseModel):
     types: Optional[List] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative8(BaseModel):
+class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1099,10 +1272,11 @@ class QueryResponseAlternative8(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List[WebOverviewItem]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
 
 
-class QueryResponseAlternative9(BaseModel):
+class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1112,11 +1286,12 @@ class QueryResponseAlternative9(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List] = None
 
 
-class QueryResponseAlternative11(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1129,6 +1304,18 @@ class QueryResponseAlternative11(BaseModel):
 
 
 class RetentionFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    period: Optional[RetentionPeriod] = None
+    retentionReference: Optional[RetentionReference] = None
+    retentionType: Optional[RetentionType] = None
+    returningEntity: Optional[RetentionEntity] = None
+    targetEntity: Optional[RetentionEntity] = None
+    totalIntervals: Optional[int] = None
+
+
+class RetentionFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1230,7 +1417,7 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
     response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(default=None, description="Cached query response")
-    teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
+    teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
 
 
 class WebAnalyticsQueryBase(BaseModel):
@@ -1239,6 +1426,7 @@ class WebAnalyticsQueryBase(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+    sampling: Optional[Sampling] = None
 
 
 class WebOverviewQuery(BaseModel):
@@ -1249,6 +1437,7 @@ class WebOverviewQuery(BaseModel):
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class WebStatsTableQuery(BaseModel):
@@ -1257,10 +1446,12 @@ class WebStatsTableQuery(BaseModel):
     )
     breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
+    includeBounceRate: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -1271,6 +1462,7 @@ class WebTopClicksQuery(BaseModel):
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
+    sampling: Optional[Sampling] = None
 
 
 class AnyResponseType(
@@ -1396,7 +1588,7 @@ class EventsNode(BaseModel):
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["EventsNode"] = "EventsNode"
-    limit: Optional[float] = None
+    limit: Optional[int] = None
     math: Optional[
         Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
     ] = None
@@ -1525,7 +1717,7 @@ class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    cohort: Optional[float] = None
+    cohort: Optional[int] = None
     distinctId: Optional[str] = None
     fixedProperties: Optional[
         List[
@@ -1547,8 +1739,8 @@ class PersonsNode(BaseModel):
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
     kind: Literal["PersonsNode"] = "PersonsNode"
-    limit: Optional[float] = None
-    offset: Optional[float] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     properties: Optional[
         List[
             Union[
@@ -1593,7 +1785,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative12(BaseModel):
+class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1618,8 +1810,9 @@ class QueryResponseAlternative(
             QueryResponseAlternative7,
             QueryResponseAlternative8,
             QueryResponseAlternative9,
-            QueryResponseAlternative11,
+            QueryResponseAlternative10,
             QueryResponseAlternative12,
+            QueryResponseAlternative13,
             Dict[str, List[DatabaseSchemaQueryResponseField]],
         ]
     ]
@@ -1635,8 +1828,9 @@ class QueryResponseAlternative(
         QueryResponseAlternative7,
         QueryResponseAlternative8,
         QueryResponseAlternative9,
-        QueryResponseAlternative11,
+        QueryResponseAlternative10,
         QueryResponseAlternative12,
+        QueryResponseAlternative13,
         Dict[str, List[DatabaseSchemaQueryResponseField]],
     ]
 
@@ -1692,7 +1886,7 @@ class ActionsNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    id: float
+    id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
         Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
@@ -2030,7 +2224,7 @@ class PathsQuery(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     kind: Literal["PathsQuery"] = "PathsQuery"
-    pathsFilter: Optional[PathsFilter] = Field(default=None, description="Properties specific to the paths insight")
+    pathsFilter: PathsFilter = Field(..., description="Properties specific to the paths insight")
     properties: Optional[
         Union[
             List[
@@ -2050,6 +2244,7 @@ class PathsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
+    response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
@@ -2091,6 +2286,15 @@ class InsightActorsQuery(BaseModel):
         ..., discriminator="kind"
     )
     status: Optional[str] = None
+
+
+class InsightActorsQueryOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
+    response: Optional[InsightActorsQueryOptionsResponse] = None
+    source: InsightActorsQuery
 
 
 class ActorsQuery(BaseModel):
@@ -2211,6 +2415,7 @@ class HogQLMetadata(BaseModel):
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
+            InsightActorsQueryOptions,
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
@@ -2249,6 +2454,7 @@ class QueryRequest(BaseModel):
         EventsQuery,
         ActorsQuery,
         InsightActorsQuery,
+        InsightActorsQueryOptions,
         SessionsTimelineQuery,
         HogQLQuery,
         HogQLMetadata,
@@ -2284,6 +2490,7 @@ class QuerySchemaRoot(
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
+            InsightActorsQueryOptions,
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
@@ -2312,6 +2519,7 @@ class QuerySchemaRoot(
         EventsQuery,
         ActorsQuery,
         InsightActorsQuery,
+        InsightActorsQueryOptions,
         SessionsTimelineQuery,
         HogQLQuery,
         HogQLMetadata,

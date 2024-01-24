@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_v2_with_100_percent_discount.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_v2_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
@@ -50,6 +51,18 @@ export const BillingV2WithDiscount = (): JSX.Element => {
         get: {
             '/api/billing-v2/': {
                 ...billingJsonWithDiscount,
+            },
+        },
+    })
+
+    return <Billing />
+}
+
+export const BillingV2WithLimitAnd100PercentDiscount = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing-v2/': {
+                ...billingJsonWith100PercentDiscount,
             },
         },
     })

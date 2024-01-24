@@ -18,18 +18,17 @@ export const scene: SceneExport = {
 
 export function BatchExportsListScene(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
-    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
-        return <></>
-    }
     return (
         <>
             <PageHeader
                 buttons={
-                    <>
-                        <LemonButton type="primary" to={urls.batchExportNew()}>
-                            Create export workflow
-                        </LemonButton>
-                    </>
+                    hasAvailableFeature(AvailableFeature.DATA_PIPELINES) && (
+                        <>
+                            <LemonButton type="primary" to={urls.batchExportNew()}>
+                                Create export workflow
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
             <p>Batch exports allow you to export your data to a destination of your choice.</p>
@@ -42,11 +41,19 @@ export function BatchExportsListScene(): JSX.Element {
 export function BatchExportsList(): JSX.Element {
     const { batchExportConfigs, batchExportConfigsLoading, pagination } = useValues(batchExportsListLogic)
     const { unpause, pause } = useActions(batchExportsListLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
+
+    const configs = batchExportConfigs?.results ?? []
+
+    if (configs.length === 0 && !hasDataPipelines) {
+        return <></>
+    }
 
     return (
         <>
             <LemonTable
-                dataSource={batchExportConfigs?.results ?? []}
+                dataSource={configs}
                 loading={batchExportConfigsLoading}
                 pagination={pagination}
                 columns={[
@@ -118,14 +125,17 @@ export function BatchExportsList(): JSX.Element {
                                     label: 'Edit',
                                     to: urls.batchExportEdit(batchExport.id),
                                 },
-                                {
+                            ]
+                            if (hasDataPipelines || !batchExport.paused) {
+                                // without addon one cannot resume paused batch exports
+                                menuItems.push({
                                     label: batchExport.paused ? 'Resume' : 'Pause',
                                     status: batchExport.paused ? 'default' : 'danger',
                                     onClick: () => {
                                         batchExport.paused ? unpause(batchExport) : pause(batchExport)
                                     },
-                                },
-                            ]
+                                })
+                            }
                             return (
                                 <LemonMenu items={menuItems} placement="left">
                                     <LemonButton size="small" noPadding icon={<IconEllipsis />} />

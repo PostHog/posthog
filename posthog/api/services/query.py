@@ -14,6 +14,7 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
+    FunnelsQuery,
     HogQLMetadata,
     HogQLQuery,
     EventsQuery,
@@ -30,20 +31,24 @@ from posthog.schema import (
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
     StickinessQuery,
+    PathsQuery,
+    InsightActorsQueryOptions,
 )
 
 logger = structlog.get_logger(__name__)
 
 QUERY_WITH_RUNNER = (
-    LifecycleQuery
+    TrendsQuery
+    | FunnelsQuery
     | RetentionQuery
+    | PathsQuery
     | StickinessQuery
-    | TrendsQuery
+    | LifecycleQuery
     | WebOverviewQuery
     | WebTopClicksQuery
     | WebStatsTableQuery
 )
-QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTimelineQuery
+QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTimelineQuery | InsightActorsQueryOptions
 
 
 def process_query(

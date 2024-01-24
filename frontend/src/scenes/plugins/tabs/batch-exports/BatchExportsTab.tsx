@@ -5,8 +5,11 @@ import { AvailableFeature } from '~/types'
 
 export function BatchExportsTab(): JSX.Element {
     return (
-        <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
-            <BatchExportsList />
-        </PayGateMini>
+        <>
+            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
+                <></>
+            </PayGateMini>
+            <BatchExportsList /> {/* We always show enabled batch exports */}
+        </>
     )
 }

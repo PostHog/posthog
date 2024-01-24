@@ -207,6 +207,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Autocapture Element',
                     },
                     {
+                        name: 'Metadata',
+                        searchPlaceholder: 'metadata',
+                        type: TaxonomicFilterGroupType.Metadata,
+                        // populate options using `optionsFromProp` depending on context in which
+                        // this taxonomic group type is used
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        ...propertyTaxonomicGroupProps(true),
+                    },
+                    {
                         name: 'Event properties',
                         searchPlaceholder: 'event properties',
                         type: TaxonomicFilterGroupType.EventProperties,

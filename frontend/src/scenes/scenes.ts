@@ -94,6 +94,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Data management',
         activityScope: ActivityScope.DATA_MANAGEMENT,
+        defaultDocsPath: '/docs/data',
     },
     [Scene.EventDefinition]: {
         projectBased: true,
@@ -128,7 +129,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Person',
         activityScope: ActivityScope.PERSON,
-        defaultDocsPath: '/docs/session-replay',
+        defaultDocsPath: '/docs/data/persons',
     },
     [Scene.PersonsManagement]: {
         projectBased: true,
@@ -173,6 +174,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
+        defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
     [Scene.FeatureFlag]: {
@@ -183,7 +185,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Surveys]: {
         projectBased: true,
         name: 'Surveys',
-        defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
+        defaultDocsPath: '/docs/surveys',
         activityScope: ActivityScope.SURVEY,
     },
     [Scene.Survey]: {
@@ -200,7 +202,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data warehouse',
-        defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
+        defaultDocsPath: '/docs/data-warehouse',
     },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
@@ -320,7 +322,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     // Instance management routes
     [Scene.SystemStatus]: {
         instanceLevel: true,
-        name: 'Instance status & settings',
+        name: 'Instance panel',
     },
     [Scene.AsyncMigrations]: {
         instanceLevel: true,
@@ -434,6 +436,7 @@ export const redirects: Record<
     '/pipeline': urls.pipeline(),
     '/project/apps': preserveParams(urls.projectApps()),
     '/project/apps/:id': ({ id }) => urls.projectApp(id),
+    '/instance': urls.instanceStatus(),
 }
 
 export const routes: Record<string, Scene> = {

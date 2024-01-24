@@ -9,6 +9,7 @@ import {
     EventPropertyFilter,
     EventType,
     FilterType,
+    FunnelExclusion,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -63,6 +64,7 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
+    InsightActorsQueryOptions = 'InsightActorsQueryOptions',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -87,6 +89,7 @@ export type AnyDataNode =
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
+    | InsightActorsQueryOptions
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
@@ -106,6 +109,7 @@ export type QuerySchema =
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
+    | InsightActorsQueryOptions
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
@@ -161,7 +165,7 @@ export interface DataNode extends Node {
 export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
-    inCohortVia?: 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
+    inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
 }
 
@@ -186,6 +190,11 @@ export interface HogQLQueryResponse {
     explain?: string[]
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    hasMore?: boolean
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
 }
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
@@ -255,6 +264,7 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     /** The event or `null` for all events. */
     event?: string | null
+    /**  @asType integer */
     limit?: number
     /** Columns to order by */
     orderBy?: string[]
@@ -267,6 +277,7 @@ export interface EventsNode extends EntityNode {
 
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
+    /**  @asType integer */
     id: number
 }
 
@@ -339,13 +350,16 @@ export interface EventsQuery extends DataNode {
 export interface PersonsNode extends DataNode {
     kind: NodeKind.PersonsNode
     search?: string
+    /**  @asType integer */
     cohort?: number
     distinctId?: string
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    /**  @asType integer */
     limit?: number
+    /**  @asType integer */
     offset?: number
 }
 
@@ -513,13 +527,13 @@ export type TrendsFilter = {
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     display?: TrendsFilterLegacy['display']
-    show_legend?: TrendsFilterLegacy['show_legend']
+    showLegend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
-    show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
@@ -544,7 +558,7 @@ export interface TrendsQuery extends InsightsQueryBase {
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
-export type FunnelsFilter = Omit<
+export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
     | keyof FilterType
     | 'hidden_legend_keys'
@@ -556,6 +570,24 @@ export type FunnelsFilter = Omit<
     | 'funnel_step'
     | 'funnel_custom_steps'
 >
+
+export type FunnelsFilter = {
+    exclusions?: FunnelExclusion[]
+    layout?: FunnelsFilterLegacy['layout']
+    binCount?: FunnelsFilterLegacy['bin_count']
+    breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    breakdownAttributionValue?: FunnelsFilterLegacy['breakdown_attribution_value']
+    funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    funnelToStep?: FunnelsFilterLegacy['funnel_to_step']
+    funnelFromStep?: FunnelsFilterLegacy['funnel_from_step']
+    funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    funnelWindowInterval?: FunnelsFilterLegacy['funnel_window_interval']
+    funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
+    hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
+    funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+}
+
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -568,8 +600,21 @@ export interface FunnelsQuery extends InsightsQueryBase {
     breakdownFilter?: BreakdownFilter
 }
 
+export interface FunnelsQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
+
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
-export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
+export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
+
+export type RetentionFilter = {
+    retentionType?: RetentionFilterLegacy['retention_type']
+    retentionReference?: RetentionFilterLegacy['retention_reference']
+    totalIntervals?: RetentionFilterLegacy['total_intervals']
+    returningEntity?: RetentionFilterLegacy['returning_entity']
+    targetEntity?: RetentionFilterLegacy['target_entity']
+    period?: RetentionFilterLegacy['period']
+}
 
 export interface RetentionValue {
     /** @asType integer */
@@ -593,23 +638,58 @@ export interface RetentionQuery extends InsightsQueryBase {
     retentionFilter: RetentionFilter
 }
 
+export interface PathsQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
-export type PathsFilter = Omit<
+export type PathsFilterLegacy = Omit<
     PathsFilterType,
     keyof FilterType | 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
 >
+
+export type PathsFilter = {
+    edgeLimit?: PathsFilterLegacy['edge_limit']
+    pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
+    includeEventTypes?: PathsFilterLegacy['include_event_types']
+    startPoint?: PathsFilterLegacy['start_point']
+    endPoint?: PathsFilterLegacy['end_point']
+    pathGroupings?: PathsFilterLegacy['path_groupings']
+    excludeEvents?: PathsFilterLegacy['exclude_events']
+    stepLimit?: PathsFilterLegacy['step_limit']
+    pathReplacements?: PathsFilterLegacy['path_replacements']
+    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
+    minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
+    maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
+    funnelPaths?: PathsFilterLegacy['funnel_paths']
+    funnelFilter?: PathsFilterLegacy['funnel_filter']
+
+    // persons only
+    pathStartKey?: string
+    pathEndKey?: string
+    pathDropoffKey?: string
+}
+
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
+    response?: PathsQueryResponse
     /** Properties specific to the paths insight */
-    pathsFilter?: PathsFilter
+    pathsFilter: PathsFilter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type StickinessFilter = Omit<
+export type StickinessFilterLegacy = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
+
+export type StickinessFilter = {
+    compare?: StickinessFilterLegacy['compare']
+    display?: StickinessFilterLegacy['display']
+    showLegend?: StickinessFilterLegacy['show_legend']
+    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+    hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
+}
 
 export interface StickinessQueryResponse extends QueryResponse {
     results: Record<string, any>[]
@@ -626,10 +706,15 @@ export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_gr
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
+export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
+
+export type LifecycleFilter = {
+    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+}
 
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
@@ -767,6 +852,10 @@ export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
+    sampling?: {
+        enabled?: boolean
+        forceSamplingRate?: SamplingRate
+    }
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
@@ -783,8 +872,14 @@ export interface WebOverviewItem {
     isIncreaseBad?: boolean
 }
 
+export interface SamplingRate {
+    numerator: number
+    denominator?: number
+}
+
 export interface WebOverviewQueryResponse extends QueryResponse {
     results: WebOverviewItem[]
+    samplingRate?: SamplingRate
 }
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
@@ -795,6 +890,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
     results: unknown[]
     types?: unknown[]
     columns?: unknown[]
+    samplingRate?: SamplingRate
 }
 
 export enum WebStatsBreakdown {
@@ -819,13 +915,15 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     response?: WebStatsTableQueryResponse
-    includeScrollDepth?: boolean
+    includeScrollDepth?: boolean // automatically sets includeBounceRate to true
+    includeBounceRate?: boolean
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
+    samplingRate?: SamplingRate
 }
 
 export type InsightQueryNode =
@@ -859,9 +957,9 @@ export type InsightFilter =
 /** @asType integer */
 export type Day = number
 
-export interface InsightActorsQuery {
+export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> {
     kind: NodeKind.InsightActorsQuery
-    source: InsightQuerySource
+    source: T
     day?: string | Day
     status?: string
     /**
@@ -872,6 +970,25 @@ export interface InsightActorsQuery {
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: ActorsQueryResponse
+}
+
+export interface InsightActorsQueryOptionsResponse {
+    day?: { label: string; value: string | Day }[]
+    status?: { label: string; value: string }[]
+    interval?: {
+        label: string
+        /**
+         * An interval selected out of available intervals in source query
+         * @asType integer
+         */
+        value: number
+    }[]
+}
+
+export interface InsightActorsQueryOptions {
+    kind: NodeKind.InsightActorsQueryOptions
+    source: InsightActorsQuery
+    response?: InsightActorsQueryOptionsResponse
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
@@ -891,7 +1008,10 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     /** Date range for the query */
     dateRange?: DateRange
 
-    /** Project to filter on. Defaults to current project */
+    /**
+     * Project to filter on. Defaults to current project
+     *  @asType integer
+     */
     teamId?: number
 
     response?: TimeToSeeDataSessionsQueryResponse
@@ -914,7 +1034,10 @@ export interface DatabaseSchemaQuery extends DataNode {
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
 
-    /** Project to filter on. Defaults to current project */
+    /**
+     * Project to filter on. Defaults to current project
+     * @asType integer
+     */
     teamId?: number
 
     /** Project to filter on. Defaults to current session */
@@ -949,11 +1072,14 @@ export interface DateRange {
 export interface BreakdownFilter {
     // TODO: unclutter
     breakdown_type?: BreakdownType | null
+    /** @asType integer */
     breakdown_limit?: number
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
+    /** @asType integer */
     breakdown_group_type_index?: number | null
+    /** @asType integer */
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }

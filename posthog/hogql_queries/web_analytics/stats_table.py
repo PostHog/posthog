@@ -20,43 +20,49 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
     query_type = WebStatsTableQuery
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        # special case for channel, as some hogql features to use the general code are still being worked on
-        if self.query.breakdownBy == WebStatsBreakdown.InitialChannelType:
-            return self.to_channel_query()
-
+    def _bounce_rate_subquery(self):
         with self.timings.measure("bounce_rate_query"):
-            bounce_rate_query = parse_select(
+            return parse_select(
                 BOUNCE_RATE_CTE,
                 timings=self.timings,
                 placeholders={
                     "session_where": self.session_where(),
                     "session_having": self.session_having(),
                     "breakdown_by": self.bounce_breakdown(),
+                    "sample_rate": self._sample_ratio,
                 },
-                backend="cpp",
             )
+
+    def _counts_subquery(self):
         with self.timings.measure("counts_query"):
-            counts_query = parse_select(
+            return parse_select(
                 COUNTS_CTE,
                 timings=self.timings,
                 placeholders={
                     "counts_where": self.events_where(),
                     "breakdown_by": self.counts_breakdown(),
+                    "sample_rate": self._sample_ratio,
                 },
-                backend="cpp",
             )
+
+    def _scroll_depth_subquery(self):
+        with self.timings.measure("scroll_depth_query"):
+            return parse_select(
+                PATHNAME_SCROLL_CTE,
+                timings=self.timings,
+                placeholders={
+                    "pathname_scroll_where": self.events_where(),
+                    "breakdown_by": self.counts_breakdown(),
+                    "sample_rate": self._sample_ratio,
+                },
+            )
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        # special case for channel, as some hogql features to use the general code are still being worked on
+        if self.query.breakdownBy == WebStatsBreakdown.InitialChannelType:
+            return self.to_channel_query()
+
         if self.query.includeScrollDepth:
-            with self.timings.measure("scroll_depth_query"):
-                scroll_depth_query = parse_select(
-                    PATHNAME_SCROLL_CTE,
-                    timings=self.timings,
-                    placeholders={
-                        "pathname_scroll_where": self.events_where(),
-                        "breakdown_by": self.counts_breakdown(),
-                    },
-                    backend="cpp",
-                )
             return parse_select(
                 """
 SELECT
@@ -85,14 +91,14 @@ LIMIT 10
                 """,
                 timings=self.timings,
                 placeholders={
-                    "counts_query": counts_query,
-                    "bounce_rate_query": bounce_rate_query,
-                    "scroll_depth_query": scroll_depth_query,
+                    "counts_query": self._counts_subquery(),
+                    "bounce_rate_query": self._bounce_rate_subquery(),
+                    "scroll_depth_query": self._scroll_depth_subquery(),
                     "where_breakdown": self.where_breakdown(),
+                    "sample_rate": self._sample_ratio,
                 },
-                backend="cpp",
             )
-        else:
+        elif self.query.includeBounceRate:
             with self.timings.measure("stats_table_query"):
                 return parse_select(
                     """
@@ -116,11 +122,33 @@ LIMIT 10
                     """,
                     timings=self.timings,
                     placeholders={
-                        "counts_query": counts_query,
-                        "bounce_rate_query": bounce_rate_query,
+                        "counts_query": self._counts_subquery(),
+                        "bounce_rate_query": self._bounce_rate_subquery(),
                         "where_breakdown": self.where_breakdown(),
                     },
-                    backend="cpp",
+                )
+        else:
+            with self.timings.measure("stats_table_query"):
+                return parse_select(
+                    """
+    SELECT
+        counts.breakdown_value as "context.columns.breakdown_value",
+        counts.total_pageviews as "context.columns.views",
+        counts.unique_visitors as "context.columns.visitors"
+    FROM
+        {counts_query} AS counts
+    WHERE
+        {where_breakdown}
+    ORDER BY
+        "context.columns.views" DESC,
+        "context.columns.breakdown_value" DESC
+    LIMIT 10
+                    """,
+                    timings=self.timings,
+                    placeholders={
+                        "counts_query": self._counts_subquery(),
+                        "where_breakdown": self.where_breakdown(),
+                    },
                 )
 
     def calculate(self):
@@ -131,10 +159,25 @@ LIMIT 10
             timings=self.timings,
             modifiers=self.modifiers,
         )
+        assert response.results is not None
+
+        def to_data(col_val, col_idx):
+            if col_idx == 0:  # breakdown_value
+                return col_val
+            elif col_idx == 1:  # views
+                return self._unsample(col_val)
+            elif col_idx == 2:  # visitors
+                return self._unsample(col_val)
+            elif col_idx == 3:  # bounce_rate
+                return col_val
+            else:
+                return col_val
+
+        results = [[to_data(c, i) for (i, c) in enumerate(r)] for r in response.results]
 
         return WebStatsTableQueryResponse(
             columns=response.columns,
-            results=response.results,
+            results=results,
             timings=response.timings,
             types=response.types,
             hogql=response.hogql,
@@ -288,6 +331,7 @@ FROM
             person.properties.$initial_gad_source AS initial_gad_source,
             person_id AS pid
         FROM events
+        SAMPLE {sample_rate}
         WHERE
             (event = '$pageview')
             AND ({counts_where})
@@ -307,6 +351,7 @@ LIMIT 10
                 placeholders={
                     "counts_where": self.events_where(),
                     "where_breakdown": self.where_breakdown(),
+                    "sample_rate": self._sample_ratio,
                 },
             )
 

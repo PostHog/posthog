@@ -135,6 +135,9 @@ jobs:
               run: |
                   ruff format --exclude posthog/hogql/grammar --check --diff .
 
+            - name: Add Problem Matcher
+              run: echo "::add-matcher::.github/mypy-problem-matcher.json"
+
             - name: Check static typing
               run: |
                   mypy -p posthog | mypy-baseline filter
@@ -240,8 +243,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.10.10']
-                clickhouse-server-image:
-                    ['clickhouse/clickhouse-server:23.6.1.1524', 'clickhouse/clickhouse-server:23.11.2.11-alpine']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.11.2.11-alpine']
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
@@ -314,8 +316,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image:
-                    ['clickhouse/clickhouse-server:23.6.1.1524', 'clickhouse/clickhouse-server:23.11.2.11-alpine']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.11.2.11-alpine']
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:

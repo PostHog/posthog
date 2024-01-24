@@ -83,7 +83,17 @@ export function renderColumn(
                         object[value[i]] = value[i + 1]
                     }
                     if ('results' in object && Array.isArray(object.results)) {
-                        return <Sparkline data={object.results} />
+                        // TODO: If results aren't an array of numbers, show a helpful message on using sparkline()
+                        return (
+                            <Sparkline
+                                data={[
+                                    {
+                                        name: key.includes('__hogql_chart_type') ? 'Data' : key,
+                                        values: object.results.map((v: any) => Number(v)),
+                                    },
+                                ]}
+                            />
+                        )
                     }
                 }
 
@@ -223,9 +233,9 @@ export function renderColumn(
 
         if (isActorsQuery(query.source) && value) {
             displayProps.person = value
-            displayProps.href = value.id
-                ? urls.personByUUID(value.id)
-                : urls.personByDistinctId(value.distinct_ids?.[0] ?? '-')
+            displayProps.href = value.distinct_ids?.[0]
+                ? urls.personByDistinctId(value.distinct_ids[0])
+                : urls.personByUUID(value.id)
         }
 
         return <PersonDisplay {...displayProps} />

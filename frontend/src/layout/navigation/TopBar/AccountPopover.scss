@@ -1,11 +1,11 @@
 @import '../../../styles/mixins';
 
-.SitePopover {
+.AccountPopover {
     min-width: 16rem;
     max-width: 22rem;
 }
 
-.SitePopover__side-link {
+.AccountPopover__side-link {
     flex-grow: 1;
     margin-left: 0.5rem;
     font-size: 0.8125rem;
@@ -14,7 +14,7 @@
     text-align: right;
 }
 
-.SitePopover__section {
+.AccountPopover__section {
     width: 100%;
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--border);

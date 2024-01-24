@@ -14,7 +14,7 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
-export function PlayerInspectorPreview(): JSX.Element {
+export function PlayerInspectorPreview(props: { onClick: () => void }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
@@ -28,7 +28,7 @@ export function PlayerInspectorPreview(): JSX.Element {
     ]
 
     return (
-        <div className="PlayerInspectorPreview bg-side p-2 space-y-2 flex flex-col">
+        <div className="PlayerInspectorPreview bg-side p-2 space-y-2 flex flex-col" onClick={props.onClick}>
             {tabs.map((tabId) => {
                 const TabIcon = TabToIcon[tabId]
                 return (

@@ -226,7 +226,7 @@ export function DataTable({
                             }}
                         />
                         <LemonDivider />
-                        {canSort && key !== 'person.$delete' ? (
+                        {canSort && key !== 'person.$delete' && key !== 'person' ? (
                             <>
                                 <LemonButton
                                     fullWidth

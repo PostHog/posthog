@@ -1,30 +1,51 @@
-import { offset } from '@floating-ui/react'
-import { Chart, ChartItem, TooltipModel } from 'lib/Chart'
+import clsx from 'clsx'
+import { Chart, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import React from 'react'
+import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-interface SparkLineTimeSeries {
-    name: string | null
-    /** Check vars.scss for available colors */
-    color: string
+import { LemonSkeleton } from './LemonSkeleton'
+
+export interface SparklineTimeSeries {
+    name: string
     values: number[]
+    /** Check vars.scss for available colors. @default 'muted' */
+    color?: string
 }
 
 interface SparklineProps {
     /** Optional labels for the X axis. */
     labels?: string[]
     /** Either a list of numbers for a muted graph or an array of time series */
-    data: number[] | SparkLineTimeSeries[]
+    data: number[] | SparklineTimeSeries[]
+    /** @default 'bar' */
+    type?: 'bar' | 'line'
+    /** Whether the Y-axis maximum should be indicated in the graph. @default true */
+    maximumIndicator?: boolean
+    /** A skeleton is shown during loading. */
+    loading?: boolean
+    className?: string
 }
 
-export function Sparkline({ labels, data }: SparklineProps): JSX.Element {
+export function Sparkline({
+    labels,
+    data,
+    type = 'bar',
+    maximumIndicator = true,
+    loading = false,
+    className,
+}: SparklineProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
+    const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
-    const [popoverOffset, setPopoverOffset] = useState(0)
+
+    const adjustedData: SparklineTimeSeries[] = !isSparkLineTimeSeries(data)
+        ? [{ name: 'Data', color: 'muted', values: data }]
+        : data
 
     useEffect(() => {
         // data should always be provided but React can render this without it,
@@ -33,33 +54,75 @@ export function Sparkline({ labels, data }: SparklineProps): JSX.Element {
             return
         }
 
-        const adjustedData: SparkLineTimeSeries[] = !isSparkLineTimeSeries(data)
-            ? [{ name: null, color: 'muted', values: data }]
-            : data
-
         let chart: Chart
         if (canvasRef.current) {
-            chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
-                type: 'bar',
+            chart = new Chart(canvasRef.current.getContext('2d') as ChartItem, {
+                type,
                 data: {
-                    labels: labels || Object.values(adjustedData).map(() => ''),
-                    datasets: adjustedData.map((timeseries) => ({
-                        data: timeseries.values,
-                        minBarLength: 0,
-                        backgroundColor: getColorVar(timeseries.color),
-                        hoverBackgroundColor: getColorVar('primary'),
-                    })),
+                    labels: labels || adjustedData[0].values.map((_, i) => `Entry ${i}`),
+                    datasets: adjustedData.map((timeseries) => {
+                        const color = getColorVar(timeseries.color || 'muted')
+                        return {
+                            label: timeseries.name,
+                            data: timeseries.values,
+                            minBarLength: 0,
+                            categoryPercentage: 0.9, // Slightly tighter bar spacing than the default 0.8
+                            backgroundColor: color,
+                            borderColor: color,
+                            borderWidth: type === 'line' ? 2 : 0,
+                            pointRadius: 0,
+                        }
+                    }),
                 },
                 options: {
                     scales: {
                         x: {
-                            display: false,
+                            // X axis not needed in line charts without indicators
+                            display: type === 'bar' || maximumIndicator,
+                            bounds: 'data',
                             stacked: true,
+                            ticks: {
+                                display: false,
+                            },
+                            grid: {
+                                drawTicks: false,
+                                display: false,
+                            },
+                            alignToPixels: true,
                         },
                         y: {
-                            beginAtZero: true,
-                            display: false,
+                            // We use the Y axis for the maximum indicator
+                            display: maximumIndicator,
+                            bounds: 'data',
+                            min: 0, // Always starting at 0
+                            suggestedMax: 1,
                             stacked: true,
+                            ticks: {
+                                includeBounds: true,
+                                autoSkip: true,
+                                maxTicksLimit: 1, // Only the max
+                                align: 'start',
+                                callback: (tickValue) =>
+                                    typeof tickValue === 'number' && tickValue > 0 // Hide the zero tick
+                                        ? humanFriendlyNumber(tickValue)
+                                        : null,
+                                font: {
+                                    size: 10,
+                                    lineHeight: 1,
+                                },
+                            },
+                            grid: {
+                                borderDash: [2],
+                                drawBorder: false,
+                                display: true,
+                                tickLength: 0,
+                            },
+                            alignToPixels: true,
+                            afterFit: (axis) => {
+                                // Remove unneccessary padding
+                                axis.paddingTop = 1 // 1px and not 0 to avoid clipping of the grid
+                                axis.paddingBottom = 1
+                            },
                         },
                     },
                     plugins: {
@@ -69,32 +132,27 @@ export function Sparkline({ labels, data }: SparklineProps): JSX.Element {
                             display: false,
                         },
                         tooltip: {
-                            // TODO: use InsightsTooltip instead
-                            enabled: false, // using external tooltip
-                            external({ tooltip }: { chart: Chart; tooltip: TooltipModel<'bar'> }) {
-                                if (tooltip.opacity === 0) {
-                                    setPopoverContent(null)
-                                    return
-                                }
-                                const datapoint = tooltip.dataPoints[0]
-                                const toolTipLabel = datapoint.label ? `${datapoint.label}: ` : ''
-                                if (tooltip.dataPoints.length === 1) {
-                                    const tooltipContent = toolTipLabel + datapoint.formattedValue
-                                    setPopoverContent(<>{tooltipContent}</>)
-                                } else {
-                                    const tooltipContent = [<React.Fragment key="-1">{toolTipLabel}</React.Fragment>]
-                                    for (let i = 0; i < tooltip.dataPoints.length; i++) {
-                                        const datapoint = tooltip.dataPoints[i]
-                                        tooltipContent.push(
-                                            <React.Fragment key={i}>
-                                                <br />
-                                                {adjustedData[i].name}: {datapoint.formattedValue}
-                                            </React.Fragment>
-                                        )
-                                    }
-                                    setPopoverContent(<>{tooltipContent}</>)
-                                }
-                                setPopoverOffset(tooltip.x)
+                            enabled: false, // Using external tooltip
+                            external({ tooltip }) {
+                                setIsTooltipShown(tooltip.opacity > 0)
+                                setPopoverContent(
+                                    <InsightTooltip
+                                        embedded
+                                        hideInspectActorsSection
+                                        showHeader={!!labels}
+                                        date={tooltip.dataPoints[0].label}
+                                        seriesData={tooltip.dataPoints.map((dp, i) => ({
+                                            id: i,
+                                            dataIndex: 0,
+                                            datasetIndex: 0,
+                                            label: dp.dataset.label,
+                                            color: dp.dataset.borderColor as string,
+                                            count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,
+                                        }))}
+                                        renderSeries={(value) => value}
+                                        renderCount={(count) => humanFriendlyNumber(count)}
+                                    />
+                                )
                             },
                         },
                     },
@@ -112,21 +170,25 @@ export function Sparkline({ labels, data }: SparklineProps): JSX.Element {
         }
     }, [labels, data])
 
-    return (
-        <div className="w-full">
-            <canvas ref={canvasRef} className="h-9" />
-            <Popover
-                visible={!!popoverContent}
-                overlay={popoverContent}
-                placement="bottom-start"
-                middleware={[offset({ crossAxis: popoverOffset })]}
-            >
+    const dataPointCount = adjustedData[0].values.length
+    const finalClassName = clsx(
+        dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
+        'h-8',
+        className
+    )
+
+    return !loading ? (
+        <div className={finalClassName}>
+            <canvas ref={canvasRef} />
+            <Popover visible={isTooltipShown} overlay={popoverContent} placement="bottom-start" padded={false}>
                 <div ref={tooltipRef} />
             </Popover>
         </div>
+    ) : (
+        <LemonSkeleton className={finalClassName} />
     )
 }
 
-function isSparkLineTimeSeries(data: number[] | SparkLineTimeSeries[]): data is SparkLineTimeSeries[] {
+function isSparkLineTimeSeries(data: number[] | SparklineTimeSeries[]): data is SparklineTimeSeries[] {
     return typeof data[0] !== 'number'
 }

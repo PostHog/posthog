@@ -53,7 +53,9 @@ export const parseEncodedSnapshots = async (
     if (!postHogEEModule && withMobileTransformer) {
         postHogEEModule = await posthogEE()
     }
-    return items.flatMap((l) => {
+    const lineCount = items.length
+    const unparseableLines: string[] = []
+    const parsedLines = items.flatMap((l) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
@@ -76,14 +78,28 @@ export const parseEncodedSnapshots = async (
                 }
             })
         } catch (e) {
-            posthog.capture('session recording had unparseable line', {
-                sessionId,
-                line: l,
-            })
-            captureException(e)
+            if (typeof l === 'string') {
+                unparseableLines.push(l)
+            }
             return []
         }
     })
+
+    if (unparseableLines.length) {
+        const extra = {
+            playbackSessionId: sessionId,
+            totalLineCount: lineCount,
+            unparseableLinesCount: unparseableLines.length,
+            exampleLines: unparseableLines.slice(0, 3),
+        }
+        posthog.capture('session recording had unparseable lines', extra)
+        captureException(new Error('session recording had unparseable lines'), {
+            tags: { feature: 'session-recording-snapshot-processing' },
+            extra,
+        })
+    }
+
+    return parsedLines
 }
 
 const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined => {
@@ -279,13 +295,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 duration: Math.round(performance.now() - cache.snapshotsStartTime),
             }
 
-            actions.reportViewed()
             actions.reportUsageIfFullyLoaded()
 
             const nextSourceToLoad = sources?.find((s) => !s.loaded)
 
             if (nextSourceToLoad) {
                 actions.loadRecordingSnapshots(nextSourceToLoad)
+            } else {
+                actions.reportViewed()
             }
         },
         loadEventsSuccess: () => {

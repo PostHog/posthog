@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import equal from 'fast-deep-equal'
 import {
     actions,
     afterMount,
@@ -16,7 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -41,18 +40,8 @@ import {
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isInsightActorsQuery,
-    isInsightQueryNode,
-    isLifecycleQuery,
-    isPersonsNode,
-    isStickinessQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { isActorsQuery, isEventsQuery, isInsightActorsQuery, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
 
-import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 
 export interface DataNodeLogicProps {
@@ -64,7 +53,7 @@ export interface DataNodeLogicProps {
     doNotLoad?: boolean
 }
 
-const AUTOLOAD_INTERVAL = 30000
+export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
@@ -122,22 +111,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: async ({ refresh, queryId }, breakpoint) => {
                     if (props.doNotLoad) {
                         return props.cachedResults
-                    }
-                    if (
-                        isInsightQueryNode(props.query) &&
-                        !(values.hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(props.query)) &&
-                        !(values.hogQLInsightsTrendsFlagEnabled && isTrendsQuery(props.query)) &&
-                        !(values.hogQLInsightsStickinessFlagEnabled && isStickinessQuery(props.query)) &&
-                        props.cachedResults &&
-                        props.cachedResults['id'] &&
-                        props.cachedResults['filters'] &&
-                        equal(props.query, filtersToQueryNode(props.cachedResults['filters']))
-                    ) {
-                        const url = `api/projects/${values.currentTeamId}/insights/${props.cachedResults['id']}?refresh=true`
-                        const fetchResponse = await api.getResponse(url)
-                        const data = await getJSONOrThrow(fetchResponse)
-                        breakpoint()
-                        return data
                     }
 
                     if (props.cachedResults && !refresh) {
@@ -347,21 +320,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsLifecycleFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
-        ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
-        ],
-        hogQLInsightsTrendsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
-        ],
-        hogQLInsightsStickinessFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
@@ -448,6 +409,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         canLoadNextData: [
             (s) => [s.nextQuery, s.isShowingCachedResults],
             (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
+        ],
+        hasMoreData: [
+            (s) => [s.response],
+            (response): boolean => {
+                if (!response?.hasMore) {
+                    return false
+                }
+                return response.hasMore
+            },
+        ],
+        dataLimit: [
+            // get limit from response
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response?.limit) {
+                    return null
+                }
+                return response.limit
+            },
         ],
         backToSourceQuery: [
             (s) => [s.query],

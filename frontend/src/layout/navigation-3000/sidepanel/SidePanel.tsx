@@ -94,7 +94,8 @@ export function SidePanel(): JSX.Element | null {
 
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: ref,
-        persistentKey: 'side-panel',
+        logicKey: 'side-panel',
+        persistent: true,
         closeThreshold: 200,
         placement: 'left',
         onToggleClosed: (shouldBeClosed) => {

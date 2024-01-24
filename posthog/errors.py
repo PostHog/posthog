@@ -18,15 +18,24 @@ class InternalCHQueryError(ServerException):
 class ExposedCHQueryError(InternalCHQueryError):
     def __str__(self) -> str:
         message: str = self.message
-        start_index = message.index("DB::Exception:") + len("DB::Exception:")
-        end_index = message.index("Stack trace:")
+        try:
+            start_index = message.index("DB::Exception:") + len("DB::Exception:")
+        except ValueError:
+            start_index = 0
+        try:
+            end_index = message.index("Stack trace:")
+        except ValueError:
+            end_index = len(message)
         return self.message[start_index:end_index].strip()
 
 
 @dataclass
 class ErrorCodeMeta:
     name: str
-    user_safe: bool = False  # Whether this error code is safe to show to the user and couldn't be caught at HogQL level
+    user_safe: bool | str = False
+    """Whether this error code is safe to show to the user and couldn't be caught at HogQL level.
+    If a string is set, it will be used as the error message instead of the ClickHouse one.
+    """
 
 
 def wrap_query_error(err: Exception) -> Exception:
@@ -44,7 +53,8 @@ def wrap_query_error(err: Exception) -> Exception:
         meta = look_up_error_code_meta(err)
         name = f"CHQueryError{meta.name.replace('_', ' ').title().replace(' ', '')}"
         processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
-        return type(name, (processed_error_class,), {})(err.message, code=err.code, code_name=meta.name.lower())
+        message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
+        return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
     return err
 
 
@@ -309,7 +319,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     238: ErrorCodeMeta("FORMAT_VERSION_TOO_OLD"),
     239: ErrorCodeMeta("CANNOT_MUNMAP"),
     240: ErrorCodeMeta("CANNOT_MREMAP"),
-    241: ErrorCodeMeta("MEMORY_LIMIT_EXCEEDED"),
+    241: ErrorCodeMeta(
+        "MEMORY_LIMIT_EXCEEDED",
+        user_safe="Query exceeds memory limits. Tip: Specifying a narrower time range helps most of the time.",
+    ),
     242: ErrorCodeMeta("TABLE_IS_READ_ONLY"),
     243: ErrorCodeMeta("NOT_ENOUGH_SPACE"),
     244: ErrorCodeMeta("UNEXPECTED_ZOOKEEPER_ERROR"),

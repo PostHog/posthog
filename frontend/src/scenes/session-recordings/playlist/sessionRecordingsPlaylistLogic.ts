@@ -205,6 +205,11 @@ export interface SessionRecordingPlaylistLogicProps {
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
+export interface SessionSummaryResponse {
+    id: SessionRecordingType['id']
+    content: string
+}
+
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
     props({} as SessionRecordingPlaylistLogicProps),
@@ -239,6 +244,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadPinnedRecordings: true,
         loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
@@ -255,6 +261,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     loaders(({ props, values, actions }) => ({
+        sessionSummary: {
+            summarizeSession: async ({ id }): Promise<SessionSummaryResponse | null> => {
+                if (!id) {
+                    return null
+                }
+                const response = await api.recordings.summarize(id)
+                return { content: response.content, id: id }
+            },
+        },
         eventsHaveSessionId: [
             {} as Record<string, boolean>,
             {
@@ -342,6 +357,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
+        sessionBeingSummarized: [
+            null as null | SessionRecordingType['id'],
+            {
+                summarizeSession: (_, { id }) => id,
+                sessionSummarySuccess: () => null,
+            },
+        ],
         // If we initialise with pinned recordings then we don't show others by default
         // but if we go down to 0 pinned recordings then we show others
         showOtherRecordings: [
@@ -428,6 +450,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     return mergedResults
                 },
+
                 setSelectedRecordingId: (state, { id }) =>
                     state.map((s) => {
                         if (s.id === id) {
@@ -439,6 +462,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             return { ...s }
                         }
                     }),
+
+                summarizeSessionSuccess: (state, { sessionSummary }) => {
+                    return sessionSummary
+                        ? state.map((s) => {
+                              if (s.id === sessionSummary.id) {
+                                  return {
+                                      ...s,
+                                      summary: sessionSummary.content,
+                                  }
+                              } else {
+                                  return s
+                              }
+                          })
+                        : state
+                },
             },
         ],
         selectedRecordingId: [

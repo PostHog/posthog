@@ -15,6 +15,7 @@ from statshog.defaults.django import statsd
 from posthog.caching.calculate_results import calculate_result_by_insight
 from posthog.models import Dashboard, Insight, InsightCachingState, Team
 from posthog.models.instance_setting import get_instance_setting
+from posthog.tasks.tasks import update_cache_task
 
 logger = structlog.get_logger(__name__)
 
@@ -25,8 +26,6 @@ insight_cache_write_counter = Counter("posthog_cloud_insight_cache_write", "A wr
 
 
 def schedule_cache_updates():
-    from posthog.celery import update_cache_task
-
     # :TODO: Separate celery queue for updates rather than limiting via this method
     PARALLEL_INSIGHT_CACHE = get_instance_setting("PARALLEL_DASHBOARD_ITEM_CACHE")
 
@@ -139,8 +138,6 @@ def update_cache(caching_state_id: UUID):
         statsd.incr("caching_state_update_errors")
 
         if caching_state.refresh_attempt < MAX_ATTEMPTS:
-            from posthog.celery import update_cache_task
-
             update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
 
         InsightCachingState.objects.filter(pk=caching_state.pk).update(
