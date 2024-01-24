@@ -1067,10 +1067,13 @@ class HogQLQueryResponse(BaseModel):
         default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
     )
     explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
     results: Optional[List] = Field(default=None, description="Query results")
     timings: Optional[List[QueryTiming]] = Field(
@@ -1198,10 +1201,13 @@ class QueryResponseAlternative6(BaseModel):
         default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
     )
     explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
     query: Optional[str] = Field(default=None, description="Input query string")
     results: Optional[List] = Field(default=None, description="Query results")
     timings: Optional[List[QueryTiming]] = Field(

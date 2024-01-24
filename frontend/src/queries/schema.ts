@@ -187,6 +187,11 @@ export interface HogQLQueryResponse {
     explain?: string[]
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    hasMore?: boolean
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
 }
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
