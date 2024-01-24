@@ -279,11 +279,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
     let choice = genericOperatorMap
     if (propertyType) {
-        if (propertyType === PropertyType.DateTime) {
-            choice = { ...operatorMappingChoice[propertyType] }
-        } else {
-            choice = operatorMappingChoice[propertyType] || genericOperatorMap
-        }
+        choice = operatorMappingChoice[propertyType] || genericOperatorMap
     }
     return choice
 }
