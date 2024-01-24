@@ -20,7 +20,8 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
         if (e.button === 0 && trackRef.current && movementStartValueWithX.current !== null) {
             const [movementStartValue, movementStartX] = movementStartValueWithX.current
             const rect = trackRef.current.getBoundingClientRect()
-            const deltaX = (e.clientX - movementStartX) / rect.width
+            const adjustedWidth = rect.width - 16 // 16px = handle width
+            const deltaX = (e.clientX - movementStartX) / adjustedWidth
             let newValue = movementStartValue + (max - min) * deltaX
             newValue = Math.max(min, Math.min(max, newValue)) // Clamped
             if (step !== undefined) {
@@ -45,8 +46,9 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                 ref={trackRef}
                 onMouseDown={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect()
-                    const x = e.clientX - rect.left
-                    let newValue = (x / rect.width) * (max - min) + min
+                    const x = e.clientX - (rect.left + 8) // 4px = half the handle
+                    const adjustedWidth = rect.width - 16 // 8px = handle width
+                    let newValue = (x / adjustedWidth) * (max - min) + min
                     newValue = Math.max(min, Math.min(max, newValue)) // Clamped
                     if (step !== undefined) {
                         newValue = Math.round(newValue / step) * step // Adjusted to step
@@ -65,7 +67,7 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                 className="absolute size-3 box-content border-2 border-bg-light bg-primary rounded-full cursor-pointer"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    left: `calc(${proportion * 100}% - 0.5rem)`,
+                    left: `calc(${proportion * 100}% - ${proportion}rem)`,
                 }}
                 onMouseDown={(e) => {
                     movementStartValueWithX.current = [value, e.clientX]

@@ -259,12 +259,12 @@ export function FeatureFlagReleaseConditions({
                                     min={0}
                                     max={100}
                                     step={1}
-                                    className="ml-2 w-20"
+                                    className="ml-1.5 w-20"
                                 />
                                 <LemonInput
                                     data-attr="rollout-percentage"
                                     type="number"
-                                    className="mx-2"
+                                    className="ml-2 mr-1.5"
                                     onChange={(value): void => {
                                         updateConditionSet(index, value || 100)
                                     }}
