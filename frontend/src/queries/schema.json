@@ -4639,6 +4639,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includeBounceRate": {
+                    "type": "boolean"
+                },
                 "includeScrollDepth": {
                     "type": "boolean"
                 },
