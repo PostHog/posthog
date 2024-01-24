@@ -512,14 +512,14 @@ class PathsQueryRunner(QueryRunner):
             if self.query.pathsFilter.pathStartKey:
                 conditions.append(
                     parse_expr(
-                        "path_key = {key}",
+                        "last_path_key = {key}",
                         {"key": ast.Constant(value=self.query.pathsFilter.pathStartKey)},
                     )
                 )
             if self.query.pathsFilter.pathEndKey:
                 conditions.append(
                     parse_expr(
-                        "last_path_key = {key}",
+                        "path_key = {key}",
                         {"key": ast.Constant(value=self.query.pathsFilter.pathEndKey)},
                     )
                 )
@@ -531,11 +531,12 @@ class PathsQueryRunner(QueryRunner):
 
         actors_query = parse_select(
             """
-                SELECT DISTINCT
+                SELECT
                     person_id as actor_id,
-                    conversion_time
+                    avg(conversion_time) as conversion_time
                 FROM {paths_per_person_query}
                 WHERE {conditions}
+                GROUP BY person_id
                 ORDER BY actor_id
             """,
             placeholders={
