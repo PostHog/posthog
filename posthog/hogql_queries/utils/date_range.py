@@ -1,16 +1,16 @@
 from typing import Optional
 from posthog.hogql import ast
-from posthog.hogql_queries.insights.query_context import QueryContext
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 
 # TODO: Refactor QueryDateRange to conform to this wrapper, if we decide for the context / utils approach
 class DateRange:
-    context: QueryContext
+    context: FunnelQueryContext
 
     def __init__(
         self,
-        context: QueryContext,
+        context: FunnelQueryContext,
     ) -> None:
         self.context = context
 
