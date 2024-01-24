@@ -224,7 +224,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                         for cohort in [initial_cohort, *dependent_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
                                 raise serializers.ValidationError(
-                                    detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags.",
+                                    detail=f"Cohort '{cohort.name}' with behavioral filters cannot be used in feature flags or surveys.",
                                     code="behavioral_cohort_found",
                                 )
                     except Cohort.DoesNotExist:

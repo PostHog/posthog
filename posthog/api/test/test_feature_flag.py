@@ -3048,7 +3048,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags.",
+                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags or surveys.",
                 "attr": "filters",
             },
             cohort_request.json(),
@@ -3088,7 +3088,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags.",
+                "detail": "Cohort 'cohort2' with behavioral filters cannot be used in feature flags or surveys.",
                 "attr": "filters",
             },
             response.json(),
@@ -3148,7 +3148,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags.",
+                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags or surveys.",
                 "attr": "filters",
             },
             cohort_request.json(),
@@ -3164,7 +3164,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags.",
+                "detail": "Cohort 'cohort-behavioural' with behavioral filters cannot be used in feature flags or surveys.",
                 "attr": "filters",
             },
             cohort_request.json(),
