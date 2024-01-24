@@ -453,11 +453,185 @@
             "name": "Product analytics + data stack",
             "description": "Trends, funnels, path analysis + more.",
             "price_description": null,
+            "features": [
+                {
+                    "key": "product_analytics_data_retention",
+                    "name": "Data retention",
+                    "description": "Keep a historical record of your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "dashboards",
+                    "name": "Dashboards",
+                    "description": "Save trends, funnels, and other insights for easy reference by your whole team.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-dashboards.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-dashboards-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "funnels",
+                    "name": "Funnels",
+                    "description": "Visualize user dropoff between a sequence of events. See conversion rate over time, use flexible step ordering, set exclusion steps, and more.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-funnels.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-funnels-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "graphs_trends",
+                    "name": "Graphs & trends",
+                    "description": "Plot any number of events or actions over time.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "paths",
+                    "name": "User paths",
+                    "description": "Limited paths excludes: customizing path insights by setting the maximum number of paths, number of people on each path, how path names appear",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "insights",
+                    "name": "Unlimited Insights",
+                    "description": "Trends, funnels, retention, user paths, stickiness, and lifecycle insights to visualize your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "subscriptions",
+                    "name": "Insight & dashboard subscriptions",
+                    "description": "Create a subscription for any insight or dashboard in PostHog to receive regular reports with their updates.",
+                    "images": null,
+                    "icon_key": "IconNotification",
+                    "type": "secondary"
+                },
+                {
+                    "key": "dashboard_collaboration",
+                    "name": "Tags & text cards",
+                    "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "dashboard_permissioning",
+                    "name": "Dashboard permissions",
+                    "description": "Restrict access to dashboards within the organization to only those who need it.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "ingestion_taxonomy",
+                    "name": "Ingestion taxonomy",
+                    "description": "Ingestion taxonomy",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "paths_advanced",
+                    "name": "Advanced paths",
+                    "description": "Customize your path insights by setting the maximum number of paths, number of people on each path, and how path names should appear.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "correlation_analysis",
+                    "name": "Correlation analysis",
+                    "description": "Automatically highlight significant factors that affect the conversion rate of users within a funnel.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-correlation-analysis.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-correlation-analysis-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "tagging",
+                    "name": "Dashboard tags",
+                    "description": "Organize dashboards with tags.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "behavioral_cohort_filtering",
+                    "name": "Lifecycle",
+                    "description": "Discover how your active users break down, highlighting those who have recently stopped being active or those who have just become active for the first time.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-lifecycle.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-lifecycle-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "product_analytics_retention",
+                    "name": "Retention",
+                    "description": "See how many users return on subsequent days after performing an event the first time, or recurrently.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-retention.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-retention-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "product_analytics_stickiness",
+                    "name": "Stickiness",
+                    "description": "Learn how many times users perform a specific event in a period of time.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-stickiness.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-stickiness-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "autocapture",
+                    "name": "Autocapture",
+                    "description": "Add PostHog.js to your website or web app to track all event data and retroactively define events.",
+                    "images": null,
+                    "icon_key": "IconBolt",
+                    "type": "secondary"
+                },
+                {
+                    "key": "data_visualization",
+                    "name": "Data visualization",
+                    "description": "Filter data by user property, group data, and use formulas in queries.",
+                    "images": null,
+                    "icon_key": "IconPieChart",
+                    "type": "secondary"
+                },
+                {
+                    "key": "product_analytics_sql_queries",
+                    "name": "Query with SQL",
+                    "description": "Use PostHog’s filtering interface or switch into SQL mode for more powerful querying.",
+                    "images": null,
+                    "icon_key": "IconTerminal",
+                    "type": "secondary"
+                }
+            ],
             "usage_key": "events",
             "image_url": "https://posthog.com/images/product/product-icons/product-analytics.svg",
             "icon_key": "IconGraph",
             "docs_url": "https://posthog.com/docs/product-analytics",
             "subscribed": true,
+            "screenshot_url": "https://posthog.com/images/products/product-analytics/screenshot-product-analytics.png",
+            "headline": true,
             "plans": [
                 {
                     "plan_key": "free-20230117",

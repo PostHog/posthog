@@ -46,7 +46,7 @@ export const _OnboardingSDKs = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        const product: BillingProductV2Type = billingJson.products[1] as BillingProductV2Type
+        const product: BillingProductV2Type = billingJson.products[1] as unknown as BillingProductV2Type
         setProduct(product)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY) + '?step=sdks')
     }, [])
@@ -65,7 +65,7 @@ export const _OnboardingBilling = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        setProduct(billingJson.products[1] as BillingProductV2Type)
+        setProduct(billingJson.products[1] as unknown as BillingProductV2Type)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.BILLING))
     }, [])
     return <App />
@@ -83,7 +83,7 @@ export const _OnboardingOtherProducts = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        setProduct(billingJson.products[1] as BillingProductV2Type)
+        setProduct(billingJson.products[1] as unknown as BillingProductV2Type)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.OTHER_PRODUCTS))
     }, [])
     return <App />
