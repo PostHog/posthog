@@ -3511,6 +3511,9 @@ export type BatchExportDestinationRedshift = {
     }
 }
 
+// When adding a new option here also add a icon for it to
+// src/scenes/pipeline/icons/
+// and update RenderBatchExportIcon
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
