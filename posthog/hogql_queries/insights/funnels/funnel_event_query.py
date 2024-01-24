@@ -1,14 +1,11 @@
-from typing import List, Optional, Set, Union
+from typing import List, Set, Union
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import translate_hogql
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.utils.date_range import DateRange
 from posthog.hogql_queries.utils.properties import Properties
 from posthog.models.action.action import Action
-from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, FunnelsQuery, HogQLQueryModifiers
+from posthog.schema import ActionsNode, EventsNode
 from rest_framework.exceptions import ValidationError
 
 
@@ -19,15 +16,9 @@ class FunnelEventQuery:
 
     def __init__(
         self,
-        query: FunnelsQuery,
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        context: FunnelQueryContext,
     ):
-        self.context = FunnelQueryContext(
-            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
-        )
+        self.context = context
 
     def to_query(
         self,
