@@ -4,6 +4,8 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 
+from rest_framework.exceptions import ValidationError
+
 
 class Funnel(FunnelBase):
     """
@@ -28,20 +30,44 @@ class Funnel(FunnelBase):
 
     """
 
-    # def get_step_counts_without_aggregation_query(self):
-    #     max_steps = self.context.max_steps
-    #     if max_steps >= 2:
-    #         formatted_query = self.build_step_subquery(2, max_steps)
-    #         breakdown_query = self._get_breakdown_prop()
+    def get_step_counts_without_aggregation_query(self):
+        max_steps = self.context.max_steps
+        if max_steps < 2:
+            raise ValidationError("Funnels require at least two steps before calculating.")
 
-    #     exclusion_clause = self._get_exclusion_condition()
+        formatted_query = self.build_step_subquery(2, max_steps)
+        # breakdown_query = self._get_breakdown_prop()
 
-    #     return f"""
-    #     SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)} {breakdown_query} {self._get_person_and_group_properties()} FROM (
-    #         {formatted_query}
-    #     ) WHERE step_0 = 1
-    #     {'AND exclusion = 0' if exclusion_clause else ''}
-    #     """
+        # exclusion_clause = self._get_exclusion_condition()
+
+        select: List[ast.Expr] = [
+            ast.Field(chain=["*"]),
+            ast.Alias(alias="steps", expr=self._get_sorting_condition(max_steps, max_steps)),
+        ]
+
+        # return f"""
+        # SELECT
+        #     *,
+        #     {self._get_sorting_condition(max_steps, max_steps)} AS steps
+        #     {exclusion_clause}
+        #     {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)}
+        #     {breakdown_query}
+        #     {self._get_person_and_group_properties()}
+        # FROM (
+        #     {formatted_query}
+        # ) WHERE step_0 = 1
+        # {'AND exclusion = 0' if exclusion_clause else ''}
+        # """
+
+        where: ast.Expr = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=["step_0"]), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
+                )
+            ]
+        )
+
+        return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=formatted_query), where=where)
 
     def build_step_subquery(self, level_index: int, max_steps: int) -> ast.SelectQuery:
         select: List[ast.Expr] = [
@@ -57,8 +83,11 @@ class Funnel(FunnelBase):
             # {self._get_breakdown_prop(group_remaining=True)}
             # {self._get_person_and_group_properties()}
             # FROM ({self._get_inner_event_query()})
+
             select.extend(self._get_partition_cols(1, max_steps))
+
             event_query = FunnelEventQuery(context=self.context).to_query()
+
             return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=event_query))
         else:
             # SELECT
@@ -76,11 +105,12 @@ class Funnel(FunnelBase):
             #     {self._get_person_and_group_properties()}
             #     FROM ({self.build_step_subquery(level_index + 1, max_steps)})
             # )
-            outer_select = select.copy()
-            inner_select = select.copy()
 
+            outer_select = select.copy()
             outer_select.extend(self._get_partition_cols(level_index, max_steps))
-            outer_select.extend(self._get_comparison_cols(level_index, max_steps))
+
+            inner_select = select.copy()
+            inner_select.extend(self._get_comparison_cols(level_index, max_steps))
 
             return ast.SelectQuery(
                 select=outer_select,
