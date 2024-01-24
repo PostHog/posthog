@@ -442,7 +442,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
-                        hasOnboardedFeatureFlags
+                        featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
                             ? {
                                   identifier: Scene.EarlyAccessFeatures,
                                   label: 'Early access features',
