@@ -279,7 +279,6 @@ def property_to_Q(
         cohort_id = int(cast(Union[str, int], value))
         if cohorts_cache is not None:
             if cohorts_cache.get(cohort_id) is None:
-                # TODO: Add team_id to filters to restrict cohorts to team
                 queried_cohort = Cohort.objects.using(using_database).filter(pk=cohort_id).first()
                 if queried_cohort:
                     cohorts_cache[cohort_id] = queried_cohort
