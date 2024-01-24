@@ -59,7 +59,7 @@ export function HedgehogBuddyAccessory({
             >
                 <img
                     src={`${baseSpritePath()}/wave.${imgExt}`}
-                    className="object-cover absolute inset-0"
+                    className="object-cover absolute inset-0 image-pixelated"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: hedgehogImgSize,
@@ -69,7 +69,7 @@ export function HedgehogBuddyAccessory({
 
                 <img
                     src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
-                    className="object-cover absolute inset-0"
+                    className="object-cover absolute inset-0 image-pixelated"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: imgSize,

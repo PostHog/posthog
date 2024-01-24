@@ -36,7 +36,7 @@ export function FunnelBarGraph({
     const { ref: graphRef, width } = useResizeObserver()
 
     const steps = visibleStepsWithConversionMetrics
-    const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
+    const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
 
@@ -67,7 +67,7 @@ export function FunnelBarGraph({
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            {funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? (
+                            {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                 <SeriesGlyph variant="funnel-step-glyph">
                                     <IconInfinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
                                 </SeriesGlyph>
@@ -79,13 +79,13 @@ export function FunnelBarGraph({
                         <header>
                             <div className="flex items-center max-w-full grow">
                                 <div className="funnel-step-title">
-                                    {funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED ? (
+                                    {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                         <span>Completed {step.order + 1} steps</span>
                                     ) : (
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
                                 </div>
-                                {funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED &&
+                                {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
                                 <FunnelStepMore stepIndex={stepIndex} />

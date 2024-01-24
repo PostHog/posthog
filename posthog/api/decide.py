@@ -42,9 +42,16 @@ FLAG_EVALUATION_COUNTER = Counter(
 def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     origin = parse_domain(request.headers.get("Origin"))
     referer = parse_domain(request.headers.get("Referer"))
-    return hostname_in_allowed_url_list(team.recording_domains, origin) or hostname_in_allowed_url_list(
-        team.recording_domains, referer
-    )
+    user_agent = request.META.get("HTTP_USER_AGENT")
+
+    is_authorized_web_client: bool = hostname_in_allowed_url_list(
+        team.recording_domains, origin
+    ) or hostname_in_allowed_url_list(team.recording_domains, referer)
+    # TODO this is a short term fix for beta testers
+    # TODO we will match on the app identifier in the origin instead and allow users to auth those
+    is_authorized_android_client: bool = user_agent is not None and "posthog-android" in user_agent
+
+    return is_authorized_web_client or is_authorized_android_client
 
 
 def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname: Optional[str]) -> bool:
@@ -250,7 +257,7 @@ def get_decide(request: HttpRequest):
                 if isinstance(linked_flag, Dict):
                     linked_flag = linked_flag.get("key")
 
-                response["sessionRecording"] = {
+                session_recording_response = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
@@ -259,6 +266,19 @@ def get_decide(request: HttpRequest):
                     "linkedFlag": linked_flag,
                     "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 }
+
+                if isinstance(team.session_replay_config, Dict):
+                    record_canvas = team.session_replay_config["record_canvas"] or False
+                    session_recording_response.update(
+                        {
+                            "recordCanvas": record_canvas,
+                            # hard coded during beta while we decide on sensible values
+                            "canvasFps": 4 if record_canvas else None,
+                            "canvasQuality": "0.6" if record_canvas else None,
+                        }
+                    )
+
+                response["sessionRecording"] = session_recording_response
 
             response["surveys"] = True if team.surveys_opt_in else False
 

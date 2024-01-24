@@ -1,8 +1,7 @@
 @import '../../../styles/mixins';
 
 .SessionRecordingPlayer {
-    --inspector-width: 36rem;
-    --inspector-peek-width: 2.5rem;
+    --inspector-min-width: 24rem;
 
     position: relative;
     display: flex;
@@ -30,7 +29,7 @@
 
     .SessionRecordingPlayer__main {
         flex: 1;
-        padding-right: var(--inspector-peek-width);
+        padding-right: 2.5rem;
     }
 
     &--fullscreen {
@@ -69,31 +68,19 @@
         bottom: 0;
         z-index: 10;
         flex-shrink: 0;
-        width: var(--inspector-width);
+        min-width: var(--inspector-min-width);
         max-width: 95%;
-        border-left: 1px solid var(--border);
-        box-shadow: 0 0 5px rgb(0 0 0 / 10%);
-        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-        transform: translateX(calc(100% - var(--inspector-peek-width)));
+
+        &--collapsed {
+            --inspector-min-width: 2.5rem;
+        }
 
         .PlayerInspectorPreview {
             position: absolute;
             inset: 0;
             z-index: 1;
-            pointer-events: none;
+            cursor: pointer;
             transition: opacity 0.2s ease-in-out;
-        }
-    }
-
-    &--inspector-focus {
-        .SessionRecordingPlayer__inspector {
-            box-shadow: -10px 0 20px rgb(0 0 0 / 20%);
-            transform: translateX(0);
-
-            .PlayerInspectorPreview {
-                pointer-events: none;
-                opacity: 0;
-            }
         }
     }
 
@@ -104,16 +91,7 @@
 
         .SessionRecordingPlayer__inspector {
             position: relative;
-            width: 40%;
-            min-width: 30%;
-            max-width: 400px;
-            box-shadow: none;
-            transition: none;
-            transform: translateX(0);
-
-            .PlayerInspectorPreview {
-                display: none;
-            }
+            max-width: 75%;
         }
     }
 

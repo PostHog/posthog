@@ -1,7 +1,8 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { pluralize } from 'lib/utils'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateChooser } from './DashboardTemplateChooser'
@@ -43,6 +44,12 @@ export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal } = useActions(newDashboardLogic)
     const { newDashboardModalVisible, activeDashboardTemplate } = useValues(newDashboardLogic)
 
+    const templatesLogic = dashboardTemplatesLogic({
+        scope: builtLogic.props.featureFlagId ? 'feature_flag' : 'default',
+    })
+    const { templateFilter } = useValues(templatesLogic)
+    const { setTemplateFilter } = useActions(templatesLogic)
+
     const _dashboardTemplateChooser = builtLogic.props.featureFlagId ? (
         <DashboardTemplateChooser scope="feature_flag" />
     ) : (
@@ -61,7 +68,18 @@ export function NewDashboardModal(): JSX.Element {
                         {pluralize((activeDashboardTemplate.variables || []).length, 'event', 'events', true)}.
                     </p>
                 ) : (
-                    'Choose a template or start with a blank slate'
+                    <div className="flex flex-col gap-2">
+                        <div>Choose a template or start with a blank slate</div>
+                        <div>
+                            <LemonInput
+                                type="search"
+                                placeholder="Filter templates"
+                                onChange={setTemplateFilter}
+                                value={templateFilter}
+                                fullWidth={true}
+                            />
+                        </div>
+                    </div>
                 )
             }
         >

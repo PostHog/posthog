@@ -25,7 +25,7 @@ class BreakdownValues:
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
     hide_other_aggregation: Optional[bool]
-    breakdown_limit: Optional[float]
+    breakdown_limit: Optional[int]
 
     def __init__(
         self,
@@ -36,10 +36,10 @@ class BreakdownValues:
         breakdown_type: str,
         events_filter: ast.Expr,
         chart_display_type: ChartDisplayType,
-        histogram_bin_count: Optional[float] = None,
-        group_type_index: Optional[float] = None,
+        histogram_bin_count: Optional[int] = None,
+        group_type_index: Optional[int] = None,
         hide_other_aggregation: Optional[bool] = False,
-        breakdown_limit: Optional[float] = None,
+        breakdown_limit: Optional[int] = None,
     ):
         self.team = team
         self.event_name = event_name
@@ -83,7 +83,7 @@ class BreakdownValues:
         if self.chart_display_type == ChartDisplayType.WorldMap:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
         else:
-            breakdown_limit = self.breakdown_limit or BREAKDOWN_VALUES_LIMIT
+            breakdown_limit = int(self.breakdown_limit) if self.breakdown_limit is not None else BREAKDOWN_VALUES_LIMIT
 
         inner_events_query = parse_select(
             """

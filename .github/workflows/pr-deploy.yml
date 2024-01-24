@@ -31,7 +31,7 @@ jobs:
               uses: depot/setup-action@v1
 
             - name: Login to DockerHub
-              uses: docker/login-action@v2
+              uses: docker/login-action@v3
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -59,6 +59,7 @@ jobs:
               id: build
               uses: depot/build-push-action@v1
               with:
+                  context: .
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ steps.aws-ecr.outputs.registry }}/pr-test:${{ github.event.pull_request.head.sha }}

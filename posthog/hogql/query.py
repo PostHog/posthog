@@ -41,6 +41,8 @@ def execute_hogql_query(
     if timings is None:
         timings = HogQLTimings()
 
+    query_modifiers = create_default_modifiers_for_team(team, modifiers)
+
     with timings.measure("query"):
         if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
             select_query = query
@@ -77,10 +79,10 @@ def execute_hogql_query(
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
-        query_modifiers = create_default_modifiers_for_team(team, modifiers)
         with timings.measure("prepare_ast"):
             hogql_query_context = HogQLContext(
                 team_id=team.pk,
+                team=team,
                 enable_select_queries=True,
                 timings=timings,
                 modifiers=query_modifiers,
@@ -121,6 +123,7 @@ def execute_hogql_query(
     with timings.measure("print_ast"):
         clickhouse_context = HogQLContext(
             team_id=team.pk,
+            team=team,
             enable_select_queries=True,
             timings=timings,
             modifiers=query_modifiers,

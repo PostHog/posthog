@@ -4,14 +4,19 @@ import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { NodeKind } from '~/queries/schema'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
@@ -29,6 +34,7 @@ export function ActionsPie({
 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const {
@@ -43,9 +49,18 @@ export function ActionsPie({
         pieChartVizOptions,
     } = useValues(trendsDataLogic(insightProps))
 
+    const { isTrends, query } = useValues(insightVizDataLogic(insightProps))
+
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
 
     const showAggregation = !pieChartVizOptions?.hideAggregation
+
+    const isTrendsQueryWithFeatureFlagOn =
+        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        isTrends &&
+        query &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source)
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -95,7 +110,15 @@ export function ActionsPie({
                   const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
                   const selectedUrl = urls[index]?.value
 
-                  if (selectedUrl) {
+                  if (isTrendsQueryWithFeatureFlagOn) {
+                      openPersonsModal({
+                          title: label || '',
+                          query: {
+                              kind: NodeKind.InsightActorsQuery,
+                              source: query.source,
+                          },
+                      })
+                  } else if (selectedUrl) {
                       openPersonsModal({
                           urls,
                           urlsIndex: index,
@@ -134,7 +157,7 @@ export function ActionsPie({
                         </div>
                     )}
                 </div>
-                {inCardView && trendsFilter?.show_legend && <InsightLegend inCardView />}
+                {inCardView && trendsFilter?.showLegend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

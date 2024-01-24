@@ -11,17 +11,10 @@ import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelec
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userLogic } from 'scenes/userLogic'
-
-import { AvailableFeature } from '~/types'
 
 import { batchExportsEditLogic, BatchExportsEditLogicProps } from './batchExportEditLogic'
 
 export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
-    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
-        return <></>
-    }
     const logic = batchExportsEditLogic(props)
     const { isNew, batchExportConfigForm, isBatchExportConfigFormSubmitting, batchExportConfigLoading } =
         useValues(logic)

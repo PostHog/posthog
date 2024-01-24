@@ -46,6 +46,12 @@ export interface TooltipConfig {
 export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount'> {
     renderSeries: Required<TooltipConfig>['renderSeries']
     renderCount: Required<TooltipConfig>['renderCount']
+    /**
+     * Whether the tooltip should be rendered as a table embeddable into an existing popover
+     * (instead of as a popover of its own)
+     * @default false
+     */
+    embedded?: boolean
     date?: string
     hideInspectActorsSection?: boolean
     seriesData: SeriesDatum[]
