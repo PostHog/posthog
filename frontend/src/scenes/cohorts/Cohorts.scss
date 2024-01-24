@@ -17,26 +17,12 @@
 .cohort-csv-dragger {
     height: 155px !important;
     margin-top: 1rem;
-    background-color: transparent !important;
-    border: 2px dashed var(--primary) !important;
-    border-radius: var(--radius) !important;
+    border-color: var(--primary);
+    border-style: dashed;
+    border-width: 2px;
+    border-radius: var(--radius);
 
     &:hover {
-        border-color: var(--primary-3000-hover) !important;
-    }
-
-    .ant-upload-drag-container {
-        display: flex !important;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        padding: 0 1rem;
-
-        .ant-upload-text {
-            margin: 8px 0 0 !important;
-            font-size: 1rem !important;
-            font-weight: 600;
-        }
+        border-color: var(--primary-3000-hover);
     }
 }

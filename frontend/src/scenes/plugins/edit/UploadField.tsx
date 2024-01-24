@@ -8,6 +8,7 @@ export function UploadField({ value, onChange }: { value?: File; onChange?: (fil
             multiple={false}
             onChange={(files) => onChange?.(files[0])}
             value={value?.size ? [value] : []}
+            showUploadedFiles={false}
             callToAction={
                 <LemonButton className="ph-ignore-input" icon={<IconUploadFile />}>
                     Click to upload
