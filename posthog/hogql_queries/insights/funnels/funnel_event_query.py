@@ -36,7 +36,7 @@ class FunnelEventQuery:
             sample=self._sample_expr(),
         )
 
-        where_exprs = [self._date_range_expr(), self._entity_expr(skip_entity_filter), self._properties_expr()]
+        where_exprs = [self._date_range_expr(), self._entity_expr(skip_entity_filter)] + self._properties_expr()
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         stmt = ast.SelectQuery(
