@@ -2,8 +2,8 @@ from typing import List, Set, Union
 from posthog.hogql import ast
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.utils.date_range import DateRange
-from posthog.hogql_queries.utils.properties import Properties
+from posthog.hogql_queries.insights.utils.date_range import DateRange
+from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.models.action.action import Action
 from posthog.schema import ActionsNode, EventsNode
 from rest_framework.exceptions import ValidationError
@@ -36,7 +36,7 @@ class FunnelEventQuery:
             sample=self._sample_expr(),
         )
 
-        where_exprs = [self._date_range_expr(), self._entity_expr(skip_entity_filter)] + self._properties_expr()
+        where_exprs = [self._date_range_expr(), self._entity_expr(skip_entity_filter), *self._properties_expr()]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         stmt = ast.SelectQuery(

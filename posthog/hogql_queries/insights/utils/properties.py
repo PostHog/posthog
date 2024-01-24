@@ -1,37 +1,11 @@
-from typing import List
+from typing import List, TypeAlias
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.query_context import QueryContext
-from posthog.schema import (
-    CohortPropertyFilter,
-    ElementPropertyFilter,
-    EmptyPropertyFilter,
-    EventPropertyFilter,
-    FeaturePropertyFilter,
-    GroupPropertyFilter,
-    HogQLPropertyFilter,
-    PersonPropertyFilter,
-    PropertyGroupFilter,
-    RecordingDurationFilter,
-    SessionPropertyFilter,
-)
+from posthog.schema import PropertyGroupFilter
+from posthog.types import AnyPropertyFilter
 
-PropertiesType = (
-    List[
-        EventPropertyFilter
-        | PersonPropertyFilter
-        | ElementPropertyFilter
-        | SessionPropertyFilter
-        | CohortPropertyFilter
-        | RecordingDurationFilter
-        | GroupPropertyFilter
-        | FeaturePropertyFilter
-        | HogQLPropertyFilter
-        | EmptyPropertyFilter
-    ]
-    | PropertyGroupFilter
-    | None
-)
+PropertiesType: TypeAlias = List[AnyPropertyFilter] | PropertyGroupFilter | None
 
 
 class Properties:
