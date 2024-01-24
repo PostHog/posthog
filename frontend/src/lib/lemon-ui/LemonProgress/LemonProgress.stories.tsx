@@ -1,8 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 
-import { LemonProgress, LemonProgressProps } from './LemonProgress'
+import { LemonProgress } from './LemonProgress'
 
-// type Story = StoryObj<typeof LemonProgress>
 const meta: Meta<typeof LemonProgress> = {
     title: 'Lemon UI/Lemon Progress',
     component: LemonProgress,
@@ -13,6 +12,12 @@ const meta: Meta<typeof LemonProgress> = {
 }
 export default meta
 
-export const Template: StoryFn<typeof LemonProgress> = (props: LemonProgressProps) => {
-    return <LemonProgress {...props} />
+export const Variations: StoryFn<typeof LemonProgress> = () => {
+    return (
+        <>
+            <LemonProgress percent={30} />
+            <LemonProgress percent={75} trackColor="var(--warning)" />
+            <LemonProgress percent={50} size="large" trackColor="purple" />
+        </>
+    )
 }
