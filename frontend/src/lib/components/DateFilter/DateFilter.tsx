@@ -172,7 +172,7 @@ export function DateFilter({
                     <RollingDateRangeFilter
                         pageKey={key}
                         dateFrom={dateFrom}
-                        dateRangeFilterLabel={isFixedDateMode ? 'The last' : undefined}
+                        dateRangeFilterLabel={isFixedDateMode ? 'Last' : undefined}
                         selected={isRollingDateRange}
                         onChange={(fromDate) => {
                             setDate(fromDate, '')
@@ -183,6 +183,7 @@ export function DateFilter({
                         }}
                         max={max}
                         allowedDateOptions={isFixedDateMode ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}
+                        fullWidth
                     />
                 )}
                 <LemonDivider />
