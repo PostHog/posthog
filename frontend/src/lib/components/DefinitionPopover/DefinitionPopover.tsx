@@ -1,7 +1,6 @@
 import './DefinitionPopover.scss'
 
-import { ProfilePicture } from '@posthog/lemon-ui'
-import { Divider, DividerProps } from 'antd'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
@@ -196,12 +195,8 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
     )
 }
 
-function HorizontalLine({ children, ...props }: DividerProps): JSX.Element {
-    return (
-        <Divider className="definition-popover-divider" {...props}>
-            {children}
-        </Divider>
-    )
+function HorizontalLine({ className, label }: { className?: string; label?: string }): JSX.Element {
+    return <LemonDivider className={clsx('definition-popover-divider', className)} label={label} />
 }
 
 interface GridProps {

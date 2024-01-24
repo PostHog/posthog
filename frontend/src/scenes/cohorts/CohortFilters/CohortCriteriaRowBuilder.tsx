@@ -1,6 +1,6 @@
 import './CohortCriteriaRowBuilder.scss'
 
-import { Divider } from 'antd'
+import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
@@ -166,9 +166,5 @@ export interface LogicalRowDividerProps {
 }
 
 export function LogicalRowDivider({ logicalOperator }: LogicalRowDividerProps): JSX.Element {
-    return (
-        <Divider className="logical-row-divider" orientation="left">
-            <span className="text-xs text-primary-alt font-semibold">{logicalOperator}</span>
-        </Divider>
-    )
+    return <LemonDivider className="logical-row-divider my-4" label={logicalOperator} />
 }

@@ -1,5 +1,6 @@
 .definition-popover {
-    width: 20rem;
+    min-width: 17rem;
+    max-width: 20rem;
     padding: 0.5rem 0.75rem 0.75rem;
 
     .definition-popover-header {
@@ -102,7 +103,6 @@
 
     .definition-popover-divider {
         align-items: flex-start;
-        width: 100%;
         margin-top: 1rem;
         margin-bottom: 1rem;
         font-size: 0.6875rem;

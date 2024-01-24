@@ -37,4 +37,26 @@
             );
         }
     }
+
+    &--with-label {
+        display: flex;
+        height: unset;
+        background: none;
+
+        &::before,
+        &::after {
+            top: 50%;
+            display: block;
+            content: '';
+            transform: translateY(50%);
+        }
+
+        &::before {
+            width: 1.5%;
+        }
+
+        &::after {
+            width: 95%;
+        }
+    }
 }

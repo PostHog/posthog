@@ -75,21 +75,24 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                             />
                             {cohortGroupIndex <
                                 Math.min(cohort.filters.properties.values.length, MAX_CRITERIA_GROUPS) - 1 && (
-                                <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                    {cohort.filters.properties.type}
-                                </DefinitionPopover.HorizontalLine>
+                                <DefinitionPopover.HorizontalLine
+                                    className="mt-1 mb-3"
+                                    label={cohort.filters.properties.type}
+                                />
                             )}
                             {cohort.filters.properties.values.length > MAX_CRITERIA_GROUPS &&
                                 cohortGroupIndex === MAX_CRITERIA_GROUPS - 1 && (
-                                    <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                        {cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS} more criteria{' '}
-                                        {pluralize(
+                                    <DefinitionPopover.HorizontalLine
+                                        className="mt-1 mb-3"
+                                        label={`${
+                                            cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS
+                                        } more criteria ${pluralize(
                                             cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS,
                                             'group',
                                             'groups',
                                             false
-                                        )}
-                                    </DefinitionPopover.HorizontalLine>
+                                        )}`}
+                                    />
                                 )}
                         </DefinitionPopover.Section>
                     )
@@ -136,9 +139,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                             />
                         )}
                         {cohort.groups && index < cohort.groups.length - 1 && (
-                            <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                OR
-                            </DefinitionPopover.HorizontalLine>
+                            <DefinitionPopover.HorizontalLine className="mt-1 mb-3" label="OR" />
                         )}
                     </DefinitionPopover.Section>
                 ))}

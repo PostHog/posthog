@@ -331,7 +331,7 @@ function DefinitionEdit(): JSX.Element {
                         compact
                     />
                 )}
-                <DefinitionPopover.HorizontalLine style={{ marginTop: 0 }} />
+                <DefinitionPopover.HorizontalLine className="mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">
                     {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
                         <LemonButton
