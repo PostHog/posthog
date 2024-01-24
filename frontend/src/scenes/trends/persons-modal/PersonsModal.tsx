@@ -419,20 +419,12 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
 
             {actor.value_at_data_point !== null && (
                 <Tooltip title={`${name}'s value for this data point.`}>
-                    {typeof actor.value_at_data_point === 'number' ? (
-                        <LemonBadge.Number
-                            count={actor.value_at_data_point}
-                            maxDigits={Infinity}
-                            position="top-right"
-                            style={{ pointerEvents: 'auto' }}
-                        />
-                    ) : (
-                        <LemonBadge
-                            content={actor.value_at_data_point}
-                            position="top-right"
-                            style={{ pointerEvents: 'auto' }}
-                        />
-                    )}
+                    <LemonBadge.Number
+                        count={actor.value_at_data_point}
+                        maxDigits={Infinity}
+                        position="top-right"
+                        style={{ pointerEvents: 'auto' }}
+                    />
                 </Tooltip>
             )}
         </div>

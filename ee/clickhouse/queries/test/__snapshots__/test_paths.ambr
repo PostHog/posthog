@@ -135,7 +135,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -257,7 +257,8 @@
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -300,7 +301,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -325,6 +326,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '1_step one'
     AND path_key = '2_step dropoff1'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -420,7 +422,8 @@
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -463,7 +466,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -488,6 +491,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '2_step dropoff1'
     AND path_key = '3_step dropoff2'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -583,7 +587,8 @@
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -626,7 +631,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -651,6 +656,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '3_step dropoff2'
     AND path_key = '4_step branch'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -746,7 +752,8 @@
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -789,7 +796,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -814,6 +821,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '4_step branch'
     AND path_key = '3_step dropoff2'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -955,7 +963,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1085,7 +1093,8 @@
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -1128,7 +1137,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1161,6 +1170,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '1_step one'
     AND path_key = '2_step dropoff1'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -1256,7 +1266,8 @@
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -1299,7 +1310,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1332,6 +1343,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '2_step dropoff1'
     AND path_key = '3_step dropoff2'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -1427,7 +1439,8 @@
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -1470,7 +1483,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1503,6 +1516,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '3_step dropoff2'
     AND path_key = '4_step branch'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -1598,7 +1612,8 @@
      WHERE steps = 1
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -1641,7 +1656,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1674,6 +1689,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '4_step branch'
     AND path_key = '3_step dropoff2'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -1815,7 +1831,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -1983,7 +1999,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -2151,7 +2167,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -2319,7 +2335,7 @@
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
                         funnel_actors.timestamp AS target_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -2488,7 +2504,7 @@
                         pdi.person_id AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -2611,7 +2627,8 @@
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -2655,7 +2672,7 @@
                         pdi.person_id AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -2681,6 +2698,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '1_step one'
     AND path_key = '2_between_step_1_a'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -2776,7 +2794,8 @@
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -2820,7 +2839,7 @@
                         pdi.person_id AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -2846,6 +2865,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '2_between_step_1_a'
     AND path_key = '3_between_step_1_b'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -2941,7 +2961,8 @@
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -2985,7 +3006,7 @@
                         pdi.person_id AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -3011,6 +3032,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '3_between_step_1_b'
     AND path_key = '4_step two'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -3106,7 +3128,8 @@
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -3150,7 +3173,7 @@
                         pdi.person_id AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -3176,6 +3199,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '3_between_step_1_b'
     AND path_key = '4_between_step_1_c'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -3271,7 +3295,8 @@
      WHERE steps IN [2, 3]
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000)
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -3315,7 +3340,7 @@
                         pdi.person_id AS person_id,
                         funnel_actors.min_timestamp as min_timestamp,
                         funnel_actors.max_timestamp as max_timestamp,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -3341,6 +3366,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '4_between_step_1_c'
     AND path_key = '5_step two'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -3394,7 +3420,7 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -3473,7 +3499,7 @@
               FROM
                 (SELECT e.timestamp AS timestamp,
                         pdi.person_id AS person_id,
-                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
+                        ifNull(if(equals(event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(event, '$pageview'), replaceRegexpAll(ifNull(nullIf(nullIf(e.`mat_$current_url`, ''), 'null'), ''), '(.)/$', '\\1'), event)), '') AS path_item_ungrouped,
                         multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
                         if(group_index > 0, NULL[group_index], path_item_ungrouped) AS path_item
                  FROM events e
@@ -4792,7 +4818,8 @@
 # name: TestClickhousePaths.test_person_dropoffs
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -4858,6 +4885,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_dropoff_key = '2_step two'
     AND path_dropoff_key = path_key
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -4866,7 +4894,8 @@
 # name: TestClickhousePaths.test_person_dropoffs.1
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -4931,6 +4960,7 @@
         JOIN limited_path_timings AS joined_path_tuple,
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_key = '2_step two'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -4939,7 +4969,8 @@
 # name: TestClickhousePaths.test_person_dropoffs.2
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -5004,6 +5035,7 @@
         JOIN limited_path_timings AS joined_path_tuple,
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '2_step two'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5012,7 +5044,8 @@
 # name: TestClickhousePaths.test_person_dropoffs.3
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -5078,6 +5111,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_dropoff_key = '3_step three'
     AND path_dropoff_key = path_key
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5086,7 +5120,8 @@
 # name: TestClickhousePaths.test_person_dropoffs.4
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -5151,6 +5186,7 @@
         JOIN limited_path_timings AS joined_path_tuple,
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_key = '3_step three'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5159,7 +5195,8 @@
 # name: TestClickhousePaths.test_person_dropoffs.5
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -5224,6 +5261,7 @@
         JOIN limited_path_timings AS joined_path_tuple,
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '3_step three'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5232,7 +5270,8 @@
 # name: TestClickhousePaths.test_person_dropoffs.6
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -5298,6 +5337,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_dropoff_key = '4_step four'
     AND path_dropoff_key = path_key
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5306,7 +5346,8 @@
 # name: TestClickhousePaths.test_person_dropoffs.7
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -5371,6 +5412,7 @@
         JOIN limited_path_timings AS joined_path_tuple,
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_key = '4_step four'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5379,7 +5421,8 @@
 # name: TestClickhousePaths.test_person_dropoffs.8
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -5444,6 +5487,7 @@
         JOIN limited_path_timings AS joined_path_tuple,
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '4_step four'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5547,10 +5591,11 @@
 # name: TestClickhousePaths.test_recording
   '''
   
-  SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp, uuid,
-                                         "$session_id",
-                                         "$window_id")) as matching_events
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point ,
+                  groupUniqArray(100)((timestamp, uuid,
+                                                  "$session_id",
+                                                  "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -5647,7 +5692,7 @@
         JOIN limited_path_timings AS joined_path_tuple,
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_key = '2_/2'
-  GROUP BY person_id
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5667,10 +5712,11 @@
 # name: TestClickhousePaths.test_recording_for_dropoff
   '''
   
-  SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp, uuid,
-                                         "$session_id",
-                                         "$window_id")) as matching_events
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point ,
+                  groupUniqArray(100)((timestamp, uuid,
+                                                  "$session_id",
+                                                  "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -5768,7 +5814,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_dropoff_key = '2_/2'
     AND path_dropoff_key = path_key
-  GROUP BY person_id
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5788,10 +5834,11 @@
 # name: TestClickhousePaths.test_recording_for_dropoff.2
   '''
   
-  SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp, uuid,
-                                         "$session_id",
-                                         "$window_id")) as matching_events
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point ,
+                  groupUniqArray(100)((timestamp, uuid,
+                                                  "$session_id",
+                                                  "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -5889,7 +5936,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_dropoff_key = '3_/3'
     AND path_dropoff_key = path_key
-  GROUP BY person_id
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -5909,10 +5956,11 @@
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id
   '''
   
-  SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp, uuid,
-                                         "$session_id",
-                                         "$window_id")) as matching_events
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point ,
+                  groupUniqArray(100)((timestamp, uuid,
+                                                  "$session_id",
+                                                  "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -6009,7 +6057,7 @@
         JOIN limited_path_timings AS joined_path_tuple,
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE path_key = '2_/2'
-  GROUP BY person_id
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -6029,10 +6077,11 @@
 # name: TestClickhousePaths.test_recording_with_start_and_end
   '''
   
-  SELECT person_id AS actor_id ,
-         groupUniqArray(100)((timestamp, uuid,
-                                         "$session_id",
-                                         "$window_id")) as matching_events
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point ,
+                  groupUniqArray(100)((timestamp, uuid,
+                                                  "$session_id",
+                                                  "$window_id")) as matching_events
   FROM
     (SELECT person_id,
             path,
@@ -6138,7 +6187,7 @@
         WHERE start_target_index > 0
           AND end_target_index > 0 ))
   WHERE path_key = '2_/2'
-  GROUP BY person_id
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -6318,7 +6367,8 @@
 # name: TestClickhousePaths.test_start_and_end.1
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -6388,6 +6438,7 @@
           AND end_target_index > 0 ))
   WHERE last_path_key = '1_/5'
     AND path_key = '2_/about'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -6478,7 +6529,8 @@
 # name: TestClickhousePaths.test_start_and_end.3
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -6548,6 +6600,7 @@
           AND end_target_index > 0 ))
   WHERE last_path_key = '3_...'
     AND path_key = '4_/5'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -6638,7 +6691,8 @@
 # name: TestClickhousePaths.test_start_and_end_materialized.1
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -6708,6 +6762,7 @@
           AND end_target_index > 0 ))
   WHERE last_path_key = '1_/5'
     AND path_key = '2_/about'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -6798,7 +6853,8 @@
 # name: TestClickhousePaths.test_start_and_end_materialized.3
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -6868,6 +6924,7 @@
           AND end_target_index > 0 ))
   WHERE last_path_key = '3_...'
     AND path_key = '4_/5'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -7112,7 +7169,8 @@
 # name: TestClickhousePaths.test_step_limit.1
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -7177,6 +7235,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '1_/1'
     AND path_key = '2_/2'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -7185,7 +7244,8 @@
 # name: TestClickhousePaths.test_step_limit.2
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -7250,6 +7310,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '2_/2'
     AND path_key = '3_/3'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -7336,7 +7397,8 @@
 # name: TestClickhousePaths.test_step_limit.4
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -7401,6 +7463,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '2_/2'
     AND path_key = '3_/3'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -7487,7 +7550,8 @@
 # name: TestClickhousePaths.test_step_limit.6
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -7552,6 +7616,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '1_/1'
     AND path_key = '2_/2'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -7560,7 +7625,8 @@
 # name: TestClickhousePaths.test_step_limit.7
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -7625,6 +7691,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '2_/2'
     AND path_key = '3_/3'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0
@@ -7633,7 +7700,8 @@
 # name: TestClickhousePaths.test_step_limit.8
   '''
   
-  SELECT DISTINCT person_id AS actor_id
+  SELECT DISTINCT person_id AS actor_id,
+                  COUNT(*) as value_at_data_point
   FROM
     (SELECT person_id,
             path,
@@ -7698,6 +7766,7 @@
              arrayEnumerate(limited_path_timings) AS event_in_session_index))
   WHERE last_path_key = '3_/3'
     AND path_key = '4_/4'
+  GROUP BY actor_id
   ORDER BY person_id
   LIMIT 100
   OFFSET 0

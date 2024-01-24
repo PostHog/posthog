@@ -26,6 +26,7 @@ class PathsActors(Paths, ActorBaseQuery):  # type: ignore
     """
 
     QUERY_TYPE = "paths"
+    ACTOR_VALUES_INCLUDED = True
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         paths_per_person_query = self.get_paths_per_person_query()
@@ -35,14 +36,12 @@ class PathsActors(Paths, ActorBaseQuery):  # type: ignore
         if self.should_query_funnel():
             paths_funnel_cte = self.get_path_query_funnel_cte(cast(Filter, self._funnel_filter))
 
-        select_statement = "DISTINCT person_id AS actor_id"
-        group_statement = ""
+        select_statement = "DISTINCT person_id AS actor_id, COUNT(*) as value_at_data_point"
+        group_statement = "GROUP BY actor_id"
         if self._filter.include_recordings:
-            select_statement = """
-                person_id AS actor_id
+            select_statement += """
                 , groupUniqArray(100)((timestamp, uuid, "$session_id", "$window_id")) as matching_events
             """
-            group_statement = "GROUP BY person_id"
 
         self.params["limit"] = self._filter.limit
         self.params["offset"] = self._filter.offset

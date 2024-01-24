@@ -533,7 +533,7 @@ class PathsQueryRunner(QueryRunner):
             """
                 SELECT
                     person_id as actor_id,
-                    avg(conversion_time) as conversion_time
+                    COUNT(*) as event_count
                 FROM {paths_per_person_query}
                 WHERE {conditions}
                 GROUP BY person_id

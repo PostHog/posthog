@@ -307,8 +307,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         ActorsQuery: [
-            (s) => [s.query, s.searchTerm, s.additionalFields],
-            (query, searchTerm, additionalFields): ActorsQuery | null => {
+            (s) => [(_, p) => [p.query, p.additionalFields], s.searchTerm],
+            ([query, additionalFields], searchTerm): ActorsQuery | null => {
                 if (!query) {
                     return null
                 }
