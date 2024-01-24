@@ -55,7 +55,7 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
             job.pipeline.status = ExternalDataSource.Status.PAUSED
             job.pipeline.save()
     else:
-        all_sources = ExternalDataSource.objects.filter(team_id=team_id)
+        all_sources = ExternalDataSource.objects.filter(team_id=team_id, status=ExternalDataSource.Status.PAUSED)
         for source in all_sources:
             try:
                 unpause_external_data_schedule(source)
