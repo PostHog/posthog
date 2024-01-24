@@ -19,7 +19,7 @@ class Command(BaseCommand):
             .order_by("id")
             .all()
         )
-        for insight in insights[0:10]:
+        for insight in insights[0:30]:
             try:
                 print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")  # noqa: T201
                 insight_type = insight.filters.get("insight")
@@ -53,12 +53,15 @@ class Command(BaseCommand):
                         fields = ["data", "days", "count", "labels", "label", "status"]
                     elif insight_type == "RETENTION":
                         if legacy_result.get("date") != hogql_result.date:
+                            all_ok = False
                             print("Date: ", legacy_result.get("date"), hogql_result.date)  # noqa: T201
                         if legacy_result.get("label") != hogql_result.label:
+                            all_ok = False
                             print("Label: ", legacy_result.get("label"), hogql_result.label)  # noqa: T201
                         legacy_values = [c.get("count") for c in legacy_result.get("values")]
                         hogql_values = [c.count for c in hogql_result.values]
                         if legacy_values != hogql_values:
+                            all_ok = False
                             print("Values: ", legacy_values, hogql_values)  # noqa: T201
                         continue
                     else:
