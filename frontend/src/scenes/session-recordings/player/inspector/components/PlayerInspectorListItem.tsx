@@ -2,7 +2,7 @@ import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconGauge, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconGauge, IconOffline, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
@@ -35,6 +35,10 @@ const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.NETWORK]: {
         Icon: IconGauge,
         tooltip: 'Network event',
+    },
+    ['offline-status']: {
+        Icon: IconOffline,
+        tooltip: 'browser went offline or returned online',
     },
 }
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
@@ -157,6 +161,10 @@ export function PlayerInspectorListItem({
                     <ItemConsoleLog item={item} {...itemProps} />
                 ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
                     <ItemEvent item={item} {...itemProps} />
+                ) : item.type === 'offline-status' ? (
+                    <div className="flex items-start p-2 text-xs">
+                        {item.offline ? 'Browser went offline' : 'Browser returned online'}
+                    </div>
                 ) : null}
 
                 {isExpanded ? (
