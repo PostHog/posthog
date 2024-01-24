@@ -108,14 +108,14 @@ def get_primary_key(table: Table) -> List[str]:
 
 @configspec
 class SqlDatabaseTableConfiguration(BaseConfiguration):
-    incremental: Optional[dlt.sources.incremental] = None  # type: ignore[type-arg]
+    incremental: Optional[dlt.sources.incremental] = None
 
 
 @configspec
 class SqlTableResourceConfiguration(BaseConfiguration):
     credentials: ConnectionStringCredentials
     table: str
-    incremental: Optional[dlt.sources.incremental] = None  # type: ignore[type-arg]
+    incremental: Optional[dlt.sources.incremental] = None
     schema: Optional[str]
 
 

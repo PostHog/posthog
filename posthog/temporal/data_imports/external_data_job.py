@@ -58,7 +58,7 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         database = source.job_inputs.get("database")
         sslmode = source.job_inputs.get("sslmode")
         schema = source.job_inputs.get("schema")
-        schemas_to_sync = await sync_to_async(get_postgres_schemas)(
+        schemas_to_sync = await sync_to_async(get_postgres_schemas)(  # type: ignore
             host, port, database, user, password, sslmode, schema
         )
     else:
