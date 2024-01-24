@@ -2,6 +2,8 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
@@ -36,6 +38,7 @@ export const sceneLogic = kea<sceneLogicType>([
     connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
         actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -262,9 +265,11 @@ export const sceneLogic = kea<sceneLogicType>([
                         )
 
                         if (
+                            values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test' &&
                             productKeyFromUrl &&
                             teamLogic.values.currentTeam &&
                             !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
+                            // TODO: should this only happen when in cloud mode? What is the experience for self-hosted?
                         ) {
                             console.warn(
                                 `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
