@@ -1,5 +1,5 @@
 import copy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 
@@ -22,6 +22,11 @@ from posthog.tasks.usage_report import (
 from posthog.utils import get_current_day
 
 QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
+# We are updating the quota limiting behavior so we retain data for 7 days before
+# permanently dropping it. This will allow us to recover data in the case of incidents
+# where usage may have inadvertently exceeded a billing limit.
+# Ref: INC-144
+QUOTA_OVERAGE_RETENTION_CACHE_KEY = "@posthog/quota-overage-retention/"
 
 
 class QuotaResource(Enum):
@@ -37,29 +42,35 @@ OVERAGE_BUFFER = {
 }
 
 
-def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
+def replace_limited_team_tokens(
+    resource: QuotaResource, tokens: Mapping[str, int], cache_key: str = QUOTA_LIMITER_CACHE_KEY
+) -> None:
     pipe = get_client().pipeline()
-    pipe.delete(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}")
+    pipe.delete(f"{cache_key}{resource.value}")
     if tokens:
-        pipe.zadd(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+        pipe.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
     pipe.execute()
 
 
-def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
+def add_limited_team_tokens(
+    resource: QuotaResource, tokens: Mapping[str, int], cache_key: str = QUOTA_LIMITER_CACHE_KEY
+) -> None:
     redis_client = get_client()
-    redis_client.zadd(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    redis_client.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
 
-def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str]) -> None:
+def remove_limited_team_tokens(
+    resource: QuotaResource, tokens: List[str], cache_key: str = QUOTA_LIMITER_CACHE_KEY
+) -> None:
     redis_client = get_client()
-    redis_client.zrem(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", *tokens)
+    redis_client.zrem(f"{cache_key}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_team_attributes(resource: QuotaResource) -> List[str]:
+def list_limited_team_attributes(resource: QuotaResource, cache_key: str = QUOTA_LIMITER_CACHE_KEY) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
-    results = redis_client.zrangebyscore(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", min=now.timestamp(), max="+inf")
+    results = redis_client.zrangebyscore(f"{cache_key}{resource.value}", min=now.timestamp(), max="+inf")
     return [x.decode("utf-8") for x in results]
 
 
@@ -69,7 +80,7 @@ class UsageCounters(TypedDict):
     rows_synced: int
 
 
-def org_quota_limited_until(organization: Organization, resource: QuotaResource) -> Optional[int]:
+def org_quota_limited_until(organization: Organization, resource: QuotaResource, today: datetime) -> Optional[int]:
     if not organization.usage:
         return None
 
@@ -78,19 +89,31 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
         return None
     usage = summary.get("usage", 0)
     todays_usage = summary.get("todays_usage", 0)
+    data_retained_until = summary.get("retained_period_end", None)
     limit = summary.get("limit")
+    needs_save = False
 
     if limit is None:
         return None
 
     is_quota_limited = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
+    billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
 
-    if is_quota_limited and organization.never_drop_data:
+    if not is_quota_limited:
         return None
 
-    if is_quota_limited and billing_period_end:
-        return billing_period_end
+    if organization.never_drop_data:
+        return None
+
+    # Either wasn't set or was set in the previous biling period
+    if not data_retained_until or data_retained_until - timedelta(days=7) < billing_period_start:
+        data_retained_until = round((today + timedelta(days=7)).timestamp())
+        summary["retained_period_end"] = data_retained_until
+        needs_save = True
+
+    if billing_period_end:
+        return billing_period_end, data_retained_until, needs_save
 
     return None
 
@@ -211,6 +234,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
                 org_report[field] += team_report[field]  # type: ignore
 
     quota_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
+    data_retained_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
 
     # We find all orgs that should be rate limited
     for org_id, todays_report in todays_usage_report.items():
@@ -223,13 +247,20 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
                 org.save(update_fields=["usage"])
 
             for field in ["events", "recordings", "rows_synced"]:
-                quota_limited_until = org_quota_limited_until(org, QuotaResource(field))
+                result = org_quota_limited_until(org, QuotaResource(field), period_start)
 
-                if quota_limited_until:
-                    # TODO: Set this rate limit to the end of the billing period
+                if result:
+                    quota_limited_until, data_retained_until, needs_save = result
+
+                if needs_save:
+                    org.save(update_fields=["usage"])
+
+                if data_retained_until and data_retained_until >= period_start.timestamp():
+                    data_retained_orgs[field][org_id] = data_retained_until
+                elif quota_limited_until:
                     quota_limited_orgs[field][org_id] = quota_limited_until
 
-    # Get the current quota limits so we can track to poshog if it changes
+    # Get the current quota limits so we can track to posthog if it changes
     orgs_with_changes = set()
     previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {
         "events": {},
@@ -237,10 +268,20 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         "rows_synced": {},
     }
 
+    previously_data_retained_teams: Dict[str, Dict[str, int]] = {
+        "events": {},
+        "recordings": {},
+        "rows_synced": {},
+    }
+
     for field in quota_limited_orgs:
         previously_quota_limited_team_tokens[field] = list_limited_team_attributes(QuotaResource(field))
+        previously_data_retained_teams[field] = list_limited_team_attributes(
+            QuotaResource(field), QUOTA_OVERAGE_RETENTION_CACHE_KEY
+        )
 
     quota_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
+    data_retained_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
 
     # Convert the org ids to team tokens
     for team in teams:
@@ -252,9 +293,14 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
                 # If the team was not previously quota limited, we add it to the list of orgs that were added
                 if team.api_token not in previously_quota_limited_team_tokens[field]:
                     orgs_with_changes.add(org_id)
+            elif org_id in data_retained_orgs[field]:
+                data_retained_teams[field][team.api_token] = data_retained_orgs[field][org_id]
             else:
                 # If the team was previously quota limited, we add it to the list of orgs that were removed
-                if team.api_token in previously_quota_limited_team_tokens[field]:
+                if (
+                    team.api_token in previously_quota_limited_team_tokens[field]
+                    or team.api_token in previously_data_retained_teams[field]
+                ):
                     orgs_with_changes.add(org_id)
 
     for org_id in orgs_with_changes:
@@ -272,7 +318,11 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         )
 
     if not dry_run:
+        for field in data_retained_teams:
+            replace_limited_team_tokens(
+                QuotaResource(field), data_retained_teams[field], QUOTA_OVERAGE_RETENTION_CACHE_KEY
+            )
         for field in quota_limited_teams:
             replace_limited_team_tokens(QuotaResource(field), quota_limited_teams[field])
 
-    return quota_limited_orgs
+    return quota_limited_orgs, data_retained_orgs

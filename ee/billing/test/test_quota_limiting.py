@@ -25,6 +25,9 @@ class TestQuotaLimiting(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
+        self.redis_client.delete("QUOTA_OVERAGE_RETENTION_CACHE_KEYevents")
+        self.redis_client.delete("QUOTA_OVERAGE_RETENTION_CACHE_KEYrecordings")
+        self.redis_client.delete("QUOTA_OVERAGE_RETENTION_CACHE_KEYrows_synced")
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
@@ -53,6 +56,7 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
+    @freeze_time("2021-01-25T22:09:14.252Z")
     def test_billing_rate_limit(self) -> None:
         with self.settings(USE_TZ=False):
             self.organization.usage = {
@@ -76,11 +80,12 @@ class TestQuotaLimiting(BaseTest):
                     team=self.team,
                 )
         time.sleep(1)
-        result = update_all_org_billing_quotas()
+        quota_limited_orgs, data_retained_orgs = update_all_org_billing_quotas()
         org_id = str(self.organization.id)
-        assert result["events"] == {org_id: 1612137599}
-        assert result["recordings"] == {}
-        assert result["rows_synced"] == {}
+        assert data_retained_orgs["events"] == {org_id: 1612137599}
+        assert quota_limited_orgs["events"] == {}
+        assert quota_limited_orgs["recordings"] == {}
+        assert quota_limited_orgs["rows_synced"] == {}
 
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
             self.team.api_token.encode("UTF-8")

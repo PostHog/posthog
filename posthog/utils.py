@@ -157,13 +157,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
         at,
         datetime.time.max,
         tzinfo=ZoneInfo("UTC"),
-    )  # very end of the reference day
+    )  # end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=ZoneInfo("UTC"),
-    )  # very start of the reference day
+    )  # start of the reference day
 
     return (period_start, period_end)
 
