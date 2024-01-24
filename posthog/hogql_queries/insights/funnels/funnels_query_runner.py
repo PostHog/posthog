@@ -8,12 +8,15 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.caching.utils import is_stale
+from posthog.constants import FunnelOrderType, FunnelVizType
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.funnels.funnel import Funnel
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -28,6 +31,7 @@ from posthog.schema import (
 class FunnelsQueryRunner(QueryRunner):
     query: FunnelsQuery
     query_type = FunnelsQuery
+    context: FunnelQueryContext
 
     def __init__(
         self,
@@ -38,6 +42,10 @@ class FunnelsQueryRunner(QueryRunner):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+
+        self.context = FunnelQueryContext(
+            query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
+        )
 
     def _is_stale(self, cached_result_package):
         date_to = self.query_date_range.date_to()
@@ -62,14 +70,24 @@ class FunnelsQueryRunner(QueryRunner):
         return refresh_frequency
 
     def to_query(self) -> ast.SelectQuery:
-        select_query = parse_select(
-            """
-                SELECT 1
-            """,
-            placeholders={},
+        funnelVizType, funnelOrderType = (
+            self.context.funnelsFilter.funnelVizType,
+            self.context.funnelsFilter.funnelOrderType,
         )
 
-        return cast(ast.SelectQuery, select_query)
+        dummy_query = cast(ast.SelectQuery, parse_select("SELECT 1"))  # placeholder for unimplemented funnel queries
+
+        if funnelVizType == FunnelVizType.trends:
+            return dummy_query
+        elif funnelVizType == FunnelVizType.time_to_convert:
+            return dummy_query
+        else:
+            if funnelOrderType == FunnelOrderType.ORDERED:
+                return dummy_query
+            elif funnelOrderType == FunnelOrderType.STRICT:
+                return dummy_query
+            else:
+                return Funnel(context=self.context).get_query()
 
     def calculate(self):
         query = self.to_query()

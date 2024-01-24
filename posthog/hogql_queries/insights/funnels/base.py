@@ -1,16 +1,12 @@
 from abc import ABC
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.property.property import PropertyName
-from posthog.models.team.team import Team
-from posthog.schema import BreakdownFilter, FunnelsQuery, HogQLQueryModifiers
 
 
 class FunnelBase(ABC):
@@ -21,15 +17,9 @@ class FunnelBase(ABC):
 
     def __init__(
         self,
-        query: FunnelsQuery,
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        context: FunnelQueryContext,
     ):
-        self.context = FunnelQueryContext(
-            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
-        )
+        self.context = context
 
         self._extra_event_fields: List[ColumnName] = []
         self._extra_event_properties: List[PropertyName] = []
@@ -78,7 +68,7 @@ class FunnelBase(ABC):
         #     )
         # else:
         #     return "", ""
-        return [], []
+        return [], []
 
     def _get_partition_cols(self, level_index: int, max_steps: int) -> List[ast.Expr]:
         # funnelsFilter = self.context.query.funnelsFilter or FunnelsFilter()
@@ -182,4 +172,3 @@ class FunnelBase(ABC):
         #     exprs.append(f"any({prop}) as {prop}" if aggregate else prop)
 
         return exprs
-
