@@ -268,13 +268,14 @@ export function FeatureFlagReleaseConditions({
                                 <LemonInput
                                     data-attr="rollout-percentage"
                                     type="number"
-                                    className="mx-2"
+                                    className="mx-2 max-w-30"
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value || 100)
+                                        updateConditionSet(index, value === undefined ? 0 : value)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
                                     max={100}
+                                    step="any"
                                     suffix={<span>%</span>}
                                 />{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
