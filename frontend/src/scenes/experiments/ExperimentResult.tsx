@@ -3,11 +3,12 @@ import './Experiment.scss'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 // eslint-disable-next-line no-restricted-imports
-import { Col, Progress } from 'antd'
+import { Col } from 'antd'
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FunnelLayout } from 'lib/constants'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -131,11 +132,9 @@ export function ExperimentResult(): JSX.Element {
                                                 <span>{conversionRateForVariant(variant)}%</span>
                                             </div>
                                         )}
-                                        <Progress
+                                        <LemonProgress
                                             percent={Number((experimentResults.probability[variant] * 100).toFixed(1))}
-                                            size="small"
-                                            showInfo={false}
-                                            strokeColor={getSeriesColor(
+                                            trackColor={getSeriesColor(
                                                 getIndexForVariant(variant, experimentInsightType)
                                             )}
                                         />
