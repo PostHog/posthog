@@ -199,6 +199,9 @@
                     "$ref": "#/definitions/InsightActorsQuery"
                 },
                 {
+                    "$ref": "#/definitions/InsightActorsQueryOptions"
+                },
+                {
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
@@ -1940,6 +1943,85 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "InsightActorsQueryOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightActorsQueryOptions",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/InsightActorsQueryOptionsResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightActorsQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "InsightActorsQueryOptionsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/Day"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "interval": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "An interval selected out of available intervals in source query",
+                                "type": "integer"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "status": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -2288,6 +2370,7 @@
                 "StickinessQuery",
                 "LifecycleQuery",
                 "InsightActorsQuery",
+                "InsightActorsQueryOptions",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -2874,6 +2957,68 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "day": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/Day"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "interval": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "An interval selected out of available intervals in source query",
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "status": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -3271,6 +3416,9 @@
                 },
                 {
                     "$ref": "#/definitions/InsightActorsQuery"
+                },
+                {
+                    "$ref": "#/definitions/InsightActorsQueryOptions"
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"

@@ -111,6 +111,10 @@ class DateRange(BaseModel):
     date_to: Optional[str] = None
 
 
+class Day(RootModel[int]):
+    root: int
+
+
 class Key(str, Enum):
     tag_name = "tag_name"
     text = "text"
@@ -315,6 +319,39 @@ class HogQLQueryModifiers(BaseModel):
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 
 
+class DayItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: Union[str, int]
+
+
+class IntervalItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: int = Field(..., description="An interval selected out of available intervals in source query")
+
+
+class StatusItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str
+
+
+class InsightActorsQueryOptionsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: Optional[List[DayItem]] = None
+    interval: Optional[List[IntervalItem]] = None
+    status: Optional[List[StatusItem]] = None
+
+
 class InsightFilterProperty(str, Enum):
     trendsFilter = "trendsFilter"
     funnelsFilter = "funnelsFilter"
@@ -378,6 +415,7 @@ class NodeKind(str, Enum):
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
     InsightActorsQuery = "InsightActorsQuery"
+    InsightActorsQueryOptions = "InsightActorsQueryOptions"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -508,7 +546,16 @@ class QueryResponseAlternative2(BaseModel):
     results: List[Dict[str, Any]]
 
 
-class QueryResponseAlternative7(BaseModel):
+class QueryResponseAlternative5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: Optional[List[DayItem]] = None
+    interval: Optional[List[IntervalItem]] = None
+    status: Optional[List[StatusItem]] = None
+
+
+class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1181,7 +1228,7 @@ class QueryResponseAlternative4(BaseModel):
     types: List[str]
 
 
-class QueryResponseAlternative5(BaseModel):
+class QueryResponseAlternative6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1191,7 +1238,7 @@ class QueryResponseAlternative5(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
-class QueryResponseAlternative6(BaseModel):
+class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1216,7 +1263,7 @@ class QueryResponseAlternative6(BaseModel):
     types: Optional[List] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative8(BaseModel):
+class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1229,7 +1276,7 @@ class QueryResponseAlternative8(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
-class QueryResponseAlternative9(BaseModel):
+class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1244,7 +1291,7 @@ class QueryResponseAlternative9(BaseModel):
     types: Optional[List] = None
 
 
-class QueryResponseAlternative11(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1737,7 +1784,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative12(BaseModel):
+class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1762,8 +1809,9 @@ class QueryResponseAlternative(
             QueryResponseAlternative7,
             QueryResponseAlternative8,
             QueryResponseAlternative9,
-            QueryResponseAlternative11,
+            QueryResponseAlternative10,
             QueryResponseAlternative12,
+            QueryResponseAlternative13,
             Dict[str, List[DatabaseSchemaQueryResponseField]],
         ]
     ]
@@ -1779,8 +1827,9 @@ class QueryResponseAlternative(
         QueryResponseAlternative7,
         QueryResponseAlternative8,
         QueryResponseAlternative9,
-        QueryResponseAlternative11,
+        QueryResponseAlternative10,
         QueryResponseAlternative12,
+        QueryResponseAlternative13,
         Dict[str, List[DatabaseSchemaQueryResponseField]],
     ]
 
@@ -2238,6 +2287,15 @@ class InsightActorsQuery(BaseModel):
     status: Optional[str] = None
 
 
+class InsightActorsQueryOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
+    response: Optional[InsightActorsQueryOptionsResponse] = None
+    source: InsightActorsQuery
+
+
 class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2356,6 +2414,7 @@ class HogQLMetadata(BaseModel):
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
+            InsightActorsQueryOptions,
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
@@ -2394,6 +2453,7 @@ class QueryRequest(BaseModel):
         EventsQuery,
         ActorsQuery,
         InsightActorsQuery,
+        InsightActorsQueryOptions,
         SessionsTimelineQuery,
         HogQLQuery,
         HogQLMetadata,
@@ -2429,6 +2489,7 @@ class QuerySchemaRoot(
             EventsQuery,
             ActorsQuery,
             InsightActorsQuery,
+            InsightActorsQueryOptions,
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
@@ -2457,6 +2518,7 @@ class QuerySchemaRoot(
         EventsQuery,
         ActorsQuery,
         InsightActorsQuery,
+        InsightActorsQueryOptions,
         SessionsTimelineQuery,
         HogQLQuery,
         HogQLMetadata,

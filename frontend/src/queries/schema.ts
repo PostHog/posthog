@@ -64,6 +64,7 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
+    InsightActorsQueryOptions = 'InsightActorsQueryOptions',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -88,6 +89,7 @@ export type AnyDataNode =
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
+    | InsightActorsQueryOptions
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
@@ -107,6 +109,7 @@ export type QuerySchema =
     | EventsQuery
     | ActorsQuery
     | InsightActorsQuery
+    | InsightActorsQueryOptions
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
@@ -966,6 +969,25 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: ActorsQueryResponse
+}
+
+export interface InsightActorsQueryOptionsResponse {
+    day?: { label: string; value: string | Day }[]
+    status?: { label: string; value: string }[]
+    interval?: {
+        label: string
+        /**
+         * An interval selected out of available intervals in source query
+         * @asType integer
+         */
+        value: number
+    }[]
+}
+
+export interface InsightActorsQueryOptions {
+    kind: NodeKind.InsightActorsQueryOptions
+    source: InsightActorsQuery
+    response?: InsightActorsQueryOptionsResponse
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {

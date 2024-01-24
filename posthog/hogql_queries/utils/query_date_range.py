@@ -115,6 +115,38 @@ class QueryDateRange:
     def interval_name(self) -> Literal["hour", "day", "week", "month"]:
         return self.interval_type.name
 
+    def all_values(self) -> List[str]:
+        start: datetime = self.date_from()
+        end: datetime = self.date_to()
+        interval = self.interval_name
+
+        if interval == "hour":
+            start = start.replace(minute=0, second=0, microsecond=0)
+        elif interval == "day":
+            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif interval == "week":
+            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            week_start_alignment_days = start.isoweekday() % 7
+            if self._team.week_start_day == WeekStartDay.MONDAY:
+                week_start_alignment_days = start.weekday()
+            start -= timedelta(days=week_start_alignment_days)
+        elif interval == "month":
+            start = start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        values: List[str] = []
+        while start <= end:
+            if interval == "hour":
+                values.append(start.strftime("%Y-%m-%d %H:%M:%S"))
+            else:
+                values.append(start.strftime("%Y-%m-%d"))
+            start += relativedelta(
+                days=1 if interval == "day" else 0,
+                weeks=1 if interval == "week" else 0,
+                months=1 if interval == "month" else 0,
+                hours=1 if interval == "hour" else 0,
+            )
+        return values
+
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(
             name="assumeNotNull",
