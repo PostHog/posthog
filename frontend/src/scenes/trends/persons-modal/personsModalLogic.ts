@@ -255,7 +255,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
             }
         },
         updateActorsQuery: ({ query }) => {
-            actions.loadActors({ query: { ...values.query, ...query }, offset: 0, clear: true })
+            if (query && values.query) {
+                actions.loadActors({ query: { ...values.query, ...query }, offset: 0, clear: true })
+            }
         },
     })),
 
