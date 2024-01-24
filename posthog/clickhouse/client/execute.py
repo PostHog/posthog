@@ -112,11 +112,13 @@ def sync_execute(
             err = wrap_query_error(err)
             if type(err).__name__ == "CHQueryErrorQueryWasCancelled":
                 statsd.incr("clickhouse_execution_cancelled", tags={"team_id": team_id})
+                raise err
             elif type(err).__name__ == "EstimatedQueryExecutionTimeTooLong":
                 statsd.incr(
                     "clickhouse_execution_timeout",
                     tags={"team_id": team_id},
                 )
+                raise err
             else:
                 statsd.incr(
                     "clickhouse_sync_execution_failure",
