@@ -79,7 +79,7 @@ export const BillingUnsubscribeModal = (): JSX.Element => {
         },
     })
 
-    return <UnsubscribeSurveyModal product={billingJson.products[0] as BillingProductV2Type} />
+    return <UnsubscribeSurveyModal product={billingJson.products[0] as unknown as BillingProductV2Type} />
 }
 export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
     useStorybookMocks({
@@ -97,7 +97,7 @@ export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
             },
         },
     })
-    const product = billingJson.products[0] as BillingProductV2Type
+    const product = billingJson.products[0] as unknown as BillingProductV2Type
     product.addons = [
         {
             type: 'data_pipelines',
