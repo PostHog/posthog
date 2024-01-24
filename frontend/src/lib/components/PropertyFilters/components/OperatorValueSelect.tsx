@@ -27,6 +27,7 @@ export interface OperatorValueSelectProps {
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
+    addRelativeDateTimeOptions?: boolean
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -67,6 +68,7 @@ export function OperatorValueSelect({
     propertyDefinitions = [],
     eventNames = [],
     defaultOpen,
+    addRelativeDateTimeOptions,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
@@ -153,6 +155,7 @@ export function OperatorValueSelect({
                         }}
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
+                        addRelativeDateTimeOptions={addRelativeDateTimeOptions}
                     />
                 </div>
             )}

@@ -323,20 +323,26 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
+    def check_permissions(self, request):
+        if self.action and self.action == "create":
+            organization = getattr(self.request.user, "organization", None)
+            if not organization:
+                raise exceptions.ValidationError("You need to belong to an organization.")
+            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+            self.organization = organization
+
+        return super().check_permissions(request)
+
     def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
+
         base_permissions = [permission() for permission in self.permission_classes]
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
-                organization = getattr(self.request.user, "organization", None)
-                if not organization:
-                    raise exceptions.ValidationError("You need to belong to an organization.")
-                # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-                self.organization = organization
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     base_permissions.append(OrganizationAdminWritePermissions())
                 elif "is_demo" in self.request.data:

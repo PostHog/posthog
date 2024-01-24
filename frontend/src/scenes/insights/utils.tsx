@@ -219,7 +219,7 @@ export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
 export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
 
-export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
     return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
 }
 

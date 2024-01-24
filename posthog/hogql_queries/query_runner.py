@@ -35,6 +35,7 @@ from posthog.schema import (
     DashboardFilter,
     HogQLQueryModifiers,
     SamplingRate,
+    InsightActorsQueryOptions,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -90,6 +91,7 @@ RunnableQueryNode = Union[
     EventsQuery,
     HogQLQuery,
     InsightActorsQuery,
+    InsightActorsQueryOptions,
     SessionsTimelineQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -197,6 +199,16 @@ def get_query_runner(
 
         return InsightActorsQueryRunner(
             query=cast(InsightActorsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "InsightActorsQueryOptions":
+        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+
+        return InsightActorsQueryOptionsRunner(
+            query=cast(InsightActorsQueryOptions | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

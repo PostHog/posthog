@@ -598,7 +598,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -656,7 +657,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -714,7 +716,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {

@@ -10,7 +10,7 @@
     text-align: center;
     user-select: none;
     background: var(--lettermark-1-bg);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
 
     &.Lettermark--rounded {
         border-radius: 1.5rem;

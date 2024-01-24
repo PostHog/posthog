@@ -17,7 +17,7 @@ class HogQLHasMorePaginator:
     Takes care of setting the limit and offset on the query.
     """
 
-    def __init__(self, *, limit: Optional[int], offset: Optional[int]):
+    def __init__(self, *, limit: Optional[int] = None, offset: Optional[int] = None):
         self.response: Optional[HogQLQueryResponse] = None
         self.results: list[Any] = []
         self.limit = limit if limit and limit > 0 else DEFAULT_RETURNED_ROWS
@@ -25,7 +25,7 @@ class HogQLHasMorePaginator:
 
     @classmethod
     def from_limit_context(
-        cls, *, limit_context: LimitContext, limit: Optional[int], offset: Optional[int]
+        cls, *, limit_context: LimitContext, limit: Optional[int] = None, offset: Optional[int] = None
     ) -> "HogQLHasMorePaginator":
         max_rows = get_max_limit_for_context(limit_context)
         default_rows = get_default_limit_for_context(limit_context)
