@@ -13,6 +13,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
     const { preflight } = useValues(preflightLogic)
     const { product } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
+    const { invitesToSend, canSubmit: canSubmitInvites } = useValues(inviteLogic)
 
     const titlePrefix = (): string => {
         switch (product?.type) {
@@ -49,7 +50,12 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
             title={`${titlePrefix()} better with friends.`}
             stepKey={stepKey}
             hedgehog={<PhonePairHogs height={120} width={288} />}
-            continueAction={() => preflight?.email_service_available && inviteTeamMembers()}
+            continueAction={() =>
+                preflight?.email_service_available &&
+                invitesToSend[0]?.target_email &&
+                canSubmitInvites &&
+                inviteTeamMembers()
+            }
         >
             <div className="mb-6">
                 <p>
