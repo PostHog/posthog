@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
-import { dateFilterToText } from 'lib/utils'
+// import { dateFilterToText } from 'lib/utils'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { posthog } from '~/toolbar/posthog'
@@ -153,7 +153,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
         dateRange: [
             (s) => [s.heatmapFilter],
             (heatmapFilter: Partial<FilterType>) => {
-                return dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')
+                if (heatmapFilter.date_from) {
+                    return 'Last 7 days'
+                }
+                return null
+                // return dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')
             },
         ],
         elements: [
