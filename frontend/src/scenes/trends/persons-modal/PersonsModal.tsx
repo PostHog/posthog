@@ -81,7 +81,7 @@ export function PersonsModal({
         exploreUrl,
         ActorsQuery,
     } = useValues(logic)
-    const { loadActors, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
+    const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
         useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -140,13 +140,7 @@ export function PersonsModal({
                                         fullWidth
                                         className="mb-2"
                                         value={query?.[key] ?? null}
-                                        onChange={(v) => {
-                                            loadActors({
-                                                query: { ...query, [key]: v },
-                                                clear: true,
-                                                offset: 0,
-                                            })
-                                        }}
+                                        onChange={(v) => updateActorsQuery({ [key]: v })}
                                         options={options}
                                     />
                                 </div>

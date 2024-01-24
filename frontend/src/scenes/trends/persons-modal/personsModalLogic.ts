@@ -73,6 +73,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             offset,
         }),
         loadNextActors: true,
+        updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
     connect({
@@ -84,7 +85,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, query, clear, offset }) => {
+                loadActors: async ({ url, query, clear, offset }, breakpoint) => {
                     if (url) {
                         url += '&include_recordings=true'
 
@@ -93,6 +94,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         }
 
                         const res = await api.get(url)
+                        breakpoint()
 
                         if (clear) {
                             actions.resetActors()
@@ -104,6 +106,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             limit: RESULTS_PER_PAGE + 1,
                             offset: offset || 0,
                         } as ActorsQuery)
+                        breakpoint()
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
@@ -159,7 +162,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         query: [
             props.query as InsightActorsQuery | null,
             {
-                loadActors: (_, { query }) => query || null,
+                loadActors: (state, { query }) => query ?? state ?? null,
             },
         ],
         actors: [
@@ -247,9 +250,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
             }
         },
         loadActors: ({ query }) => {
-            if (query) {
+            if (query && !values.insightActorsQueryOptions) {
                 actions.loadActorsQueryOptions(query)
             }
+        },
+        updateActorsQuery: ({ query }) => {
+            actions.loadActors({ query: { ...values.query, ...query }, offset: 0, clear: true })
         },
     })),
 
