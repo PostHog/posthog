@@ -96,7 +96,7 @@ describe('Surveys', () => {
         cy.get('[data-attr=prop-val] .ant-select-selector').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
-        cy.get('[data-attr="rollout-percentage"]').type('{backspace}100')
+        cy.get('[data-attr="rollout-percentage"]').type('100')
 
         // save
         cy.get('[data-attr="save-survey"]').click()
