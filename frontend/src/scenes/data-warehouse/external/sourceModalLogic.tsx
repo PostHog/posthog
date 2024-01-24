@@ -1,13 +1,14 @@
+import { Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { ExternalDataPostgresSchema, ExternalDataSourceType } from '~/types'
 
 import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { sourceFormLogic } from './forms/sourceFormLogic'
 import type { sourceModalLogicType } from './sourceModalLogicType'
-import { ExternalDataPostgresSchema, ExternalDataSourceType } from '~/types'
-import { Link } from '@posthog/lemon-ui'
-import { sourceFormLogic } from './sourceFormLogic'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 
@@ -122,9 +123,9 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                 type: 'text',
                 required: true,
                 placeholder: 'required',
-            }
-        ]
-    }
+            },
+        ],
+    },
 }
 
 export const sourceModalLogic = kea<sourceModalLogicType>([
@@ -133,12 +134,12 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
-        onForward: true,
         onClear: true,
         onBack: true,
         onNext: true,
+        onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataPostgresSchema[]) => ({ schemas }),
-        selectSchema: (schema: ExternalDataPostgresSchema) => ({ schema })
+        selectSchema: (schema: ExternalDataPostgresSchema) => ({ schema }),
     }),
     connect({
         values: [
@@ -174,8 +175,8 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         currentStep: [
             1,
             {
-                onForward: (state, _) => state + 1,
-                onBack: (state, _) => state - 1,
+                onNext: (state) => state + 1,
+                onBack: (state) => state - 1,
                 onClear: () => 1,
             },
         ],
@@ -184,11 +185,14 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 selectSchema: (state, { schema }) => {
-                    const newSchema = state.map((s) => ({ ...s, should_sync: s.table === schema.table ? !s.should_sync : s.should_sync }))
+                    const newSchema = state.map((s) => ({
+                        ...s,
+                        should_sync: s.table === schema.table ? !s.should_sync : s.should_sync,
+                    }))
                     return newSchema
-                }
-            }
-        ]
+                },
+            },
+        ],
     }),
     selectors({
         showFooter: [
@@ -237,7 +241,6 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         modalTitle: [
             (s) => [s.currentStep],
             (currentStep) => {
-
                 if (currentStep === 1) {
                     return 'Select a data source to get started'
                 }
@@ -255,14 +258,13 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         modalCaption: [
             (s) => [s.selectedConnector, s.currentStep],
             (selectedConnector, currentStep) => {
-
                 if (currentStep == 2 && selectedConnector) {
                     return SOURCE_DETAILS[selectedConnector.name]?.caption
                 }
 
                 return ''
             },
-        ]
+        ],
     }),
     listeners(({ actions, values }) => ({
         onClear: () => {
@@ -270,7 +272,12 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             actions.toggleManualLinkFormVisible(false)
             actions.resetTable()
         },
-        onNext: () => {
+        onSubmit: () => {
+            // Shared function that triggers different actions depending on the current step
+
+            if (values.currentStep === 1) {
+                return
+            }
 
             if (values.currentStep === 2) {
                 if (values.selectedConnector?.name === 'Postgres') {
@@ -278,25 +285,18 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                 } else if (values.selectedConnector?.name) {
                     sourceFormLogic({ sourceType: values.selectedConnector?.name }).actions.submitExternalDataSource()
                 }
-
-                // actions.onForward()
             }
 
             if (values.currentStep === 3) {
-
                 const logic = sourceFormLogic({ sourceType: 'Postgres' })
 
-                sourceFormLogic({ sourceType: 'Postgres' }).actions.setExternalDataSourceValue(
-                    'payload', {
-                        ...logic.values.databaseSchemaForm.payload,
-                        schemas: values.databaseSchema.filter((schema) => schema.should_sync).map((schema) => schema.table)
-                    }
-                )
-                sourceFormLogic({ sourceType: 'Postgres' }).actions.setExternalDataSourceValue(
-                    'prefix', logic.values.databaseSchemaForm.prefix
-                )
-                sourceFormLogic({ sourceType: 'Postgres' }).actions.submitExternalDataSource()
+                logic.actions.setExternalDataSourceValue('payload', {
+                    ...logic.values.databaseSchemaForm.payload,
+                    schemas: values.databaseSchema.filter((schema) => schema.should_sync).map((schema) => schema.table),
+                })
+                logic.actions.setExternalDataSourceValue('prefix', logic.values.databaseSchemaForm.prefix)
+                logic.actions.submitExternalDataSource()
             }
-        }
+        },
     })),
 ])

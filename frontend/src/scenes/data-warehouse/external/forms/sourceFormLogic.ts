@@ -7,8 +7,8 @@ import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceCreatePayload, ExternalDataSourceType } from '~/types'
 
+import { getHubspotRedirectUri, sourceModalLogic } from '../sourceModalLogic'
 import type { sourceFormLogicType } from './sourceFormLogicType'
-import { getHubspotRedirectUri, sourceModalLogic } from './sourceModalLogic'
 
 export interface SourceFormProps {
     sourceType: ExternalDataSourceType
@@ -44,7 +44,10 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceFormLogic']),
     props({} as SourceFormProps),
     connect({
-        actions: [sourceModalLogic, ['setDatabaseSchemas', 'onBack', 'onForward', 'selectConnector', 'toggleSourceModal', 'loadSources']],
+        actions: [
+            sourceModalLogic,
+            ['setDatabaseSchemas', 'onBack', 'onNext', 'selectConnector', 'toggleSourceModal', 'loadSources'],
+        ],
     }),
     actions({
         onCancel: true,
@@ -64,6 +67,9 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
             actions.loadSources()
             router.actions.push(urls.dataWarehouseSettings())
         },
+        submitDatabaseSchemaFormSuccess: () => {
+            actions.onNext()
+        },
         submitExternalDataSourceFailure: ({ error }) => {
             lemonToast.error(error?.message || 'Something went wrong')
         },
@@ -81,9 +87,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                     lemonToast.error(`Something went wrong.`)
             }
         },
-        onPostgresNext: async () => {
-
-        }
+        onPostgresNext: async () => {},
     })),
     urlToAction(({ actions }) => ({
         '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
@@ -108,17 +112,15 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                 prefix: '',
                 payload: {
                     host: '',
-                    port: '5432',
-                    dbname: 'posthog',
-                    user: 'posthog',
-                    password: 'posthog',
-                    schema: 'public',
-                    sslmode: 'disable',
-                }
+                    port: '',
+                    dbname: '',
+                    user: '',
+                    password: '',
+                    schema: '',
+                    sslmode: '',
+                },
             },
-            errors: ({ payload: {
-                host, port, dbname, user, password, schema, sslmode
-            } }) => ({
+            errors: ({ payload: { host, port, dbname, user, password, schema, sslmode } }) => ({
                 payload: {
                     host: !host && 'Please enter a host.',
                     port: !port && 'Please enter a port.',
@@ -127,27 +129,33 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                     password: !password && 'Please enter a password.',
                     schema: !schema && 'Please enter a schema.',
                     sslmode: !sslmode && 'Please enter a sslmode.',
-                }
-            }),
-            submit: async ({
-                payload: {
-                    host, port, dbname, user, password, schema, sslmode
                 },
-                prefix
-            }) => {
+            }),
+            submit: async ({ payload: { host, port, dbname, user, password, schema, sslmode }, prefix }) => {
                 const schemas = await api.externalDataSources.database_schema(
-                    host, port, dbname, user, password, schema, sslmode
+                    host,
+                    port,
+                    dbname,
+                    user,
+                    password,
+                    schema,
+                    sslmode
                 )
                 actions.setDatabaseSchemas(schemas)
-                actions.onForward()
 
                 return {
                     payload: {
-                        host, port, dbname, user, password, schema, sslmode
+                        host,
+                        port,
+                        dbname,
+                        user,
+                        password,
+                        schema,
+                        sslmode,
                     },
-                    prefix
+                    prefix,
                 }
             },
-        }
+        },
     })),
 ])
