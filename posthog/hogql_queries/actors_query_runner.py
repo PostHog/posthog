@@ -1,3 +1,4 @@
+import itertools
 from datetime import timedelta
 from typing import List, Generator, Sequence, Iterator, Optional
 from posthog.hogql import ast
@@ -38,12 +39,18 @@ class ActorsQueryRunner(QueryRunner):
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
-    def enrich_with_actors(self, results, actor_column_index, actors_lookup) -> Generator[List, None, None]:
+    def enrich_with_actors(
+        self, results, actor_column_index, actors_lookup, column_index_events, recordings_lookup
+    ) -> Generator[List, None, None]:
         for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
+            new_row[column_index_events] = None
+            if recordings_lookup:
+                session_ids = (event[2] for event in result[column_index_events])
+                new_row[column_index_events] = (recordings_lookup.get(session_id) for session_id in session_ids)
             yield new_row
 
     def calculate(self) -> ActorsQueryResponse:
@@ -60,10 +67,23 @@ class ActorsQueryRunner(QueryRunner):
 
         enrich_columns = filter(lambda column: column in ("person", "group"), input_columns)
         for column_name in enrich_columns:
-            actor_ids = (row[input_columns.index(column_name)] for row in self.paginator.results)
+            column_index_actor = input_columns.index(column_name)
+            actor_ids = (row[column_index_actor] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
+            recordings_lookup = None
+            column_index_events = None
+
+            if "matched_recordings" in input_columns and column_name == "person":
+                column_index_events = input_columns.index("matched_recordings")
+                matching_events_list = itertools.chain.from_iterable(
+                    (row[column_index_events] for row in self.paginator.results)
+                )
+                recordings_lookup = self.strategy.get_recordings(matching_events_list)
+
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            results = self.enrich_with_actors(results, input_columns.index(column_name), actors_lookup)
+            results = self.enrich_with_actors(
+                results, column_index_actor, actors_lookup, column_index_events, recordings_lookup
+            )
 
         return ActorsQueryResponse(
             results=results,
@@ -125,12 +145,15 @@ class ActorsQueryRunner(QueryRunner):
             group_by = []
             aggregations = []
             for expr in self.input_columns():
+                column: ast.Expr = parse_expr(expr)
+
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
                 elif expr == self.strategy.field:
                     column = ast.Field(chain=[self.strategy.origin_id])
-                else:
-                    column = parse_expr(expr)
+                elif expr == "matched_recordings":
+                    column = ast.Field(chain=["matching_events"])  # TODO: Hmm?
+
                 columns.append(column)
                 if has_aggregation(column):
                     aggregations.append(column)

@@ -150,6 +150,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     }),
                     additionalFields: {
                         value_at_data_point: 'event_count',
+                        matched_recordings: 'matched_recordings',
                     },
                 })
             } else if (personsUrl) {

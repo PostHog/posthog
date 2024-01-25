@@ -299,19 +299,7 @@ class PathsQueryRunner(QueryRunner):
         return "arraySlice"
 
     def get_target_clause(self) -> list[ast.Expr]:
-        params = {
-            "target_point": None,
-            "secondary_target_point": None,
-        }
-
         if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
-            params.update(
-                {
-                    "target_point": self.query.pathsFilter.endPoint,
-                    "secondary_target_point": self.query.pathsFilter.startPoint,
-                }
-            )
-
             clause = f"""
             , indexOf(compact_path, %(secondary_target_point)s) as start_target_index
             , if(start_target_index > 0, arraySlice(compact_path, start_target_index), compact_path) as start_filtered_path
@@ -485,6 +473,7 @@ class PathsQueryRunner(QueryRunner):
             ]
         )
         # Extra groupArray(x)
+        assert table.select_from.table.select_from is not None
         table.select_from.table.select_from.table.select.extend(
             [
                 ast.Alias(alias=f"{field}_list", expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field])]))

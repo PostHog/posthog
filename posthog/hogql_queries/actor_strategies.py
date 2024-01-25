@@ -7,6 +7,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team, Person, Group
 from posthog.schema import ActorsQuery
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 
 class ActorStrategy:
@@ -21,6 +22,9 @@ class ActorStrategy:
 
     def get_actors(self, actor_ids) -> Dict[str, Dict]:
         raise NotImplementedError()
+
+    def get_recordings(self, matching_events) -> Dict[str, Dict]:
+        return {}
 
     def input_columns(self) -> List[str]:
         raise NotImplementedError()
@@ -48,6 +52,22 @@ class PersonStrategy(ActorStrategy):
             )
             .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
             .iterator(chunk_size=self.paginator.limit)
+        }
+
+    def get_recordings(self, matching_events) -> Dict[str, Dict]:
+        matching_events = {event[2]: event for event in matching_events}
+        # TODO: Figure out where to get everything from correctly
+        _session_ids_with_recordings = SessionRecording.objects.filter(
+            team_id=self.team.pk, session_id__in=matching_events.keys(), deleted=False
+        ).values_list("session_id", flat=True)
+        return {
+            str(session_id): {
+                "timestamp": event[0],
+                "uuid": event[1],
+                "window_id": event[3],
+            }
+            for session_id, event in matching_events.items()
+            # if session_id in session_ids_with_recordings
         }
 
     def input_columns(self) -> List[str]:
