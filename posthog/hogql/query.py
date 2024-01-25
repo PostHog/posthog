@@ -95,7 +95,7 @@ def execute_hogql_query(
             )
 
         with timings.measure("print_ast"):
-            hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql")
+            hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql", pretty=True)
             print_columns = []
             columns_query = (
                 select_query_hogql.select_queries[0]
