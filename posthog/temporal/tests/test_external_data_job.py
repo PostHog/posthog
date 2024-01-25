@@ -445,6 +445,14 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         external_data_source_id=new_source.pk,
     )
 
+    schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]
+    for schema in schemas:
+        await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
+            name=schema,
+            team_id=team.id,
+            source_id=new_source.pk,
+        )
+
     async def mock_async_func(inputs):
         pass
 
