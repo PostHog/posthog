@@ -15,6 +15,7 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema'
+import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     BaseMathType,
     ChartDisplayType,
@@ -29,7 +30,6 @@ import {
 } from '~/types'
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
-import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
