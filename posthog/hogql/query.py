@@ -96,7 +96,9 @@ def execute_hogql_query(
             )
 
         with timings.measure("print_ast"):
-            hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql", pretty=pretty)
+            hogql = print_prepared_ast(
+                select_query_hogql, hogql_query_context, "hogql", pretty=pretty if pretty is not None else True
+            )
             print_columns = []
             columns_query = (
                 select_query_hogql.select_queries[0]
@@ -134,7 +136,7 @@ def execute_hogql_query(
             context=clickhouse_context,
             dialect="clickhouse",
             settings=settings,
-            pretty=pretty,
+            pretty=pretty if pretty is not None else True,
         )
 
     timings_dict = timings.to_dict()
