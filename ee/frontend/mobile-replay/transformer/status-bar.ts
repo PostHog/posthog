@@ -1,6 +1,6 @@
 import {NodeType, serializedNodeWithId, wireframeStatusBar} from "../mobile.types";
 import {STATUS_BAR_ID} from "./transformers";
-import {ConversionContext} from "./types";
+import {ConversionContext, ConversionResult} from "./types";
 import {makeStylesString} from "./wireframeStyle";
 
 function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
@@ -20,7 +20,7 @@ function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
 /**
  * tricky: we need to accept children because that's the interface of converters, but we don't use them
  */
-export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializedNodeWithId[], context: ConversionContext): serializedNodeWithId {
+export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializedNodeWithId[], context: ConversionContext): ConversionResult<serializedNodeWithId> {
     const clockId = context.idSequence.next().value;
     // convert the wireframe timestamp to a date time, then get just the hour and minute of the time from that
     const clockTime = context.timestamp ? new Date(context.timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : ""
@@ -40,7 +40,7 @@ export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializ
         ]
     };
 
-    return {
+    return {result: {
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
@@ -52,5 +52,5 @@ export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializ
             spacerDiv(context.idSequence),
             clock
         ],
-    }
+    }, context }
 }
