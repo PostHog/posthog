@@ -88,7 +88,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
         className,
         padded = true,
-        actionable = false,
         middleware,
         sameWidth = false,
         maxContentWidth = false,
@@ -226,7 +225,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                         <div
                             className={clsx(
                                 'Popover',
-                                actionable && 'Popover--actionable',
                                 padded && 'Popover--padded',
                                 maxContentWidth && 'Popover--max-content-width',
                                 !isAttached && 'Popover--top-centered',

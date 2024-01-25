@@ -66,7 +66,6 @@ export interface LemonMenuProps
             LemonDropdownProps,
             | 'placement'
             | 'fallbackPlacements'
-            | 'actionable'
             | 'sameWidth'
             | 'maxContentWidth'
             | 'visible'
@@ -265,7 +264,6 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     items={items}
                     tooltipPlacement={tooltipPlacement}
                     placement="right-start"
-                    actionable
                     closeOnClickInside={custom ? false : true}
                     closeParentPopoverOnClickInside={custom ? false : true}
                 >
