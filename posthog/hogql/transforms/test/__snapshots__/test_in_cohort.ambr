@@ -14,12 +14,26 @@
   
   -- HogQL
   
-  SELECT event 
-  FROM events LEFT JOIN (
-  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
-  FROM raw_cohort_people 
-  WHERE and(equals(cohort_id, 1), equals(version, 0))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
-  WHERE and(and(1, equals(event, 'RANDOM_TEST_ID::UUID')), equals(__in_cohort.matched, 1)) 
+  SELECT
+      event
+  
+  FROM
+      events
+      LEFT JOIN (
+  SELECT
+          person_id AS cohort_person_id,
+          1 AS matched,
+          cohort_id
+      
+  FROM
+          raw_cohort_people
+      
+  WHERE
+          and(equals(cohort_id, 1), equals(version, 0))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id)
+  
+  WHERE
+      and(and(1, equals(event, 'RANDOM_TEST_ID::UUID')), equals(__in_cohort.matched, 1))
+  
   LIMIT 100
   '''
 # ---
@@ -38,12 +52,26 @@
   
   -- HogQL
   
-  SELECT event 
-  FROM events LEFT JOIN (
-  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
-  FROM static_cohort_people 
-  WHERE in(cohort_id, [2])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
-  WHERE and(1, equals(__in_cohort.matched, 1)) 
+  SELECT
+      event
+  
+  FROM
+      events
+      LEFT JOIN (
+  SELECT
+          person_id AS cohort_person_id,
+          1 AS matched,
+          cohort_id
+      
+  FROM
+          static_cohort_people
+      
+  WHERE
+          in(cohort_id, [2])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id)
+  
+  WHERE
+      and(1, equals(__in_cohort.matched, 1))
+  
   LIMIT 100
   '''
 # ---
@@ -62,12 +90,26 @@
   
   -- HogQL
   
-  SELECT event 
-  FROM events LEFT JOIN (
-  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
-  FROM static_cohort_people 
-  WHERE in(cohort_id, [3])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
-  WHERE and(1, equals(__in_cohort.matched, 1)) 
+  SELECT
+      event
+  
+  FROM
+      events
+      LEFT JOIN (
+  SELECT
+          person_id AS cohort_person_id,
+          1 AS matched,
+          cohort_id
+      
+  FROM
+          static_cohort_people
+      
+  WHERE
+          in(cohort_id, [3])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id)
+  
+  WHERE
+      and(1, equals(__in_cohort.matched, 1))
+  
   LIMIT 100
   '''
 # ---
@@ -88,14 +130,33 @@
   
   -- HogQL
   
-  SELECT event 
-  FROM events LEFT JOIN (
-  SELECT person_id, 1 AS matched 
-  FROM raw_cohort_people 
-  WHERE equals(cohort_id, 4) 
-  GROUP BY person_id, cohort_id, version 
-  HAVING greater(sum(sign), 0)) AS in_cohort__4 ON equals(in_cohort__4.person_id, person_id) 
-  WHERE and(equals(in_cohort__4.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
+  SELECT
+      event
+  
+  FROM
+      events
+      LEFT JOIN (
+  SELECT
+          person_id,
+          1 AS matched
+      
+  FROM
+          raw_cohort_people
+      
+  WHERE
+          equals(cohort_id, 4)
+      
+  GROUP BY
+          person_id,
+          cohort_id,
+          version
+      
+  HAVING
+          greater(sum(sign), 0)) AS in_cohort__4 ON equals(in_cohort__4.person_id, person_id)
+  
+  WHERE
+      and(equals(in_cohort__4.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID'))
+  
   LIMIT 100
   '''
 # ---
@@ -114,12 +175,25 @@
   
   -- HogQL
   
-  SELECT event 
-  FROM events LEFT JOIN (
-  SELECT person_id, 1 AS matched 
-  FROM static_cohort_people 
-  WHERE equals(cohort_id, 5)) AS in_cohort__5 ON equals(in_cohort__5.person_id, person_id) 
-  WHERE equals(in_cohort__5.matched, 1) 
+  SELECT
+      event
+  
+  FROM
+      events
+      LEFT JOIN (
+  SELECT
+          person_id,
+          1 AS matched
+      
+  FROM
+          static_cohort_people
+      
+  WHERE
+          equals(cohort_id, 5)) AS in_cohort__5 ON equals(in_cohort__5.person_id, person_id)
+  
+  WHERE
+      equals(in_cohort__5.matched, 1)
+  
   LIMIT 100
   '''
 # ---
@@ -138,12 +212,25 @@
   
   -- HogQL
   
-  SELECT event 
-  FROM events LEFT JOIN (
-  SELECT person_id, 1 AS matched 
-  FROM static_cohort_people 
-  WHERE equals(cohort_id, 6)) AS in_cohort__6 ON equals(in_cohort__6.person_id, person_id) 
-  WHERE equals(in_cohort__6.matched, 1) 
+  SELECT
+      event
+  
+  FROM
+      events
+      LEFT JOIN (
+  SELECT
+          person_id,
+          1 AS matched
+      
+  FROM
+          static_cohort_people
+      
+  WHERE
+          equals(cohort_id, 6)) AS in_cohort__6 ON equals(in_cohort__6.person_id, person_id)
+  
+  WHERE
+      equals(in_cohort__6.matched, 1)
+  
   LIMIT 100
   '''
 # ---
