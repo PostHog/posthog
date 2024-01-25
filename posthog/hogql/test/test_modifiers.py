@@ -81,6 +81,7 @@ class TestModifiers(BaseTest):
                 query,
                 team=self.team,
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+                pretty=False,
             )
             assert f"SELECT {', '.join(expected)} FROM" in response.clickhouse, f"PoE mode: {mode}"
 
