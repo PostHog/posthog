@@ -1,4 +1,4 @@
-import { eventWithTime } from '@rrweb/types'
+import { customEvent, eventWithTime } from '@rrweb/types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -69,7 +69,16 @@ export type InspectorListItemPerformance = InspectorListItemBase & {
     data: PerformanceEvent
 }
 
-export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsole | InspectorListItemPerformance
+export type InspectorListOfflineStatusChange = InspectorListItemBase & {
+    type: 'offline-status'
+    offline: boolean
+}
+
+export type InspectorListItem =
+    | InspectorListItemEvent
+    | InspectorListItemConsole
+    | InspectorListItemPerformance
+    | InspectorListOfflineStatusChange
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -191,6 +200,41 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        offlineStatusChanges: [
+            (s) => [s.start, s.sessionPlayerData],
+            (start, sessionPlayerData): InspectorListOfflineStatusChange[] => {
+                const logs: InspectorListOfflineStatusChange[] = []
+
+                const startMs = start?.valueOf() ?? 0
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
+                    snapshots.forEach((snapshot: eventWithTime) => {
+                        if (
+                            snapshot.type === 5 // RRWeb custom event type
+                        ) {
+                            const customEvent = snapshot as customEvent
+                            const tag = customEvent.data.tag
+
+                            if (['browser offline', 'browser online'].includes(tag)) {
+                                const timestamp = dayjs(snapshot.timestamp)
+                                const timeInRecording = timestamp.valueOf() - startMs
+                                logs.push({
+                                    type: 'offline-status',
+                                    offline: tag === 'browser offline',
+                                    timestamp: timestamp,
+                                    timeInRecording: timeInRecording,
+                                    search: tag,
+                                    windowId: windowId,
+                                    highlightColor: 'warning',
+                                } satisfies InspectorListOfflineStatusChange)
+                            }
+                        }
+                    })
+                })
+
+                return logs
+            },
+        ],
+
         consoleLogs: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData): RecordingConsoleLogV2[] => {
@@ -253,8 +297,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allItems: [
-            (s) => [s.start, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEventUUIDs],
-            (start, performanceEvents, consoleLogs, eventsData, matchingEventUUIDs): InspectorListItem[] => {
+            (s) => [
+                s.start,
+                s.allPerformanceEvents,
+                s.consoleLogs,
+                s.sessionEventsData,
+                s.matchingEventUUIDs,
+                s.offlineStatusChanges,
+            ],
+            (
+                start,
+                performanceEvents,
+                consoleLogs,
+                eventsData,
+                matchingEventUUIDs,
+                offlineStatusChanges
+            ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
@@ -262,6 +320,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const items: InspectorListItem[] = []
 
                 const startMs = start?.valueOf() ?? 0
+
+                // no conversion needed for offlineStatusChanges, they're ready to roll
+                for (const event of offlineStatusChanges || []) {
+                    items.push(event)
+                }
 
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
@@ -371,6 +434,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 for (const item of allItems) {
                     let include = false
+
+                    if (item.type === 'offline-status') {
+                        include = true
+                    }
 
                     // EVENTS
                     if (item.type === SessionRecordingPlayerTab.EVENTS) {
