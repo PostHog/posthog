@@ -1,10 +1,10 @@
-// TODO we'll need to update the context as well as passing it around so we can track converted nodes
-// interface ConversionResult<T> {
-//     converted: T,
-//     context: ConversionContext
-// }
-
 import {MobileStyles} from "../mobile.types";
+
+export interface ConversionResult<T> {
+    result: T,
+    context: ConversionContext
+}
+
 
 export interface ConversionContext {
     timestamp: number,

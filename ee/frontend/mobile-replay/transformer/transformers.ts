@@ -41,7 +41,7 @@ import {
     wireframeToggle,
 } from '../mobile.types'
 import {makeStatusBar} from "./status-bar";
-import {ConversionContext, StyleOverride} from "./types";
+import {ConversionContext, ConversionResult, StyleOverride} from "./types";
 import {
     makeBodyStyles,
     makeColorStyles,
@@ -815,24 +815,25 @@ function chooseConverter<T extends wireframe>(
     return converterMapping[converterType]
 }
 
-function convertWireframe(wireframe: wireframe, context: ConversionContext): serializedNodeWithId | null {
+function convertWireframe(wireframe: wireframe, context: ConversionContext): ConversionResult<serializedNodeWithId> | null {
     const children = convertWireframesFor(wireframe.childWireframes, context)
     const converter = chooseConverter(wireframe)
-    return converter?.(wireframe, children, context) || null
+    const converted = converter?.(wireframe, children.result, context);
+    return converted ? {result: converted, context} : null
 }
 
-function convertWireframesFor(wireframes: wireframe[] | undefined, context: ConversionContext): serializedNodeWithId[] {
+function convertWireframesFor(wireframes: wireframe[] | undefined, context: ConversionContext): ConversionResult<serializedNodeWithId[]> {
     if (!wireframes) {
-        return []
+        return { result: [], context }
     }
 
     return wireframes.reduce((acc, wireframe) => {
         const convertedEl = convertWireframe(wireframe, context)
         if (convertedEl !== null) {
-            acc.push(convertedEl)
+            acc.result.push(convertedEl.result)
         }
         return acc
-    }, [] as serializedNodeWithId[])
+    }, { result: [], context } as ConversionResult<serializedNodeWithId[]>)
 }
 
 function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSnapshotEvent {
@@ -863,7 +864,7 @@ function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext)
     const addition: addedNodeMutation = {
         parentId: add.parentId,
         nextId: null,
-        node: converted,
+        node: converted.result,
     }
     const adds: addedNodeMutation[] = []
     if (addition) {
@@ -1040,7 +1041,7 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, {timestamp: mobileEvent.timestamp, idSequence }) || [],
+                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, {timestamp: mobileEvent.timestamp, idSequence }).result || [],
                             },
                         ],
                     },
