@@ -79,7 +79,7 @@ export function PersonsModal({
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
         exploreUrl,
-        ActorsQuery,
+        actorsQuery,
     } = useValues(logic)
     const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
         useActions(logic)
@@ -220,7 +220,7 @@ export function PersonsModal({
                                     void triggerExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
-                                            ? { source: ActorsQuery as Record<string, any> }
+                                            ? { source: actorsQuery as Record<string, any> }
                                             : { path: originalUrl },
                                     })
                                 }}

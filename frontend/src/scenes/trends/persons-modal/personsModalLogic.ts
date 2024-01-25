@@ -107,13 +107,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         return res
                     } else if (query) {
                         const response = await performQuery({
-                            ...values.ActorsQuery,
+                            ...values.actorsQuery,
                             limit: RESULTS_PER_PAGE + 1,
                             offset: offset || 0,
                         } as ActorsQuery)
                         breakpoint()
 
-                        const assembledSelectFields = values.SelectFields
+                        const assembledSelectFields = values.selectFields
                         const additionalFieldIndices = Object.values(additionalFields || {}).map((field) =>
                             assembledSelectFields.indexOf(field)
                         )
@@ -231,8 +231,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            if (values.ActorsQuery) {
-                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.ActorsQuery })
+            if (values.actorsQuery) {
+                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
                 cohortsModel.actions.cohortCreated(cohort)
                 lemonToast.success('Cohort saved', {
                     toastId: `cohort-saved-${cohort.id}`,
@@ -317,15 +317,15 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return cleanFilters(filter)
             },
         ],
-        SelectFields: [
+        selectFields: [
             () => [(_, p) => p.additionalFields],
             (additionalFields: PersonModalLogicProps['additionalFields']): string[] => {
                 const extra = Object.values(additionalFields || {})
                 return ['person', 'created_at', ...extra]
             },
         ],
-        ActorsQuery: [
-            (s) => [(_, p) => p.query, s.searchTerm, s.SelectFields],
+        actorsQuery: [
+            (s) => [(_, p) => p.query, s.searchTerm, s.selectFields],
             (query, searchTerm, selectFields): ActorsQuery | null => {
                 if (!query) {
                     return null
@@ -340,12 +340,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         exploreUrl: [
-            (s) => [s.ActorsQuery],
-            (ActorsQuery): string | null => {
-                if (!ActorsQuery) {
+            (s) => [s.actorsQuery],
+            (actorsQuery): string | null => {
+                if (!actorsQuery) {
                     return null
                 }
-                const { select: _select, ...source } = ActorsQuery
+                const { select: _select, ...source } = actorsQuery
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     source,
