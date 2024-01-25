@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import { billingJson } from '~/mocks/fixtures/_billing_v2'
 import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_v2_with_100_percent_discount.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_v2_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -9,7 +9,6 @@ import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@cu
 import batchExports from '~/mocks/fixtures/api/organizations/@current/batchExports.json'
 import exportsUnsubscribeConfigs from '~/mocks/fixtures/api/organizations/@current/plugins/exportsUnsubscribeConfigs.json'
 import organizationPlugins from '~/mocks/fixtures/api/organizations/@current/plugins/plugins.json'
-import { BillingProductV2Type } from '~/types'
 
 import { Billing } from './Billing'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -79,7 +78,7 @@ export const BillingUnsubscribeModal = (): JSX.Element => {
         },
     })
 
-    return <UnsubscribeSurveyModal product={billingJson.products[0] as unknown as BillingProductV2Type} />
+    return <UnsubscribeSurveyModal product={billingJson.products[0]} />
 }
 export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
     useStorybookMocks({
@@ -97,7 +96,7 @@ export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
             },
         },
     })
-    const product = billingJson.products[0] as unknown as BillingProductV2Type
+    const product = billingJson.products[0]
     product.addons = [
         {
             type: 'data_pipelines',

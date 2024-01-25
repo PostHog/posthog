@@ -5,7 +5,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import billingJson from '~/mocks/fixtures/_billing_v2'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 const meta: Meta = {
