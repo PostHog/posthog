@@ -498,6 +498,9 @@ class _Printer(Visitor):
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
+    def visit_list_expr(self, node: ast.ListExpr):
+        return f"{', '.join([self.visit(expr) for expr in node.exprs])}"
+
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
         if len(identifiers) == 0:

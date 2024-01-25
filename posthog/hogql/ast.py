@@ -454,6 +454,11 @@ class Array(Expr):
 
 
 @dataclass(kw_only=True)
+class ListExpr(Expr):
+    exprs: List[Expr]
+
+
+@dataclass(kw_only=True)
 class TupleAccess(Expr):
     tuple: Expr
     index: int

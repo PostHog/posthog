@@ -382,6 +382,14 @@ class CloningVisitor(Visitor):
             exprs=[self.visit(expr) for expr in node.exprs],
         )
 
+    def visit_list_expr(self, node: ast.ListExpr):
+        return ast.ListExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
+
     def visit_constant(self, node: ast.Constant):
         return ast.Constant(
             start=None if self.clear_locations else node.start,
