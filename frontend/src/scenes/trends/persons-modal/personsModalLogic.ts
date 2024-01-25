@@ -23,6 +23,7 @@ import {
     ActorType,
     BreakdownType,
     ChartDisplayType,
+    CommonActorType,
     IntervalType,
     PersonActorType,
     PropertiesTimelineFilterType,
@@ -32,11 +33,12 @@ import type { personsModalLogicType } from './personsModalLogicType'
 
 const RESULTS_PER_PAGE = 100
 
+const selectFields = ['person', 'created_at']
+
 export interface PersonModalLogicProps {
     query?: InsightActorsQuery | null
     url?: string | null
-    additionalFields?: string[]
-    mapFields?: (result: any[]) => { [key: string]: any }
+    additionalFields?: Partial<Record<keyof CommonActorType, string>>
 }
 
 export interface ListActorsResponse {
@@ -63,19 +65,19 @@ export const personsModalLogic = kea<personsModalLogicType>([
             query,
             clear,
             offset,
-            mapFields,
+            additionalFields,
         }: {
             url?: string | null
             query?: InsightActorsQuery | null
             clear?: boolean
             offset?: number
-            mapFields?: (result: any[]) => { [key: string]: any }
+            additionalFields?: PersonModalLogicProps['additionalFields']
         }) => ({
             url,
             query,
             clear,
             offset,
-            mapFields,
+            additionalFields,
         }),
         loadNextActors: true,
         updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
@@ -90,7 +92,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, query, clear, offset, mapFields }, breakpoint) => {
+                loadActors: async ({ url, query, clear, offset, additionalFields }, breakpoint) => {
                     if (url) {
                         url += '&include_recordings=true'
 
@@ -112,25 +114,36 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             offset: offset || 0,
                         } as ActorsQuery)
                         breakpoint()
+
+                        const assembledSelectFields = values.SelectFields
+                        const additionalFieldIndices = Object.values(additionalFields || {}).map((field) =>
+                            assembledSelectFields.indexOf(field)
+                        )
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
                                     count: response.results.length,
-                                    people: response.results.slice(0, RESULTS_PER_PAGE).map(
-                                        (result): PersonActorType => ({
-                                            type: 'person',
-                                            id: result[0].id,
-                                            uuid: result[0].id,
-                                            distinct_ids: result[0].distinct_ids,
-                                            is_identified: result[0].is_identified,
-                                            properties: result[0].properties,
-                                            created_at: result[0].created_at,
-                                            matched_recordings: [],
-                                            value_at_data_point: null,
-                                            // mapFields provides a hook to map custom fields to the actor
-                                            ...(mapFields ? mapFields(result) : {}),
-                                        })
-                                    ),
+                                    people: response.results
+                                        .slice(0, RESULTS_PER_PAGE)
+                                        .map((result): PersonActorType => {
+                                            const person: PersonActorType = {
+                                                type: 'person',
+                                                id: result[0].id,
+                                                uuid: result[0].id,
+                                                distinct_ids: result[0].distinct_ids,
+                                                is_identified: result[0].is_identified,
+                                                properties: result[0].properties,
+                                                created_at: result[0].created_at,
+                                                matched_recordings: [],
+                                                value_at_data_point: null,
+                                            }
+
+                                            Object.keys(additionalFields || {}).forEach((field, index) => {
+                                                person[field] = result[additionalFieldIndices[index]]
+                                            })
+
+                                            return person
+                                        }),
                                 },
                             ],
                         }
@@ -306,16 +319,23 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return cleanFilters(filter)
             },
         ],
+        SelectFields: [
+            () => [(_, p) => p.additionalFields],
+            (additionalFields: PersonModalLogicProps['additionalFields']): string[] => {
+                const extra = Object.values(additionalFields || {})
+                return [...selectFields, ...extra]
+            },
+        ],
         ActorsQuery: [
-            (s) => [(_, p) => [p.query, p.additionalFields], s.searchTerm],
-            ([query, additionalFields], searchTerm): ActorsQuery | null => {
+            (s) => [(_, p) => p.query, s.searchTerm, s.SelectFields],
+            (query, searchTerm, selectFields): ActorsQuery | null => {
                 if (!query) {
                     return null
                 }
                 return {
                     kind: NodeKind.ActorsQuery,
                     source: query,
-                    select: ['person', 'created_at', ...(additionalFields || [])],
+                    select: selectFields,
                     orderBy: ['created_at DESC'],
                     search: searchTerm,
                 }
@@ -339,7 +359,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
-        actions.loadActors({ query: props.query, url: props.url, mapFields: props.mapFields })
+        actions.loadActors({ query: props.query, url: props.url, additionalFields: props.additionalFields })
 
         actions.reportPersonsModalViewed({
             url: props.url,

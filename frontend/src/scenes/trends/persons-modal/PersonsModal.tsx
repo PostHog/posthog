@@ -26,7 +26,6 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { InsightActorsQuery } from '~/queries/schema'
 import {
     ActorType,
     ExporterFormat,
@@ -35,21 +34,17 @@ import {
     SessionRecordingType,
 } from '~/types'
 
-import { personsModalLogic } from './personsModalLogic'
+import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 
-export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
+export interface PersonsModalProps extends PersonModalLogicProps, Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
-    query?: InsightActorsQuery | null
-    url?: string | null
     urlsIndex?: number
     urls?: {
         label: string | JSX.Element
         value: string
     }[]
     title: React.ReactNode | ((actorLabel: string) => React.ReactNode)
-    additionalFields?: string[]
-    mapFields?: (result: any[]) => Record<string, any>
 }
 
 export function PersonsModal({
@@ -61,7 +56,6 @@ export function PersonsModal({
     onAfterClose,
     inline,
     additionalFields,
-    mapFields,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
@@ -70,7 +64,6 @@ export function PersonsModal({
         url: originalUrl,
         query: _query,
         additionalFields,
-        mapFields,
     })
 
     const {
