@@ -198,8 +198,8 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
 function HorizontalLine({ className, label }: { className?: string; label?: string }): JSX.Element {
     return (
         <LemonDivider
-            className={clsx('items-start my-4', className)}
-            label={label && <span className="definition-popover-divider">{label}</span>}
+            className={clsx('DefinitionPopover items-start my-4', className)}
+            label={label && <span className="DefinitionPopover__label">{label}</span>}
         />
     )
 }

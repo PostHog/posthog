@@ -129,7 +129,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 updatedAt={(definition && 'updated_at' in definition && definition.updated_at) || undefined}
                 updatedBy={(definition && 'updated_by' in definition && definition.updated_by) || undefined}
             />
-            <LemonDivider className="my-4" />
+            <LemonDivider className="DefinitionPopover my-4" />
         </>
     )
 
@@ -169,7 +169,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <ActionPopoverInfo entity={_definition} />
-                {(_definition?.steps?.length || 0) > 0 && <LemonDivider className="my-4" />}
+                {(_definition?.steps?.length || 0) > 0 && <LemonDivider className="DefinitionPopover my-4" />}
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card
                         title="First seen"
@@ -284,7 +284,7 @@ function DefinitionEdit(): JSX.Element {
 
     return (
         <>
-            <LemonDivider className="my-4" />
+            <LemonDivider className="DefinitionPopover my-4" />
             <form className="definition-popover-edit-form">
                 {definition && 'description' in localDefinition && (
                     <>
@@ -331,7 +331,7 @@ function DefinitionEdit(): JSX.Element {
                         compact
                     />
                 )}
-                <LemonDivider className="mt-0" />
+                <LemonDivider className="DefinitionPopover mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">
                     {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
                         <LemonButton

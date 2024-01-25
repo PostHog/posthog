@@ -101,12 +101,16 @@
         }
     }
 
-    .definition-popover-divider {
-        align-items: flex-start;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        font-size: 0.6875rem;
-        text-transform: uppercase;
+    .DefinitionPopover {
+        background-color: var(--side);
+
+        .DefinitionPopover__label {
+            align-items: flex-start;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.6875rem;
+            text-transform: uppercase;
+        }
     }
 
     .definition-popover-grid {

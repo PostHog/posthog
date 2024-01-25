@@ -33,7 +33,9 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
     }
     return cohort.filters?.properties ? (
         <>
-            {(cohort.filters.properties?.values?.length || 0 > 0) && <LemonDivider />}
+            {(cohort.filters.properties?.values?.length || 0 > 0) && (
+                <LemonDivider className="DefinitionPopover my-2" />
+            )}
             {cohort.filters.properties.values.slice(0, MAX_CRITERIA_GROUPS).map(
                 (cohortGroup, cohortGroupIndex) =>
                     isCohortCriteriaGroup(cohortGroup) && (
@@ -101,7 +103,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
         </>
     ) : (
         <>
-            {(cohort.groups?.length || 0 > 0) && <LemonDivider />}
+            {(cohort.groups?.length || 0 > 0) && <LemonDivider className="DefinitionPopover my-2" />}
             {cohort.groups &&
                 cohort.groups.map((group, index) => (
                     <DefinitionPopover.Section key={index}>
