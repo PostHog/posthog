@@ -273,7 +273,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.OnboardingProductIntroduction]: {
         projectBased: true,
-        name: 'Product onboarding',
+        name: 'Product introduction',
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
