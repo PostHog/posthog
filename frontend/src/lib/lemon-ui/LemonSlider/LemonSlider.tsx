@@ -84,7 +84,7 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
             />
             <div
                 className={clsx(
-                    'absolute size-3 box-content border-2 border-bg-light rounded-full cursor-pointer bg-primary transition-shadow duration-100',
+                    'absolute size-3 box-content border-2 border-bg-light rounded-full cursor-pointer bg-primary transition-shadow duration-75',
                     dragging ? 'ring-2 scale-90' : 'ring-0 hover:ring-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
