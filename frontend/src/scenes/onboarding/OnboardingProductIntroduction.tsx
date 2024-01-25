@@ -153,9 +153,11 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                             <p>{product.description}</p>
                             <GetStartedButton product={product} />
                         </div>
-                        <aside className="text-right my-2 hidden md:block">
-                            <img src={product.image_url || undefined} className="max-w-96" />
-                        </aside>
+                        {product.image_url && (
+                            <aside className="text-right my-2 hidden md:block">
+                                <img src={product.image_url || undefined} className="max-w-96" />
+                            </aside>
+                        )}
                     </div>
                 </header>
                 {product.screenshot_url && (
