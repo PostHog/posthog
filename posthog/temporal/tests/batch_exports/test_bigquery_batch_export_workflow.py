@@ -60,18 +60,6 @@ def assert_events_in_bigquery(
         inserted_event = {k: json.loads(v) if k in json_columns and v is not None else v for k, v in row.items()}
         inserted_events.append(inserted_event)
 
-    # Reconstruct bq_ingested_timestamp in case we are faking dates.
-    bq_ingested_timestamp = dt.datetime(
-        bq_ingested_timestamp.year,
-        bq_ingested_timestamp.month,
-        bq_ingested_timestamp.day,
-        bq_ingested_timestamp.hour,
-        bq_ingested_timestamp.minute,
-        bq_ingested_timestamp.second,
-        bq_ingested_timestamp.microsecond,
-        bq_ingested_timestamp.tzinfo,
-    )
-
     expected_events = []
     for event in events:
         event_name = event.get("event")
@@ -82,9 +70,8 @@ def assert_events_in_bigquery(
         properties = event.get("properties", None)
         elements_chain = event.get("elements_chain", None)
         expected_event = {
-            "bq_ingested_timestamp": bq_ingested_timestamp,
             "distinct_id": event.get("distinct_id"),
-            "elements": json.dumps(elements_chain),
+            "elements": json.dumps(elements_chain) if elements_chain is not None else json.dumps(""),
             "event": event_name,
             "ip": properties.get("$ip", None) if properties else None,
             "properties": event.get("properties"),
@@ -96,6 +83,9 @@ def assert_events_in_bigquery(
             "team_id": event.get("team_id"),
             "uuid": event.get("uuid"),
         }
+        if "bq_ingested_timestamp" in inserted_events[0]:
+            expected_event["bq_ingested_timestamp"] = inserted_events[0]["bq_ingested_timestamp"]
+
         expected_events.append(expected_event)
 
     expected_events.sort(key=lambda x: (x["event"], x["timestamp"]))
@@ -520,6 +510,6 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
 )
 def test_get_bigquery_fields_from_record_schema(pyrecords, expected_schema):
     record_batch = pa.RecordBatch.from_pylist(pyrecords)
-    schema = get_bigquery_fields_from_record_schema(record_batch.schema)
+    schema = get_bigquery_fields_from_record_schema(record_batch.schema, known_json_columns=[])
 
     assert schema == expected_schema

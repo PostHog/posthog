@@ -142,13 +142,16 @@ def default_fields() -> list[BatchExportField]:
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="nullIf(properties, '')", alias="properties"),
         BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
-        BatchExportField(expression="toString(person_id)", alias="person_id"),
         BatchExportField(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set"),
         BatchExportField(
             expression="nullIf(JSONExtractString(properties, '$set_once'), '')",
             alias="set_once",
         ),
     ]
+
+
+BytesGenerator = collections.abc.AsyncGenerator[bytes, None]
+RecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
 
 
 async def iter_records(
@@ -160,7 +163,7 @@ async def iter_records(
     include_events: collections.abc.Iterable[str] | None = None,
     fields: list[BatchExportField] | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
-) -> typing.AsyncGenerator[pa.RecordBatch, None]:
+) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
     Args:
@@ -456,6 +459,14 @@ class BatchExportTemporaryFile:
             quoting=quoting,
             lineterminator=lineterminator,
         )
+
+    async def write_record_batches_to_parquet(self, records: RecordsGenerator):
+        writer = pa.parquet.ParquetWriter(where=self)
+
+        async for record in records:
+            writer.write_batch(record)
+
+        writer.close()
 
     def rewind(self):
         """Rewind the file before reading it."""
