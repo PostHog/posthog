@@ -30,9 +30,9 @@ export function ExperimentResult(): JSX.Element {
         conversionRateForVariant,
         getIndexForVariant,
         areTrendResultsConfusing,
-        experimentResultCalculationError,
         sortedExperimentResultVariants,
         experimentMathAggregationForTrends,
+        requiredEventsBreakdown,
     } = useValues(experimentLogic)
 
     return (
@@ -183,13 +183,27 @@ export function ExperimentResult(): JSX.Element {
                     <>
                         <div className="no-experiment-results p-4">
                             {!experimentResultsLoading && (
-                                <div className="text-center">
+                                <div className="text-center space-y-4">
                                     <b>There are no results for this experiment yet.</b>
-                                    <div className="text-sm ">
-                                        {!!experimentResultCalculationError && `${experimentResultCalculationError}. `}{' '}
-                                        Wait a bit longer for your users to be exposed to the experiment. Double check
-                                        your feature flag implementation if you're still not seeing results.
-                                    </div>
+                                    {requiredEventsBreakdown && requiredEventsBreakdown.missingEvents.length && (
+                                        <>
+                                            <div className="text-sm">
+                                                To be able to see the results, the following events must yet be
+                                                ingested. Allow some time for the users to generate them, or double
+                                                check your feature flag implementation.
+                                            </div>
+                                            <div className="w-fit m-auto">
+                                                {requiredEventsBreakdown.missingEvents.map(({ event, variant }) => (
+                                                    <div key={`${event}:${variant}`} className="w-fit mb-2 leading-4">
+                                                        <span className="text-sm font-bold">{event}</span>
+                                                        <span className="bg-muted rounded text-white text-xs px-2 py-1 ml-2">
+                                                            {variant}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>

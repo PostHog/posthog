@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightVizNode } from '~/queries/schema'
+import { HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import {
     ActionFilter as ActionFilterType,
     Breadcrumb,
@@ -77,6 +77,11 @@ interface SecondaryMetricResult {
 export interface TabularSecondaryMetricResults {
     variant: string
     results?: SecondaryMetricResult[]
+}
+
+export interface RequiredEventsBreakdown {
+    presentEvents: { event: string; variant: string }[]
+    missingEvents: { event: string; variant: string }[]
 }
 
 export const experimentLogic = kea<experimentLogicType>([
@@ -406,6 +411,7 @@ export const experimentLogic = kea<experimentLogicType>([
             } else {
                 actions.loadExperimentResults()
                 actions.loadSecondaryMetricResults()
+                actions.loadRequiredEventsBreakdown()
             }
         },
         launchExperiment: async () => {
@@ -613,6 +619,63 @@ export const experimentLogic = kea<experimentLogicType>([
                             }
                         })
                     )
+                },
+            },
+        ],
+        requiredEventsBreakdown: [
+            null as RequiredEventsBreakdown | null,
+            {
+                loadRequiredEventsBreakdown: async (): Promise<RequiredEventsBreakdown> => {
+                    const output = {
+                        presentEvents: [] as { event: string; variant: string }[],
+                        missingEvents: [] as { event: string; variant: string }[],
+                    }
+
+                    const { experiment } = values
+                    const { feature_flag, feature_flag_key } = experiment
+                    const events = experiment.filters.events?.map((e) => e.id)
+                    const variants = feature_flag?.filters.multivariate?.variants.map((v) => v.key)
+
+                    if (!events?.length || !variants?.length) {
+                        return output
+                    }
+
+                    const query: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: `
+                                    SELECT
+                                        event,
+                                        JSONExtractString(properties, '$feature/${feature_flag_key}') AS variant,
+                                        COUNT(*) AS count
+                                    FROM events
+                                    WHERE event IN (${events.map((e) => `'${e}'`).join(', ')})
+                                    AND variant IN (${variants.map((v) => `'${v}'`).join(', ')})
+                                    GROUP BY event, variant
+                                `,
+                    }
+
+                    const responseJSON = await api.query(query)
+                    const { results } = responseJSON
+                    const presentEvents = new Set()
+                    if (results && results.length) {
+                        for (const [event, variant, count] of results) {
+                            if (count && count > 0) {
+                                presentEvents.add(`${event}::${variant}`)
+                            }
+                        }
+                    }
+
+                    for (const event of events) {
+                        for (const variant of variants) {
+                            if (presentEvents.has(`${event}::${variant}`)) {
+                                output.presentEvents.push({ event, variant })
+                            } else {
+                                output.missingEvents.push({ event, variant })
+                            }
+                        }
+                    }
+
+                    return output
                 },
             },
         ],
