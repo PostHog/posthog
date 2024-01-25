@@ -40,7 +40,12 @@ class ActorsQueryRunner(QueryRunner):
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
     def enrich_with_actors(
-        self, results, actor_column_index, actors_lookup, column_index_events, recordings_lookup
+        self,
+        results,
+        actor_column_index,
+        actors_lookup,
+        column_index_events,
+        recordings_lookup: Optional[dict[str, list[dict]]],
     ) -> Generator[List, None, None]:
         for result in results:
             new_row = list(result)
@@ -50,7 +55,11 @@ class ActorsQueryRunner(QueryRunner):
             new_row[column_index_events] = None
             if recordings_lookup:
                 session_ids = (event[2] for event in result[column_index_events])
-                new_row[column_index_events] = (recordings_lookup.get(session_id) for session_id in session_ids)
+                new_row[column_index_events] = (
+                    {"session_id": session_id, "events": recordings_lookup[session_id]}
+                    for session_id in session_ids
+                    if session_id in recordings_lookup
+                )
             yield new_row
 
     def calculate(self) -> ActorsQueryResponse:
@@ -70,7 +79,7 @@ class ActorsQueryRunner(QueryRunner):
             column_index_actor = input_columns.index(column_name)
             actor_ids = (row[column_index_actor] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
-            recordings_lookup = None
+            recordings_lookup: Optional[dict[str, list[dict]]] = None
             column_index_events = None
 
             if "matched_recordings" in input_columns and column_name == "person":

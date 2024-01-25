@@ -137,8 +137,13 @@ class PathsQueryRunner(QueryRunner):
             event_conditional,
             *[ast.Field(chain=["events", field]) for field in self.extra_event_fields],
             *[
-                # parse_expr(f"properties.${field} AS {field}")
-                ast.Alias(alias=field, expr=ast.Field(chain=["properties", f"${field}"]))
+                ast.Alias(
+                    alias=field,
+                    expr=ast.Call(
+                        name="ifNull",
+                        args=[ast.Field(chain=["events", "properties", f"${field}"]), ast.Constant(value="")],
+                    ),
+                )
                 for field in self.extra_event_properties
             ],
         ]
