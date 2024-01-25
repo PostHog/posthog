@@ -57,7 +57,6 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
 
     const proportion = Math.round(((value - min) / (max - min)) * 100) / 100
 
-    // Use only Tailwind
     return (
         <div className={clsx('flex items-center relative my-2.5 min-w-16 select-none', className)}>
             <div
