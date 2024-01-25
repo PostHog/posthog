@@ -58,6 +58,7 @@ from posthog.helpers.multi_property_breakdown import (
     protect_old_clients_from_multi_property_default,
 )
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
 from posthog.hogql_queries.legacy_compatibility.process_insight import is_insight_with_hogql_support, process_insight
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
@@ -821,13 +822,16 @@ Using the correct cache and enriching the response with dashboard specific confi
     )
     @action(methods=["GET", "POST"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
+        timings = HogQLTimings()
+
         try:
             serializer = TrendSerializer(request=request)
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             capture_exception(e)
         try:
-            result = self.calculate_trends(request)
+            with timings.measure("calculate"):
+                result = self.calculate_trends(request)
         except HogQLException as e:
             raise ValidationError(str(e))
         filter = Filter(request=request, team=self.team)
@@ -865,6 +869,9 @@ Using the correct cache and enriching the response with dashboard specific confi
                 date_to=filter.date_to.strftime("%Y-%m-%d"),
             )
             return response
+
+        result["timings"] = [val.model_dump() for val in timings.to_list()]
+
         return Response({**result, "next": next})
 
     @cached_by_filters
@@ -907,17 +914,20 @@ Using the correct cache and enriching the response with dashboard specific confi
     )
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        timings = HogQLTimings()
         try:
             serializer = FunnelSerializer(request=request)
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             capture_exception(e)
         try:
-            funnel = self.calculate_funnel(request)
+            with timings.measure("calculate"):
+                funnel = self.calculate_funnel(request)
         except HogQLException as e:
             raise ValidationError(str(e))
 
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
+        funnel["timings"] = [val.model_dump() for val in timings.to_list()]
 
         return Response(funnel)
 
@@ -951,10 +961,14 @@ Using the correct cache and enriching the response with dashboard specific confi
     # ******************************************
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        timings = HogQLTimings()
         try:
-            result = self.calculate_retention(request)
+            with timings.measure("calculate"):
+                result = self.calculate_retention(request)
         except HogQLException as e:
             raise ValidationError(str(e))
+
+        result["timings"] = [val.model_dump() for val in timings.to_list()]
         return Response(result)
 
     @cached_by_filters
@@ -977,10 +991,14 @@ Using the correct cache and enriching the response with dashboard specific confi
     # ******************************************
     @action(methods=["GET", "POST"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        timings = HogQLTimings()
         try:
-            result = self.calculate_path(request)
+            with timings.measure("calculate"):
+                result = self.calculate_path(request)
         except HogQLException as e:
             raise ValidationError(str(e))
+
+        result["timings"] = [val.model_dump() for val in timings.to_list()]
         return Response(result)
 
     @cached_by_filters
