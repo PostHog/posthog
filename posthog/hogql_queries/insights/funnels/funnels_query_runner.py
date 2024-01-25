@@ -2,6 +2,7 @@ from datetime import timedelta
 from math import ceil
 from typing import List, Optional, Any, Dict, cast
 
+from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
@@ -17,7 +18,9 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -104,3 +107,12 @@ class FunnelsQueryRunner(QueryRunner):
             timings.extend(response.timings)
 
         return FunnelsQueryResponse(results=res, timings=timings)
+
+    @cached_property
+    def query_date_range(self):
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=self.query.interval,
+            now=datetime.now(),
+        )
