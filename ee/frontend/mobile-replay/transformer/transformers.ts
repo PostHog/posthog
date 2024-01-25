@@ -77,8 +77,9 @@ function* ids(): Generator<number> {
     }
 }
 
-// TODO this is shared for the lifetime of the page, so a very, very long-lived session could exhaust the ids
-const globalIdSequence = ids()
+// TODO this is shared for the lifetime of the page,
+//  so a very, very long-lived session could exhaust the ids
+let globalIdSequence = ids()
 
 // there are some fixed ids that we need to use for fixed elements or artificial mutations
 const DOCUMENT_ID = 1
@@ -1117,6 +1118,9 @@ export const makeFullEvent = (
     timestamp: number
     delay?: number
 } => {
+    // we can restart the id sequence on each full snapshot
+    globalIdSequence = ids()
+
     if (!('wireframes' in mobileEvent.data)) {
         return mobileEvent as unknown as fullSnapshotEvent & {
             timestamp: number
