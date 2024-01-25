@@ -98,43 +98,27 @@
     transform: rotate(45deg);
 
     [data-placement^='bottom'] & {
-        top: -0.25rem;
+        top: -0.3125rem;
         border-top: 1px solid var(--border);
         border-left: 1px solid var(--border);
-
-        .posthog-3000 & {
-            top: -0.3rem;
-        }
     }
 
     [data-placement^='top'] & {
-        bottom: -0.25rem;
+        bottom: -0.3125rem;
         border-right: 1px solid var(--border);
         border-bottom: 1px solid var(--border);
-
-        .posthog-3000 & {
-            bottom: -0.3rem;
-        }
     }
 
     [data-placement^='left'] & {
-        right: -0.25rem;
+        right: -0.3125rem;
         border-top: 1px solid var(--border);
         border-right: 1px solid var(--border);
-
-        .posthog-3000 & {
-            right: -0.3rem;
-        }
     }
 
     [data-placement^='right'] & {
-        left: -0.25rem;
+        left: -0.3125rem;
         border-bottom: 1px solid var(--border);
         border-left: 1px solid var(--border);
-
-        .posthog-3000 & {
-            left: -0.3rem;
-        }
     }
 }
 
