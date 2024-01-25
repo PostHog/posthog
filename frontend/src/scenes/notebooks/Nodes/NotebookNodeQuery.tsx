@@ -15,9 +15,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { IconMagnifier } from 'lib/lemon-ui/icons'
-import { router } from 'kea-router'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -37,7 +34,7 @@ const Component = ({
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
-    const { setTitlePlaceholder, setActions } = useActions(nodeLogic)
+    const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
 
     useEffect(() => {
@@ -67,18 +64,6 @@ const Component = ({
         }
 
         setTitlePlaceholder(title)
-
-        const queryFilters = isInsightVizNode(query) ? queryNodeToFilter(query.source) : null
-
-        if (queryFilters) {
-            setActions([
-                {
-                    text: 'Create new insight',
-                    icon: <IconMagnifier />,
-                    onClick: () => router.actions.push(urls.insightNew(queryFilters)),
-                },
-            ])
-        }
     }, [query])
 
     const modifiedQuery = useMemo(() => {
@@ -241,7 +226,11 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         },
     },
     href: (attrs) =>
-        attrs.query.kind === NodeKind.SavedInsightNode ? urls.insightView(attrs.query.shortId) : undefined,
+        attrs.query.kind === NodeKind.SavedInsightNode
+            ? urls.insightView(attrs.query.shortId)
+            : isInsightVizNode(attrs.query)
+            ? urls.insightNew(undefined, undefined, attrs.query)
+            : undefined,
     Settings,
     pasteOptions: {
         find: urls.insightView('(.+)' as InsightShortId),
