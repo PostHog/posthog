@@ -51,7 +51,6 @@ export function SeriesColumnItem({
                     onClick={() => handleEditClick(item)}
                     title="Rename graph series"
                     icon={<IconEdit className="edit-icon" />}
-                    size="xsmall"
                 />
             )}
         </div>
