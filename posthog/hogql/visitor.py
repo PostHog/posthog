@@ -80,6 +80,10 @@ class TraversingVisitor(Visitor):
         for expr in node.exprs:
             self.visit(expr)
 
+    def visit_list_expr(self, node: ast.ListExpr):
+        for expr in node.exprs:
+            self.visit(expr)
+
     def visit_constant(self, node: ast.Constant):
         self.visit(node.type)
 
