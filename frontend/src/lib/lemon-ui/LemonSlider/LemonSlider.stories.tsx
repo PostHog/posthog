@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+import { useState } from 'react'
 
 import { LemonSlider } from './LemonSlider'
 
@@ -10,5 +11,7 @@ const meta: Meta<typeof LemonSlider> = {
 export default meta
 
 export function Basic(): JSX.Element {
-    return <LemonSlider value={53} min={0} max={100} step={1} />
+    const [value, setValue] = useState(42)
+
+    return <LemonSlider value={value} min={0} max={100} step={1} onChange={setValue} />
 }

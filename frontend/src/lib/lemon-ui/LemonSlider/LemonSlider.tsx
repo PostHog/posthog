@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useEventListener } from 'lib/hooks/useEventListener'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 export interface LemonSliderProps {
     value?: number
@@ -15,13 +15,14 @@ export interface LemonSliderProps {
 export function LemonSlider({ value = 0, onChange, min, max, step = 1, className }: LemonSliderProps): JSX.Element {
     const trackRef = useRef<HTMLDivElement>(null)
     const movementStartValueWithX = useRef<[number, number] | null>(null)
+    const [dragging, setDragging] = useState(false)
 
-    useEventListener('mousemove', (e) => {
-        if (e.button === 0 && trackRef.current && movementStartValueWithX.current !== null) {
+    const handleMove = (clientX: number): void => {
+        if (trackRef.current && movementStartValueWithX.current !== null) {
             const [movementStartValue, movementStartX] = movementStartValueWithX.current
             const rect = trackRef.current.getBoundingClientRect()
             const adjustedWidth = rect.width - 16 // 16px = handle width
-            const deltaX = (e.clientX - movementStartX) / adjustedWidth
+            const deltaX = (clientX - movementStartX) / adjustedWidth
             let newValue = movementStartValue + (max - min) * deltaX
             newValue = Math.max(min, Math.min(max, newValue)) // Clamped
             if (step !== undefined) {
@@ -29,11 +30,29 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
             }
             onChange?.(newValue)
         }
+    }
+    useEventListener('mousemove', (e) => {
+        handleMove(e.clientX)
     })
+    useEventListener('touchmove', (e) => {
+        if (e.touches.length === 1) {
+            handleMove(e.touches[0].clientX)
+        }
+    })
+
     useEventListener('mouseup', (e) => {
         if (e.button === 0) {
             movementStartValueWithX.current = null
+            setDragging(false)
         }
+    })
+    useEventListener('touchend', () => {
+        movementStartValueWithX.current = null
+        setDragging(false)
+    })
+    useEventListener('touchcancel', () => {
+        movementStartValueWithX.current = null
+        setDragging(false)
     })
 
     const proportion = Math.round(((value - min) / (max - min)) * 100) / 100
@@ -64,13 +83,21 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                 style={{ width: `${proportion * 100}%` }}
             />
             <div
-                className="absolute size-3 box-content border-2 border-bg-light bg-primary rounded-full cursor-pointer"
+                className={clsx(
+                    'absolute size-3 box-content border-2 border-bg-light rounded-full cursor-pointer bg-primary transition-shadow duration-100',
+                    dragging ? 'ring-2 scale-90' : 'ring-0 hover:ring-2'
+                )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     left: `calc(${proportion * 100}% - ${proportion}rem)`,
                 }}
                 onMouseDown={(e) => {
                     movementStartValueWithX.current = [value, e.clientX]
+                    setDragging(true)
+                }}
+                onTouchStart={(e) => {
+                    movementStartValueWithX.current = [value, e.touches[0].clientX]
+                    setDragging(true)
                 }}
             />
         </div>

@@ -2,43 +2,43 @@
 @import 'vars';
 @import 'tailwindcss/utilities';
 
-@each $name, $hex in $colors {
-    .text-#{$name} {
-        color: var(--#{$name});
-    }
-    .bg-#{$name} {
-        background-color: var(--#{$name});
-    }
-    .border-#{$name} {
-        border-color: var(--#{$name});
-    }
-    .border-x-#{$name} {
-        border-right-color: var(--#{$name});
-        border-left-color: var(--#{$name});
-    }
-    .border-y-#{$name} {
-        border-top-color: var(--#{$name});
-        border-bottom-color: var(--#{$name});
-    }
-    .decoration-#{$name} {
-        text-decoration-color: var(--#{$name});
-    }
-}
-
-@each $name, $hex in $colors {
-    .hover\:text-#{$name}:hover {
-        color: $hex;
-    }
-    .hover\:bg-#{$name}:hover {
-        background-color: $hex;
-    }
-    .hover\:border-#{$name}:hover {
-        border-color: $hex;
-    }
-}
-
 @layer utilities {
     .image-pixelated {
         image-rendering: pixelated;
+    }
+
+    @each $name, $hex in $colors {
+        .text-#{$name} {
+            color: var(--#{$name});
+        }
+        .bg-#{$name} {
+            background-color: var(--#{$name});
+        }
+        .border-#{$name} {
+            border-color: var(--#{$name});
+        }
+        .border-x-#{$name} {
+            border-right-color: var(--#{$name});
+            border-left-color: var(--#{$name});
+        }
+        .border-y-#{$name} {
+            border-top-color: var(--#{$name});
+            border-bottom-color: var(--#{$name});
+        }
+        .decoration-#{$name} {
+            text-decoration-color: var(--#{$name});
+        }
+    }
+
+    @each $name, $hex in $colors {
+        .hover\:text-#{$name}:hover {
+            color: $hex;
+        }
+        .hover\:bg-#{$name}:hover {
+            background-color: $hex;
+        }
+        .hover\:border-#{$name}:hover {
+            border-color: $hex;
+        }
     }
 }

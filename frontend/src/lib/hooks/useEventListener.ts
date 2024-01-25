@@ -1,17 +1,24 @@
 import { DependencyList, useEffect, useRef } from 'react'
 
 export type KeyboardEventHandler = (event: KeyboardEvent) => void
+export type TouchEventHandler = (event: TouchEvent) => void
 export type MouseEventHandler = (event: MouseEvent) => void
 export type EventHandler = (event: Event) => void
 
 export function useEventListener(
-    eventName: 'keyup' | 'keydown',
+    eventName: `key${string}`,
     handler: KeyboardEventHandler,
     element?: Element | Window | null,
     deps?: DependencyList
 ): void
 export function useEventListener(
-    eventName: 'mouseup' | 'mousedown' | 'mousemove',
+    eventName: `touch${string}`,
+    handler: TouchEventHandler,
+    element?: Element | Window | null,
+    deps?: DependencyList
+): void
+export function useEventListener(
+    eventName: `mouse${string}`,
     handler: MouseEventHandler,
     element?: Element | Window | null,
     deps?: DependencyList
@@ -24,7 +31,7 @@ export function useEventListener(
 ): void
 export function useEventListener(
     eventName: string,
-    handler: EventHandler | KeyboardEventHandler | MouseEventHandler,
+    handler: KeyboardEventHandler | TouchEventHandler | MouseEventHandler | EventHandler,
     element: Element | Window | null = window,
     deps?: DependencyList
 ): void {
