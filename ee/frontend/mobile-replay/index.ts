@@ -53,11 +53,9 @@ export function transformEventToWeb(event: unknown, validateTransformation?: boo
                 result = transformed
             }
         } else {
-            console.log('could not be event with time')
             captureMessage(`No type in event`, { extra: { event } })
         }
     } catch (e) {
-        console.log('error transforming event', e)
         captureException(e, { extra: { event } })
     }
     return result
