@@ -255,7 +255,7 @@ class Property:
 
         for key in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, key, None) is None:
-                raise ValueError(f"Missing required key {key} for property type {self.type}")
+                raise ValueError(f"Missing required key {key} for property type {self.type} with name {self.key}")
 
         if self.type == "behavioral":
             for key in VALIDATE_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:
