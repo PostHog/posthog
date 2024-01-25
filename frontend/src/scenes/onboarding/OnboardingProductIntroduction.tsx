@@ -230,7 +230,7 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                         <PricingSection product={product} />
                     </div>
                 </div>
-                <div className="mb-12 flex justify-center p-8">
+                <div className="mb-12 flex justify-center px-8">
                     <div className="w-full max-w-screen-xl rounded bg-white border border-border p-6 flex justify-between items-center gap-x-12">
                         <div>
                             <h3 className="mb-4 text-2xl font-bold">Get started with {product.name}</h3>
