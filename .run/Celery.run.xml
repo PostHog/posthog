@@ -19,7 +19,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/env/bin/celery" />
-    <option name="PARAMETERS" value="-A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-gossip --without-mingle --loglevel=DEBUG" />
+    <option name="PARAMETERS" value="-A posthog worker -B --scheduler redbeat.RedBeatScheduler --without-heartbeat --without-mingle --loglevel=DEBUG" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
