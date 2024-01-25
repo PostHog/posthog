@@ -141,8 +141,10 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.POSTGRES:
             try:
                 new_source_model, table_names = self._handle_postgres_source(request, *args, **kwargs)
-            except InternalPostgresError as e:
-                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+            except InternalPostgresError:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST, data={"message": "Cannot use internal Postgres database"}
+                )
             except Exception:
                 raise
         else:
@@ -232,7 +234,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         table_names = payload.get("schemas")
 
         if self._validate_postgres_host(host, self.team_id):
-            raise InternalPostgresError("Cannot use internal Postgres database")
+            raise InternalPostgresError()
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
