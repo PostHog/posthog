@@ -73,7 +73,17 @@ export interface LemonButtonPropsBase
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status' | 'targetBlank'
+    | 'onClick'
+    | 'to'
+    | 'disabled'
+    | 'icon'
+    | 'type'
+    | 'tooltip'
+    | 'tooltipPlacement'
+    | 'data-attr'
+    | 'aria-label'
+    | 'status'
+    | 'targetBlank'
 > & {
     dropdown?: LemonButtonDropdown
     /**

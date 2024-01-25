@@ -228,17 +228,17 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
     } else if (isFunnelsQuery(query)) {
         let summary
         const linkSymbol =
-            query.funnelsFilter?.funnel_order_type === StepOrderValue.STRICT
+            query.funnelsFilter?.funnelOrderType === StepOrderValue.STRICT
                 ? '⇉'
-                : query.funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED
+                : query.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
                 ? '&'
                 : '→'
         summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
-        if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
+        if (query.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {
             summary += ' time'
-        } else if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.Trends) {
+        } else if (query.funnelsFilter?.funnelVizType === FunnelVizType.Trends) {
             summary += ' trend'
         } else {
             // Steps are the default viz type

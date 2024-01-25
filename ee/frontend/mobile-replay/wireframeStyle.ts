@@ -1,4 +1,5 @@
 import { MobileStyles, wireframe, wireframeProgress } from './mobile.types'
+import {dataURIOrPNG} from "./transformers";
 
 // StyleOverride is defined here and not in the schema
 // because these are overrides that the transformer is allowed to make
@@ -144,9 +145,7 @@ export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, st
         ...wireframe.style,
         ...styleOverride,
     }
-    if (combinedStyles.backgroundColor) {
-        styles += `background-color: ${combinedStyles.backgroundColor};`
-    }
+    styles += makeBackgroundStyles(wireframe, styleOverride)
     styles += makePositionStyles(wireframe)
     styles += `border: 4px solid ${combinedStyles.borderColor || combinedStyles.color || 'transparent'};`
     styles += `border-radius: 50%;border-top: 4px solid #fff;`
@@ -162,9 +161,7 @@ export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styl
         ...styleOverride,
     }
 
-    if (combinedStyles.backgroundColor) {
-        styles += `background-color: ${combinedStyles.backgroundColor};`
-    }
+    styles += makeBackgroundStyles(wireframe, styleOverride)
     styles += makePositionStyles(wireframe)
     styles += 'border-radius: 50%;'
     const radialGradient = `radial-gradient(closest-side, white 80%, transparent 0 99.9%, white 0)`
@@ -189,6 +186,31 @@ export function makeMinimalStyles(wireframe: wireframe, styleOverride?: StyleOve
     return styles
 }
 
+export function makeBackgroundStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
+    let styles = ''
+
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (combinedStyles.backgroundColor) {
+        styles += `background-color: ${combinedStyles.backgroundColor};`
+    }
+
+    if (combinedStyles.backgroundImage) {
+        const backgroundImageStyles = [
+            `background-image: url(${dataURIOrPNG(combinedStyles.backgroundImage)})`,
+            `background-size: ${combinedStyles.backgroundSize || 'auto'}`,
+            'background-repeat: no-repeat'
+        ]
+
+        styles += backgroundImageStyles.join(';')
+    }
+
+    return styles
+}
+
 export function makeColorStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
@@ -200,13 +222,15 @@ export function makeColorStyles(wireframe: wireframe, styleOverride?: StyleOverr
     if (combinedStyles.color) {
         styles += `color: ${combinedStyles.color};`
     }
-    if (combinedStyles.backgroundColor) {
-        styles += `background-color: ${combinedStyles.backgroundColor};`
-    }
+    styles += makeBackgroundStyles(wireframe, styleOverride)
 
     styles += makeBorderStyles(wireframe, styleOverride)
 
     return styles
+}
+
+function alwaysEndsWithSemicolon(styles: string): string {
+    return styles.length > 0 && styles[styles.length - 1] !== ';' ? styles + ';' : styles
 }
 
 export function makeStylesString(wireframe: wireframe, styleOverride?: StyleOverride): string {
@@ -215,7 +239,7 @@ export function makeStylesString(wireframe: wireframe, styleOverride?: StyleOver
     styles += makeColorStyles(wireframe, styleOverride)
     styles += makeMinimalStyles(wireframe, styleOverride)
 
-    return styles
+    return alwaysEndsWithSemicolon(styles)
 }
 
 export function makeHTMLStyles(): string {

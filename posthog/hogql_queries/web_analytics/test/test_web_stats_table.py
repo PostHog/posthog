@@ -58,8 +58,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/", 2, 2, 0],
-                ["/login", 1, 1, 0],
+                ["/", 2, 2],
+                ["/login", 1, 1],
             ],
             results,
         )
@@ -76,9 +76,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/", 2, 2, 0],
-                ["/login", 1, 1, 0],
-                ["/docs", 1, 1, 0],
+                ["/", 2, 2],
+                ["/login", 1, 1],
+                ["/docs", 1, 1],
             ],
             results,
         )

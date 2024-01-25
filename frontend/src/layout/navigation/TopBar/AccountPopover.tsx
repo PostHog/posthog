@@ -1,23 +1,12 @@
-import './SitePopover.scss'
+import './AccountPopover.scss'
 
-import { IconFeatures, IconLive } from '@posthog/icons'
+import { IconCheckCircle, IconFeatures, IconGear, IconLive, IconPlusSmall, IconServer } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import {
-    IconBill,
-    IconCheckmark,
-    IconCorporate,
-    IconLogout,
-    IconOffline,
-    IconPlus,
-    IconSettings,
-    IconUpdate,
-} from 'lib/lemon-ui/icons'
+import { IconBill, IconLogout } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -39,7 +28,7 @@ import { userLogic } from '../../../scenes/userLogic'
 import { OrganizationBasicType } from '../../../types'
 import { navigationLogic } from '../navigationLogic'
 
-function SitePopoverSection({
+function AccountPopoverSection({
     title,
     className,
     children,
@@ -49,7 +38,7 @@ function SitePopoverSection({
     children: any
 }): JSX.Element {
     return (
-        <div className={clsx('SitePopover__section', className)}>
+        <div className={clsx('AccountPopover__section', className)}>
             {title && <h5 className="flex items-center">{title}</h5>}
             {children}
         </div>
@@ -58,21 +47,21 @@ function SitePopoverSection({
 
 function AccountInfo(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { closeSitePopover } = useActions(navigationLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
 
     return (
         <div className="AccountInfo">
             <LemonButton
                 to={urls.settings('user')}
-                onClick={closeSitePopover}
+                onClick={closeAccountPopover}
                 data-attr="top-menu-item-me"
                 fullWidth
                 tooltip="Account settings"
                 tooltipPlacement="left"
-                sideIcon={<IconSettings className="text-2xl" />}
+                sideIcon={<IconGear />}
             >
                 <ProfilePicture user={user} size="xl" />
-                <div className="AccountInfo__identification SitePopover__main-info font-sans font-normal">
+                <div className="AccountInfo__identification AccountPopover__main-info font-sans font-normal">
                     <div className="font-semibold mb-1">{user?.first_name}</div>
                     <div className="supplement" title={user?.email}>
                         {user?.email}
@@ -84,17 +73,17 @@ function AccountInfo(): JSX.Element {
 }
 
 function CurrentOrganization({ organization }: { organization: OrganizationBasicType }): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
 
     return (
         <Tooltip title="Organization settings" placement="left">
             <LemonButton
                 data-attr="top-menu-item-org-settings"
                 icon={<Lettermark name={organization.name} />}
-                sideIcon={<IconSettings />}
+                sideIcon={<IconGear />}
                 fullWidth
                 to={urls.settings('organization')}
-                onClick={closeSitePopover}
+                onClick={closeAccountPopover}
             >
                 <div className="grow">
                     <span className="font-medium">{organization.name}</span>
@@ -112,15 +101,15 @@ export function InviteMembersButton({
     center?: boolean
     type?: LemonButtonPropsBase['type']
 }): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
 
     return (
         <LemonButton
-            icon={<IconPlus />}
+            icon={<IconPlusSmall />}
             onClick={() => {
-                closeSitePopover()
+                closeAccountPopover()
                 showInviteModal()
                 reportInviteMembersButtonClicked()
             }}
@@ -134,62 +123,8 @@ export function InviteMembersButton({
     )
 }
 
-function SystemStatus(): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
-    const { systemStatusHealthy } = useValues(navigationLogic)
-
-    return (
-        <LemonRow
-            status={systemStatusHealthy ? 'success' : 'danger'}
-            icon={systemStatusHealthy ? <IconCheckmark /> : <IconOffline />}
-            fullWidth
-        >
-            <>
-                <div className="SitePopover__main-info">
-                    {systemStatusHealthy ? 'All systems operational' : 'Potential system issue'}
-                </div>
-                <Link
-                    to={urls.instanceStatus()}
-                    onClick={closeSitePopover}
-                    className="SitePopover__side-link"
-                    data-attr="system-status-badge"
-                >
-                    Instance status
-                </Link>
-            </>
-        </LemonRow>
-    )
-}
-
-function AsyncMigrations(): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
-    const { asyncMigrationsOk } = useValues(navigationLogic)
-
-    return (
-        <LemonRow
-            status={asyncMigrationsOk ? 'success' : 'warning'}
-            icon={asyncMigrationsOk ? <IconCheckmark /> : <IconUpdate />}
-            fullWidth
-        >
-            <>
-                <div className="SitePopover__main-info">
-                    {asyncMigrationsOk ? 'Async migrations up-to-date' : 'Pending async migrations'}
-                </div>
-                <Link
-                    to={urls.asyncMigrations()}
-                    onClick={closeSitePopover}
-                    className="SitePopover__side-link"
-                    data-attr="async-migrations-status-badge"
-                >
-                    Manage
-                </Link>
-            </>
-        </LemonRow>
-    )
-}
-
 function InstanceSettings(): JSX.Element | null {
-    const { closeSitePopover } = useActions(navigationLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
 
     if (!user?.is_staff) {
@@ -197,22 +132,33 @@ function InstanceSettings(): JSX.Element | null {
     }
 
     return (
-        <Link to={urls.instanceSettings()}>
-            <LemonButton icon={<IconCorporate className="text-link" />} onClick={closeSitePopover} fullWidth>
-                Instance settings
-            </LemonButton>
-        </Link>
+        <LemonButton
+            icon={<IconServer />}
+            onClick={closeAccountPopover}
+            fullWidth
+            to={urls.instanceStatus()}
+            sideAction={{
+                tooltip: 'Async migrations',
+                tooltipPlacement: 'right',
+                icon: <IconCheckCircle />,
+                to: urls.asyncMigrations(),
+                onClick: closeAccountPopover,
+            }}
+            data-attr="top-menu-instance-panel"
+        >
+            Instance panel
+        </LemonButton>
     )
 }
 
 function FeaturePreviewsButton(): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
     const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
 
     return (
         <LemonButton
             onClick={() => {
-                closeSitePopover()
+                closeAccountPopover()
                 showFeaturePreviewsModal()
             }}
             icon={<IconFeatures />}
@@ -233,23 +179,23 @@ function SignOutButton(): JSX.Element {
     )
 }
 
-export function SitePopoverOverlay(): JSX.Element {
+export function AccountPopoverOverlay(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { closeSitePopover } = useActions(navigationLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
 
     return (
         <>
-            <SitePopoverSection title="Signed in as">
+            <AccountPopoverSection title="Signed in as">
                 <AccountInfo />
-            </SitePopoverSection>
-            <SitePopoverSection title="Current organization">
+            </AccountPopoverSection>
+            <AccountPopoverSection title="Current organization">
                 {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
                 {preflight?.cloud || !!billing ? (
                     <LemonButton
-                        onClick={closeSitePopover}
+                        onClick={closeAccountPopover}
                         to={urls.organizationBilling()}
                         icon={<IconBill />}
                         fullWidth
@@ -259,9 +205,9 @@ export function SitePopoverOverlay(): JSX.Element {
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
-            </SitePopoverSection>
+            </AccountPopoverSection>
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
-                <SitePopoverSection title="Other organizations">
+                <AccountPopoverSection title="Other organizations">
                     {otherOrganizations.map((otherOrganization, i) => (
                         <OtherOrganizationButton
                             key={otherOrganization.id}
@@ -270,19 +216,12 @@ export function SitePopoverOverlay(): JSX.Element {
                         />
                     ))}
                     {preflight?.can_create_org && <NewOrganizationButton />}
-                </SitePopoverSection>
+                </AccountPopoverSection>
             )}
-            {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                <SitePopoverSection title="PostHog instance" className="font-title">
-                    <SystemStatus />
-                    <AsyncMigrations />
-                    <InstanceSettings />
-                </SitePopoverSection>
-            )}
-            <SitePopoverSection>
+            <AccountPopoverSection>
                 <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
-                    onClick={closeSitePopover}
+                    onClick={closeAccountPopover}
                     to="https://posthog.com/changelog"
                     icon={<IconLive />}
                     fullWidth
@@ -292,10 +231,11 @@ export function SitePopoverOverlay(): JSX.Element {
                     What's new?
                 </LemonButton>
                 <FeaturePreviewsButton />
-            </SitePopoverSection>
-            <SitePopoverSection>
+                {user?.is_staff && <InstanceSettings />}
+            </AccountPopoverSection>
+            <AccountPopoverSection>
                 <SignOutButton />
-            </SitePopoverSection>
+            </AccountPopoverSection>
         </>
     )
 }

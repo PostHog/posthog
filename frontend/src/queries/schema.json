@@ -199,6 +199,9 @@
                     "$ref": "#/definitions/InsightActorsQuery"
                 },
                 {
+                    "$ref": "#/definitions/InsightActorsQueryOptions"
+                },
+                {
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
@@ -1322,6 +1325,36 @@
                 "custom_name": {
                     "type": ["string", "null"]
                 },
+                "funnelFromStep": {
+                    "type": "number"
+                },
+                "funnelToStep": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                }
+            },
+            "type": "object"
+        },
+        "FunnelExclusionLegacy": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": ["string", "null"]
+                },
                 "funnel_from_step": {
                     "type": "number"
                 },
@@ -1364,6 +1397,60 @@
         },
         "FunnelsFilter": {
             "additionalProperties": false,
+            "properties": {
+                "binCount": {
+                    "$ref": "#/definitions/BinCountValue"
+                },
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/BreakdownAttributionType"
+                },
+                "breakdownAttributionValue": {
+                    "type": "number"
+                },
+                "exclusions": {
+                    "items": {
+                        "$ref": "#/definitions/FunnelExclusion"
+                    },
+                    "type": "array"
+                },
+                "funnelAggregateByHogQL": {
+                    "type": "string"
+                },
+                "funnelFromStep": {
+                    "type": "number"
+                },
+                "funnelOrderType": {
+                    "$ref": "#/definitions/StepOrderValue"
+                },
+                "funnelStepReference": {
+                    "$ref": "#/definitions/FunnelStepReference"
+                },
+                "funnelToStep": {
+                    "type": "number"
+                },
+                "funnelVizType": {
+                    "$ref": "#/definitions/FunnelVizType"
+                },
+                "funnelWindowInterval": {
+                    "type": "number"
+                },
+                "funnelWindowIntervalUnit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "hidden_legend_breakdowns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "layout": {
+                    "$ref": "#/definitions/FunnelLayout"
+                }
+            },
+            "type": "object"
+        },
+        "FunnelsFilterLegacy": {
+            "additionalProperties": false,
             "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
             "properties": {
                 "bin_count": {
@@ -1377,7 +1464,7 @@
                 },
                 "exclusions": {
                     "items": {
-                        "$ref": "#/definitions/FunnelExclusion"
+                        "$ref": "#/definitions/FunnelExclusionLegacy"
                     },
                     "type": "array"
                 },
@@ -1482,6 +1569,37 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "FunnelsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "GoalLine": {
@@ -1709,7 +1827,7 @@
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
                 "inCohortVia": {
-                    "enum": ["leftjoin", "subquery", "leftjoin_conjoined"],
+                    "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
                 },
                 "materializationMode": {
@@ -1750,13 +1868,22 @@
                     },
                     "type": "array"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "type": "integer"
                 },
                 "query": {
                     "description": "Input query string",
@@ -1814,6 +1941,85 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "InsightActorsQueryOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightActorsQueryOptions",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/InsightActorsQueryOptionsResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightActorsQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "InsightActorsQueryOptionsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/Day"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "interval": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "An interval selected out of available intervals in source query",
+                                "type": "integer"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "status": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "InsightFilter": {
@@ -2164,6 +2370,7 @@
                 "StickinessQuery",
                 "LifecycleQuery",
                 "InsightActorsQuery",
+                "InsightActorsQueryOptions",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -2230,6 +2437,12 @@
                 "minEdgeWeight": {
                     "type": "integer"
                 },
+                "pathDropoffKey": {
+                    "type": "string"
+                },
+                "pathEndKey": {
+                    "type": "string"
+                },
                 "pathGroupings": {
                     "items": {
                         "type": "string"
@@ -2238,6 +2451,9 @@
                 },
                 "pathReplacements": {
                     "type": "boolean"
+                },
+                "pathStartKey": {
+                    "type": "string"
                 },
                 "pathsHogQLExpression": {
                     "type": "string"
@@ -2741,6 +2957,68 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "day": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/Day"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "interval": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "An interval selected out of available intervals in source query",
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "status": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -2786,13 +3064,22 @@
                             },
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query",
                             "type": "string"
                         },
+                        "limit": {
+                            "type": "integer"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "query": {
                             "description": "Input query string",
@@ -3129,6 +3416,9 @@
                 },
                 {
                     "$ref": "#/definitions/InsightActorsQuery"
+                },
+                {
+                    "$ref": "#/definitions/InsightActorsQueryOptions"
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"
@@ -4348,6 +4638,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeBounceRate": {
+                    "type": "boolean"
                 },
                 "includeScrollDepth": {
                     "type": "boolean"

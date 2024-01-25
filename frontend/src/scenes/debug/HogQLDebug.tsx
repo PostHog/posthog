@@ -70,8 +70,10 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         In Cohort Via:
                         <LemonSelect
                             options={[
-                                { value: 'join', label: 'join' },
+                                { value: 'auto', label: 'auto' },
+                                { value: 'leftjoin', label: 'join' },
                                 { value: 'subquery', label: 'subquery' },
+                                { value: 'leftjoin_conjoined', label: 'leftjoin conjoined' },
                             ]}
                             onChange={(value) =>
                                 setQuery({

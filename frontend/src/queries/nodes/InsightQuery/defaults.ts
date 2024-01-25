@@ -34,7 +34,7 @@ export const funnelsQueryDefault: FunnelsQuery = {
         },
     ],
     funnelsFilter: {
-        funnel_viz_type: FunnelVizType.Steps,
+        funnelVizType: FunnelVizType.Steps,
     },
 }
 

@@ -35,7 +35,7 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
     const { insightFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const { funnel_viz_type } = (insightFilter || {}) as FunnelsFilter
+    const { funnelVizType } = (insightFilter || {}) as FunnelsFilter
 
     const options = [
         {
@@ -76,10 +76,10 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
     return (
         <LemonSelect
             size="small"
-            value={funnel_viz_type || VizType.Steps}
+            value={funnelVizType || VizType.Steps}
             onChange={(value) => {
-                if (funnel_viz_type !== value) {
-                    updateInsightFilter({ funnel_viz_type: value })
+                if (funnelVizType !== value) {
+                    updateInsightFilter({ funnelVizType: value })
                 }
             }}
             options={options}

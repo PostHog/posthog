@@ -4,6 +4,7 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
@@ -26,9 +27,12 @@ class InsightActorsQueryRunner(QueryRunner):
             day = self.query.day
             status = self.query.status
             return lifecycle_runner.to_actors_query(day=str(day) if day else None, status=status)
+        elif isinstance(self.source_runner, PathsQueryRunner):
+            paths_runner = cast(PathsQueryRunner, self.source_runner)
+            return paths_runner.to_actors_query()
         elif isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
-            return trends_runner.to_actors_query()
+            return trends_runner.to_actors_query(self.query.day)
         elif isinstance(self.source_runner, RetentionQueryRunner):
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
             return retention_runner.to_actors_query(interval=self.query.interval)

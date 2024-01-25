@@ -471,6 +471,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         breakdownBy: WebStatsBreakdown.Page,
                                         dateRange,
                                         includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                        includeBounceRate: true,
                                         sampling,
                                     },
                                     embedded: false,

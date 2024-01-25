@@ -1,7 +1,7 @@
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, MaterializationMode
+from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsOnEventsMode, MaterializationMode
 from posthog.test.base import BaseTest
 from django.test import override_settings
 
@@ -91,7 +91,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="v1"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v1),
         )
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
@@ -99,7 +99,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             query,
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="v2"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.v2),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -108,7 +108,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, properties.$browser, is_identified FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.auto),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -116,7 +116,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, properties FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.auto),
         )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
@@ -124,7 +124,7 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             "SELECT id, is_identified FROM persons",
             team=self.team,
-            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.auto),
         )
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 

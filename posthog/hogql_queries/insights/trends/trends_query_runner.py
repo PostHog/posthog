@@ -16,6 +16,7 @@ from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
@@ -63,6 +64,7 @@ class TrendsQueryRunner(QueryRunner):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        self.update_hogql_modifiers()
         self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):
@@ -89,7 +91,7 @@ class TrendsQueryRunner(QueryRunner):
 
     def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:  # type: ignore
         queries = []
-        with self.timings.measure("trends_query"):
+        with self.timings.measure("trends_to_query"):
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
@@ -108,9 +110,9 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self, time_frame: Optional[str | int]) -> ast.SelectQuery | ast.SelectUnionQuery:  # type: ignore
         queries = []
-        with self.timings.measure("trends_persons_query"):
+        with self.timings.measure("trends_to_actors_query"):
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
@@ -124,13 +126,34 @@ class TrendsQueryRunner(QueryRunner):
                     series=series.series,
                     timings=self.timings,
                     modifiers=self.modifiers,
+                    person_query_time_frame=time_frame,
                 )
-                queries.append(query_builder.build_persons_query())
+                queries.append(query_builder.build_query())
 
-        return ast.SelectUnionQuery(select_queries=queries)
+        select_queries: List[ast.SelectQuery] = []
+        for query in queries:
+            if isinstance(query, ast.SelectUnionQuery):
+                select_queries.extend(query.select_queries)
+            else:
+                select_queries.append(query)
+
+        return ast.SelectUnionQuery(select_queries=select_queries)
 
     def calculate(self):
         queries = self.to_query()
+
+        if len(queries) == 1:
+            resonse_hogql_query = queries[0]
+        else:
+            resonse_hogql_query = ast.SelectUnionQuery(select_queries=[])
+            for query in queries:
+                if isinstance(query, ast.SelectQuery):
+                    resonse_hogql_query.select_queries.append(query)
+                else:
+                    resonse_hogql_query.select_queries.extend(query.select_queries)
+
+        with self.timings.measure("printing_hogql_for_response"):
+            response_hogql = to_printed_hogql(resonse_hogql_query, self.team, self.modifiers)
 
         res_matrix: List[List[Any] | Any | None] = [None] * len(queries)
         timings_matrix: List[List[QueryTiming] | None] = [None] * len(queries)
@@ -201,9 +224,10 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.trendsFilter.formula is not None
             and self.query.trendsFilter.formula != ""
         ):
-            res = self.apply_formula(self.query.trendsFilter.formula, res)
+            with self.timings.measure("apply_formula"):
+                res = self.apply_formula(self.query.trendsFilter.formula, res)
 
-        return TrendsQueryResponse(results=res, timings=timings)
+        return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql)
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:
@@ -381,6 +405,17 @@ class TrendsQueryRunner(QueryRunner):
             action = Action.objects.get(pk=int(series.id), team=self.team)
             return action.name
         return None
+
+    def update_hogql_modifiers(self) -> None:
+        if (
+            self.modifiers.inCohortVia == InCohortVia.auto
+            and self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+            and isinstance(self.query.breakdownFilter.breakdown, List)
+            and len(self.query.breakdownFilter.breakdown) > 1
+            and not any(value == "all" for value in self.query.breakdownFilter.breakdown)
+        ):
+            self.modifiers.inCohortVia = InCohortVia.leftjoin_conjoined
 
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [

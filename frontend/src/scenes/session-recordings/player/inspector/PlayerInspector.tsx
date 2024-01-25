@@ -9,13 +9,11 @@ import { PlayerInspectorList } from './PlayerInspectorList'
 import { PlayerInspectorPreview } from './PlayerInspectorPreview'
 
 export function PlayerInspector({
-    inspectorFocus,
-    isWidescreen,
-    setInspectorFocus,
+    inspectorExpanded,
+    setInspectorExpanded,
 }: {
-    inspectorFocus: boolean
-    isWidescreen: boolean
-    setInspectorFocus: (focus: boolean) => void
+    inspectorExpanded: boolean
+    setInspectorExpanded: (focus: boolean) => void
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
@@ -25,33 +23,31 @@ export function PlayerInspector({
         persistent: true,
         closeThreshold: 100,
         placement: 'left',
-        onToggleClosed: (shouldBeClosed) => setInspectorFocus(!shouldBeClosed),
+        onToggleClosed: (shouldBeClosed) => setInspectorExpanded(!shouldBeClosed),
     }
 
     const { desiredWidth } = useValues(resizerLogic(resizerLogicProps))
-
-    const isOpen = inspectorFocus || isWidescreen
 
     return (
         <div
             className={clsx(
                 'SessionRecordingPlayer__inspector',
-                !inspectorFocus && 'SessionRecordingPlayer__inspector--collapsed'
+                !inspectorExpanded && 'SessionRecordingPlayer__inspector--collapsed'
             )}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: isOpen ? desiredWidth ?? 'var(--inspector-width)' : undefined,
+                width: inspectorExpanded ? desiredWidth ?? 'var(--inspector-width)' : undefined,
             }}
         >
             <Resizer logicKey="player-inspector" placement="left" containerRef={ref} closeThreshold={100} />
-            {isOpen ? (
+            {inspectorExpanded ? (
                 <>
-                    <PlayerInspectorControls />
+                    <PlayerInspectorControls onClose={() => setInspectorExpanded(false)} />
                     <PlayerInspectorList />
                 </>
             ) : (
-                <PlayerInspectorPreview onClick={() => setInspectorFocus(true)} />
+                <PlayerInspectorPreview onClick={() => setInspectorExpanded(true)} />
             )}
         </div>
     )

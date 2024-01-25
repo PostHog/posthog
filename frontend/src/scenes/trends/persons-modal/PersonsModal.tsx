@@ -15,8 +15,9 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -53,7 +54,7 @@ export function PersonsModal({
     url: _url,
     urlsIndex,
     urls,
-    query,
+    query: _query,
     title,
     onAfterClose,
     inline,
@@ -63,13 +64,15 @@ export function PersonsModal({
 
     const logic = personsModalLogic({
         url: originalUrl,
-        query: query,
+        query: _query,
     })
 
     const {
+        query: query,
         actors,
         actorsResponseLoading,
         actorsResponse,
+        insightActorsQueryOptions,
         searchTerm,
         actorLabel,
         isCohortModalOpen,
@@ -79,11 +82,23 @@ export function PersonsModal({
         exploreUrl,
         ActorsQuery,
     } = useValues(logic)
-    const { setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
+    const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
+        useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
-
     const totalActorsCount = missingActorsCount + actors.length
+
+    const getTitle = useCallback(() => {
+        if (typeof title === 'function') {
+            return title(capitalizeFirstLetter(actorLabel.plural))
+        }
+
+        if (isOtherBreakdown(title)) {
+            return 'Other'
+        }
+
+        return title
+    }, [title, actorLabel.plural])
 
     return (
         <>
@@ -97,7 +112,7 @@ export function PersonsModal({
                 inline={inline}
             >
                 <LemonModal.Header>
-                    <h3>{typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel.plural)) : title}</h3>
+                    <h3>{getTitle()}</h3>
                 </LemonModal.Header>
                 <div className="px-6 py-2">
                     {actorsResponse && !!missingActorsCount && (
@@ -128,6 +143,21 @@ export function PersonsModal({
                             }))}
                         />
                     ) : null}
+
+                    {query &&
+                        Object.entries(insightActorsQueryOptions ?? {})
+                            .filter(([, value]) => !!value)
+                            .map(([key, options]) => (
+                                <div key={key}>
+                                    <LemonSelect
+                                        fullWidth
+                                        className="mb-2"
+                                        value={query?.[key] ?? null}
+                                        onChange={(v) => updateActorsQuery({ [key]: v })}
+                                        options={options}
+                                    />
+                                </div>
+                            ))}
 
                     <div className="flex items-center gap-2 text-muted">
                         {actorsResponseLoading ? (

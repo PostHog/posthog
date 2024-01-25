@@ -27,8 +27,8 @@ export function FunnelExclusionsFilter(): JSX.Element {
     const setFilters = (filters: Partial<FilterType>): void => {
         const exclusions = (filters.events as FunnelExclusion[]).map((e) => ({
             ...e,
-            funnel_from_step: e.funnel_from_step || exclusionDefaultStepRange.funnel_from_step,
-            funnel_to_step: e.funnel_to_step || exclusionDefaultStepRange.funnel_to_step,
+            funnelFromStep: e.funnelFromStep || exclusionDefaultStepRange.funnelFromStep,
+            funnelToStep: e.funnelToStep || exclusionDefaultStepRange.funnelToStep,
         }))
         updateInsightFilter({ exclusions })
     }
