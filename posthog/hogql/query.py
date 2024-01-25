@@ -37,6 +37,7 @@ def execute_hogql_query(
     limit_context: Optional[LimitContext] = LimitContext.QUERY,
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
+    pretty: Optional[bool] = True,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
@@ -95,7 +96,7 @@ def execute_hogql_query(
             )
 
         with timings.measure("print_ast"):
-            hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql", pretty=True)
+            hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql", pretty=pretty)
             print_columns = []
             columns_query = (
                 select_query_hogql.select_queries[0]
@@ -133,6 +134,7 @@ def execute_hogql_query(
             context=clickhouse_context,
             dialect="clickhouse",
             settings=settings,
+            pretty=pretty,
         )
 
     timings_dict = timings.to_dict()
