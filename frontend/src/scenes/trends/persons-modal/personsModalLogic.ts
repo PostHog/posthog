@@ -33,8 +33,6 @@ import type { personsModalLogicType } from './personsModalLogicType'
 
 const RESULTS_PER_PAGE = 100
 
-const selectFields = ['person', 'created_at']
-
 export interface PersonModalLogicProps {
     query?: InsightActorsQuery | null
     url?: string | null
@@ -323,7 +321,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             () => [(_, p) => p.additionalFields],
             (additionalFields: PersonModalLogicProps['additionalFields']): string[] => {
                 const extra = Object.values(additionalFields || {})
-                return [...selectFields, ...extra]
+                return ['person', 'created_at', ...extra]
             },
         ],
         ActorsQuery: [
