@@ -319,6 +319,10 @@
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],
+        "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
             "pnpm --dir plugin-server exec eslint --fix",
             "pnpm --dir plugin-server exec prettier --write"
