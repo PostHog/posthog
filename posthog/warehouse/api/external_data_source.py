@@ -32,6 +32,9 @@ from posthog.warehouse.models.external_data_schema import get_postgres_schemas
 
 import temporalio
 
+from posthog.cloud_utils import is_cloud
+from posthog.utils import get_instance_region
+
 logger = structlog.get_logger(__name__)
 
 
@@ -136,7 +139,12 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.HUBSPOT:
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.POSTGRES:
-            new_source_model, table_names = self._handle_postgres_source(request, *args, **kwargs)
+            try:
+                new_source_model, table_names = self._handle_postgres_source(request, *args, **kwargs)
+            except InternalPostgresError as e:
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+            except Exception:
+                raise
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -222,6 +230,9 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         sslmode = payload.get("sslmode")
         schema = payload.get("schema")
         table_names = payload.get("schemas")
+
+        if self._validate_postgres_host(host, self.team_id):
+            raise InternalPostgresError("Cannot use internal Postgres database")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -324,6 +335,28 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Missing required parameters: host, port, database, user, password, sslmode, schema"},
             )
 
+        # Validate internal postgres
+        if not self._validate_postgres_host(host, self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Cannot use internal Postgres database"},
+            )
+
         result = get_postgres_schemas(host, port, database, user, password, sslmode, schema)
         result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
         return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+
+    def _validate_postgres_host(self, host: str, team_id: int) -> bool:
+        if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):
+            if is_cloud():
+                region = get_instance_region()
+                if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
+                    return True
+                else:
+                    return False
+
+        return True
+
+
+class InternalPostgresError(Exception):
+    pass
