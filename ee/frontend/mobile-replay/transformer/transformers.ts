@@ -78,7 +78,7 @@ function* ids(): Generator<number> {
 }
 
 // TODO this is shared for the lifetime of the page, so a very, very long-lived session could exhaust the ids
-const idSequence = ids()
+const globalIdSequence = ids()
 
 // there are some fixed ids that we need to use for fixed elements or artificial mutations
 const DOCUMENT_ID = 1
@@ -123,7 +123,7 @@ export const makeCustomEvent = (
                         : '100vw',
                 },
                 [],
-                { timestamp: mobileCustomEvent.timestamp, idSequence, skippableNodes: new Set() },
+                { timestamp: mobileCustomEvent.timestamp, idSequence: globalIdSequence, skippableNodes: new Set() },
                 styleOverride
             )
             if (keyboardPlaceHolder) {
@@ -140,7 +140,7 @@ export const makeCustomEvent = (
                     nextId: null,
                     node: {
                         type: NodeType.Text,
-                        id: idSequence.next().value,
+                        id: globalIdSequence.next().value,
                         textContent: 'keyboard',
                     },
                 })
@@ -444,10 +444,10 @@ function makeRadioGroupElement(
     }, context }
 }
 
-function makeStar(title: string, path: string): serializedNodeWithId {
-    const svgId = idSequence.next().value
-    const titleId = idSequence.next().value
-    const pathId = idSequence.next().value
+function makeStar(title: string, path: string, context: ConversionContext): serializedNodeWithId {
+    const svgId = context.idSequence.next().value
+    const titleId = context.idSequence.next().value
+    const pathId = context.idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'svg',
@@ -472,7 +472,7 @@ function makeStar(title: string, path: string): serializedNodeWithId {
                     {
                         type: NodeType.Text,
                         textContent: title,
-                        id: idSequence.next().value,
+                        id: context.idSequence.next().value,
                     },
                 ],
             },
@@ -491,24 +491,27 @@ function makeStar(title: string, path: string): serializedNodeWithId {
     }
 }
 
-function filledStar(): serializedNodeWithId {
+function filledStar(context: ConversionContext): serializedNodeWithId {
     return makeStar(
         'filled star',
-        'M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z'
+        'M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z',
+        context
     )
 }
 
-function halfStar(): serializedNodeWithId {
+function halfStar(context: ConversionContext): serializedNodeWithId {
     return makeStar(
         'half-filled star',
-        'M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+        'M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z',
+        context
     )
 }
 
-function emptyStar(): serializedNodeWithId {
+function emptyStar(context: ConversionContext): serializedNodeWithId {
     return makeStar(
         'empty star',
-        'M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+        'M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z',
+        context
     )
 }
 
@@ -526,15 +529,15 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
 
     const filledStars = Array(numberOfFilledStars)
         .fill(undefined)
-        .map(() => filledStar())
+        .map(() => filledStar(context))
     const halfStars = Array(numberOfHalfStars)
         .fill(undefined)
-        .map(() => halfStar())
+        .map(() => halfStar(context))
     const emptyStars = Array(numberOfEmptyStars)
         .fill(undefined)
-        .map(() => emptyStar())
+        .map(() => emptyStar(context))
 
-    const ratingBarId = idSequence.next().value
+    const ratingBarId = context.idSequence.next().value
     const ratingBar = {
         type: NodeType.Element,
         tagName: 'div',
@@ -719,7 +722,7 @@ function makeLabelledInput(
 
     const orderedChildren = wireframe.inputType === 'toggle' ? [theLabel, theInputElement] : [theInputElement, theLabel]
 
-    const labelId = idSequence.next().value
+    const labelId = context.idSequence.next().value
     return {result: {
         type: NodeType.Element,
         tagName: 'label',
@@ -833,17 +836,11 @@ function convertWireframesFor(wireframes: wireframe[] | undefined, context: Conv
         return { result: [], context }
     }
 
-    if (context === undefined) {
-        throw new Error('a')
-    }
     const result: serializedNodeWithId[] = []
     for (const wireframe of wireframes) {
         const converted = convertWireframe(wireframe, context)
         if (converted) {
             result.push(converted.result)
-            if (converted.context === undefined) {
-                throw new Error('b - ' + JSON.stringify(wireframe))
-            }
             context = converted.context
         }
     }
@@ -980,7 +977,7 @@ export const makeIncrementalEvent = (
         const removes: removedNodeMutation[] = mobileEvent.data.removes || []
         if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
             mobileEvent.data.adds.forEach((add) => {
-                makeIncrementalAdd(add, {timestamp: mobileEvent.timestamp, idSequence})?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(add, {timestamp: mobileEvent.timestamp, idSequence: globalIdSequence})?.forEach((x) => adds.push(x))
             })
         }
         if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
@@ -990,7 +987,7 @@ export const makeIncrementalEvent = (
                     removes.push(removal)
                 }
                 // TRICKY: adds and updates don't share a context!
-                makeIncrementalAdd(update, {timestamp: mobileEvent.timestamp, idSequence})?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(update, {timestamp: mobileEvent.timestamp, idSequence: globalIdSequence})?.forEach((x) => adds.push(x))
             })
         }
 
@@ -1055,7 +1052,7 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, {timestamp: mobileEvent.timestamp, idSequence }).result || [],
+                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, {timestamp: mobileEvent.timestamp, idSequence: globalIdSequence }).result || [],
                             },
                         ],
                     },
