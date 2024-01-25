@@ -94,6 +94,10 @@ function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
 }
 
+export function _isPositiveInteger(id: unknown): id is number {
+    return typeof id === 'number' && id > 0 && id % 1 === 0
+}
+
 export const makeCustomEvent = (
     mobileCustomEvent: (customEvent | keyboardEvent) & {
         timestamp: number
@@ -182,10 +186,6 @@ export const makeMetaEvent = (
     },
     timestamp: mobileMetaEvent.timestamp,
 })
-
-export function _isPositiveInteger(id: unknown): id is number {
-    return typeof id === 'number' && id > 0 && id % 1 === 0
-}
 
 function makeDivElement(
     wireframe: wireframeDiv,
