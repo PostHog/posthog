@@ -29,6 +29,7 @@ import {
 } from '~/types'
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -997,8 +998,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             _,
             { filters, date_from, date_to, interval, device_tab, source_tab, graphs_tab, path_tab, geography_tab }
         ) => {
+            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : initialWebAnalyticsFilter
+
             actions.setStateFromUrl({
-                filters: filters || initialWebAnalyticsFilter,
+                filters: parsedFilters,
                 dateFrom: date_from || null,
                 dateTo: date_to || null,
                 interval: interval || null,
