@@ -86,11 +86,13 @@ function FirstStep(): JSX.Element {
         }
         if (config.name === 'Hubspot') {
             return (
-                <Link to={addToHubspotButtonUrl() || ''}>
-                    <LemonButton className="w-full" center type="secondary">
-                        <img src={hubspotLogo} alt="hubspot logo" height={45} />
-                    </LemonButton>
-                </Link>
+                <div className="w-full">
+                    <Link to={addToHubspotButtonUrl() || ''}>
+                        <LemonButton className="w-full" center type="secondary">
+                            <img src={hubspotLogo} alt="hubspot logo" height={45} />
+                        </LemonButton>
+                    </Link>
+                </div>
             )
         }
 

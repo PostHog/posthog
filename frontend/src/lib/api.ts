@@ -1833,10 +1833,9 @@ const api = {
             dbname: string,
             user: string,
             password: string,
-            schema: string,
-            sslmode: string
+            schema: string
         ): Promise<ExternalDataPostgresSchema[]> {
-            const queryParams = toParams({ host, port, dbname, user, password, schema, sslmode })
+            const queryParams = toParams({ host, port, dbname, user, password, schema })
 
             return await new ApiRequest()
                 .externalDataSources()

@@ -117,10 +117,9 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                     user: '',
                     password: '',
                     schema: '',
-                    sslmode: '',
                 },
             },
-            errors: ({ payload: { host, port, dbname, user, password, schema, sslmode } }) => ({
+            errors: ({ payload: { host, port, dbname, user, password, schema } }) => ({
                 payload: {
                     host: !host && 'Please enter a host.',
                     port: !port && 'Please enter a port.',
@@ -128,18 +127,16 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                     user: !user && 'Please enter a user.',
                     password: !password && 'Please enter a password.',
                     schema: !schema && 'Please enter a schema.',
-                    sslmode: !sslmode && 'Please enter a sslmode.',
                 },
             }),
-            submit: async ({ payload: { host, port, dbname, user, password, schema, sslmode }, prefix }) => {
+            submit: async ({ payload: { host, port, dbname, user, password, schema }, prefix }) => {
                 const schemas = await api.externalDataSources.database_schema(
                     host,
                     port,
                     dbname,
                     user,
                     password,
-                    schema,
-                    sslmode
+                    schema
                 )
                 actions.setDatabaseSchemas(schemas)
 
@@ -151,7 +148,6 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                         user,
                         password,
                         schema,
-                        sslmode,
                     },
                     prefix,
                 }

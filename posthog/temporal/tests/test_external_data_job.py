@@ -509,7 +509,6 @@ async def test_run_postgres_job(activity_environment, team, minio_client, **kwar
                 "user": settings.PG_USER,
                 "password": settings.PG_PASSWORD,
                 "schema": "public",
-                "sslmode": "disable",
             },
         )  # type: ignore
 

@@ -149,7 +149,6 @@ class TestSavedQuery(APIBaseTest):
                 "database": settings.PG_DATABASE,
                 "user": settings.PG_USER,
                 "password": settings.PG_PASSWORD,
-                "sslmode": "disable",
                 "schema": "public",
             },
         )
@@ -175,7 +174,6 @@ class TestSavedQuery(APIBaseTest):
                     "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
-                    "sslmode": "disable",
                     "schema": "public",
                 },
             )
@@ -192,7 +190,6 @@ class TestSavedQuery(APIBaseTest):
                     "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
-                    "sslmode": "disable",
                     "schema": "public",
                 },
             )
@@ -209,7 +206,6 @@ class TestSavedQuery(APIBaseTest):
                     "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
-                    "sslmode": "disable",
                     "schema": "public",
                 },
             )
@@ -226,7 +222,6 @@ class TestSavedQuery(APIBaseTest):
                     "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
-                    "sslmode": "disable",
                     "schema": "public",
                 },
             )

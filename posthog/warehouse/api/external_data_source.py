@@ -229,7 +229,6 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         user = payload.get("user")
         password = payload.get("password")
-        sslmode = payload.get("sslmode")
         schema = payload.get("schema")
         table_names = payload.get("schemas")
 
@@ -249,7 +248,6 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "database": database,
                 "user": user,
                 "password": password,
-                "sslmode": sslmode,
                 "schema": schema,
             },
             prefix=prefix,
@@ -328,13 +326,12 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         user = request.query_params.get("user")
         password = request.query_params.get("password")
-        sslmode = request.query_params.get("sslmode")
         schema = request.query_params.get("schema")
 
-        if not host or not port or not database or not user or not password or not sslmode or not schema:
+        if not host or not port or not database or not user or not password or not schema:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Missing required parameters: host, port, database, user, password, sslmode, schema"},
+                data={"message": "Missing required parameters: host, port, database, user, password, schema"},
             )
 
         # Validate internal postgres
@@ -344,7 +341,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Cannot use internal Postgres database"},
             )
 
-        result = get_postgres_schemas(host, port, database, user, password, sslmode, schema)
+        result = get_postgres_schemas(host, port, database, user, password, schema)
         result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
         return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 

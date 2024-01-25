@@ -117,13 +117,6 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
                 required: true,
                 placeholder: 'public',
             },
-            {
-                name: 'sslmode',
-                label: 'SSL Mode',
-                type: 'text',
-                required: true,
-                placeholder: 'required',
-            },
         ],
     },
 }
