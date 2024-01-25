@@ -318,6 +318,7 @@ export function Experiment(): JSX.Element {
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
                                                                 icon={<IconPlusMini />}
+                                                                data-attr="add-test-variant"
                                                             >
                                                                 Add test variant
                                                             </LemonButton>
@@ -407,6 +408,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </div>
                                         <LemonSelect
+                                            data-attr="experiment-goal-type-select"
                                             value={experimentInsightType}
                                             onChange={(val) => {
                                                 val &&

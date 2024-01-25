@@ -9,7 +9,7 @@
             const tags = [
                 '{% if debug %}DEBUG mode{% elif region %}Region: {{ region }}{% else %}Hobby deployment{% endif %}',
                 '{% if debug %}Branch: {{ git_branch|default:"unknown" }}{% else %}Commit: {{ git_rev|default:"unknown" }}{% endif %}',
-                'Come join us! https://posthog.com/careers',
+                'Join us! https://posthog.com/careers',
             ]
             console.info(
                 `%c %cPostHog %c— %cIn data we trust\n%c${tags.join('%c %c')}`,
@@ -18,7 +18,7 @@
                 '',
                 'font-style: italic;',
                 'padding: 0.2em 0.4em; border-radius: 0.5em; background: #1d4aff; color: white;',
-                '',
+                'padding-bottom: 0.4em;',
                 'padding: 0.2em 0.4em; border-radius: 0.5em; background: #f54e00; color: white;',
                 '',
                 'padding: 0.2em 0.4em; border-radius: 0.5em; background: #f9bd2b; color: black;'

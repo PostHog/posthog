@@ -84,9 +84,7 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                             }
                         />
                         {entity.steps && index < entity.steps.length - 1 && (
-                            <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                OR
-                            </DefinitionPopover.HorizontalLine>
+                            <DefinitionPopover.HorizontalLine className="mt-1 mb-3" label="OR" />
                         )}
                     </DefinitionPopover.Section>
                 ))}
