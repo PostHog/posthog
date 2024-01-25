@@ -3,7 +3,9 @@ import Ajv from 'ajv'
 import { WebAnalyticsPropertyFilters } from '~/queries/schema'
 
 import schema from './schema.json'
-const ajv = new Ajv()
+const ajv = new Ajv({
+    allowUnionTypes: true,
+})
 ajv.addSchema(schema)
 
 export const isWebAnalyticsPropertyFilters = (data: unknown): data is WebAnalyticsPropertyFilters => {
