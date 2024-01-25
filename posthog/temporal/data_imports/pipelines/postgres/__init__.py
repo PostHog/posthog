@@ -5,7 +5,7 @@ from sqlalchemy import MetaData, Table
 from sqlalchemy.engine import Engine
 
 import dlt
-from dlt.sources import DltResource
+from dlt.sources import DltResource, DltSource
 
 
 from dlt.sources.credentials import ConnectionStringCredentials
@@ -21,7 +21,7 @@ from .helpers import (
 
 def postgres_source(
     host: str, port: int, user: str, password: str, database: str, sslmode: str, schema: str, table_names: list[str]
-) -> DltResource:
+) -> DltSource:
     credentials = ConnectionStringCredentials(
         f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
     )

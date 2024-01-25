@@ -15,7 +15,7 @@ from dlt.common.configuration.specs import BaseConfiguration, configspec
 from dlt.common.typing import TDataItem
 from .settings import DEFAULT_CHUNK_SIZE
 
-from sqlalchemy import Table, create_engine
+from sqlalchemy import Table, create_engine, Column
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql import Select
 
@@ -34,7 +34,7 @@ class TableLoader:
         self.incremental = incremental
         if incremental:
             try:
-                self.cursor_column = table.c[incremental.cursor_path]
+                self.cursor_column: Optional[Column[Any]] = table.c[incremental.cursor_path]
             except KeyError as e:
                 raise KeyError(
                     f"Cursor column '{incremental.cursor_path}' does not exist in table '{table.name}'"

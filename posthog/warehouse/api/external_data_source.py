@@ -149,7 +149,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
         if source_type == ExternalDataSource.Type.POSTGRES:
-            schemas = table_names
+            schemas = tuple(table_names)
         else:
             schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
 

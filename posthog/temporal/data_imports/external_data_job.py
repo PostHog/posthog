@@ -65,7 +65,7 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type])
 
     await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-        schemas_to_sync,  # type: ignore
+        schemas_to_sync,
         source_id=inputs.external_data_source_id,
         team_id=inputs.team_id,
     )
