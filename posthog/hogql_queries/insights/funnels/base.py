@@ -277,10 +277,8 @@ class FunnelBase(ABC):
 
     def _get_sorting_condition(self, curr_index: int, max_steps: int) -> ast.Expr:
         series = self.context.query.series
-        funnelWindowInterval = self.context.funnelsFilter.funnelWindowInterval
-        funnelWindowIntervalUnit = funnel_window_interval_unit_to_sql(
-            self.context.funnelsFilter.funnelWindowIntervalUnit
-        )
+        windowInterval = self.context.funnelWindowInterval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
         if curr_index == 1:
             return ast.Constant(value=1)
@@ -291,9 +289,7 @@ class FunnelBase(ABC):
             duplicate_event = is_equal(series[i], series[i - 1]) or is_superset(series[i], series[i - 1])
 
             conditions.append(parse_expr(f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}"))
-            conditions.append(
-                parse_expr(f"latest_{i} <= latest_0 + INTERVAL {funnelWindowInterval} {funnelWindowIntervalUnit}")
-            )
+            conditions.append(parse_expr(f"latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}"))
 
         return ast.Call(
             name="if",

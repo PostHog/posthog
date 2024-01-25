@@ -4,13 +4,22 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import BreakdownFilter, FunnelsFilter, FunnelsQuery, HogQLQueryModifiers
+from posthog.schema import (
+    BreakdownFilter,
+    FunnelConversionWindowTimeUnit,
+    FunnelsFilter,
+    FunnelsQuery,
+    HogQLQueryModifiers,
+)
 
 
 class FunnelQueryContext(QueryContext):
     query: FunnelsQuery
     funnelsFilter: FunnelsFilter
     breakdownFilter: BreakdownFilter
+
+    funnelWindowInterval: int
+    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
 
     def __init__(
         self,
@@ -24,6 +33,11 @@ class FunnelQueryContext(QueryContext):
 
         self.funnelsFilter = self.query.funnelsFilter or FunnelsFilter()
         self.breakdownFilter = self.query.breakdownFilter or BreakdownFilter()
+
+        self.funnelWindowInterval = self.funnelsFilter.funnelWindowInterval or 14
+        self.funnelWindowIntervalUnit = (
+            self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.day
+        )
 
     @cached_property
     def max_steps(self) -> int:
