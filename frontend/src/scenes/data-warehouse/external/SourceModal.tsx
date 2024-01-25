@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonModalProps, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -79,26 +79,22 @@ function FirstStep(): JSX.Element {
 
         if (config.name === 'Stripe') {
             return (
-                <LemonButton onClick={onClick} className="w-full" center type="secondary">
+                <LemonButton onClick={onClick} fullWidth center type="secondary">
                     <img src={stripeLogo} alt="stripe logo" height={50} />
                 </LemonButton>
             )
         }
         if (config.name === 'Hubspot') {
             return (
-                <div className="w-full">
-                    <Link to={addToHubspotButtonUrl() || ''}>
-                        <LemonButton className="w-full" center type="secondary">
-                            <img src={hubspotLogo} alt="hubspot logo" height={45} />
-                        </LemonButton>
-                    </Link>
-                </div>
+                <LemonButton fullWidth center type="secondary" to={addToHubspotButtonUrl() || ''}>
+                    <img src={hubspotLogo} alt="hubspot logo" height={45} />
+                </LemonButton>
             )
         }
 
         if (config.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_POSTGRES_IMPORT]) {
             return (
-                <LemonButton onClick={onClick} className="w-full" center type="secondary">
+                <LemonButton onClick={onClick} fullWidth center type="secondary">
                     Postgres
                 </LemonButton>
             )

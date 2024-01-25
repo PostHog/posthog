@@ -171,7 +171,7 @@ class TestSavedQuery(APIBaseTest):
                 data={
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
+                    "dbname": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -187,7 +187,7 @@ class TestSavedQuery(APIBaseTest):
                 data={
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
+                    "dbname": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -203,7 +203,7 @@ class TestSavedQuery(APIBaseTest):
                 data={
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
+                    "dbname": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -219,7 +219,7 @@ class TestSavedQuery(APIBaseTest):
                 data={
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "database": settings.PG_DATABASE,
+                    "dbname": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",

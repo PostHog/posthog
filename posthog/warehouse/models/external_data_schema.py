@@ -55,7 +55,7 @@ def get_postgres_schemas(host: str, port: str, database: str, user: str, passwor
         dbname=database,
         user=user,
         password=password,
-        sslmode="prefer" if settings.TEST else "require",
+        sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
     )
 
     with connection.cursor() as cursor:

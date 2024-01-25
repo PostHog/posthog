@@ -232,7 +232,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         schema = payload.get("schema")
         table_names = payload.get("schemas")
 
-        if self._validate_postgres_host(host, self.team_id):
+        if not self._validate_postgres_host(host, self.team_id):
             raise InternalPostgresError()
 
         new_source_model = ExternalDataSource.objects.create(
@@ -322,7 +322,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
         host = request.query_params.get("host")
         port = request.query_params.get("port")
-        database = request.query_params.get("database")
+        database = request.query_params.get("dbname")
 
         user = request.query_params.get("user")
         password = request.query_params.get("password")

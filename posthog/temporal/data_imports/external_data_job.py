@@ -205,7 +205,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             user=user,
             password=password,
             database=database,
-            sslmode="prefer" if settings.TEST else "require",
+            sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
             schema=schema,
             table_names=inputs.schemas,
         )
