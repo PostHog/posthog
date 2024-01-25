@@ -205,6 +205,10 @@ module.exports = {
                         message: 'use <LemonCollapse> instead',
                     },
                     {
+                        element: 'Slider',
+                        message: 'use <LemonSlider> instead',
+                    },
+                    {
                         element: 'Checkbox',
                         message: 'use <LemonCheckbox> instead',
                     },

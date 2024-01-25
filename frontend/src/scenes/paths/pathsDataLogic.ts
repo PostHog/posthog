@@ -147,6 +147,9 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                         label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                         isDropOff: Boolean(path_dropoff_key),
                     }),
+                    additionalFields: {
+                        value_at_data_point: 'event_count',
+                    },
                 })
             } else if (personsUrl) {
                 openPersonsModal({

@@ -87,6 +87,12 @@
         max-width: 240px;
     }
 
+    &.LemonInput--type-number {
+        .LemonInput__input {
+            text-overflow: clip;
+        }
+    }
+
     &.LemonInput--full-width {
         width: 100%;
         max-width: 100%;

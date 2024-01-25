@@ -1,5 +1,5 @@
 import { hide } from '@floating-ui/react'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -129,7 +129,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 updatedAt={(definition && 'updated_at' in definition && definition.updated_at) || undefined}
                 updatedBy={(definition && 'updated_by' in definition && definition.updated_by) || undefined}
             />
-            <DefinitionPopover.HorizontalLine />
+            <LemonDivider className="DefinitionPopover my-4" />
         </>
     )
 
@@ -169,7 +169,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <ActionPopoverInfo entity={_definition} />
-                {(_definition?.steps?.length || 0) > 0 && <DefinitionPopover.HorizontalLine />}
+                {(_definition?.steps?.length || 0) > 0 && <LemonDivider className="DefinitionPopover my-4" />}
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card
                         title="First seen"
@@ -284,7 +284,7 @@ function DefinitionEdit(): JSX.Element {
 
     return (
         <>
-            <DefinitionPopover.HorizontalLine />
+            <LemonDivider className="DefinitionPopover my-4" />
             <form className="definition-popover-edit-form">
                 {definition && 'description' in localDefinition && (
                     <>
@@ -331,7 +331,7 @@ function DefinitionEdit(): JSX.Element {
                         compact
                     />
                 )}
-                <DefinitionPopover.HorizontalLine style={{ marginTop: 0 }} />
+                <LemonDivider className="DefinitionPopover mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">
                     {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
                         <LemonButton
