@@ -48,7 +48,7 @@ CELERY_TASK_RETRY_COUNTER = Counter(
 )
 
 
-CELERTY_TASK_DURATION_HISTOGRAM = Histogram(
+CELERY_TASK_DURATION_HISTOGRAM = Histogram(
     "posthog_celery_task_duration_seconds",
     "Time spent running a task",
     labelnames=["task_name"],
@@ -130,7 +130,7 @@ def postrun_signal_handler(task_id, task, **kwargs):
     if task_id in task_timings:
         start_time = task_timings.pop(task_id, None)
         if start_time:
-            CELERTY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(time.time() - start_time)
+            CELERY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(time.time() - start_time)
 
     reset_query_tags()
 

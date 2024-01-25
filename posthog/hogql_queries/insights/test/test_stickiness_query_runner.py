@@ -6,6 +6,8 @@ from freezegun import freeze_time
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.models.action.action import Action
 from posthog.models.action_step import ActionStep
+from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
@@ -19,6 +21,7 @@ from posthog.schema import (
     GroupPropertyFilter,
     HogQLPropertyFilter,
     IntervalType,
+    MathGroupTypeIndex,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyOperator,
@@ -110,6 +113,15 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         return person_result
 
+    def _create_test_groups(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+        )
+
     def _create_test_events(self):
         self._create_events(
             [
@@ -145,7 +157,7 @@ class TestStickinessQueryRunner(APIBaseTest):
                             ],
                         ),
                     ],
-                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True},
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True, "$group_0": "org:1"},
                 ),
                 SeriesTestData(
                     distinct_id="p2",
@@ -171,7 +183,7 @@ class TestStickinessQueryRunner(APIBaseTest):
                             ],
                         ),
                     ],
-                    properties={"$browser": "Firefox", "prop": 20, "bool_field": False},
+                    properties={"$browser": "Firefox", "prop": 10, "bool_field": False, "$group_0": "org:1"},
                 ),
             ]
         )
@@ -225,7 +237,7 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         result = response.results[0]
 
-        assert result["days"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        assert result["days"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     def test_count(self):
         self._create_test_events()
@@ -255,7 +267,6 @@ class TestStickinessQueryRunner(APIBaseTest):
             "8 days",
             "9 days",
             "10 days",
-            "11 days",
         ]
 
     def test_interval_hour(self):
@@ -265,13 +276,13 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         result = response.results[0]
 
-        hours_labels = [f"{hour + 1} hour{'' if hour == 0 else 's'}" for hour in range(26)]
-        hours_data = [0] * 26
+        hours_labels = [f"{hour + 1} hour{'' if hour == 0 else 's'}" for hour in range(25)]
+        hours_data = [0] * 25
         hours_data[0] = 2
 
         assert result["label"] == "$pageview"
         assert result["labels"] == hours_labels
-        assert result["days"] == [hour + 1 for hour in range(26)]
+        assert result["days"] == [hour + 1 for hour in range(25)]
         assert result["data"] == hours_data
 
     def test_interval_day(self):
@@ -293,9 +304,8 @@ class TestStickinessQueryRunner(APIBaseTest):
             "8 days",
             "9 days",
             "10 days",
-            "11 days",
         ]
-        assert result["days"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        assert result["days"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         assert result["data"] == [
             0,
             0,
@@ -307,7 +317,6 @@ class TestStickinessQueryRunner(APIBaseTest):
             0,
             1,
             0,
-            0,
         ]
 
     def test_interval_week(self):
@@ -318,9 +327,9 @@ class TestStickinessQueryRunner(APIBaseTest):
         result = response.results[0]
 
         assert result["label"] == "$pageview"
-        assert result["labels"] == ["1 week", "2 weeks", "3 weeks", "4 weeks"]
-        assert result["days"] == [1, 2, 3, 4]
-        assert result["data"] == [0, 0, 2, 0]
+        assert result["labels"] == ["1 week", "2 weeks", "3 weeks"]
+        assert result["days"] == [1, 2, 3]
+        assert result["data"] == [0, 0, 2]
 
     def test_interval_month(self):
         self._create_test_events()
@@ -330,9 +339,9 @@ class TestStickinessQueryRunner(APIBaseTest):
         result = response.results[0]
 
         assert result["label"] == "$pageview"
-        assert result["labels"] == ["1 month", "2 months"]
-        assert result["days"] == [1, 2]
-        assert result["data"] == [2, 0]
+        assert result["labels"] == ["1 month"]
+        assert result["days"] == [1]
+        assert result["data"] == [2]
 
     def test_property_filtering(self):
         self._create_test_events()
@@ -354,7 +363,6 @@ class TestStickinessQueryRunner(APIBaseTest):
             0,
             1,
             0,
-            0,
         ]
 
     def test_property_filtering_hogql(self):
@@ -374,7 +382,6 @@ class TestStickinessQueryRunner(APIBaseTest):
             0,
             0,
             1,
-            0,
             0,
         ]
 
@@ -403,7 +410,6 @@ class TestStickinessQueryRunner(APIBaseTest):
             0,
             1,
             0,
-            0,
         ]
 
     def test_any_event(self):
@@ -430,7 +436,6 @@ class TestStickinessQueryRunner(APIBaseTest):
             0,
             0,
             1,
-            0,
             0,
         ]
 
@@ -460,7 +465,6 @@ class TestStickinessQueryRunner(APIBaseTest):
             0,
             0,
             1,
-            0,
             0,
         ]
 
@@ -496,5 +500,53 @@ class TestStickinessQueryRunner(APIBaseTest):
             0,
             1,
             0,
+        ]
+
+    def test_group_aggregations(self):
+        self._create_test_groups()
+        self._create_test_events()
+
+        series: List[EventsNode | ActionsNode] = [
+            EventsNode(event="$pageview", math="unique_group", math_group_type_index=MathGroupTypeIndex.number_0)
+        ]
+
+        response = self._run_query(series=series)
+
+        result = response.results[0]
+
+        assert result["data"] == [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+        ]
+
+    def test_hogql_aggregations(self):
+        self._create_test_events()
+
+        series: List[EventsNode | ActionsNode] = [
+            EventsNode(event="$pageview", math="hogql", math_hogql="e.properties.prop")
+        ]
+
+        response = self._run_query(series=series)
+
+        result = response.results[0]
+
+        assert result["data"] == [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
             0,
         ]

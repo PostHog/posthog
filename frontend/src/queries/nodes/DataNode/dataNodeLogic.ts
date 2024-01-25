@@ -410,6 +410,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.nextQuery, s.isShowingCachedResults],
             (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
         ],
+        hasMoreData: [
+            (s) => [s.response],
+            (response): boolean => {
+                if (!response?.hasMore) {
+                    return false
+                }
+                return response.hasMore
+            },
+        ],
+        dataLimit: [
+            // get limit from response
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response?.limit) {
+                    return null
+                }
+                return response.limit
+            },
+        ],
         backToSourceQuery: [
             (s) => [s.query],
             (query): InsightVizNode | null => {

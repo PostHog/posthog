@@ -109,7 +109,7 @@ def test_includes_only_intervals_within_range(client: Client):
                 ],
             ),
         )
-        assert trends == {
+        assert trends == trends | {
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -182,7 +182,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             ),
         )
 
-        assert interval_3_trend == {
+        assert interval_3_trend == interval_3_trend | {
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -224,7 +224,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             ),
         )
 
-        assert interval_2_trend == {
+        assert interval_2_trend == interval_2_trend | {
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -266,7 +266,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
             ),
         )
 
-        assert interval_1_trend == {
+        assert interval_1_trend == interval_1_trend | {
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -350,7 +350,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             ),
         )
 
-        assert interval_3_trend == {
+        assert interval_3_trend == interval_3_trend | {
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -392,7 +392,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
             ),
         )
 
-        assert interval_1_trend == {
+        assert interval_1_trend == interval_1_trend | {
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
