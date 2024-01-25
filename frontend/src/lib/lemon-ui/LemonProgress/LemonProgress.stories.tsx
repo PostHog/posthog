@@ -14,10 +14,10 @@ export default meta
 
 export const Variations: StoryFn<typeof LemonProgress> = () => {
     return (
-        <>
+        <div className="min-w-120">
             <LemonProgress percent={30} />
             <LemonProgress percent={75} trackColor="var(--warning)" />
             <LemonProgress percent={50} size="large" trackColor="purple" />
-        </>
+        </div>
     )
 }
