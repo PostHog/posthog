@@ -151,14 +151,6 @@
             font-weight: 900;
             content: '\2022';
         }
-
-        .ant-progress-inner {
-            border-radius: var(--radius);
-
-            .ant-progress-bg {
-                border-radius: var(--radius);
-            }
-        }
     }
 
     .no-experiment-results {
