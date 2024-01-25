@@ -133,6 +133,7 @@ export function ExperimentPreview({
                                 />
                             </div>
                             <LemonInput
+                                data-attr="min-acceptable-improvement"
                                 type="number"
                                 min={1}
                                 max={sliderMaxValue}
