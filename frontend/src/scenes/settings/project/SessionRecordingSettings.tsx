@@ -5,6 +5,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAutoAwesome, IconCancel, IconPlus, IconSelectEvents } from 'lib/lemon-ui/icons'
@@ -229,6 +230,7 @@ export function ReplaySummarySettings(): JSX.Element | null {
         preferred_events: [],
         excluded_events: ['$feature_flag_called'],
         included_event_properties: ['elements_chain', '$window_id', '$current_url', '$event_type'],
+        important_user_properties: [],
     }
     const sessionReplayConfig = currentTeam.session_replay_config || {}
     const currentConfig: SessionRecordingSummaryConfig = sessionReplayConfig.ai_summary || defaultConfig
@@ -261,76 +263,104 @@ export function ReplaySummarySettings(): JSX.Element | null {
                             opt_in: checked,
                         })
                     }}
+                    bordered
                     label="Opt in to enable AI suggested summaries"
                 />
             </div>
-            <div>
-                <h3 className="flex items-center gap-2">
-                    <IconSelectEvents className="text-lg" />
-                    Preferred events
-                </h3>
-                <p>
-                    These events are treated as more interesting when generating a summary. We recommend you include
-                    events that represent value for your user
-                </p>
-                <EventSelect
-                    onChange={(includedEvents) => {
-                        updateSummaryConfig({
-                            ...currentConfig,
-                            preferred_events: includedEvents,
-                        })
-                    }}
-                    selectedEvents={currentConfig.preferred_events || []}
-                    addElement={
-                        <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                            Add event
-                        </LemonButton>
-                    }
-                />
-            </div>
-            <div>
-                <h3 className="flex items-center gap-2">
-                    <IconSelectEvents className="text-lg" />
-                    Excluded events
-                </h3>
-                <p>These events are never submitted even when they are present in the session.</p>
-                <EventSelect
-                    onChange={(excludedEvents) => {
-                        updateSummaryConfig({
-                            ...currentConfig,
-                            excluded_events: excludedEvents,
-                        })
-                    }}
-                    selectedEvents={currentConfig.excluded_events || []}
-                    addElement={
-                        <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                            Exclude event
-                        </LemonButton>
-                    }
-                />
-            </div>
-            <div>
-                <h3 className="flex items-center gap-2">
-                    <IconSelectEvents className="text-lg" />
-                    Included event properties
-                </h3>
-                <p>
-                    We always send the event name and timestamp. The only other data sent are values of the properties
-                    selected here.
-                </p>
-                <div className="max-w-160">
-                    <LemonSelectMultiple
-                        mode="multiple-custom"
-                        onChange={(properties: string[]) => {
-                            updateSummaryConfig({
-                                ...currentConfig,
-                                included_event_properties: properties,
-                            })
-                        }}
-                        value={currentConfig.included_event_properties || []}
-                    />
-                </div>
-            </div>
+            {currentConfig.opt_in && (
+                <>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Preferred events
+                        </h3>
+                        <p>
+                            These events are treated as more interesting when generating a summary. We recommend you
+                            include events that represent value for your user
+                        </p>
+                        <EventSelect
+                            onChange={(includedEvents) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    preferred_events: includedEvents,
+                                })
+                            }}
+                            selectedEvents={currentConfig.preferred_events || []}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                    Add event
+                                </LemonButton>
+                            }
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Excluded events
+                        </h3>
+                        <p>These events are never submitted even when they are present in the session.</p>
+                        <EventSelect
+                            onChange={(excludedEvents) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    excluded_events: excludedEvents,
+                                })
+                            }}
+                            selectedEvents={currentConfig.excluded_events || []}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                    Exclude event
+                                </LemonButton>
+                            }
+                        />
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Included event properties
+                        </h3>
+                        <p>
+                            We always send the event name and timestamp. The only event data sent are values of the
+                            properties selected here.
+                        </p>
+                        <div className="max-w-160">
+                            <LemonSelectMultiple
+                                mode="multiple-custom"
+                                onChange={(properties: string[]) => {
+                                    updateSummaryConfig({
+                                        ...currentConfig,
+                                        included_event_properties: properties,
+                                    })
+                                }}
+                                value={currentConfig.included_event_properties || []}
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <h3 className="flex items-center gap-2">
+                            <IconSelectEvents className="text-lg" />
+                            Important user properties
+                        </h3>
+                        <p>
+                            We always send the first and last seen dates. The only user data sent are values of the
+                            properties selected here.
+                        </p>
+                        <div className="max-w-160">
+                            <PersonPropertySelect
+                                sortable={false}
+                                onChange={(properties) => {
+                                    updateSummaryConfig({
+                                        ...currentConfig,
+                                        important_user_properties: properties,
+                                    })
+                                }}
+                                selectedProperties={currentConfig.important_user_properties || []}
+                                addText="Add property"
+                            />
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     )
 }

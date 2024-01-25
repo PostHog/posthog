@@ -346,6 +346,7 @@ export interface SessionRecordingSummaryConfig {
     preferred_events: string[]
     excluded_events: string[]
     included_event_properties: string[]
+    important_user_properties: string[]
 }
 
 export interface TeamType extends TeamBasicType {
