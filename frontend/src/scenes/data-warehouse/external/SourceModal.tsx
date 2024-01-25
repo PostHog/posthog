@@ -84,7 +84,7 @@ function FirstStep(): JSX.Element {
                 </LemonButton>
             )
         }
-        if (config.name === 'Hubspot' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_HUBSPOT_IMPORT]) {
+        if (config.name === 'Hubspot') {
             return (
                 <Link to={addToHubspotButtonUrl() || ''}>
                     <LemonButton className="w-full" center type="secondary">
@@ -94,7 +94,7 @@ function FirstStep(): JSX.Element {
             )
         }
 
-        if (config.name === 'Postgres') {
+        if (config.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_POSTGRES_IMPORT]) {
             return (
                 <LemonButton onClick={onClick} className="w-full" center type="secondary">
                     Postgres
