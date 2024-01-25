@@ -23,6 +23,7 @@ class FunnelBase(ABC):
 
         self._extra_event_fields: List[ColumnName] = []
         self._extra_event_properties: List[PropertyName] = []
+
         if False:  # self._filter.include_recordings: TODO: implement with actors query
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
@@ -97,8 +98,12 @@ class FunnelBase(ABC):
                     duplicate_event = 1
 
                 exprs.append(
+                    # TODO: fix breakdown
+                    # parse_expr(
+                    #     f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                    # )
                     parse_expr(
-                        f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                        f"min(latest_{i}) over (PARTITION by aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                     )
                 )
 
