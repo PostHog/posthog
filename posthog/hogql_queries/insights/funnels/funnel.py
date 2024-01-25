@@ -1,7 +1,7 @@
 from typing import List
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 
@@ -51,7 +51,6 @@ class Funnel(FunnelBase):
 
     def get_step_counts_query(self):
         # max_steps = self.context.max_steps
-        step_counts_without_aggregation_query = self.get_step_counts_without_aggregation_query()
         breakdown_exprs = self._get_breakdown_prop()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties()
@@ -82,22 +81,36 @@ class Funnel(FunnelBase):
             *person_and_group_properties,
         ]
 
-        return parse_select(
-            """
-            SELECT {outer_select} FROM (
-                SELECT {inner_select} FROM (
-                    {step_counts_without_aggregation_query}
+        return ast.SelectQuery(
+            select=outer_select,
+            select_from=ast.JoinExpr(
+                table=ast.SelectQuery(
+                    select=inner_select,
+                    select_from=ast.JoinExpr(table=self.get_step_counts_without_aggregation_query()),
                 )
-            ) GROUP BY {group_by_columns}
-            HAVING steps = max_steps
-            """,
-            placeholders={
-                "outer_select": outer_select,
-                "inner_select": inner_select,
-                "group_by_columns": group_by_columns,
-                "step_counts_without_aggregation_query": step_counts_without_aggregation_query,
-            },
+            ),
+            group_by=group_by_columns,
+            having=ast.CompareOperation(
+                left=ast.Field(chain=["steps"]), right=ast.Field(chain=["max_steps"]), op=ast.CompareOperationOp.Eq
+            ),
         )
+
+        # return parse_select(
+        #     """
+        #     SELECT {outer_select} FROM (
+        #         SELECT {inner_select} FROM (
+        #             {step_counts_without_aggregation_query}
+        #         )
+        #     ) GROUP BY {group_by_columns}
+        #     HAVING steps = max_steps
+        #     """,
+        #     placeholders={
+        #         "outer_select": outer_select,
+        #         "inner_select": inner_select,
+        #         "group_by_columns": group_by_columns,
+        #         "step_counts_without_aggregation_query": step_counts_without_aggregation_query,
+        #     },
+        # )
 
     def get_step_counts_without_aggregation_query(self):
         max_steps = self.context.max_steps
@@ -114,7 +127,7 @@ class Funnel(FunnelBase):
             ast.Alias(alias="steps", expr=self._get_sorting_condition(max_steps, max_steps)),
             # {exclusion_clause}
             # {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)}
-            *breakdown_exprs
+            *breakdown_exprs,
             # {self._get_person_and_group_properties()}
         ]
 
