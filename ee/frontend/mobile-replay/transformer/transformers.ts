@@ -917,6 +917,10 @@ function convertWireframe(
     wireframe: wireframe,
     context: ConversionContext
 ): ConversionResult<serializedNodeWithId> | null {
+    if (context.skippableNodes?.has(wireframe.id)) {
+        return null
+    }
+
     const children = convertWireframesFor(wireframe.childWireframes, context)
     const converter = chooseConverter(wireframe)
     // every wireframe comes through this converter,
@@ -1075,24 +1079,28 @@ export const makeIncrementalEvent = (
         const adds: addedNodeMutation[] = []
         const removes: removedNodeMutation[] = mobileEvent.data.removes || []
         if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
+            const addsContext = {
+                timestamp: mobileEvent.timestamp,
+                idSequence: globalIdSequence,
+                skippableNodes: new Set<number>(),
+            }
+
             mobileEvent.data.adds.forEach((add) => {
-                makeIncrementalAdd(add, {
-                    timestamp: mobileEvent.timestamp,
-                    idSequence: globalIdSequence,
-                })?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(add, addsContext)?.forEach((x) => adds.push(x))
             })
         }
         if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
+            const updatesContext = {
+                timestamp: mobileEvent.timestamp,
+                idSequence: globalIdSequence,
+                skippableNodes: new Set<number>(),
+            }
             mobileEvent.data.updates.forEach((update) => {
                 const removal = makeIncrementalRemoveForUpdate(update)
                 if (removal) {
                     removes.push(removal)
                 }
-                // TRICKY: adds and updates don't share a context!
-                makeIncrementalAdd(update, {
-                    timestamp: mobileEvent.timestamp,
-                    idSequence: globalIdSequence,
-                })?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(update, updatesContext)?.forEach((x) => adds.push(x))
             })
         }
 
