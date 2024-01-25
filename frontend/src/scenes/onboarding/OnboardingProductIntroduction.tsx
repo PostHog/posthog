@@ -194,7 +194,7 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                                     )
                                 })}
                         </ul>
-                        <div className="mt-16">
+                        <div className="mt-12">
                             <h3 className="mb-4 text-lg font-bold">Get the most out of {product.name}</h3>
                             <ul className="flex flex-col sm:flex-row gap-x-8 gap-y-2">
                                 <li>
