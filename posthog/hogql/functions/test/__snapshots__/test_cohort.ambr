@@ -3,61 +3,27 @@
   '''
   -- ClickHouse
   
-  SELECT
-      events.event AS event
-  
-  FROM
-      events
-  
-  WHERE
-      and(equals(events.team_id, 420), in(events.person_id, (
-  SELECT
-                  cohortpeople.person_id AS person_id
-              
-  FROM
-                  cohortpeople
-              
-  WHERE
-                  and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 6))
-              
-  GROUP BY
-                  cohortpeople.person_id,
-                  cohortpeople.cohort_id,
-                  cohortpeople.version
-              
-  HAVING
-                  ifNull(greater(sum(cohortpeople.sign), 0), 0))), equals(events.event, %(hogql_val_0)s))
-  
+  SELECT events.event AS event 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), in(events.person_id, (
+  SELECT cohortpeople.person_id AS person_id 
+  FROM cohortpeople 
+  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 6)) 
+  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
+  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), equals(events.event, %(hogql_val_0)s)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   
   -- HogQL
   
-  SELECT
-      event
-  
-  FROM
-      events
-  
-  WHERE
-      and(in(person_id, (
-  SELECT
-                  person_id
-              
-  FROM
-                  raw_cohort_people
-              
-  WHERE
-                  equals(cohort_id, 6)
-              
-  GROUP BY
-                  person_id,
-                  cohort_id,
-                  version
-              
-  HAVING
-                  greater(sum(sign), 0))), equals(event, 'RANDOM_TEST_ID::UUID'))
-  
+  SELECT event 
+  FROM events 
+  WHERE and(in(person_id, (
+  SELECT person_id 
+  FROM raw_cohort_people 
+  WHERE equals(cohort_id, 6) 
+  GROUP BY person_id, cohort_id, version 
+  HAVING greater(sum(sign), 0))), equals(event, 'RANDOM_TEST_ID::UUID')) 
   LIMIT 100
   '''
 # ---
@@ -65,45 +31,23 @@
   '''
   -- ClickHouse
   
-  SELECT
-      events.event AS event
-  
-  FROM
-      events
-  
-  WHERE
-      and(equals(events.team_id, 420), in(events.person_id, (
-  SELECT
-                  person_static_cohort.person_id AS person_id
-              
-  FROM
-                  person_static_cohort
-              
-  WHERE
-                  and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 7)))))
-  
+  SELECT events.event AS event 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), in(events.person_id, (
+  SELECT person_static_cohort.person_id AS person_id 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 7))))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   
   -- HogQL
   
-  SELECT
-      event
-  
-  FROM
-      events
-  
-  WHERE
-      in(person_id, (
-  SELECT
-              person_id
-          
-  FROM
-              static_cohort_people
-          
-  WHERE
-              equals(cohort_id, 7)))
-  
+  SELECT event 
+  FROM events 
+  WHERE in(person_id, (
+  SELECT person_id 
+  FROM static_cohort_people 
+  WHERE equals(cohort_id, 7))) 
   LIMIT 100
   '''
 # ---
@@ -111,45 +55,23 @@
   '''
   -- ClickHouse
   
-  SELECT
-      events.event AS event
-  
-  FROM
-      events
-  
-  WHERE
-      and(equals(events.team_id, 420), in(events.person_id, (
-  SELECT
-                  person_static_cohort.person_id AS person_id
-              
-  FROM
-                  person_static_cohort
-              
-  WHERE
-                  and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 8)))))
-  
+  SELECT events.event AS event 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), in(events.person_id, (
+  SELECT person_static_cohort.person_id AS person_id 
+  FROM person_static_cohort 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 8))))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   
   -- HogQL
   
-  SELECT
-      event
-  
-  FROM
-      events
-  
-  WHERE
-      in(person_id, (
-  SELECT
-              person_id
-          
-  FROM
-              static_cohort_people
-          
-  WHERE
-              equals(cohort_id, 8)))
-  
+  SELECT event 
+  FROM events 
+  WHERE in(person_id, (
+  SELECT person_id 
+  FROM static_cohort_people 
+  WHERE equals(cohort_id, 8))) 
   LIMIT 100
   '''
 # ---
