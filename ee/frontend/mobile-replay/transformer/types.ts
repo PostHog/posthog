@@ -1,14 +1,13 @@
-import {MobileStyles} from "../mobile.types";
+import { MobileStyles } from '../mobile.types'
 
 export interface ConversionResult<T> {
-    result: T,
+    result: T
     context: ConversionContext
 }
 
-
 export interface ConversionContext {
-    timestamp: number,
-    idSequence: Generator<number>,
+    timestamp: number
+    idSequence: Generator<number>
     // in some contexts we want to be able to skip nodes that have already been processed
     // for example updates are processed as a remove and then an add of the whole tree
     // this means the mobile app doesn't have to store and diff the tree
@@ -17,6 +16,7 @@ export interface ConversionContext {
     // in the tree multiple times
     // we track which nodes have been processed to avoid adding them multiple times
     skippableNodes?: Set<number>
+    styleOverride?: StyleOverride
 }
 
 // StyleOverride is defined here and not in the schema

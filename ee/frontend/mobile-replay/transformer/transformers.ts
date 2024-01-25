@@ -128,8 +128,12 @@ export const makeCustomEvent = (
                         : '100vw',
                 },
                 [],
-                { timestamp: mobileCustomEvent.timestamp, idSequence: globalIdSequence, skippableNodes: new Set() },
-                styleOverride
+                {
+                    timestamp: mobileCustomEvent.timestamp,
+                    idSequence: globalIdSequence,
+                    skippableNodes: new Set(),
+                    styleOverride,
+                }
             )
             if (keyboardPlaceHolder) {
                 adds.push({
@@ -260,9 +264,7 @@ function makeWebViewElement(
 function makePlaceholderElement(
     wireframe: wireframe,
     children: serializedNodeWithId[],
-    context: ConversionContext,
-    // TODO this needs to move into the context
-    styleOverride?: StyleOverride
+    context: ConversionContext
 ): ConversionResult<serializedNodeWithId> | null {
     const txt = 'label' in wireframe && wireframe.label ? wireframe.label : wireframe.type || 'PLACEHOLDER'
     return {
@@ -275,7 +277,7 @@ function makePlaceholderElement(
                     horizontalAlign: 'center',
                     backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
                     color: wireframe.style?.color || FOREGROUND,
-                    ...styleOverride,
+                    ...context.styleOverride,
                 }),
                 'data-rrweb-id': wireframe.id,
             },
