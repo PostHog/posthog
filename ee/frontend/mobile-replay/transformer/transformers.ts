@@ -39,8 +39,9 @@ import {
     wireframeSelect,
     wireframeText,
     wireframeToggle,
-} from './mobile.types'
+} from '../mobile.types'
 import {makeStatusBar} from "./status-bar";
+import {ConversionContext, StyleOverride} from "./types";
 import {
     makeBodyStyles,
     makeColorStyles,
@@ -50,7 +51,6 @@ import {
     makeMinimalStyles,
     makePositionStyles,
     makeStylesString,
-    StyleOverride,
 } from './wireframeStyle'
 
 const BACKGROUND = '#f3f4ef'
@@ -790,7 +790,7 @@ function makeRectangleElement(
 
 function chooseConverter<T extends wireframe>(
     wireframe: T
-): (wireframe: T, children: serializedNodeWithId[], timestamp?: number, idSequence?: Generator<number>) => serializedNodeWithId | null {
+): (wireframe: T, children: serializedNodeWithId[], context: ConversionContext) => serializedNodeWithId | null {
     // in theory type is always present
     // but since this is coming over the wire we can't really be sure,
     // and so we default to div
@@ -815,19 +815,19 @@ function chooseConverter<T extends wireframe>(
     return converterMapping[converterType]
 }
 
-function convertWireframe(wireframe: wireframe, timestamp?: number, idSequence?: Generator<number>): serializedNodeWithId | null {
-    const children = convertWireframesFor(wireframe.childWireframes, timestamp)
+function convertWireframe(wireframe: wireframe, context: ConversionContext): serializedNodeWithId | null {
+    const children = convertWireframesFor(wireframe.childWireframes, context)
     const converter = chooseConverter(wireframe)
-    return converter?.(wireframe, children, timestamp, idSequence) || null
+    return converter?.(wireframe, children, context) || null
 }
 
-function convertWireframesFor(wireframes: wireframe[] | undefined, timestamp?: number): serializedNodeWithId[] {
+function convertWireframesFor(wireframes: wireframe[] | undefined, context: ConversionContext): serializedNodeWithId[] {
     if (!wireframes) {
         return []
     }
 
     return wireframes.reduce((acc, wireframe) => {
-        const convertedEl = convertWireframe(wireframe, timestamp, idSequence)
+        const convertedEl = convertWireframe(wireframe, context)
         if (convertedEl !== null) {
             acc.push(convertedEl)
         }
@@ -854,8 +854,8 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
     return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
 }
 
-function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation[] | null {
-    const converted = convertWireframe(add.wireframe, undefined, idSequence)
+function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext): addedNodeMutation[] | null {
+    const converted = convertWireframe(add.wireframe, context)
     if (!converted) {
         return null
     }
@@ -965,7 +965,7 @@ export const makeIncrementalEvent = (
         const removes: removedNodeMutation[] = mobileEvent.data.removes || []
         if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
             mobileEvent.data.adds.forEach((add) => {
-                makeIncrementalAdd(add)?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(add, {timestamp: mobileEvent.timestamp, idSequence})?.forEach((x) => adds.push(x))
             })
         }
         if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
@@ -974,7 +974,8 @@ export const makeIncrementalEvent = (
                 if (removal) {
                     removes.push(removal)
                 }
-                makeIncrementalAdd(update)?.forEach((x) => adds.push(x))
+                // TRICKY: adds and updates don't share a context!
+                makeIncrementalAdd(update, {timestamp: mobileEvent.timestamp, idSequence})?.forEach((x) => adds.push(x))
             })
         }
 
@@ -1039,7 +1040,7 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, mobileEvent.timestamp) || [],
+                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, {timestamp: mobileEvent.timestamp, idSequence }) || [],
                             },
                         ],
                     },

@@ -5,7 +5,7 @@ import Ajv, { ErrorObject } from 'ajv'
 import { mobileEventWithTime } from './mobile.types'
 import mobileSchema from './schema/mobile/rr-mobile-schema.json'
 import webSchema from './schema/web/rr-web-schema.json'
-import { makeCustomEvent, makeFullEvent, makeIncrementalEvent, makeMetaEvent } from './transformers'
+import { makeCustomEvent, makeFullEvent, makeIncrementalEvent, makeMetaEvent } from './transformer/transformers'
 
 const ajv = new Ajv({
     allowUnionTypes: true,

@@ -1,5 +1,6 @@
-import {NodeType, serializedNodeWithId, wireframeStatusBar} from "./mobile.types";
+import {NodeType, serializedNodeWithId, wireframeStatusBar} from "../mobile.types";
 import {STATUS_BAR_ID} from "./transformers";
+import {ConversionContext} from "./types";
 import {makeStylesString} from "./wireframeStyle";
 
 function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
@@ -19,10 +20,10 @@ function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
 /**
  * tricky: we need to accept children because that's the interface of converters, but we don't use them
  */
-export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializedNodeWithId[], timestamp: number, idSequence: Generator<number>): serializedNodeWithId {
-    const clockId = idSequence.next().value;
+export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializedNodeWithId[], context: ConversionContext): serializedNodeWithId {
+    const clockId = context.idSequence.next().value;
     // convert the wireframe timestamp to a date time, then get just the hour and minute of the time from that
-    const clockTime = timestamp ? new Date(timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : ""
+    const clockTime = context.timestamp ? new Date(context.timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : ""
     const clock: serializedNodeWithId = {
         type: NodeType.Element,
         tagName: 'div',
@@ -34,7 +35,7 @@ export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializ
             {
                 type: NodeType.Text,
                 textContent: clockTime,
-                id: idSequence.next().value,
+                id: context.idSequence.next().value,
             },
         ]
     };
@@ -48,7 +49,7 @@ export function makeStatusBar(wireframe: wireframeStatusBar, _children: serializ
         },
         id: STATUS_BAR_ID,
         childNodes: [
-            spacerDiv(idSequence),
+            spacerDiv(context.idSequence),
             clock
         ],
     }

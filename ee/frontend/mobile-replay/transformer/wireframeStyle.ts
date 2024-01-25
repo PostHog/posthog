@@ -1,10 +1,6 @@
-import { MobileStyles, wireframe, wireframeProgress } from './mobile.types'
+import { wireframe, wireframeProgress } from '../mobile.types'
 import {dataURIOrPNG} from "./transformers";
-
-// StyleOverride is defined here and not in the schema
-// because these are overrides that the transformer is allowed to make
-// not that clients are allowed to request
-export type StyleOverride = MobileStyles & { bottom?: true }
+import {StyleOverride} from "./types";
 
 function isNumber(candidate: unknown): candidate is number {
     return typeof candidate === 'number'
