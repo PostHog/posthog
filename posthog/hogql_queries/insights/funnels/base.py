@@ -3,10 +3,12 @@ from typing import List, Tuple
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.property.property import PropertyName
+from posthog.types import EntityNode
 
 
 class FunnelBase(ABC):
@@ -31,6 +33,138 @@ class FunnelBase(ABC):
     @property
     def extra_event_fields_and_properties(self):
         return self._extra_event_fields + self._extra_event_properties
+
+    def _get_inner_event_query(
+        self,
+        entities: List[EntityNode] | None = None,
+        entity_name="events",
+        skip_entity_filter=False,
+        skip_step_filter=False,
+    ) -> ast.SelectQuery:
+        entities_to_use = entities or self.context.query.series
+
+        # extra_fields = []
+
+        # for prop in self._include_properties:
+        #     extra_fields.append(prop)
+
+        funnel_events_query = FunnelEventQuery(context=self.context).to_query()
+        # funnel_events_query, params = FunnelEventQuery(
+        #     extra_fields=[*self._extra_event_fields, *extra_fields],
+        #     extra_event_properties=self._extra_event_properties,
+        # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
+
+        # if skip_step_filter:
+        #     steps_conditions = "1=1"
+        # else:
+        #     steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
+
+        all_step_cols: List[ast.Expr] = []
+        for index, entity in enumerate(entities_to_use):
+            step_cols = self._get_step_col(entity, index, entity_name)
+            all_step_cols.extend(step_cols)
+
+        # for exclusion_id, entity in enumerate(self._filter.exclusions):
+        #     step_cols = self._get_step_col(
+        #         entity,
+        #         entity.funnel_from_step,
+        #         entity_name,
+        #         f"exclusion_{exclusion_id}_",
+        #     )
+        #     # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
+        #     # where i is the starting step for exclusion on that entity
+        #     all_step_cols.extend(step_cols)
+
+        # breakdown_select_prop, breakdown_select_prop_params = self._get_breakdown_select_prop()
+
+        # if breakdown_select_prop:
+        #     all_step_cols.append(breakdown_select_prop)
+
+        # extra_join = ""
+
+        # if self._filter.breakdown:
+        #     if self._filter.breakdown_type == "cohort":
+        #         extra_join = self._get_cohort_breakdown_join()
+        #     else:
+        #         values = self._get_breakdown_conditions()
+        #         self.params.update({"breakdown_values": values})
+
+        funnel_events_query.select = [*funnel_events_query.select, *all_step_cols]
+
+        # funnel_events_query = funnel_events_query.format(
+        #     # extra_join=extra_join,
+        #     # step_filter="AND ({})".format(steps_conditions),
+        # )
+
+        # if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
+        #     # ALL_EVENTS attribution is the old default, which doesn't need the subquery
+        #     return self._add_breakdown_attribution_subquery(funnel_events_query)
+
+        return funnel_events_query
+
+    # def _get_steps_conditions(self, length: int) -> str:
+    #     step_conditions: List[str] = []
+
+    #     for index in range(length):
+    #         step_conditions.append(f"step_{index} = 1")
+
+    #     for exclusion_id, entity in enumerate(self._filter.exclusions):
+    #         step_conditions.append(f"exclusion_{exclusion_id}_step_{entity.funnel_from_step} = 1")
+
+    #     return " OR ".join(step_conditions)
+
+    def _get_step_col(self, entity: EntityNode, index: int, entity_name: str, step_prefix: str = "") -> List[ast.Expr]:
+        # step prefix is used to distinguish actual steps, and exclusion steps
+        # without the prefix, we get the same parameter binding for both, which borks things up
+        step_cols: List[ast.Expr] = []
+        condition = self._build_step_query(entity, index, entity_name, step_prefix)
+        step_cols.append(
+            parse_expr(f"if({{condition}}, 1, 0) as {step_prefix}step_{index}", placeholders={"condition": condition})
+        )
+        step_cols.append(
+            parse_expr(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
+        )
+
+        # for field in self.extra_event_fields_and_properties:
+        #     step_cols.append(f'if({step_prefix}step_{index} = 1, "{field}", null) as "{step_prefix}{field}_{index}"')
+
+        return step_cols
+
+    def _build_step_query(self, entity: EntityNode, index: int, entity_name: str, step_prefix: str) -> ast.Expr:
+        # filters = self._build_filters(entity, index, entity_name)
+        # if isinstance(entity, ActionsNode):
+        #     action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+        #     for action_step_event in action.get_step_events():
+        #         if entity_name not in self.params[entity_name]:
+        #             self.params[entity_name].append(action_step_event)
+
+        #     action_query, action_params = format_action_filter(
+        #         team_id=self._team.pk,
+        #         action=action,
+        #         prepend=f"{entity_name}_{step_prefix}step_{index}",
+        #         person_properties_mode=get_person_properties_mode(self._team),
+        #         person_id_joined_alias="person_id",
+        #         hogql_context=self._filter.hogql_context,
+        #     )
+        #     if action_query == "":
+        #         return ""
+
+        #     self.params.update(action_params)
+        #     expr = "{actions_query} {filters}".format(actions_query=action_query, filters=filters)
+        # elif entity.id is None:
+        #     # all events
+        #     # expr = f"1 = 1 {filters}"
+        #     expr = ast.Constant(value=True)
+        # else:
+        #     if entity_name not in self.params:
+        #         self.params[entity_name] = []
+        #     if entity.id not in self.params[entity_name]:
+        #         self.params[entity_name].append(entity.id)
+        #     event_param_key = f"{entity_name}_{step_prefix}event_{index}"
+        #     self.params[event_param_key] = entity.id
+        #     expr = f"event = %({event_param_key})s {filters}"
+        # return expr
+        return ast.Constant(value=True)
 
     def _get_timestamp_selects(self) -> Tuple[List[ast.Expr], List[ast.Expr]]:
         """

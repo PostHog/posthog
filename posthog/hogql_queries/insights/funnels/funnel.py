@@ -3,7 +3,6 @@ from typing import List
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
-from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 
 from rest_framework.exceptions import ValidationError
 
@@ -155,7 +154,9 @@ class Funnel(FunnelBase):
 
         return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=formatted_query), where=where)
 
-    def _build_step_subquery(self, level_index: int, max_steps: int) -> ast.SelectQuery:
+    def _build_step_subquery(
+        self, level_index: int, max_steps: int, event_names_alias: str = "events"
+    ) -> ast.SelectQuery:
         select: List[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["timestamp"]),
@@ -169,8 +170,7 @@ class Funnel(FunnelBase):
                 *self._get_person_and_group_properties(),
             ]
 
-            # FROM ({self._get_inner_event_query()})
-            event_query = FunnelEventQuery(context=self.context).to_query()
+            event_query = self._get_inner_event_query(entity_name=event_names_alias)
 
             return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=event_query))
         else:
