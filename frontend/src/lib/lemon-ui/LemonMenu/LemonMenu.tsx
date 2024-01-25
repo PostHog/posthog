@@ -166,7 +166,7 @@ export function LemonMenuSectionList({
                         <section className="space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
-                                    <h5>{section.title}</h5>
+                                    <h5 className="mx-2 my-1">{section.title}</h5>
                                 ) : (
                                     section.title
                                 )
