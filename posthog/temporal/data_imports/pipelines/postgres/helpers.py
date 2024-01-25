@@ -51,17 +51,17 @@ class TableLoader:
             return query
         last_value_func = self.incremental.last_value_func
         if last_value_func is max:  # Query ordered and filtered according to last_value function
-            order_by = self.cursor_column.asc()
+            order_by = self.cursor_column.asc()  # type: ignore
             filter_op = operator.ge
         elif last_value_func is min:
-            order_by = self.cursor_column.desc()
+            order_by = self.cursor_column.desc()  # type: ignore
             filter_op = operator.le
         else:  # Custom last_value, load everything and let incremental handle filtering
             return query
         query = query.order_by(order_by)
         if self.last_value is None:
             return query
-        return query.where(filter_op(self.cursor_column, self.last_value))
+        return query.where(filter_op(self.cursor_column, self.last_value))  # type: ignore
 
     def load_rows(self) -> Iterator[List[TDataItem]]:
         query = self.make_query()
