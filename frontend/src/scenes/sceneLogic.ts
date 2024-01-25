@@ -22,10 +22,10 @@ import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
 export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
-    [ProductKey.SESSION_REPLAY]: ['/replay'],
-    [ProductKey.FEATURE_FLAGS]: ['/feature_flags', '/early_access_features', '/experiments'],
-    [ProductKey.SURVEYS]: ['/surveys'],
-    [ProductKey.PRODUCT_ANALYTICS]: ['/insights'],
+    [ProductKey.SESSION_REPLAY]: [urls.replay()],
+    [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
+    [ProductKey.SURVEYS]: [urls.surveys()],
+    [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
 }
 
 export const sceneLogic = kea<sceneLogicType>([
