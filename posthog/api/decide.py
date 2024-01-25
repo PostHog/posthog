@@ -257,7 +257,7 @@ def get_decide(request: HttpRequest):
                 if isinstance(linked_flag, Dict):
                     linked_flag = linked_flag.get("key")
 
-                response["sessionRecording"] = {
+                session_recording_response = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
@@ -266,6 +266,19 @@ def get_decide(request: HttpRequest):
                     "linkedFlag": linked_flag,
                     "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 }
+
+                if isinstance(team.session_replay_config, Dict):
+                    record_canvas = team.session_replay_config["record_canvas"] or False
+                    session_recording_response.update(
+                        {
+                            "recordCanvas": record_canvas,
+                            # hard coded during beta while we decide on sensible values
+                            "canvasFps": 4 if record_canvas else None,
+                            "canvasQuality": "0.6" if record_canvas else None,
+                        }
+                    )
+
+                response["sessionRecording"] = session_recording_response
 
             response["surveys"] = True if team.surveys_opt_in else False
 

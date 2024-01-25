@@ -102,6 +102,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_replay_config",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -146,7 +147,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
-            "session_recording_summary_config",
+            "session_replay_config",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -209,15 +210,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    def validate_session_recording_summary_config(self, value) -> Dict | None:
+    def validate_session_replay_config(self, value) -> Dict | None:
         if value is None:
             return None
 
         if not isinstance(value, Dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
+        if not all(key in ["record_canvas", "ai_summary"] for key in value.keys()):
+            raise exceptions.ValidationError(
+                "Must provide a dictionary with only 'record_canvas' and 'ai_summary' keys."
+            )
+
         allowed_keys = ["included_event_properties", "opt_in", "preferred_events", "excluded_events"]
-        if not all(key in allowed_keys for key in value.keys()):
+        if "ai_summary" in value and not all(key in allowed_keys for key in value["ai_summary"].keys()):
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only allowed keys: {}".format(allowed_keys)
             )
@@ -325,20 +331,26 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
+    def check_permissions(self, request):
+        if self.action and self.action == "create":
+            organization = getattr(self.request.user, "organization", None)
+            if not organization:
+                raise exceptions.ValidationError("You need to belong to an organization.")
+            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+            self.organization = organization
+
+        return super().check_permissions(request)
+
     def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
+
         base_permissions = [permission() for permission in self.permission_classes]
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
-                organization = getattr(self.request.user, "organization", None)
-                if not organization:
-                    raise exceptions.ValidationError("You need to belong to an organization.")
-                # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-                self.organization = organization
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     base_permissions.append(OrganizationAdminWritePermissions())
                 elif "is_demo" in self.request.data:

@@ -36,3 +36,9 @@
         border-color: $hex;
     }
 }
+
+@layer utilities {
+    .image-pixelated {
+        image-rendering: pixelated;
+    }
+}

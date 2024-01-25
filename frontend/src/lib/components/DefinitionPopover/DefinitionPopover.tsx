@@ -1,7 +1,6 @@
 import './DefinitionPopover.scss'
 
-import { ProfilePicture } from '@posthog/lemon-ui'
-import { Divider, DividerProps } from 'antd'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
@@ -124,7 +123,8 @@ function Example({ value }: { value?: string }): JSX.Element {
         type === TaxonomicFilterGroupType.EventProperties ||
         type === TaxonomicFilterGroupType.EventFeatureFlags ||
         type === TaxonomicFilterGroupType.PersonProperties ||
-        type === TaxonomicFilterGroupType.GroupsPrefix
+        type === TaxonomicFilterGroupType.GroupsPrefix ||
+        type === TaxonomicFilterGroupType.Metadata
     ) {
         data = getKeyMapping(value, 'event')
     } else if (type === TaxonomicFilterGroupType.Elements) {
@@ -195,11 +195,12 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
     )
 }
 
-function HorizontalLine({ children, ...props }: DividerProps): JSX.Element {
+function HorizontalLine({ className, label }: { className?: string; label?: string }): JSX.Element {
     return (
-        <Divider className="definition-popover-divider" {...props}>
-            {children}
-        </Divider>
+        <LemonDivider
+            className={clsx('DefinitionPopover items-start my-4', className)}
+            label={label && <span className="DefinitionPopover__label">{label}</span>}
+        />
     )
 }
 

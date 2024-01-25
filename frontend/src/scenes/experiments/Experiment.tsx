@@ -21,7 +21,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
 import { Field } from 'lib/forms/Field'
-import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { IconDelete, IconPlusMini, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -38,7 +38,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
+import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
@@ -318,6 +318,7 @@ export function Experiment(): JSX.Element {
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
                                                                 icon={<IconPlusMini />}
+                                                                data-attr="add-test-variant"
                                                             >
                                                                 Add test variant
                                                             </LemonButton>
@@ -407,6 +408,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </div>
                                         <LemonSelect
+                                            data-attr="experiment-goal-type-select"
                                             value={experimentInsightType}
                                             onChange={(val) => {
                                                 val &&
@@ -615,6 +617,19 @@ export function Experiment(): JSX.Element {
                                 {experiment.feature_flag && (
                                     <div className="block ml-10">
                                         <div className="exp-flag-copy-label">Feature flag</div>
+                                        {getExperimentStatus(experiment) === ProgressStatus.Running &&
+                                            !experiment.feature_flag.active && (
+                                                <Tooltip
+                                                    placement="bottom"
+                                                    title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                                >
+                                                    <IconWarning
+                                                        style={{ transform: 'translateY(2px)' }}
+                                                        className="mr-1 text-danger"
+                                                        fontSize="18px"
+                                                    />
+                                                </Tooltip>
+                                            )}
                                         <CopyToClipboardInline
                                             iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
                                             className="font-normal text-sm"
@@ -680,7 +695,7 @@ export function Experiment(): JSX.Element {
                                 for more information.{' '}
                             </LemonBanner>
                         )}
-                        {showWarning && experiment.end_date && (
+                        {showWarning && experiment.end_date && experiment.feature_flag?.active && (
                             <LemonBanner type="info" onClose={() => setShowWarning(false)}>
                                 <strong>Your experiment is complete, but the feature flag is still enabled.</strong> We
                                 recommend removing the feature flag from your code completely, instead of relying on

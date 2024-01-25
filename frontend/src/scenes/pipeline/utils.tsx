@@ -3,10 +3,22 @@ import api from 'lib/api'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import posthog from 'posthog-js'
+import BigQueryIcon from 'public/pipeline/BigQuery.png'
+import PostgresIcon from 'public/pipeline/Postgres.png'
+import RedshiftIcon from 'public/pipeline/Redshift.svg'
+import S3Icon from 'public/pipeline/S3.png'
+import SnowflakeIcon from 'public/pipeline/Snowflake.png'
 import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
 
-import { BatchExportConfiguration, PluginConfigTypeNew, PluginLogEntryType, PluginType } from '~/types'
+import {
+    BatchExportConfiguration,
+    BatchExportDestination,
+    PluginConfigTypeNew,
+    PluginLogEntryType,
+    PluginType,
+} from '~/types'
 
+import { DestinationFrequency } from './destinationsLogic'
 import { PipelineAppLogLevel } from './pipelineAppLogsLogic'
 
 const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
@@ -119,6 +131,24 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     )
 }
 
+export function RenderBatchExportIcon({ type }: { type: BatchExportDestination['type'] }): JSX.Element {
+    const icon = {
+        BigQuery: BigQueryIcon,
+        Postgres: PostgresIcon,
+        Redshift: RedshiftIcon,
+        S3: S3Icon,
+        Snowflake: SnowflakeIcon,
+    }[type]
+
+    return (
+        <div className="flex items-center gap-4">
+            <Link to={`https://posthog.com/docs/cdp/batch-exports/${type.toLowerCase()}`} target="_blank">
+                <img src={icon} alt={type} height={60} width={60} />
+            </Link>
+        </div>
+    )
+}
+
 export const logLevelToTypeFilter = (level: PipelineAppLogLevel): PluginLogEntryType => {
     switch (level) {
         case PipelineAppLogLevel.Debug:
@@ -182,4 +212,17 @@ export function LogLevelDisplay(level: PipelineAppLogLevel): JSX.Element {
 
 export function LogTypeDisplay(type: PluginLogEntryType): JSX.Element {
     return LogLevelDisplay(typeToLogLevel(type))
+}
+
+export const humanFriendlyFrequencyName = (frequency: DestinationFrequency): string => {
+    switch (frequency) {
+        case 'realtime':
+            return 'Realtime'
+        case 'day':
+            return 'Daily'
+        case 'hour':
+            return 'Hourly'
+        case 'every 5 minutes':
+            return '5 min'
+    }
 }

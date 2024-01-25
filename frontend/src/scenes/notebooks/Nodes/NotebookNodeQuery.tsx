@@ -6,7 +6,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { urls } from 'scenes/urls'
@@ -226,7 +226,11 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         },
     },
     href: (attrs) =>
-        attrs.query.kind === NodeKind.SavedInsightNode ? urls.insightView(attrs.query.shortId) : undefined,
+        attrs.query.kind === NodeKind.SavedInsightNode
+            ? urls.insightView(attrs.query.shortId)
+            : isInsightVizNode(attrs.query)
+            ? urls.insightNew(undefined, undefined, attrs.query)
+            : undefined,
     Settings,
     pasteOptions: {
         find: urls.insightView('(.+)' as InsightShortId),

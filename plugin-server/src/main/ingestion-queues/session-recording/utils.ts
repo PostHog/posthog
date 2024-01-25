@@ -1,4 +1,4 @@
-import { captureException, captureMessage } from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
@@ -214,29 +214,11 @@ export const parseKafkaMessage = async (
     }
     // end of deprecated mechanism
 
-    const invalidEvents: any[] = []
     const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
-        if (!event || !event.timestamp) {
-            invalidEvents.push(event)
-            return false
-        }
-        return true
+        // we sometimes see events that are null
+        // there will always be some unexpected data but, we should try to filter out the worst of it
+        return event && event.timestamp
     })
-
-    if (invalidEvents.length) {
-        captureMessage('[session-manager]: invalid rrweb events filtered out from message', {
-            extra: {
-                invalidEvents,
-                eventsCount: events.length,
-                invalidEventsCount: invalidEvents.length,
-                event,
-            },
-            tags: {
-                team_id: teamIdWithConfig.teamId,
-                session_id: $session_id,
-            },
-        })
-    }
 
     if (!events.length) {
         return dropMessage('message_contained_no_valid_rrweb_events', {

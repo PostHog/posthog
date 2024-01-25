@@ -714,6 +714,22 @@ class TestTeamAPI(APIBaseTest):
         second_get_response = self.client.get("/api/projects/@current/")
         assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
+    def test_can_set_and_unset_session_replay_config(self) -> None:
+        # can set
+        first_patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_replay_config": {"record_canvas": True}},
+        )
+        assert first_patch_response.status_code == status.HTTP_200_OK
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.json()["session_replay_config"] == {"record_canvas": True}
+
+        # can unset
+        response = self.client.patch("/api/projects/@current/", {"session_replay_config": None})
+        assert response.status_code == status.HTTP_200_OK
+        second_get_response = self.client.get("/api/projects/@current/")
+        assert second_get_response.json()["session_replay_config"] is None
+
     @parameterized.expand(
         [
             [
@@ -731,45 +747,47 @@ class TestTeamAPI(APIBaseTest):
             ],
         ]
     )
-    def test_invalid_session_recording_summary_config(
+    def test_invalid_session_replay_config_ai_summary(
         self, _name: str, provided_value: str, expected_code: str, expected_error: str
     ) -> None:
-        response = self.client.patch("/api/projects/@current/", {"session_recording_summary_config": provided_value})
+        response = self.client.patch(
+            "/api/projects/@current/", {"session_recording_config": {"ai_summary": provided_value}}
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {
-            "attr": "session_recording_summary_config",
+            "attr": "session_recording_config",
             "code": expected_code,
             "detail": expected_error,
             "type": "validation_error",
         }
 
-    def test_can_set_and_unset_session_recording_summary_config(self) -> None:
+    def test_can_set_and_unset_session_replay_config_ai_summary(self) -> None:
         # can set just the opt-in
         first_patch_response = self.client.patch(
             "/api/projects/@current/",
-            {"session_recording_summary_config": {"opt_in": True}},
+            {"session_recording_config": {"ai_summary": {"opt_in": True}}},
         )
         assert first_patch_response.status_code == status.HTTP_200_OK
         get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_recording_summary_config"] == {"opt_in": True}
+        assert get_response.json()["session_recording_config"]["ai_summary"] == {"opt_in": True}
 
         # can set some preferences
         first_patch_response = self.client.patch(
             "/api/projects/@current/",
-            {"session_recording_summary_config": {"opt_in": False, "included_event_properties": ["something"]}},
+            {"session_recording_config": {"ai_summary": {"opt_in": False, "included_event_properties": ["something"]}}},
         )
         assert first_patch_response.status_code == status.HTTP_200_OK
         get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_recording_summary_config"] == {
+        assert get_response.json()["session_recording_config"]["ai_summary"] == {
             "opt_in": False,
             "included_event_properties": ["something"],
         }
 
         # can unset both
-        response = self.client.patch("/api/projects/@current/", {"session_recording_summary_config": None})
+        response = self.client.patch("/api/projects/@current/", {"session_recording_config": {"ai_summary": None}})
         assert response.status_code == status.HTTP_200_OK
         second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_recording_summary_config"] is None
+        assert second_get_response.json()["session_recording_config"]["ai_summary"] is None
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

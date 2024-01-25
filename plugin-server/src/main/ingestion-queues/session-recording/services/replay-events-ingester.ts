@@ -1,4 +1,4 @@
-import { captureException, captureMessage } from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
@@ -118,18 +118,6 @@ export class ReplayEventsIngester {
                 if (replayRecord !== null) {
                     const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
                     if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
-                        captureMessage(`Invalid replay record timestamp: ${replayRecord.first_timestamp} for event`, {
-                            extra: {
-                                replayRecord,
-                                uuid: replayRecord.uuid,
-                                timestamp: replayRecord.first_timestamp,
-                            },
-                            tags: {
-                                team: event.team_id,
-                                session_id: replayRecord.session_id,
-                            },
-                        })
-
                         return drop('invalid_timestamp')
                     }
                 }

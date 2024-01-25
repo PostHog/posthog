@@ -9,8 +9,8 @@ import {
     mutationData,
     removedNodeMutation,
 } from '@rrweb/types'
-import { captureMessage } from '@sentry/react'
-import { isObject } from 'lib/utils'
+import {captureMessage} from '@sentry/react'
+import {isObject} from 'lib/utils'
 
 import {
     attributes,
@@ -40,6 +40,7 @@ import {
     wireframeText,
     wireframeToggle,
 } from './mobile.types'
+import {makeStatusBar} from "./status-bar";
 import {
     makeBodyStyles,
     makeColorStyles,
@@ -86,6 +87,7 @@ const HTML_ELEMENT_ID = 3
 const HEAD_ID = 4
 const BODY_ID = 5
 const KEYBOARD_ID = 6
+export const STATUS_BAR_ID = 7
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
@@ -179,7 +181,7 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-function _isPositiveInteger(id: unknown): id is number {
+export function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
 }
 
@@ -267,14 +269,18 @@ function makePlaceholderElement(
     }
 }
 
+export function dataURIOrPNG(src: string):string {
+    if (!src.startsWith('data:image/')) {
+        return 'data:image/png;base64,' + src
+    }
+    return src;
+}
+
 function makeImageElement(wireframe: wireframeImage, children: serializedNodeWithId[]): serializedNodeWithId | null {
     if (!wireframe.base64) {
         return makePlaceholderElement(wireframe, children)
     }
-    let src = wireframe.base64
-    if (!src.startsWith('data:image/')) {
-        src = 'data:image/png;base64,' + src
-    }
+    const src = dataURIOrPNG(wireframe.base64);
     return {
         type: NodeType.Element,
         tagName: 'img',
@@ -784,7 +790,7 @@ function makeRectangleElement(
 
 function chooseConverter<T extends wireframe>(
     wireframe: T
-): (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null {
+): (wireframe: T, children: serializedNodeWithId[], timestamp?: number, idSequence?: Generator<number>) => serializedNodeWithId | null {
     // in theory type is always present
     // but since this is coming over the wire we can't really be sure,
     // and so we default to div
@@ -802,23 +808,26 @@ function chooseConverter<T extends wireframe>(
         radio_group: makeRadioGroupElement as any,
         web_view: makeWebViewElement as any,
         placeholder: makePlaceholderElement as any,
+        status_bar: makeStatusBar as any,
+        // we could add in a converter for this, but it's fine without any chrome for now
+        navigation_bar: makeDivElement as any,
     }
     return converterMapping[converterType]
 }
 
-function convertWireframe(wireframe: wireframe): serializedNodeWithId | null {
-    const children = convertWireframesFor(wireframe.childWireframes)
+function convertWireframe(wireframe: wireframe, timestamp?: number, idSequence?: Generator<number>): serializedNodeWithId | null {
+    const children = convertWireframesFor(wireframe.childWireframes, timestamp)
     const converter = chooseConverter(wireframe)
-    return converter?.(wireframe, children) || null
+    return converter?.(wireframe, children, timestamp, idSequence) || null
 }
 
-function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNodeWithId[] {
+function convertWireframesFor(wireframes: wireframe[] | undefined, timestamp?: number): serializedNodeWithId[] {
     if (!wireframes) {
         return []
     }
 
     return wireframes.reduce((acc, wireframe) => {
-        const convertedEl = convertWireframe(wireframe)
+        const convertedEl = convertWireframe(wireframe, timestamp, idSequence)
         if (convertedEl !== null) {
             acc.push(convertedEl)
         }
@@ -846,7 +855,7 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
 }
 
 function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation[] | null {
-    const converted = convertWireframe(add.wireframe)
+    const converted = convertWireframe(add.wireframe, undefined, idSequence)
     if (!converted) {
         return null
     }
@@ -1030,7 +1039,7 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: convertWireframesFor(mobileEvent.data.wireframes) || [],
+                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, mobileEvent.timestamp) || [],
                             },
                         ],
                     },

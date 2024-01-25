@@ -253,7 +253,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         if not session_metadata:
             raise ValueError(f"no session metadata found for session_id {recording.session_id}")
 
-    config = SessionRecordingSummaryConfig.from_config_json(team.session_recording_summary_config)
+    config = SessionRecordingSummaryConfig.from_config_json(team.session_replay_config.ai_summary)
 
     with timer("get_events"):
         session_events = SessionReplayEvents().get_events(

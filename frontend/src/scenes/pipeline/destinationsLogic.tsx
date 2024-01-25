@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
+    BatchExportDestination,
     PipelineAppKind,
     PipelineAppTab,
     PluginConfigTypeNew,
@@ -20,6 +21,8 @@ import {
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 import { captureBatchExportEvent, capturePluginEvent } from './utils'
 
+export type DestinationFrequency = 'realtime' | BatchExportConfiguration['interval']
+
 interface DestinationTypeBase {
     name: string
     description?: string
@@ -28,16 +31,18 @@ interface DestinationTypeBase {
     metrics_url: string
     logs_url: string
     updated_at: string
-    frequency: 'realtime' | BatchExportConfiguration['interval']
+    frequency: DestinationFrequency
 }
+
 export enum PipelineAppBackend {
     BatchExport = 'batch_export',
     Plugin = 'plugin',
 }
 
-export interface BatchExportDestination extends DestinationTypeBase {
+interface BatchExportDestinationType extends DestinationTypeBase {
     backend: PipelineAppBackend.BatchExport
     id: string
+    data_storage_type: BatchExportDestination['type']
     app_source_code_url?: never
 }
 export interface WebhookDestination extends DestinationTypeBase {
@@ -46,7 +51,7 @@ export interface WebhookDestination extends DestinationTypeBase {
     plugin: PluginType
     app_source_code_url?: string
 }
-export type DestinationType = BatchExportDestination | WebhookDestination
+export type DestinationType = BatchExportDestinationType | WebhookDestination
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
@@ -186,6 +191,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     id: batchExport.id,
                     name: batchExport.name,
                     description: `${batchExport.destination.type} batch export`, // TODO: add to backend
+                    data_storage_type: batchExport.destination.type,
                     enabled: !batchExport.paused,
                     config_url: urls.pipelineApp(
                         PipelineAppKind.Destination,

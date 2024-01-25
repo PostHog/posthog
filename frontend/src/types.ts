@@ -367,7 +367,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
-    session_recording_summary_config: SessionRecordingSummaryConfig | null
+    session_replay_config: { record_canvas?: boolean; ai_summary?: SessionRecordingSummaryConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -534,6 +534,7 @@ export enum ExperimentsTabs {
 }
 
 export enum PipelineTab {
+    Overview = 'overview',
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
@@ -831,9 +832,14 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelExclusion extends Partial<EntityFilter> {
+export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step?: number
     funnel_to_step?: number
+}
+
+export interface FunnelExclusion extends Partial<EntityFilter> {
+    funnelFromStep?: number
+    funnelToStep?: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
@@ -892,7 +898,7 @@ export interface MatchedRecording {
     events: MatchedRecordingEvent[]
 }
 
-interface CommonActorType {
+export interface CommonActorType {
     id: string | number
     properties: Record<string, any>
     /** @format date-time */
@@ -1853,7 +1859,7 @@ export interface FunnelsFilterType extends FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelExclusion[] // used in funnel exclusion filters
+    exclusions?: FunnelExclusionLegacy[] // used in funnel exclusion filters
     funnel_aggregate_by_hogql?: string
 
     // frontend only
@@ -2123,8 +2129,8 @@ export interface FunnelTimeConversionMetrics {
 }
 
 export interface FunnelConversionWindow {
-    funnel_window_interval_unit: FunnelConversionWindowTimeUnit
-    funnel_window_interval: number
+    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit
+    funnelWindowInterval: number
 }
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
@@ -3512,6 +3518,9 @@ export type BatchExportDestinationRedshift = {
     }
 }
 
+// When adding a new option here also add a icon for it to
+// src/scenes/pipeline/icons/
+// and update RenderBatchExportIcon
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake

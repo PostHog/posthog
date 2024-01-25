@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
-import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
+import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
 
 export function MinimalNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -16,8 +16,8 @@ export function MinimalNavigation(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
-    const { isSitePopoverOpen, isProjectSwitcherShown } = useValues(navigationLogic)
-    const { closeSitePopover, toggleSitePopover, toggleProjectSwitcher, hideProjectSwitcher } =
+    const { isAccountPopoverOpen, isProjectSwitcherShown } = useValues(navigationLogic)
+    const { closeAccountPopover, toggleAccountPopover, toggleProjectSwitcher, hideProjectSwitcher } =
         useActions(navigationLogic)
 
     return (
@@ -42,15 +42,15 @@ export function MinimalNavigation(): JSX.Element {
                 </Popover>
             ) : null}
             <Popover
-                overlay={<SitePopoverOverlay />}
-                visible={isSitePopoverOpen}
-                onClickOutside={closeSitePopover}
+                overlay={<AccountPopoverOverlay />}
+                visible={isAccountPopoverOpen}
+                onClickOutside={closeAccountPopover}
                 placement="bottom"
             >
                 <LemonButton
                     type="tertiary"
                     icon={<ProfilePicture user={user} size="md" />}
-                    onClick={toggleSitePopover}
+                    onClick={toggleAccountPopover}
                 >
                     {user?.first_name || user?.email}
                 </LemonButton>

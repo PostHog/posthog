@@ -4,9 +4,11 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -189,6 +191,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['dashboards'],
             organizationLogic,
             ['currentOrganization'],
+            enabledFeaturesLogic,
+            ['featureFlags as enabledFeatures'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -927,17 +931,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         taxonomicGroupTypes: [
-            (s) => [s.featureFlag, s.groupsTaxonomicTypes],
-            (featureFlag, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+            (s) => [s.featureFlag, s.groupsTaxonomicTypes, s.enabledFeatures],
+            (featureFlag, groupsTaxonomicTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
+                const baseGroupTypes = []
+                const additionalGroupTypes = []
+                const newFlagOperatorsEnabled = enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]
                 if (
                     featureFlag &&
                     featureFlag.filters.aggregation_group_type_index != null &&
                     groupsTaxonomicTypes.length > 0
                 ) {
-                    return [groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index]]
+                    baseGroupTypes.push(groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index])
+
+                    if (newFlagOperatorsEnabled) {
+                        additionalGroupTypes.push(
+                            `${TaxonomicFilterGroupType.GroupNamesPrefix}_${featureFlag.filters.aggregation_group_type_index}` as unknown as TaxonomicFilterGroupType
+                        )
+                    }
+                } else {
+                    baseGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
+                    baseGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
+
+                    if (newFlagOperatorsEnabled) {
+                        additionalGroupTypes.push(TaxonomicFilterGroupType.Metadata)
+                    }
                 }
 
-                return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+                return [...baseGroupTypes, ...additionalGroupTypes]
             },
         ],
         breadcrumbs: [
@@ -950,6 +970,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
+        ],
+        featureFlagTaxonomicOptions: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
+                    return {}
+                }
+
+                const taxonomicOptions: TaxonomicFilterProps['optionsFromProp'] = {
+                    [TaxonomicFilterGroupType.Metadata]: [
+                        { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
+                    ],
+                }
+                return taxonomicOptions
+            },
         ],
         propertySelectErrors: [
             (s) => [s.featureFlag],
@@ -989,21 +1024,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
 
                 return effectiveRolloutPercentage * (affectedUsers[index] / effectiveTotalUsers)
-            },
-        ],
-        approximateTotalBlastRadius: [
-            (s) => [s.computeBlastRadiusPercentage, s.featureFlag],
-            (computeBlastRadiusPercentage, featureFlag) => {
-                if (!featureFlag || !featureFlag.filters.groups) {
-                    return 0
-                }
-
-                let total = 0
-                featureFlag.filters.groups.forEach((group, index) => {
-                    total += computeBlastRadiusPercentage(group.rollout_percentage, index)
-                })
-
-                return Math.min(total, 100)
             },
         ],
         filteredDashboards: [

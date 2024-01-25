@@ -218,7 +218,7 @@ drf-exceptions-hog==0.4.0
     # via -r requirements.in
 drf-extensions==0.7.0
     # via -r requirements.in
-drf-spectacular==0.27.0
+drf-spectacular==0.27.1
     # via -r requirements.in
 filelock==3.12.0
     # via snowflake-connector-python
@@ -398,7 +398,7 @@ phonenumberslite==8.13.6
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-pillow==9.2.0
+pillow==10.2.0
     # via -r requirements.in
 ply==3.11
     # via jsonpath-ng

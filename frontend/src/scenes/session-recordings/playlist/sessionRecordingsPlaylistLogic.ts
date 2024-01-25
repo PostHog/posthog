@@ -553,7 +553,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     selectors({
         sessionSummaryOptedIn: [
             (s) => [s.currentTeam],
-            (currentTeam) => currentTeam?.session_recording_summary_config?.opt_in ?? false,
+            (currentTeam) => currentTeam?.session_replay_config?.ai_summary?.opt_in ?? false,
         ],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
         shouldShowEmptyState: [

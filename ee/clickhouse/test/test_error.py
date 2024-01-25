@@ -26,6 +26,15 @@ from posthog.errors import wrap_query_error
             "Code: 9999.\nSyntax error",
             9999,
         ),
+        (
+            ServerException(
+                "Memory limit (for query) exceeded: would use 42.00 GiB (attempt to allocate chunk of 16757643 bytes), maximum: 42.00 GiB.",
+                code=241,
+            ),
+            "CHQueryErrorMemoryLimitExceeded",
+            "Query exceeds memory limits. Tip: Specifying a narrower time range helps most of the time.",
+            241,
+        ),
     ],
 )
 def test_wrap_query_error(error, expected_type, expected_message, expected_code):

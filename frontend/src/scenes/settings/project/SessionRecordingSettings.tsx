@@ -1,4 +1,4 @@
-import { LemonButton, LemonSelect, LemonSelectMultiple, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectMultiple, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -6,6 +6,7 @@ import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAutoAwesome, IconCancel, IconPlus, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -17,8 +18,8 @@ import { AvailableFeature, SessionRecordingSummaryConfig } from '~/types'
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-
     const { currentTeam } = useValues(teamLogic)
+    const hasCanvasRecording = useFeatureFlag('SESSION_REPLAY_CANVAS')
 
     return (
         <div className="space-y-4">
@@ -74,6 +75,42 @@ export function ReplayGeneral(): JSX.Element {
                     logs will be shown in the recording player to help you debug any issues.
                 </p>
             </div>
+            {hasCanvasRecording && (
+                <div className="space-y-2">
+                    <LemonSwitch
+                        data-attr="opt-in-capture-canvas-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                session_replay_config: {
+                                    ...currentTeam?.session_replay_config,
+                                    record_canvas: checked,
+                                },
+                            })
+                        }}
+                        label={
+                            <div className="space-x-1">
+                                <LemonTag type="success">New</LemonTag>
+                                <LemonLabel>Capture canvas elements</LemonLabel>
+                            </div>
+                        }
+                        bordered
+                        checked={
+                            currentTeam?.session_replay_config
+                                ? !!currentTeam?.session_replay_config?.record_canvas
+                                : false
+                        }
+                    />
+                    <p>
+                        This setting controls if browser canvas elements will be captured as part of recordings.{' '}
+                        <b>
+                            <i>
+                                There is no way to mask canvas elements right now so please make sure they are free of
+                                PII.
+                            </i>
+                        </b>
+                    </p>
+                </div>
+            )}
             <div className="space-y-2">
                 <NetworkCaptureSettings />
             </div>
@@ -193,19 +230,19 @@ export function ReplaySummarySettings(): JSX.Element | null {
         excluded_events: ['$feature_flag_called'],
         included_event_properties: ['elements_chain', '$window_id', '$current_url', '$event_type'],
     }
-    const currentConfig: SessionRecordingSummaryConfig = currentTeam.session_recording_summary_config || defaultConfig
+    const sessionReplayConfig = currentTeam.session_replay_config || {}
+    const currentConfig: SessionRecordingSummaryConfig = sessionReplayConfig.ai_summary || defaultConfig
+
+    const updateSummaryConfig = (summaryConfig: SessionRecordingSummaryConfig): void => {
+        updateCurrentTeam({
+            session_replay_config: { ...sessionReplayConfig, ai_summary: summaryConfig },
+        })
+    }
 
     return (
         <div className="flex flex-col gap-2">
             <div>
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        updateCurrentTeam({
-                            session_recording_summary_config: defaultConfig,
-                        })
-                    }}
-                >
+                <LemonButton type="secondary" onClick={() => updateSummaryConfig(defaultConfig)}>
                     Reset to default
                 </LemonButton>
             </div>
@@ -219,11 +256,9 @@ export function ReplaySummarySettings(): JSX.Element | null {
                 <LemonSwitch
                     checked={currentConfig.opt_in}
                     onChange={(checked) => {
-                        updateCurrentTeam({
-                            session_recording_summary_config: {
-                                ...currentConfig,
-                                opt_in: checked,
-                            },
+                        updateSummaryConfig({
+                            ...currentConfig,
+                            opt_in: checked,
                         })
                     }}
                     label="Opt in to enable AI suggested summaries"
@@ -240,11 +275,9 @@ export function ReplaySummarySettings(): JSX.Element | null {
                 </p>
                 <EventSelect
                     onChange={(includedEvents) => {
-                        updateCurrentTeam({
-                            session_recording_summary_config: {
-                                ...currentConfig,
-                                preferred_events: includedEvents,
-                            },
+                        updateSummaryConfig({
+                            ...currentConfig,
+                            preferred_events: includedEvents,
                         })
                     }}
                     selectedEvents={currentConfig.preferred_events || []}
@@ -263,11 +296,9 @@ export function ReplaySummarySettings(): JSX.Element | null {
                 <p>These events are never submitted even when they are present in the session.</p>
                 <EventSelect
                     onChange={(excludedEvents) => {
-                        updateCurrentTeam({
-                            session_recording_summary_config: {
-                                ...currentConfig,
-                                excluded_events: excludedEvents,
-                            },
+                        updateSummaryConfig({
+                            ...currentConfig,
+                            excluded_events: excludedEvents,
                         })
                     }}
                     selectedEvents={currentConfig.excluded_events || []}
@@ -291,11 +322,9 @@ export function ReplaySummarySettings(): JSX.Element | null {
                     <LemonSelectMultiple
                         mode="multiple-custom"
                         onChange={(properties: string[]) => {
-                            updateCurrentTeam({
-                                session_recording_summary_config: {
-                                    ...currentConfig,
-                                    included_event_properties: properties,
-                                },
+                            updateSummaryConfig({
+                                ...currentConfig,
+                                included_event_properties: properties,
                             })
                         }}
                         value={currentConfig.included_event_properties || []}

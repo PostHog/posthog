@@ -2,7 +2,7 @@ import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import React, { useEffect } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
@@ -20,6 +20,7 @@ interface PropertyFiltersProps {
     showConditionBadge?: boolean
     disablePopover?: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
     metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
@@ -32,6 +33,7 @@ interface PropertyFiltersProps {
     allowNew?: boolean
     errorMessages?: JSX.Element[] | null
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
+    allowRelativeDateOptions?: boolean
 }
 
 export function PropertyFilters({
@@ -41,6 +43,7 @@ export function PropertyFilters({
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicGroupTypes,
+    taxonomicFilterOptionsFromProp,
     metadataSource,
     showNestedArrow = false,
     eventNames = [],
@@ -53,6 +56,7 @@ export function PropertyFilters({
     allowNew = true,
     errorMessages = null,
     propertyAllowList,
+    allowRelativeDateOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -109,6 +113,8 @@ export function PropertyFilters({
                                                 placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
                                             }}
                                             propertyAllowList={propertyAllowList}
+                                            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                            allowRelativeDateOptions={allowRelativeDateOptions}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

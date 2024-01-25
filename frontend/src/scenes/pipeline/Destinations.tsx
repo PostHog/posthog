@@ -5,16 +5,15 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Sparkline, SparklineTimeSeries } from 'lib/lemon-ui/Sparkline'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { PipelineAppKind, ProductKey } from '~/types'
 
-import { DestinationType, PipelineAppBackend, pipelineDestinationsLogic } from './destinationsLogic'
+import { AppMetricSparkLine } from './AppMetricSparkLine'
+import { DestinationType, pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
-import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
-import { RenderApp } from './utils'
+import { RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -45,8 +44,7 @@ export function Destinations(): JSX.Element {
 }
 
 function DestinationsTable(): JSX.Element {
-    const { loading, destinations, canConfigurePlugins } = useValues(pipelineDestinationsLogic)
-    const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
+    const { loading, destinations } = useValues(pipelineDestinationsLogic)
 
     return (
         <>
@@ -81,7 +79,7 @@ function DestinationsTable(): JSX.Element {
                             if (destination.backend === 'plugin') {
                                 return <RenderApp plugin={destination.plugin} />
                             }
-                            return <></> // TODO: batch export
+                            return <RenderBatchExportIcon type={destination.data_storage_type} />
                         },
                     },
                     {
@@ -93,7 +91,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: 'Success rate',
                         render: function RenderSuccessRate(_, destination) {
-                            return <DestinationSparkLine destination={destination} />
+                            return <AppMetricSparkLine config={destination} />
                         },
                     },
                     updatedAtColumn() as LemonTableColumn<DestinationType, any>,
@@ -118,82 +116,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         width: 0,
                         render: function Render(_, destination) {
-                            return (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                onClick={() => toggleEnabled(destination, !destination.enabled)}
-                                                id={`app-${destination.id}-enable-switch`}
-                                                disabledReason={
-                                                    canConfigurePlugins
-                                                        ? undefined
-                                                        : 'You do not have permission to enable/disable destinations.'
-                                                }
-                                                fullWidth
-                                            >
-                                                {destination.enabled ? 'Pause' : 'Unpause'} destination
-                                            </LemonButton>
-                                            <LemonButton
-                                                to={destination.config_url}
-                                                id={`app-${destination.id}-configuration`}
-                                                fullWidth
-                                            >
-                                                {canConfigurePlugins ? 'Edit' : 'View'} destination configuration
-                                            </LemonButton>
-                                            <LemonButton
-                                                to={destination.metrics_url}
-                                                id={`app-${destination.id}-metrics`}
-                                                fullWidth
-                                            >
-                                                View metrics
-                                            </LemonButton>
-                                            <LemonButton
-                                                to={destination.logs_url}
-                                                id={`app-${destination.id}-logs`}
-                                                fullWidth
-                                            >
-                                                View logs
-                                            </LemonButton>
-                                            {destination.app_source_code_url && (
-                                                <LemonButton
-                                                    to={destination.app_source_code_url}
-                                                    targetBlank={true}
-                                                    id={`app-${destination.id}-source-code`}
-                                                    fullWidth
-                                                >
-                                                    View app source code
-                                                </LemonButton>
-                                            )}
-                                            <LemonDivider />
-                                            {destination.backend === 'plugin' && (
-                                                <LemonButton // TODO: batch exports
-                                                    status="danger"
-                                                    onClick={() => {
-                                                        void deleteWithUndo({
-                                                            endpoint: `plugin_config`,
-                                                            object: {
-                                                                id: destination.id,
-                                                                name: destination.name,
-                                                            },
-                                                            callback: loadPluginConfigs,
-                                                        })
-                                                    }}
-                                                    id="app-delete"
-                                                    disabledReason={
-                                                        canConfigurePlugins
-                                                            ? undefined
-                                                            : 'You do not have permission to delete apps.'
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    Delete app
-                                                </LemonButton>
-                                            )}
-                                        </>
-                                    }
-                                />
-                            )
+                            return <More overlay={<DestinationMoreOverlay destination={destination} />} />
                         },
                     },
                 ]}
@@ -202,34 +125,73 @@ function DestinationsTable(): JSX.Element {
     )
 }
 
-function DestinationSparkLine({ destination }: { destination: DestinationType }): JSX.Element {
-    if (destination.backend === PipelineAppBackend.BatchExport) {
-        return <></> // TODO: not ready yet
-    } else {
-        const logic = pipelineAppMetricsLogic({ pluginConfigId: destination.id })
-        const { appMetricsResponse } = useValues(logic)
+export const DestinationMoreOverlay = ({
+    destination,
+    inOverview = false,
+}: {
+    destination: DestinationType
+    inOverview?: boolean
+}): JSX.Element => {
+    const { canConfigurePlugins } = useValues(pipelineDestinationsLogic)
+    const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
 
-        const displayData: SparklineTimeSeries[] = [
-            {
-                color: 'success',
-                name: 'Events sent',
-                values: appMetricsResponse ? appMetricsResponse.metrics.successes : [],
-            },
-        ]
-        if (appMetricsResponse?.metrics.failures.some((failure) => failure > 0)) {
-            displayData.push({
-                color: 'danger',
-                name: 'Events dropped',
-                values: appMetricsResponse ? appMetricsResponse.metrics.failures : [],
-            })
-        }
+    return (
+        <>
+            {!inOverview && (
+                <LemonButton
+                    onClick={() => toggleEnabled(destination, !destination.enabled)}
+                    id={`app-${destination.id}-enable-switch`}
+                    disabledReason={
+                        canConfigurePlugins ? undefined : 'You do not have permission to enable/disable destinations.'
+                    }
+                    fullWidth
+                >
+                    {destination.enabled ? 'Pause' : 'Unpause'} destination
+                </LemonButton>
+            )}
+            <LemonButton to={destination.config_url} id={`app-${destination.id}-configuration`} fullWidth>
+                {canConfigurePlugins ? 'Edit' : 'View'} destination configuration
+            </LemonButton>
+            <LemonButton to={destination.metrics_url} id={`app-${destination.id}-metrics`} fullWidth>
+                View metrics
+            </LemonButton>
+            <LemonButton to={destination.logs_url} id={`app-${destination.id}-logs`} fullWidth>
+                View logs
+            </LemonButton>
+            {destination.app_source_code_url && (
+                <LemonButton
+                    to={destination.app_source_code_url}
+                    targetBlank={true}
+                    id={`app-${destination.id}-source-code`}
+                    fullWidth
+                >
+                    View app source code
+                </LemonButton>
+            )}
 
-        return (
-            <Sparkline
-                loading={appMetricsResponse === null}
-                labels={appMetricsResponse ? appMetricsResponse.metrics.dates : []}
-                data={displayData}
-            />
-        )
-    }
+            {!inOverview && destination.backend === 'plugin' && (
+                <>
+                    <LemonDivider />
+                    <LemonButton // TODO: batch exports
+                        status="danger"
+                        onClick={() => {
+                            void deleteWithUndo({
+                                endpoint: `plugin_config`,
+                                object: {
+                                    id: destination.id,
+                                    name: destination.name,
+                                },
+                                callback: loadPluginConfigs,
+                            })
+                        }}
+                        id="app-delete"
+                        disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to delete apps.'}
+                        fullWidth
+                    >
+                        Delete app
+                    </LemonButton>
+                </>
+            )}
+        </>
+    )
 }

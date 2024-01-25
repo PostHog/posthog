@@ -269,6 +269,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         [TaxonomicFilterGroupType.Events]: 'event',
                         [TaxonomicFilterGroupType.EventProperties]: 'event',
                         [TaxonomicFilterGroupType.PersonProperties]: 'event',
+                        [TaxonomicFilterGroupType.Metadata]: 'event',
                         [TaxonomicFilterGroupType.Elements]: 'element',
                     }
 
