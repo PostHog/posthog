@@ -262,6 +262,7 @@ export interface BaseMemberType {
     id: string
     user: UserBasicType
     joined_at: string
+    updated_at: string
     is_2fa_enabled: boolean
     has_social_auth: boolean
 }
@@ -301,9 +302,9 @@ export interface FusedTeamMemberType extends BaseMemberType {
 }
 
 export interface ListOrganizationMembersParams {
-    search?: string
     offset?: number
     limit?: number
+    updated_after?: string
 }
 
 export interface APIErrorType {

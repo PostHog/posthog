@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { membersV2Logic } from 'scenes/organization/membersV2Logic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -22,7 +22,7 @@ export type ProjectNoticeVariant =
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig'], membersV2Logic, ['memberCount']],
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['memberCount']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({

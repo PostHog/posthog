@@ -1,4 +1,4 @@
-import { actions, events, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -84,7 +84,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                     !currentTeam?.access_control ||
                     !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)
                 ) {
-                    return organizationMembers.map(
+                    return (organizationMembers ?? []).map(
                         (member) =>
                             ({
                                 ...member,
@@ -93,7 +93,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                             } as FusedTeamMemberType)
                     )
                 }
-                return organizationMembers
+                return (organizationMembers ?? [])
                     .filter(({ level }) => level >= MINIMUM_IMPLICIT_ACCESS_LEVEL)
                     .map(
                         (member) =>
@@ -187,7 +187,8 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             actions.loadMembers()
         },
     })),
-    events(({ actions }) => ({
-        afterMount: actions.loadMembers,
-    })),
+    afterMount(({ actions }) => {
+        actions.loadMembers()
+        membersLogic.actions.ensureAllMembersLoaded()
+    }),
 ])

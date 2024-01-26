@@ -1,13 +1,11 @@
 from typing import cast
 
-from django.db.models import Model, Prefetch
+from django.db.models import Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
-from rest_framework.response import Response
 from rest_framework.serializers import raise_errors_on_nested_writes
 from social_django.admin import UserSocialAuth
 
@@ -120,12 +118,23 @@ class OrganizationMemberViewSet(
         self.check_object_permissions(self.request, obj)
         return obj
 
+    def get_queryset(self) -> QuerySet:
+        queryset = super().get_queryset()
+
+        if self.action == "list":
+            params = self.request.GET.dict()
+
+            if "updated_after" in params:
+                queryset = queryset.filter(updated_at__gt=params["updated_after"])
+
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-joined_at")
+
+        return queryset
+
     def perform_destroy(self, instance: Model):
         instance = cast(OrganizationMembership, instance)
         instance.user.leave(organization=instance.organization)
-
-    @action(methods=["GET"], detail=False)
-    def count(self, request: Request, **kwargs) -> Response:
-        queryset = self.get_queryset()
-        count = queryset.count()
-        return Response({"count": count})

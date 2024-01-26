@@ -16,9 +16,9 @@ import {
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
-import { membersV2Logic, searchableMembersLogic } from 'scenes/organization/membersV2Logic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -28,7 +28,7 @@ import { OrganizationMemberType } from '~/types'
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember, changeMemberAccessLevel } = useActions(membersV2Logic)
+    const { removeMember, changeMemberAccessLevel } = useActions(membersLogic)
 
     if (!user) {
         return null
@@ -134,10 +134,9 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 }
 
 export function Members(): JSX.Element | null {
-    const membersLogic = searchableMembersLogic({ logicKey: 'settings' })
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { setSearch } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const [is2FAModalVisible, set2FAModalVisible] = useState(false)
     const { preflight } = useValues(preflightLogic)
@@ -146,6 +145,10 @@ export function Members(): JSX.Element | null {
     if (!user) {
         return null
     }
+
+    useEffect(() => {
+        ensureAllMembersLoaded()
+    }, [])
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -212,7 +215,7 @@ export function Members(): JSX.Element | null {
                                     onSuccess={() => {
                                         set2FAModalVisible(false)
                                         userLogic.actions.updateUser({})
-                                        membersV2Logic.actions.clearMembers()
+                                        ensureAllMembersLoaded()
                                     }}
                                 />
                             </LemonModal>
@@ -274,7 +277,7 @@ export function Members(): JSX.Element | null {
             </div>
 
             <LemonTable
-                dataSource={filteredMembers}
+                dataSource={filteredMembers ?? []}
                 columns={columns}
                 rowKey="id"
                 style={{ marginTop: '1rem' }}

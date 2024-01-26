@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { membersV2Logic } from 'scenes/organization/membersV2Logic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -47,7 +47,7 @@ export const activationLogic = kea<activationLogicType>([
         values: [
             teamLogic,
             ['currentTeam'],
-            membersV2Logic,
+            membersLogic,
             ['memberCount'],
             inviteLogic,
             ['invites'],
