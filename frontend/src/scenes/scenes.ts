@@ -371,6 +371,9 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Settings',
     },
+    [Scene.UpgradeToPostHogCloud]: {
+        name: 'Upgrade to PostHog Cloud',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -548,4 +551,5 @@ export const routes: Record<string, Scene> = {
     [urls.notebooks()]: Scene.Notebooks,
     [urls.canvas()]: Scene.Canvas,
     [urls.settings(':section' as any)]: Scene.Settings,
+    [urls.upgradeToPostHogCloud()]: Scene.UpgradeToPostHogCloud,
 }

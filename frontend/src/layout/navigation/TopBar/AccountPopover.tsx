@@ -243,7 +243,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                 <AccountPopoverSection>
                     <LemonButton
                         onClick={closeAccountPopover}
-                        to={urls.upgradeToCloudCTA()}
+                        to={urls.upgradeToPostHogCloud()}
                         icon={<IconConfetti />}
                         fullWidth
                         data-attr="top-menu-item-upgrade-to-cloud"
