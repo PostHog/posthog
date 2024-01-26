@@ -82,15 +82,15 @@ export function moveToPostHogCloud(): JSX.Element {
             link: 'https://posthog.com/handbook/growth/customer-support',
         },
         {
-            name: 'SOC-2 compliant',
+            name: 'SOC 2 compliant',
             description: "We're SOC-2 compliant, so you can rest easy knowing your data is secure.",
             icon: <IconPrivacy />,
             link: 'https://posthog.com/handbook/company/security',
         },
         {
-            name: 'HIPPA compliant (coming soon)',
+            name: 'HIPAA compliant (coming soon)',
             description:
-                "We'll be HIPPA compliant very soon (just waiting on paperwork), so you can rest easy knowing your data is secure.",
+                "We'll be HIPAA compliant very soon (just waiting on paperwork), so you can rest easy knowing your data is secure.",
             icon: <IconHeart />,
         },
     ]
