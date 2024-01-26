@@ -539,6 +539,269 @@ describe('migrate()', () => {
                 },
             ],
         ],
+        [
+            'migrates series TODO',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [
+                                    {
+                                        id: '2674',
+                                        kind: 'ActionsNode',
+                                        math: 'unique_group',
+                                        name: 'User Signed Up (Comprehensive)',
+                                        properties: [
+                                            {
+                                                key: 'is_organization_first_user',
+                                                type: 'event',
+                                                value: ['true'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        custom_name: 'All Org Signups',
+                                        math_group_type_index: 0,
+                                    },
+                                    {
+                                        id: '2674',
+                                        kind: 'ActionsNode',
+                                        math: 'unique_group',
+                                        name: 'User Signed Up (Comprehensive)',
+                                        properties: [
+                                            {
+                                                key: 'id',
+                                                type: 'cohort',
+                                                value: 15394,
+                                                operator: null,
+                                            },
+                                            {
+                                                key: 'is_organization_first_user',
+                                                type: 'event',
+                                                value: ['true'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        custom_name: 'High ICP Organizations',
+                                        math_group_type_index: 0,
+                                    },
+                                    {
+                                        id: '8231',
+                                        kind: 'ActionsNode',
+                                        math: 'unique_group',
+                                        name: 'User Signed Up (Cloud)',
+                                        properties: [
+                                            {
+                                                key: 'is_organization_first_user',
+                                                type: 'event',
+                                                value: ['true'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        custom_name: 'Cloud Signups',
+                                        math_group_type_index: 0,
+                                    },
+                                    {
+                                        id: '9847',
+                                        kind: 'ActionsNode',
+                                        math: 'unique_group',
+                                        name: 'User signed up (self-hosted Clickhouse)',
+                                        properties: [
+                                            {
+                                                key: 'is_organization_first_user',
+                                                type: 'event',
+                                                value: ['true'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        custom_name: 'Open Source Signups',
+                                        math_group_type_index: 0,
+                                    },
+                                ],
+                                interval: 'week',
+                                dateRange: { date_to: null, date_from: '-90d' },
+                                properties: {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            type: 'AND',
+                                            values: [
+                                                {
+                                                    key: 'email',
+                                                    type: 'event',
+                                                    value: 'posthog.com',
+                                                    operator: 'not_icontains',
+                                                },
+                                                {
+                                                    key: 'organization_name',
+                                                    type: 'group',
+                                                    value: ['teste'],
+                                                    operator: 'is_not',
+                                                    group_type_index: 0,
+                                                },
+                                                {
+                                                    key: 'organization_name',
+                                                    type: 'group',
+                                                    value: ['HOgflix movie'],
+                                                    operator: 'is_not',
+                                                    group_type_index: 0,
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                trendsFilter: {
+                                    compare: false,
+                                    display: 'ActionsLineGraph',
+                                    show_legend: false,
+                                    smoothing_intervals: 1,
+                                    show_values_on_series: true,
+                                },
+                                filterTestAccounts: false,
+                            },
+                        },
+                        title: 'Weekly Org Signups',
+                        __init: null,
+                        height: null,
+                        nodeId: '564e15f2-78a0-4ff9-837d-c871aa71c2ef',
+                        children: null,
+                    },
+                },
+            ],
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [
+                                    {
+                                        id: '2674',
+                                        kind: 'ActionsNode',
+                                        math: 'unique_group',
+                                        name: 'User Signed Up (Comprehensive)',
+                                        properties: [
+                                            {
+                                                key: 'is_organization_first_user',
+                                                type: 'event',
+                                                value: ['true'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        custom_name: 'All Org Signups',
+                                        math_group_type_index: 0,
+                                    },
+                                    {
+                                        id: '2674',
+                                        kind: 'ActionsNode',
+                                        math: 'unique_group',
+                                        name: 'User Signed Up (Comprehensive)',
+                                        properties: [
+                                            {
+                                                key: 'id',
+                                                type: 'cohort',
+                                                value: 15394,
+                                                operator: null,
+                                            },
+                                            {
+                                                key: 'is_organization_first_user',
+                                                type: 'event',
+                                                value: ['true'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        custom_name: 'High ICP Organizations',
+                                        math_group_type_index: 0,
+                                    },
+                                    {
+                                        id: '8231',
+                                        kind: 'ActionsNode',
+                                        math: 'unique_group',
+                                        name: 'User Signed Up (Cloud)',
+                                        properties: [
+                                            {
+                                                key: 'is_organization_first_user',
+                                                type: 'event',
+                                                value: ['true'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        custom_name: 'Cloud Signups',
+                                        math_group_type_index: 0,
+                                    },
+                                    {
+                                        id: '9847',
+                                        kind: 'ActionsNode',
+                                        math: 'unique_group',
+                                        name: 'User signed up (self-hosted Clickhouse)',
+                                        properties: [
+                                            {
+                                                key: 'is_organization_first_user',
+                                                type: 'event',
+                                                value: ['true'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                        custom_name: 'Open Source Signups',
+                                        math_group_type_index: 0,
+                                    },
+                                ],
+                                interval: 'week',
+                                dateRange: { date_to: null, date_from: '-90d' },
+                                properties: {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            type: 'AND',
+                                            values: [
+                                                {
+                                                    key: 'email',
+                                                    type: 'event',
+                                                    value: 'posthog.com',
+                                                    operator: 'not_icontains',
+                                                },
+                                                {
+                                                    key: 'organization_name',
+                                                    type: 'group',
+                                                    value: ['teste'],
+                                                    operator: 'is_not',
+                                                    group_type_index: 0,
+                                                },
+                                                {
+                                                    key: 'organization_name',
+                                                    type: 'group',
+                                                    value: ['HOgflix movie'],
+                                                    operator: 'is_not',
+                                                    group_type_index: 0,
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                trendsFilter: {
+                                    compare: false,
+                                    display: 'ActionsLineGraph',
+                                    showLegend: false,
+                                    smoothingIntervals: 1,
+                                    showValuesOnSeries: true,
+                                },
+                                filterTestAccounts: false,
+                            },
+                        },
+                        title: 'Weekly Org Signups',
+                        __init: null,
+                        height: null,
+                        nodeId: '564e15f2-78a0-4ff9-837d-c871aa71c2ef',
+                        children: null,
+                    },
+                },
+            ],
+        ],
     ]
 
     contentToExpected.forEach(([name, prevContent, nextContent]) => {
