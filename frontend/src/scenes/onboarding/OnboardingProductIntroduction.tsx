@@ -1,5 +1,3 @@
-import './onboarding.scss'
-
 import { IconCheck, IconMap, IconMessage, IconStack } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -37,7 +35,7 @@ export const Feature = ({ name, description, images }: BillingV2FeatureType): JS
 
 export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType): JSX.Element => {
     return (
-        <li className="rounded-lg p-4 sm:p-6 sm:pb-8">
+        <li className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-primary-alt-highlight">
             <span className="inline-block text-2xl mb-2 opacity-75">{getProductIcon(icon_key)}</span>
             <h3 className="text-[17px] mb-1 leading-tight">{name}</h3>
             <p className="m-0 text-[15px]">{description}</p>
@@ -168,7 +166,7 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                     </div>
                 )}
 
-                <div className="features p-8 py-8 border-t border-border flex justify-center">
+                <div className="p-8 py-8 border-t border-border flex justify-center">
                     <div className="max-w-screen-xl">
                         <h3 className="mb-6 text-2xl font-bold">Features</h3>
                         <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
@@ -183,7 +181,7 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                                 })}
                         </ul>
 
-                        <ul className="subfeatures list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4">
                             {product.features
                                 .filter((feature) => feature.type == 'secondary')
                                 .map((subfeature, i) => {
@@ -225,13 +223,13 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                         </div>
                     </div>
                 </div>
-                <div className="features p-8 py-12 border-t border-border">
+                <div className="p-8 py-12 border-t border-border">
                     <div className="max-w-screen-xl m-auto">
                         <PricingSection product={product} />
                     </div>
                 </div>
                 <div className="mb-12 flex justify-center px-8">
-                    <div className="w-full max-w-screen-xl rounded bg-white border border-border p-6 flex justify-between items-center gap-x-12">
+                    <div className="w-full max-w-screen-xl rounded bg-primary-alt-highlight border border-border p-6 flex justify-between items-center gap-x-12">
                         <div>
                             <h3 className="mb-4 text-2xl font-bold">Get started with {product.name}</h3>
                             <p className="text-sm max-w-2xl">{product.description}</p>
