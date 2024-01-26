@@ -1537,9 +1537,7 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
-        async summarize(
-            recordingId: SessionRecordingType['id']
-        ): Promise<{ content: string; ai_result: Record<string, any> }> {
+        async summarize(recordingId: SessionRecordingType['id']): Promise<{ content: string }> {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
         },
 
