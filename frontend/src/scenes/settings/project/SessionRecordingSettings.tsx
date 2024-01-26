@@ -1,11 +1,12 @@
-import { LemonButton, LemonSelect, LemonSelectMultiple, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
-import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
+import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAutoAwesome, IconCancel, IconPlus, IconSelectEvents } from 'lib/lemon-ui/icons'
@@ -323,18 +324,18 @@ export function ReplaySummarySettings(): JSX.Element | null {
                             We always send the event name and timestamp. The only event data sent are values of the
                             properties selected here.
                         </p>
-                        <div className="max-w-160">
-                            <LemonSelectMultiple
-                                mode="multiple-custom"
-                                onChange={(properties: string[]) => {
-                                    updateSummaryConfig({
-                                        ...currentConfig,
-                                        included_event_properties: properties,
-                                    })
-                                }}
-                                value={currentConfig.included_event_properties || []}
-                            />
-                        </div>
+                        <PropertySelect
+                            taxonomicFilterGroup={TaxonomicFilterGroupType.EventProperties}
+                            sortable={false}
+                            onChange={(properties: string[]) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    included_event_properties: properties,
+                                })
+                            }}
+                            selectedProperties={currentConfig.included_event_properties || []}
+                            addText="Add property"
+                        />
                     </div>
                     <div>
                         <h3 className="flex items-center gap-2">
@@ -345,19 +346,18 @@ export function ReplaySummarySettings(): JSX.Element | null {
                             We always send the first and last seen dates. The only user data sent are values of the
                             properties selected here.
                         </p>
-                        <div className="max-w-160">
-                            <PersonPropertySelect
-                                sortable={false}
-                                onChange={(properties) => {
-                                    updateSummaryConfig({
-                                        ...currentConfig,
-                                        important_user_properties: properties,
-                                    })
-                                }}
-                                selectedProperties={currentConfig.important_user_properties || []}
-                                addText="Add property"
-                            />
-                        </div>
+                        <PropertySelect
+                            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
+                            sortable={false}
+                            onChange={(properties) => {
+                                updateSummaryConfig({
+                                    ...currentConfig,
+                                    important_user_properties: properties,
+                                })
+                            }}
+                            selectedProperties={currentConfig.important_user_properties || []}
+                            addText="Add property"
+                        />
                     </div>
                 </>
             )}

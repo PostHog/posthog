@@ -42,7 +42,6 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-
 class PremiumMultiprojectPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
@@ -233,7 +232,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if not isinstance(value, Dict):
                 raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-            allowed_keys = ["included_event_properties", "opt_in", "preferred_events", "excluded_events"]
+            allowed_keys = [
+                "included_event_properties",
+                "opt_in",
+                "preferred_events",
+                "excluded_events",
+                "important_user_properties",
+            ]
             if not all(key in allowed_keys for key in value.keys()):
                 raise exceptions.ValidationError(
                     "Must provide a dictionary with only allowed keys: {}".format(allowed_keys)

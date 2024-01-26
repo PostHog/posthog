@@ -743,7 +743,7 @@ class TestTeamAPI(APIBaseTest):
                 "unexpected json - no recordX",
                 {"key": "something"},
                 "invalid_input",
-                "Must provide a dictionary with only allowed keys: ['included_event_properties', 'opt_in', 'preferred_events', 'excluded_events']",
+                "Must provide a dictionary with only allowed keys: ['included_event_properties', 'opt_in', 'preferred_events', 'excluded_events', 'important_user_properties']",
             ],
         ]
     )
