@@ -223,7 +223,9 @@ export function AccountPopoverOverlay(): JSX.Element {
             <AccountPopoverSection>
                 <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
-                    onClick={() => {
+                    to="https://posthog.com/changelog"
+                    onClick={(e) => {
+                        e.preventDefault()
                         closeAccountPopover()
                         openSidePanel(SidePanelTab.Docs, '/changelog')
                     }}
