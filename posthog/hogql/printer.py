@@ -304,7 +304,7 @@ class _Printer(Visitor):
 
         clauses = [
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
-            f"FROM{space}{' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
+            f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,

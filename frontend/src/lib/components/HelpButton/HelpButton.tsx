@@ -170,7 +170,6 @@ export function HelpButton({
                 onVisibilityChange={(visible) => !visible && hideHelp()}
                 visible={isHelpVisible}
                 placement={placement}
-                actionable
                 onClickOutside={hideHelp}
             >
                 <div className={clsx('help-button', inline && 'inline')} onClick={toggleHelp} data-attr="help-button">

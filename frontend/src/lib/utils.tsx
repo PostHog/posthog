@@ -882,7 +882,8 @@ export function dateFilterToText(
     defaultValue: string | null,
     dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
-    dateFormat: string = DATE_FORMAT
+    dateFormat: string = DATE_FORMAT,
+    startOfRange: boolean = false
 ): string | null {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return formatDateRange(dateFrom, dateTo, dateFormat)
@@ -922,6 +923,12 @@ export function dateFilterToText(
         if (dateOption && counter) {
             let date = null
             switch (dateOption) {
+                case 'year':
+                    date = dayjs().subtract(counter, 'y')
+                    break
+                case 'hour':
+                    date = dayjs().subtract(counter, 'h')
+                    break
                 case 'quarter':
                     date = dayjs().subtract(counter * 3, 'M')
                     break
@@ -937,6 +944,8 @@ export function dateFilterToText(
             }
             if (isDateFormatted) {
                 return formatDateRange(date, dayjs().endOf('d'))
+            } else if (startOfRange) {
+                return formatDate(date, dateFormat)
             } else {
                 return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
             }

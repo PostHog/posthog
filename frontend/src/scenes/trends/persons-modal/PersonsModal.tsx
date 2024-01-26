@@ -26,7 +26,6 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { InsightActorsQuery } from '~/queries/schema'
 import {
     ActorType,
     ExporterFormat,
@@ -35,13 +34,11 @@ import {
     SessionRecordingType,
 } from '~/types'
 
-import { personsModalLogic } from './personsModalLogic'
+import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 
-export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
+export interface PersonsModalProps extends PersonModalLogicProps, Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
-    query?: InsightActorsQuery | null
-    url?: string | null
     urlsIndex?: number
     urls?: {
         label: string | JSX.Element
@@ -58,6 +55,7 @@ export function PersonsModal({
     title,
     onAfterClose,
     inline,
+    additionalFields,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
@@ -65,10 +63,11 @@ export function PersonsModal({
     const logic = personsModalLogic({
         url: originalUrl,
         query: _query,
+        additionalFields,
     })
 
     const {
-        query: query,
+        query,
         actors,
         actorsResponseLoading,
         actorsResponse,
@@ -80,7 +79,7 @@ export function PersonsModal({
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
         exploreUrl,
-        ActorsQuery,
+        actorsQuery,
     } = useValues(logic)
     const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
         useActions(logic)
@@ -227,7 +226,7 @@ export function PersonsModal({
                                     void triggerExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
-                                            ? { source: ActorsQuery as Record<string, any> }
+                                            ? { source: actorsQuery as Record<string, any> }
                                             : { path: originalUrl },
                                     })
                                 }}

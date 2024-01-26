@@ -10,7 +10,7 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { Popconfirm, Progress } from 'antd'
+import { Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
@@ -26,6 +26,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -318,6 +319,7 @@ export function Experiment(): JSX.Element {
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
                                                                 icon={<IconPlusMini />}
+                                                                data-attr="add-test-variant"
                                                             >
                                                                 Add test variant
                                                             </LemonButton>
@@ -407,6 +409,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                         </div>
                                         <LemonSelect
+                                            data-attr="experiment-goal-type-select"
                                             value={experimentInsightType}
                                             onChange={(val) => {
                                                 val &&
@@ -742,9 +745,8 @@ export function Experiment(): JSX.Element {
                                                     <div className="mb-2">
                                                         <b>Experiment progress</b>
                                                     </div>
-                                                    <Progress
-                                                        strokeWidth={20}
-                                                        showInfo={false}
+                                                    <LemonProgress
+                                                        size="large"
                                                         percent={experimentProgressPercent}
                                                         strokeColor="var(--success)"
                                                     />

@@ -49,6 +49,7 @@ class TestCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
         self.assertEqual(len(response.results), 1)
@@ -65,6 +66,7 @@ class TestCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk}",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
@@ -80,6 +82,7 @@ class TestCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
