@@ -87,6 +87,7 @@ export const _OnboardingOtherProducts = (): JSX.Element => {
     }, [])
     return <App />
 }
+_OnboardingOtherProducts.tags = ['test-skip'] // FIXME: For some reason this is captured correctly the first time, but then is written over a second time with SDKs view
 
 export const _OnboardingProductIntroduction = (): JSX.Element => {
     useStorybookMocks({
