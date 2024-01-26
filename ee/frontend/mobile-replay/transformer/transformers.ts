@@ -442,19 +442,23 @@ function makeSelectElement(
     children: serializedNodeWithId[],
     context: ConversionContext
 ): ConversionResult<serializedNodeWithId> | null {
+    const selectOptions: serializedNodeWithId[] = []
+    if (wireframe.options) {
+        let optionContext = context
+        for (let i = 0; i < wireframe.options.length; i++) {
+            const option = wireframe.options[i]
+            const conversion = makeSelectOptionElement(option, wireframe.value === option, optionContext)
+            selectOptions.push(conversion.result)
+            optionContext = conversion.context
+        }
+    }
     return {
         result: {
             type: NodeType.Element,
             tagName: 'select',
             attributes: inputAttributes(wireframe),
             id: wireframe.id,
-            childNodes: [
-                ...// TODO this won't work once we're editing the context
-                (wireframe.options?.map(
-                    (option) => makeSelectOptionElement(option, wireframe.value === option, context).result
-                ) || []),
-                ...children,
-            ],
+            childNodes: [...selectOptions, ...children],
         },
         context,
     }
