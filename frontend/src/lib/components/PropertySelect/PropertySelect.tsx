@@ -11,11 +11,12 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
 
-export interface PersonPropertySelectProps {
+export interface PropertySelectProps {
     addText: string
     onChange: (names: string[]) => void
     selectedProperties: string[]
     sortable?: boolean
+    taxonomicFilterGroup: TaxonomicFilterGroupType.PersonProperties | TaxonomicFilterGroupType.EventProperties
 }
 
 const SortableProperty = ({
@@ -46,12 +47,13 @@ const SortableProperty = ({
     )
 }
 
-export const PersonPropertySelect = ({
+export const PropertySelect = ({
     onChange,
     selectedProperties,
     addText,
     sortable = false,
-}: PersonPropertySelectProps): JSX.Element => {
+    taxonomicFilterGroup,
+}: PropertySelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 1 } }))
 
@@ -114,7 +116,7 @@ export const PersonPropertySelect = ({
                             handleChange(value as string)
                             setOpen(false)
                         }}
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                        taxonomicGroupTypes={[taxonomicFilterGroup]}
                     />
                 }
             >
