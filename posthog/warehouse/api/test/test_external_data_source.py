@@ -9,6 +9,7 @@ from django.test import override_settings
 from django.conf import settings
 from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Team
+import psycopg
 
 
 class TestSavedQuery(APIBaseTest):
@@ -141,6 +142,26 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(source.status, "Running")
 
     def test_database_schema(self):
+        postgres_connection = psycopg.connect(
+            host=settings.PG_HOST,
+            port=settings.PG_PORT,
+            dbname=settings.PG_DATABASE,
+            user=settings.PG_USER,
+            password=settings.PG_PASSWORD,
+        )
+
+        with postgres_connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS posthog_test (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(50)
+                );
+                """
+            )
+
+            postgres_connection.commit()
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/external_data_sources/database_schema/",
             data={
@@ -155,8 +176,19 @@ class TestSavedQuery(APIBaseTest):
         results = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue("posthog_user" in results)
-        self.assertTrue("posthog_event" in results)
+
+        table_names = [table["table"] for table in results]
+        self.assertTrue("posthog_test" in table_names)
+
+        with postgres_connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DROP TABLE posthog_test;
+                """
+            )
+            postgres_connection.commit()
+
+        postgres_connection.close()
 
     @patch("posthog.warehouse.api.external_data_source.get_postgres_schemas")
     def test_internal_postgres(self, patch_get_postgres_schemas):
