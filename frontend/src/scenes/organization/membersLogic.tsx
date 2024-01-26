@@ -143,7 +143,7 @@ export const membersLogic = kea<membersLogicType>([
             },
         ],
         membersFuse: [
-            (s) => [s.sortedMembers],
+            (s) => [s.meFirstMembers],
             (members): MembersFuse =>
                 new Fuse<OrganizationMemberType>(members ?? [], {
                     keys: ['user.first_name', 'user.last_name', 'user.email'],
@@ -151,7 +151,7 @@ export const membersLogic = kea<membersLogicType>([
                 }),
         ],
         filteredMembers: [
-            (s) => [s.sortedMembers, s.membersFuse, s.search],
+            (s) => [s.meFirstMembers, s.membersFuse, s.search],
             (members, membersFuse, search): OrganizationMemberType[] =>
                 search ? membersFuse.search(search).map((result) => result.item) : members ?? [],
         ],
