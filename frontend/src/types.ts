@@ -171,7 +171,12 @@ export enum ProductKey {
 
 type ProductKeyUnion = `${ProductKey}`
 
-export type LicensePlan = 'scale' | 'enterprise' | 'cloud' | 'dev'
+export enum LicensePlan {
+    Scale = 'scale',
+    Enterprise = 'enterprise',
+    Dev = 'dev',
+    Cloud = 'cloud',
+}
 
 export enum Realm {
     Cloud = 'cloud',

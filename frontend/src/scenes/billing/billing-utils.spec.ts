@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
 
-import billingJson from '~/mocks/fixtures/_billing_v2'
+import { billingJson } from '~/mocks/fixtures/_billing_v2'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_v2_with_flat_fee.json'
 
 import {
@@ -64,32 +64,32 @@ describe('projectUsage', () => {
 const amountToUsageMapping = [
     { usage: 0, amount: '0.00' },
     { usage: 1_000_000, amount: '0.00' },
-    { usage: 1_500_000, amount: '225.00' },
-    { usage: 2_000_000, amount: '450.00' },
-    { usage: 6_000_000, amount: '1350.00' },
-    { usage: 10_000_000, amount: '2250.00' },
-    { usage: 230_000_000, amount: '12250.00' },
+    { usage: 1_500_000, amount: '155.00' },
+    { usage: 2_000_000, amount: '310.00' },
+    { usage: 6_000_000, amount: '830.00' },
+    { usage: 10_000_000, amount: '1350.00' },
+    { usage: 230_000_000, amount: '10183.50' },
 ]
 
 const amountToUsageMappingWithAddons = [
     { usage: 0, amount: '0.00' },
     { usage: 1_000_000, amount: '0.00' },
-    { usage: 1_409_091, amount: '225.00' },
-    { usage: 1_818_182, amount: '450.00' },
-    { usage: 4_888_087, amount: '1350.00' },
-    { usage: 8_137_184, amount: '2250.00' },
-    { usage: 139_090_909, amount: '12250.00' },
+    { usage: 1_409_086, amount: '155.78' },
+    { usage: 1_818_172, amount: '311.56' },
+    { usage: 4_888_063, amount: '842.89' },
+    { usage: 8_137_188, amount: '1362.75' },
+    { usage: 139_090_972, amount: '9914.62' },
 ]
 
 // 20% discount
 const amountToUsageMappingWithPercentDiscount = [
     { usage: 0, amount: '0.00' },
     { usage: 1_000_000, amount: '0.00' },
-    { usage: 1_625_000, amount: '225.00' }, // $281.25 worth of units
-    { usage: 2_500_000, amount: '450.00' }, // $562.50 worth of units
-    { usage: 7_500_000, amount: '1350.00' }, // $1687.50 worth of units
-    { usage: 17_500_000, amount: '2250.00' }, // $2812.50 worth of units
-    { usage: 352_500_000, amount: '12250.00' }, // $15,312.50 worth of units
+    { usage: 1_625_000, amount: '155.00' },
+    { usage: 2_500_000, amount: '300.00' },
+    { usage: 7_500_000, amount: '820.00' },
+    { usage: 17_500_000, amount: '1763.80' },
+    { usage: 352_500_000, amount: '8947.60' },
 ]
 
 describe('convertUsageToAmount', () => {
@@ -105,7 +105,7 @@ describe('convertUsageToAmountWithAddons', () => {
             expect(
                 convertUsageToAmount(mapping.usage, [
                     billingJson.products[0].tiers,
-                    billingJson.products[0].addons[0].tiers,
+                    billingJson.products[0].addons[0].tiers || [],
                 ])
             ).toEqual(mapping.amount)
         }
@@ -132,7 +132,7 @@ describe('convertAmountToUsageWithAddons', () => {
             expect(
                 convertAmountToUsage(mapping.amount, [
                     billingJson.products[0].tiers,
-                    billingJson.products[0].addons[0].tiers,
+                    billingJson.products[0].addons[0].tiers || [],
                 ])
             ).toEqual(mapping.usage)
         }

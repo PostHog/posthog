@@ -3,9 +3,6 @@ import { dayjs } from 'lib/dayjs'
 import { BillingV2Type } from '~/types'
 
 export const billingJson: BillingV2Type = {
-    license: {
-        plan: 'dev',
-    },
     customer_id: 'cus_PRQtW3VM1Kiw7e',
     deactivated: false,
     has_active_subscription: true,
