@@ -261,8 +261,7 @@ export function Billing(): JSX.Element {
 
                                 {!cloudOrDev && !billing?.has_active_subscription ? (
                                     <p>
-                                        Self-hosted licenses are no longer available for purchase. Please contact{' '}
-                                        <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to discuss options.
+                                        Self-hosted licenses are no longer available for purchase. If you need paid features, you'll need to <Link to="https://posthog.com/docs/migrate/migrate-to-                                                   cloud">migrate to PostHog Cloud</Link>{' '} first.
                                     </p>
                                 ) : null}
                             </div>
