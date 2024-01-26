@@ -10,8 +10,6 @@ from .database.database import create_hogql_database, serialize_database
 from posthog.utils import get_instance_region
 from .query import create_default_modifiers_for_team
 
-openai_client = OpenAI()
-
 if TYPE_CHECKING:
     from posthog.models import User, Team
 
@@ -104,7 +102,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     prompt_tokens_total, completion_tokens_total = 0, 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
         attempt_count += 1
-        result = openai_client.chat.completions.create(
+        result = OpenAI().chat.completions.create(
             model="gpt-3.5-turbo",
             temperature=0.8,
             messages=messages,

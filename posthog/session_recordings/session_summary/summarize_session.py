@@ -16,8 +16,6 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 
 from posthog.utils import get_instance_region
 
-openai_client = OpenAI()
-
 TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
     "posthog_session_summary_tokens_in_prompt_histogram",
     "histogram of the number of tokens in the prompt used to generate a session summary",
@@ -293,7 +291,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     instance_region = get_instance_region() or "HOBBY"
 
     with timer("openai_completion"):
-        result = openai_client.chat.completions.create(
+        result = OpenAI().chat.completions.create(
             # model="gpt-4-1106-preview",  # allows 128k tokens
             model="gpt-4",  # allows 8k tokens
             temperature=0.7,
