@@ -135,7 +135,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 
 export function Members(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
-    const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+    const { setSearch, ensureAllMembersLoaded, loadAllMembers } = useActions(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const [is2FAModalVisible, set2FAModalVisible] = useState(false)
@@ -215,7 +215,7 @@ export function Members(): JSX.Element | null {
                                     onSuccess={() => {
                                         set2FAModalVisible(false)
                                         userLogic.actions.updateUser({})
-                                        ensureAllMembersLoaded()
+                                        loadAllMembers()
                                     }}
                                 />
                             </LemonModal>

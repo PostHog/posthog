@@ -1269,10 +1269,6 @@ const api = {
             return await new ApiRequest().members().withQueryString(params).get()
         },
 
-        async getCount(): Promise<number> {
-            return (await new ApiRequest().members().withAction('count').get()).count
-        },
-
         async delete(uuid: OrganizationMemberType['user']['uuid']): Promise<PaginatedResponse<void>> {
             return await new ApiRequest().member(uuid).delete()
         },
