@@ -270,7 +270,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // trends filter
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
-        query.trendsFilter = trendsFilterToQuery(query)
+        query.trendsFilter = trendsFilterToQuery(filters)
     }
 
     // funnels filter
