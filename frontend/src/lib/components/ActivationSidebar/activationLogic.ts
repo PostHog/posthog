@@ -168,12 +168,12 @@ export const activationLogic = kea<activationLogicType>([
                 arePluginsLoaded,
                 areCustomEventsLoaded,
                 areInsightsLoaded
-            ) => {
+            ): boolean => {
                 return (
                     !!currentTeam &&
                     areCustomEventsLoaded &&
                     areInsightsLoaded &&
-                    memberCount &&
+                    !!memberCount &&
                     areInvitesLoaded &&
                     areDashboardsLoaded &&
                     arePluginsLoaded
