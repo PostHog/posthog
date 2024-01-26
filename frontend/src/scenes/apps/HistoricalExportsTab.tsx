@@ -1,6 +1,6 @@
-import { Progress } from 'antd'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -76,7 +76,9 @@ export function HistoricalExportsTab(): JSX.Element {
                                         </LemonTag>
                                     )
                                 case 'not_finished':
-                                    return <Progress percent={Math.floor((historicalExport.progress || 0) * 100)} />
+                                    return (
+                                        <LemonProgress percent={Math.floor((historicalExport.progress || 0) * 100)} />
+                                    )
                             }
                         },
                         align: 'right',
