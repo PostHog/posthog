@@ -13,6 +13,7 @@ import {
 import {
     ActionsNode,
     EventsNode,
+    FunnelsFilter,
     InsightNodeKind,
     InsightQueryNode,
     InsightsQueryBase,
@@ -33,6 +34,7 @@ import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
+    FunnelsFilterType,
     InsightType,
     PropertyFilterType,
     PropertyGroupFilterValue,
@@ -292,29 +294,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // funnels filter
     if (isFunnelsFilter(filters) && isFunnelsQuery(query)) {
-        query.funnelsFilter = objectCleanWithEmpty({
-            funnelVizType: filters.funnel_viz_type,
-            funnelFromStep: filters.funnel_from_step,
-            funnelToStep: filters.funnel_to_step,
-            funnelStepReference: filters.funnel_step_reference,
-            breakdownAttributionType: filters.breakdown_attribution_type,
-            breakdownAttributionValue: filters.breakdown_attribution_value,
-            binCount: filters.bin_count,
-            funnelWindowIntervalUnit: filters.funnel_window_interval_unit,
-            funnelWindowInterval: filters.funnel_window_interval,
-            funnelOrderType: filters.funnel_order_type,
-            exclusions:
-                filters.exclusions !== undefined
-                    ? filters.exclusions.map(({ funnel_from_step, funnel_to_step, ...rest }) => ({
-                          funnelFromStep: funnel_from_step,
-                          funnelToStep: funnel_to_step,
-                          ...rest,
-                      }))
-                    : undefined,
-            layout: filters.layout,
-            hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
-            funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
-        })
+        query.funnelsFilter = funnelsFilterToQuery(filters)
     }
 
     // retention filter
@@ -371,4 +351,30 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // remove undefined and empty array/objects and return
     return objectCleanWithEmpty(query as Record<string, any>, ['series']) as InsightQueryNode
+}
+
+export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): FunnelsFilter => {
+    return objectCleanWithEmpty({
+        funnelVizType: filters.funnel_viz_type,
+        funnelFromStep: filters.funnel_from_step,
+        funnelToStep: filters.funnel_to_step,
+        funnelStepReference: filters.funnel_step_reference,
+        breakdownAttributionType: filters.breakdown_attribution_type,
+        breakdownAttributionValue: filters.breakdown_attribution_value,
+        binCount: filters.bin_count,
+        funnelWindowIntervalUnit: filters.funnel_window_interval_unit,
+        funnelWindowInterval: filters.funnel_window_interval,
+        funnelOrderType: filters.funnel_order_type,
+        exclusions:
+            filters.exclusions !== undefined
+                ? filters.exclusions.map(({ funnel_from_step, funnel_to_step, ...rest }) => ({
+                      funnelFromStep: funnel_from_step,
+                      funnelToStep: funnel_to_step,
+                      ...rest,
+                  }))
+                : undefined,
+        layout: filters.layout,
+        hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
+        funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
+    })
 }
