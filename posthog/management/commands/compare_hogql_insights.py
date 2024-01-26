@@ -5,7 +5,8 @@ class Command(BaseCommand):
     help = "Test if HogQL insights match their legacy counterparts"
 
     def handle(self, *args, **options):
-        from posthog.schema import HogQLQueryModifiers, MaterializationMode
+        from typing import cast
+        from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse, MaterializationMode
         from posthog.models import Insight, Filter, RetentionFilter
         from posthog.models.filters import StickinessFilter
         from posthog.queries.retention import Retention
@@ -33,8 +34,8 @@ class Command(BaseCommand):
                     sticky_filter = StickinessFilter(insight.filters, team=insight.team)
                     legacy_results = Stickiness().run(sticky_filter, insight.team)
                 elif insight_type == "RETENTION":
-                    sticky_filter = RetentionFilter(insight.filters, team=insight.team)
-                    legacy_results = Retention().run(sticky_filter, insight.team)
+                    retention_filter = RetentionFilter(insight.filters, team=insight.team)
+                    legacy_results = Retention().run(retention_filter, insight.team)
                 else:
                     # insight.team.week_start_day = 1
                     filter = Filter(insight.filters, team=insight.team)
@@ -46,7 +47,7 @@ class Command(BaseCommand):
                 modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string)
                 # insight.team.week_start_day = 1
                 query_runner = get_query_runner(query, insight.team, modifiers=modifiers)
-                hogql_results = query_runner.calculate().results
+                hogql_results = cast(HogQLQueryResponse, query_runner.calculate()).results
                 all_ok = True
                 for legacy_result, hogql_result in zip(legacy_results, hogql_results):
                     if insight_type == "LIFECYCLE":
@@ -58,8 +59,8 @@ class Command(BaseCommand):
                         if legacy_result.get("label") != hogql_result.label:
                             all_ok = False
                             print("Label: ", legacy_result.get("label"), hogql_result.label)  # noqa: T201
-                        legacy_values = [c.get("count") for c in legacy_result.get("values")]
-                        hogql_values = [c.count for c in hogql_result.values]
+                        legacy_values = [c.get("count") for c in legacy_result.get("values") or []]
+                        hogql_values = [c.count for c in hogql_result.values or []]
                         if legacy_values != hogql_values:
                             all_ok = False
                             print("Values: ", legacy_values, hogql_values)  # noqa: T201
