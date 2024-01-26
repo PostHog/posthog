@@ -82,7 +82,7 @@ def stripe_pagination(
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str, endpoints: Tuple[str, ...], job_id: str, team_id: int, starting_after: Optional[str] = None
+    api_key: str, endpoints: Tuple[str, ...], starting_after: Optional[str] = None
 ) -> Iterable[DltResource]:
     for endpoint in endpoints:
         yield dlt.resource(

@@ -50,8 +50,6 @@ THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
 def hubspot(
     api_key: str,
     refresh_token: str,
-    job_id: str,
-    team_id: int,
     endpoints: Sequence[str] = ("companies", "contacts", "deals", "tickets", "quotes"),
     include_history: bool = False,
 ) -> Iterable[DltResource]:
