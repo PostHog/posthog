@@ -262,7 +262,6 @@ export interface BaseMemberType {
     id: string
     user: UserBasicType
     joined_at: string
-    updated_at: string
     is_2fa_enabled: boolean
     has_social_auth: boolean
 }
@@ -271,7 +270,6 @@ export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
-    has_social_auth: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {

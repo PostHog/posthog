@@ -18,6 +18,8 @@ export type SearchableMembersLogicProps = {
 
 export interface MembersFuse extends Fuse<UserBasicType> {}
 
+
+
 // TODO:
 // 1. Offload members search to server
 // 3. Modify teamMembersLogic
@@ -102,6 +104,24 @@ export const membersV2Logic = kea<membersV2LogicType>([
     })),
 
     selectors({
+        // Optimization to make sure we always have the current user in the list
+        meAsMember: [
+            (s) => [s.membersCache, s.user],
+            (membersCache, user): OrganizationMemberType | null => {
+                const userAsMember: OrganizationMemberType | null = user?.organization ? {
+                    user,
+                    id: user.uuid,
+                    joined_at: user.date_joined,
+                    is_2fa_enabled: user.is_2fa_enabled,
+                    has_social_auth: user.has_social_auth,
+                    level: user.organization.membership_level
+
+                } : null
+                return membersCache?.find(x => x.user.uuid === user?.uuid) ?? userAsMember
+            }
+
+        ],
+
         membersAsUsers: [
             (s) => [s.membersCache],
             (membersCache): UserBasicType[] | null => membersCache?.map((x) => x.user) ?? null,
@@ -110,7 +130,8 @@ export const membersV2Logic = kea<membersV2LogicType>([
         memberCount: [
             (s) => [s.user, s.membersCache],
             (user, membersCache): number => {
-                return membersCache?.length ?? user.organization.member_count
+                const count = user?.organization?.member_count
+                return count && membersCache?.length ? 
             },
         ],
     }),
