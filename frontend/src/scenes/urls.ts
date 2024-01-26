@@ -209,4 +209,5 @@ export const urls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    upgradeToCloudCTA: (): string => '/upgrade-to-cloud',
 }
