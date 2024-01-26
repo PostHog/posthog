@@ -4197,6 +4197,37 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
 
+    @freeze_time("2024-01-11")
+    def test_user_blast_radius_with_relative_date_filters(self):
+        for i in range(8):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}", "created_at": f"2023-0{i+1}-04"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "created_at",
+                            "type": "person",
+                            "value": "-10m",
+                            "operator": "is_date_before",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 3, "total_users": 8}, response_json)
+
     def test_user_blast_radius_with_zero_users(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
