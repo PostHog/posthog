@@ -81,6 +81,7 @@ class TestModifiers(BaseTest):
                 query,
                 team=self.team,
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+                pretty=False,
             )
             assert f"SELECT {', '.join(expected)} FROM" in response.clickhouse, f"PoE mode: {mode}"
 
@@ -158,6 +159,7 @@ class TestModifiers(BaseTest):
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.auto),
+            pretty=False,
         )
         assert (
             "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
@@ -167,6 +169,7 @@ class TestModifiers(BaseTest):
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_null),
+            pretty=False,
         )
         assert (
             "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
@@ -176,6 +179,7 @@ class TestModifiers(BaseTest):
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
+            pretty=False,
         )
         assert "SELECT nullIf(events.`mat_$browser`, '') AS `$browser` FROM events" in response.clickhouse
 
@@ -183,6 +187,7 @@ class TestModifiers(BaseTest):
             "SELECT properties.$browser FROM events",
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
+            pretty=False,
         )
         assert (
             "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS `$browser` FROM events"
