@@ -15,6 +15,7 @@ from posthog.schema import (
     BreakdownItem,
     BreakdownType,
     ChartDisplayType,
+    CompareItem,
     CountPerActorMathType,
     DateRange,
     DayItem,
@@ -1387,9 +1388,49 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             DayItem(label="2020-01-20", value="2020-01-20"),
         ]
 
-        assert response.breakdown == []
+        assert response.breakdown is None
 
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.compare is None
+
+    def test_to_actors_query_options_compare(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(compare=True),
+            None,
+        )
+        response = runner.to_actors_query_options()
+
+        assert response.day == [
+            DayItem(label="2020-01-09", value="2020-01-09"),
+            DayItem(label="2020-01-10", value="2020-01-10"),
+            DayItem(label="2020-01-11", value="2020-01-11"),
+            DayItem(label="2020-01-12", value="2020-01-12"),
+            DayItem(label="2020-01-13", value="2020-01-13"),
+            DayItem(label="2020-01-14", value="2020-01-14"),
+            DayItem(label="2020-01-15", value="2020-01-15"),
+            DayItem(label="2020-01-16", value="2020-01-16"),
+            DayItem(label="2020-01-17", value="2020-01-17"),
+            DayItem(label="2020-01-18", value="2020-01-18"),
+            DayItem(label="2020-01-19", value="2020-01-19"),
+            DayItem(label="2020-01-20", value="2020-01-20"),
+        ]
+
+        assert response.breakdown is None
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.compare == [
+            CompareItem(label="Current", value="current"),
+            CompareItem(label="Previous", value="previous"),
+        ]
 
     def test_to_actors_query_options_multiple_series(self):
         self._create_test_events()

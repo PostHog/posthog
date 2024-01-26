@@ -5,6 +5,8 @@ from math import ceil
 from operator import itemgetter
 import threading
 from typing import List, Optional, Any, Dict
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 
 from django.utils.timezone import datetime
@@ -128,19 +130,17 @@ class TrendsQueryRunner(QueryRunner):
         with self.timings.measure("trends_to_actors_query"):
             series = self.query.series[series_index]
 
-            # if compare == Compare.previous:
-            #     query_date_range = self.query_previous_date_range
+            if compare == Compare.previous:
+                query_date_range = self.query_previous_date_range
 
-            #     delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
-            #     if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
-            #         relative_delta = relativedelta(**delta_mappings)  # type: ignore
-            #         parsed_dt = parser.isoparse(time_frame)
-            #         parse_dt_with_relative_delta = parsed_dt - relative_delta
-            #         time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
-            # else:
-            #     query_date_range = self.query_date_range
-
-            query_date_range = self.query_date_range
+                delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
+                if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
+                    relative_delta = relativedelta(**delta_mappings)  # type: ignore
+                    parsed_dt = parser.isoparse(time_frame)
+                    parse_dt_with_relative_delta = parsed_dt - relative_delta
+                    time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
+            else:
+                query_date_range = self.query_date_range
 
             query_builder = TrendsQueryBuilder(
                 trends_query=self.query,
@@ -156,7 +156,7 @@ class TrendsQueryRunner(QueryRunner):
         return query
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
-        res_breakdown: List[BreakdownItem] = []
+        res_breakdown: List[BreakdownItem] | None = None
         res_series: List[Series] = []
         res_compare: List[CompareItem] | None = None
 
@@ -169,11 +169,11 @@ class TrendsQueryRunner(QueryRunner):
             res_series.append(Series(label="All events" if series_label is None else series_label, value=index))
 
         # Compare
-        # if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
-        #     res_compare = [
-        #         CompareItem(label="Current", value="current"),
-        #         CompareItem(label="Previous", value="previous"),
-        #     ]
+        if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
+            res_compare = [
+                CompareItem(label="Current", value="current"),
+                CompareItem(label="Previous", value="previous"),
+            ]
 
         # Breakdowns
         for series in self.query.series:
@@ -197,6 +197,7 @@ class TrendsQueryRunner(QueryRunner):
             is_boolean_breakdown = self._is_breakdown_field_boolean()
             is_histogram_breakdown = breakdown.is_histogram_breakdown
             breakdown_values: List[str | int]
+            res_breakdown = []
 
             if is_histogram_breakdown:
                 buckets = breakdown._get_breakdown_histogram_buckets()
@@ -355,6 +356,7 @@ class TrendsQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
+                        "days": self.query_date_range.all_values(),
                         "id": series_label,
                         "type": "events",
                         "order": series.series_order,
@@ -391,6 +393,7 @@ class TrendsQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
+                        "days": self.query_date_range.all_values(),
                         "id": series_label,
                         "type": "events",
                         "order": series.series_order,
