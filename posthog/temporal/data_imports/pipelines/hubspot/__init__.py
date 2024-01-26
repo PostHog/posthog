@@ -93,8 +93,6 @@ def hubspot(
             include_history=include_history,
             props=DEFAULT_PROPS[endpoint],
             include_custom_props=True,
-            job_id=job_id,
-            team_id=team_id,
         )
 
 

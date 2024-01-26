@@ -92,7 +92,5 @@ def stripe_source(
         )(
             api_key=api_key,
             endpoint=endpoint,
-            job_id=job_id,
-            team_id=team_id,
             starting_after=starting_after,
         )
