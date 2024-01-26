@@ -22,7 +22,7 @@ export const groupsModel = kea<groupsModelType>([
     }),
     loaders(({ values }) => ({
         groupTypesRaw: [
-            null as Array<GroupType> | null,
+            [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
                     return await api.get(`api/projects/${values.currentTeamId}/groups_types`)
@@ -44,7 +44,7 @@ export const groupsModel = kea<groupsModelType>([
             (s) => [s.groupTypesRaw],
             (groupTypesRaw) =>
                 new Map<GroupTypeIndex, GroupType>(
-                    groupTypesRaw?.map((groupType) => [groupType.group_type_index, groupType]) ?? []
+                    groupTypesRaw.map((groupType) => [groupType.group_type_index, groupType])
                 ),
         ],
         groupTypesLoading: [(s) => [s.groupTypesRawLoading], (groupTypesRawLoading) => groupTypesRawLoading],
