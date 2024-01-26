@@ -1,6 +1,5 @@
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { eventWithTime } from '@rrweb/types'
-import { UploadFile } from 'antd/lib/upload/interface'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -977,7 +976,7 @@ export interface CohortType {
     last_calculation?: string
     is_static?: boolean
     name?: string
-    csv?: UploadFile
+    csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
     filters: {
         properties: CohortCriteriaGroupFilter
@@ -3397,7 +3396,7 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot'
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
@@ -3419,6 +3418,11 @@ export interface SimpleExternalDataSourceSchema {
     name: string
     should_sync: boolean
     last_synced_at?: Dayjs
+}
+
+export interface ExternalDataPostgresSchema {
+    table: string
+    should_sync: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {

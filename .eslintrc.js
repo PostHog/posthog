@@ -119,7 +119,7 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip'],
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress'],
                         message: 'please use the Lemon equivalent instead',
                     },
                 ],
@@ -168,6 +168,10 @@ module.exports = {
                     {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
+                    },
+                    {
+                        element: 'Progress',
+                        message: 'use <LemonProgress> instead',
                     },
                 ],
             },

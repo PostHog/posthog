@@ -24,9 +24,11 @@ from posthog.warehouse.models import (
     sync_old_schemas_with_new_schemas,
     ExternalDataSource,
 )
+from posthog.warehouse.models.external_data_schema import get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Tuple
 import asyncio
+from django.conf import settings
 
 
 @dataclasses.dataclass
@@ -49,9 +51,21 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
     source.status = "Running"
     await sync_to_async(source.save)()  # type: ignore
 
-    # Sync schemas if they have changed
+    if source.source_type == ExternalDataSource.Type.POSTGRES:
+        host = source.job_inputs.get("host")
+        port = source.job_inputs.get("port")
+        user = source.job_inputs.get("user")
+        password = source.job_inputs.get("password")
+        database = source.job_inputs.get("database")
+        schema = source.job_inputs.get("schema")
+        schemas_to_sync = await sync_to_async(get_postgres_schemas)(  # type: ignore
+            host, port, database, user, password, schema
+        )
+    else:
+        schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type])
+
     await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-        list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type]),  # type: ignore
+        schemas_to_sync,
         source_id=inputs.external_data_source_id,
         team_id=inputs.team_id,
     )
@@ -175,6 +189,27 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             team_id=inputs.team_id,
             endpoints=tuple(inputs.schemas),
         )
+    elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
+        from posthog.temporal.data_imports.pipelines.postgres import postgres_source
+
+        host = model.pipeline.job_inputs.get("host")
+        port = model.pipeline.job_inputs.get("port")
+        user = model.pipeline.job_inputs.get("user")
+        password = model.pipeline.job_inputs.get("password")
+        database = model.pipeline.job_inputs.get("database")
+        schema = model.pipeline.job_inputs.get("schema")
+
+        source = postgres_source(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
+            schema=schema,
+            table_names=inputs.schemas,
+        )
+
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
