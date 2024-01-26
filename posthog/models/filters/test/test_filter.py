@@ -781,11 +781,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             properties={"created_at": "2021-04-04T12:00:00Z"},
         )
         filter = Filter(
-            data={
-                "properties": [
-                    {"key": "created_at", "value": "2d", "type": "person", "operator": "is_relative_date_after"}
-                ]
-            }
+            data={"properties": [{"key": "created_at", "value": "2d", "type": "person", "operator": "is_date_after"}]}
         )
 
         with self.assertNumQueries(1), freeze_time("2021-04-06T10:00:00"):
@@ -807,11 +803,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             properties={"created_at": "2021-04-04T12:00:00Z"},
         )
         filter = Filter(
-            data={
-                "properties": [
-                    {"key": "created_at", "value": "2m", "type": "person", "operator": "is_relative_date_after"}
-                ]
-            }
+            data={"properties": [{"key": "created_at", "value": "2m", "type": "person", "operator": "is_date_after"}]}
         )
 
         with self.assertNumQueries(1):
@@ -840,7 +832,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         filter = Filter(
             data={
                 "properties": [
-                    {"key": "created_at", "value": ["2m", "3d"], "type": "person", "operator": "is_relative_date_after"}
+                    {"key": "created_at", "value": ["2m", "3d"], "type": "person", "operator": "is_date_after"}
                 ]
             }
         )
@@ -859,9 +851,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         filter = Filter(
             data={
-                "properties": [
-                    {"key": "created_at", "value": "bazinga", "type": "person", "operator": "is_relative_date_after"}
-                ]
+                "properties": [{"key": "created_at", "value": "bazinga", "type": "person", "operator": "is_date_after"}]
             }
         )
 

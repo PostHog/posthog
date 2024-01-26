@@ -2863,6 +2863,53 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_create_flag_with_invalid_date(self):
+        resp = self._create_flag_with_properties(
+            "date-flag",
+            [
+                {
+                    "key": "created_for",
+                    "type": "person",
+                    "value": "6hed",
+                    "operator": "is_date_before",
+                }
+            ],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "invalid_date",
+                "detail": "Invalid date value: 6hed",
+                "attr": "filters",
+            },
+            resp.json(),
+        )
+
+        resp = self._create_flag_with_properties(
+            "date-flag",
+            [
+                {
+                    "key": "created_for",
+                    "type": "person",
+                    "value": "1234-02-993284",
+                    "operator": "is_date_after",
+                }
+            ],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "invalid_date",
+                "detail": "Invalid date value: 1234-02-993284",
+                "attr": "filters",
+            },
+            resp.json(),
+        )
+
     def test_creating_feature_flag_with_non_existant_cohort(self):
         cohort_request = self._create_flag_with_properties(
             "cohort-flag",
