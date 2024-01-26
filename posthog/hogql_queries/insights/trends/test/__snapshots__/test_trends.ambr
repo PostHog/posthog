@@ -85,7 +85,7 @@
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(e__pdi__person.`properties___$bool_prop`, 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                                                                                                                                                                                      (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                       FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 8))
+                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 1))
                                                                                                                                                                                                                                                                                                                                                                                                                                       GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
         GROUP BY day_start)
@@ -172,7 +172,7 @@
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 9))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2))
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
         GROUP BY day_start)
@@ -209,6 +209,54 @@
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__group_0.properties___industry AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_by_group_props_person_on_events.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__group_0.properties___industry AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_by_group_props_person_on_events.3
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -256,7 +304,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_breakdown_by_group_props_person_on_events.2
+# name: TestTrends.test_breakdown_by_group_props_person_on_events.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
@@ -312,6 +360,54 @@
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__group_0.properties___industry AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__group_0.properties___industry AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.3
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -377,6 +473,38 @@
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -415,7 +543,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.4
   '''
   SELECT groupArray(value)
   FROM
@@ -431,7 +559,39 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.5
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.6
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Windows'), 0)), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', ''), 'Mac'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.7
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -488,6 +648,22 @@
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated.1
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_weekly_active_users_aggregated.2
   '''
   SELECT sum(count) AS total,
   
@@ -573,6 +749,22 @@
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.1
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT nullIf(nullIf(e.mat_key, ''), 'null') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.2
   '''
   SELECT sum(count) AS total,
   
@@ -688,7 +880,7 @@
      WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 28))
+                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 21))
                                                                                                                                                                                                                                                                          GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                          HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
      GROUP BY value
@@ -700,6 +892,82 @@
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.3
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
+                                                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                         FROM cohortpeople
+                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 21))
+                                                                                                                                                                                                                                                                         GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                         HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.4
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
+                                                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                         FROM cohortpeople
+                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 21))
+                                                                                                                                                                                                                                                                         GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                         HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.5
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -757,7 +1025,7 @@
               WHERE and(equals(e.team_id, 2), and(and(equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                                          (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                           FROM cohortpeople
-                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 28))
+                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 21))
                                                                                                                                                                                                                                                                                           GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                           HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0))), or(ifNull(equals(transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'val'], ['$$_posthog_breakdown_other_$$', 'val'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0))), ifNull(greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
               GROUP BY timestamp, actor_id,
@@ -802,6 +1070,54 @@
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_with_filter_groups_person_on_events.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_with_filter_groups_person_on_events.3
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -889,6 +1205,54 @@
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.2
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.3
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT JOIN
+       (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
+               groups.group_type_index AS index,
+               groups.group_key AS key
+        FROM groups
+        WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
+        GROUP BY groups.group_type_index,
+                 groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.4
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -959,6 +1323,38 @@
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -1010,7 +1406,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.4
   '''
   SELECT groupArray(value)
   FROM
@@ -1026,7 +1422,39 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.5
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.6
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.7
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -1379,6 +1807,74 @@
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.`properties___$some_prop` AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'filter_prop'), ''), 'null'), '^"|"$', '') AS properties___filter_prop
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(equals(e__pdi__person.properties___filter_prop, 'filter_val'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.`properties___$some_prop` AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'filter_prop'), ''), 'null'), '^"|"$', '') AS properties___filter_prop
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(equals(e__pdi__person.properties___filter_prop, 'filter_val'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.3
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -1468,6 +1964,38 @@
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), equals(e.event, 'sign up'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'filter_prop'), ''), 'null'), '^"|"$', ''), 'filter_val'), 0))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.3
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -1592,7 +2120,7 @@
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 41))
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 34))
                                                                                                                                                                                                                                                                                                                                                                  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
      GROUP BY value
@@ -1604,6 +2132,62 @@
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.3
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
+                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                 FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 34))
+                                                                                                                                                                                                                                                                                                                                                                 GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                 HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_person_filtering_in_cohort_in_action.4
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
+                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                 FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 34))
+                                                                                                                                                                                                                                                                                                                                                                 GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                 HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_person_filtering_in_cohort_in_action.5
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -1640,7 +2224,7 @@
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 41))
+                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 34))
                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), or(ifNull(equals(transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'value', 'other_value'], ['$$_posthog_breakdown_other_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
         GROUP BY day_start,
@@ -1691,7 +2275,7 @@
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                                                                                                                                                                                                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 42))
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 35))
                                                                                                                                                                                                                                                                                                                                                                  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
      GROUP BY value
@@ -1703,6 +2287,60 @@
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.3
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+               person_overrides.old_person_id AS old_person_id
+        FROM person_overrides
+        WHERE equals(person_overrides.team_id, 2)
+        GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                 FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 35))
+                                                                                                                                                                                                                                                                                                                                                                 GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                 HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.4
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     LEFT OUTER JOIN
+       (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+               person_overrides.old_person_id AS old_person_id
+        FROM person_overrides
+        WHERE equals(person_overrides.team_id, 2)
+        GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
+                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                 FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 35))
+                                                                                                                                                                                                                                                                                                                                                                 GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                 HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.5
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -1738,7 +2376,7 @@
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
                                                                                                                                                                                                                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 42))
+                                                                                                                                                                                                                                                                                                                                                                    WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 35))
                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                                                                                                                                                                                                                                                                                                     HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), or(ifNull(equals(transform(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), '$$_posthog_breakdown_null_$$'), ['$$_posthog_breakdown_other_$$', 'value', 'other_value'], ['$$_posthog_breakdown_other_$$', 'value', 'other_value'], '$$_posthog_breakdown_other_$$'), '$$_posthog_breakdown_other_$$'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'value'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', ''), 'other_value'), 0)))
         GROUP BY day_start,
@@ -2210,6 +2848,38 @@
 # ---
 # name: TestTrends.test_timezones_daily.5
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_timezones_daily.6
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_timezones_daily.7
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -2422,6 +3092,38 @@
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.5
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 06:01:01', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_timezones_daily_minus_utc.6
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 06:01:01', 6, 'America/Phoenix')))), lessOrEquals(toTimeZone(e.timestamp, 'America/Phoenix'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_timezones_daily_minus_utc.7
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -2633,6 +3335,38 @@
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.5
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 22:01:01', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_timezones_daily_plus_utc.6
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 22:01:01', 6, 'Asia/Tokyo')))), lessOrEquals(toTimeZone(e.timestamp, 'Asia/Tokyo'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_timezones_daily_plus_utc.7
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -3073,6 +3807,76 @@
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.properties___email AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(e__pdi__person.properties___email, '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'safari'), 0))))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.properties___email AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(e__pdi__person.properties___email, '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'safari'), 0))))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3130,7 +3934,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.4
   '''
   SELECT groupArray(value)
   FROM
@@ -3165,7 +3969,77 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.5
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.properties___email AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(e__pdi__person.properties___email, '%@posthog.com%'), 0)))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.6
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.properties___email AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__pdi__person.`properties___$os`, 'android'), 0), ifNull(equals(e__pdi__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(e__pdi__person.properties___email, '%@posthog.com%'), 0)))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.7
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -3293,6 +4167,62 @@
                      allow_experimental_object_type=1
   '''
 # ---
+# name: TestTrends.test_trends_aggregate_by_distinct_id.10
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_aggregate_by_distinct_id.11
+  '''
+  SELECT groupArray(day_start) AS date,
+         groupArray(count) AS total,
+         ifNull(toString(breakdown_value), '') AS breakdown_value
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
+     FROM
+       (SELECT 0 AS total,
+               ticks.day_start AS day_start,
+               sec.breakdown_value AS breakdown_value
+        FROM
+          (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
+           FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), 0)) AS numbers
+           UNION ALL SELECT toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC'))) AS day_start) AS ticks
+        CROSS JOIN
+          (SELECT breakdown_value
+           FROM
+             (SELECT [NULL] AS breakdown_value) ARRAY
+           JOIN breakdown_value AS breakdown_value) AS sec
+        ORDER BY sec.breakdown_value ASC, day_start ASC
+        UNION ALL SELECT count(DISTINCT e.distinct_id) AS total,
+                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS breakdown_value
+        FROM events AS e SAMPLE 1
+        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '')))
+        GROUP BY day_start,
+                 breakdown_value)
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY day_start ASC, breakdown_value ASC)
+  GROUP BY breakdown_value
+  ORDER BY sum(count) DESC, breakdown_value ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
   '''
   SELECT groupArray(value)
@@ -3327,6 +4257,72 @@
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.`properties___$some_prop` AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_aggregate_by_distinct_id.4
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.`properties___$some_prop` AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_aggregate_by_distinct_id.5
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
@@ -3383,7 +4379,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trends_aggregate_by_distinct_id.4
+# name: TestTrends.test_trends_aggregate_by_distinct_id.6
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
@@ -3422,7 +4418,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trends_aggregate_by_distinct_id.5
+# name: TestTrends.test_trends_aggregate_by_distinct_id.7
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
@@ -3461,7 +4457,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trends_aggregate_by_distinct_id.6
+# name: TestTrends.test_trends_aggregate_by_distinct_id.8
   '''
   SELECT groupArray(value)
   FROM
@@ -3477,41 +4473,17 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trends_aggregate_by_distinct_id.7
+# name: TestTrends.test_trends_aggregate_by_distinct_id.9
   '''
-  SELECT groupArray(day_start) AS date,
-         groupArray(count) AS total,
-         ifNull(toString(breakdown_value), '') AS breakdown_value
+  SELECT groupArray(value)
   FROM
-    (SELECT sum(total) AS count,
-            day_start AS day_start,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT 0 AS total,
-               ticks.day_start AS day_start,
-               sec.breakdown_value AS breakdown_value
-        FROM
-          (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
-           FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), 0)) AS numbers
-           UNION ALL SELECT toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC'))) AS day_start) AS ticks
-        CROSS JOIN
-          (SELECT breakdown_value
-           FROM
-             (SELECT [NULL] AS breakdown_value) ARRAY
-           JOIN breakdown_value AS breakdown_value) AS sec
-        ORDER BY sec.breakdown_value ASC, day_start ASC
-        UNION ALL SELECT count(DISTINCT e.distinct_id) AS total,
-                         toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS breakdown_value
-        FROM events AS e SAMPLE 1
-        WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '')))
-        GROUP BY day_start,
-                 breakdown_value)
-     GROUP BY day_start,
-              breakdown_value
-     ORDER BY day_start ASC, breakdown_value ASC)
-  GROUP BY breakdown_value
-  ORDER BY sum(count) DESC, breakdown_value ASC
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
@@ -3587,6 +4559,38 @@
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_cumulative.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_cumulative.3
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3661,6 +4665,38 @@
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_cumulative_poe_v2.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_cumulative_poe_v2.3
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3728,6 +4764,22 @@
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:33', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -3774,7 +4826,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
+# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
   '''
   SELECT groupArray(value)
   FROM
@@ -3790,7 +4842,23 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
+# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.4
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.5
   '''
   SELECT sum(count) AS total,
   
@@ -4023,6 +5091,22 @@
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), equals(e.event, 'viewed video'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling.2
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4230,6 +5314,39 @@
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT e__pdi__person.`properties___$some_prop` AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE equals(person_distinct_id2.team_id, 2)
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+     INNER JOIN
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
+        FROM person
+        WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 2)
+                                                          GROUP BY person.id
+                                                          HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
   '''
   SELECT sum(count) AS total,
   
@@ -4492,6 +5609,38 @@
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
   '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -4544,7 +5693,7 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.4
   '''
   SELECT groupArray(value)
   FROM
@@ -4560,7 +5709,39 @@
                      allow_experimental_object_type=1
   '''
 # ---
-# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.5
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:05', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.6
+  '''
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
+            count(e.uuid) AS count
+     FROM events AS e
+     WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:05', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.7
   '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,

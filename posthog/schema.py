@@ -53,6 +53,10 @@ class BreakdownType(str, Enum):
     hogql = "hogql"
 
 
+class BreakdownValueInt(RootModel[int]):
+    root: int
+
+
 class ChartAxis(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -319,6 +323,27 @@ class HogQLQueryModifiers(BaseModel):
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 
 
+class Compare(str, Enum):
+    current = "current"
+    previous = "previous"
+
+
+class BreakdownItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: Union[str, int]
+
+
+class CompareItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str
+
+
 class DayItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -335,6 +360,14 @@ class IntervalItem(BaseModel):
     value: int = Field(..., description="An interval selected out of available intervals in source query")
 
 
+class Series(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: int
+
+
 class StatusItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -347,8 +380,11 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown: Optional[List[BreakdownItem]] = None
+    compare: Optional[List[CompareItem]] = None
     day: Optional[List[DayItem]] = None
     interval: Optional[List[IntervalItem]] = None
+    series: Optional[List[Series]] = None
     status: Optional[List[StatusItem]] = None
 
 
@@ -550,8 +586,11 @@ class QueryResponseAlternative5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown: Optional[List[BreakdownItem]] = None
+    compare: Optional[List[CompareItem]] = None
     day: Optional[List[DayItem]] = None
     interval: Optional[List[IntervalItem]] = None
+    series: Optional[List[Series]] = None
     status: Optional[List[StatusItem]] = None
 
 
@@ -2276,12 +2315,15 @@ class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdown: Optional[Union[str, int]] = None
+    compare: Optional[Compare] = None
     day: Optional[Union[str, int]] = None
     interval: Optional[int] = Field(
         default=None, description="An interval selected out of available intervals in source query"
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
     response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
         ..., discriminator="kind"
     )

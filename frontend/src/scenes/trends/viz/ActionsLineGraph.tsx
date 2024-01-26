@@ -147,6 +147,9 @@ export function ActionsLineGraph({
                                       source: query.source,
                                       day,
                                       status: dataset.status,
+                                      series: dataset.action?.order ?? 0,
+                                      breakdown: dataset.breakdown_value,
+                                      compare: dataset.compare_label,
                                   },
                               })
                           } else {

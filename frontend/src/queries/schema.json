@@ -393,6 +393,9 @@
             "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
         },
+        "BreakdownValueInt": {
+            "type": "integer"
+        },
         "ChartAxis": {
             "additionalProperties": false,
             "properties": {
@@ -1912,6 +1915,20 @@
         "InsightActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "breakdown": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/BreakdownValueInt"
+                        }
+                    ]
+                },
+                "compare": {
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
                 "day": {
                     "anyOf": [
                         {
@@ -1932,6 +1949,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "series": {
+                    "type": "integer"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQuerySource"
@@ -1963,6 +1983,45 @@
         "InsightActorsQueryOptionsResponse": {
             "additionalProperties": false,
             "properties": {
+                "breakdown": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/BreakdownValueInt"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "compare": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "day": {
                     "items": {
                         "additionalProperties": false,
@@ -1995,6 +2054,22 @@
                             },
                             "value": {
                                 "description": "An interval selected out of available intervals in source query",
+                                "type": "integer"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "series": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
                                 "type": "integer"
                             }
                         },
@@ -2957,6 +3032,45 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "breakdown": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/BreakdownValueInt"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "compare": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
                         "day": {
                             "items": {
                                 "additionalProperties": false,
@@ -2989,6 +3103,22 @@
                                     },
                                     "value": {
                                         "description": "An interval selected out of available intervals in source query",
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "series": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
                                         "type": "integer"
                                     }
                                 },
