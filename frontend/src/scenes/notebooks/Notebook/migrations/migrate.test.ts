@@ -183,6 +183,95 @@ describe('migrate()', () => {
                 },
             ],
         ],
+        [
+            'migrates retention filter',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'RetentionQuery',
+                                retentionFilter: {
+                                    period: 'Week',
+                                    targetEntity: {
+                                        id: 'recording analyzed',
+                                        name: 'recording analyzed',
+                                        type: 'events',
+                                        uuid: 'ae1136ce-cee1-4225-b27a-fbff3a99d4a9',
+                                        order: 0,
+                                    },
+                                    retentionType: 'retention_first_time',
+                                    target_entity: {
+                                        id: 'recording analyzed',
+                                        name: 'recording analyzed',
+                                        type: 'events',
+                                        uuid: 'af560c55-fa85-4c38-b056-94b6e253530a',
+                                        order: 0,
+                                    },
+                                    retention_type: 'retention_first_time',
+                                    total_intervals: 7,
+                                    returning_entity: {
+                                        id: 'recording analyzed',
+                                        name: 'recording analyzed',
+                                        type: 'events',
+                                        uuid: '286575a9-1485-47d0-9bf6-9d439bc051b3',
+                                        order: 0,
+                                    },
+                                    retention_reference: 'total',
+                                },
+                                aggregation_group_type_index: 0,
+                            },
+                        },
+                        title: "Retention 'recording analyzed' for unique organizations, last 6 weeks",
+                        __init: null,
+                        height: null,
+                        nodeId: 'a562d7e0-068f-40c3-ac1b-ca91f1d5effe',
+                        children: null,
+                    },
+                },
+            ],
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'RetentionQuery',
+                                retentionFilter: {
+                                    period: 'Week',
+                                    targetEntity: {
+                                        id: 'recording analyzed',
+                                        name: 'recording analyzed',
+                                        type: 'events',
+                                        uuid: 'af560c55-fa85-4c38-b056-94b6e253530a',
+                                        order: 0,
+                                    },
+                                    retentionType: 'retention_first_time',
+                                    totalIntervals: 7,
+                                    returningEntity: {
+                                        id: 'recording analyzed',
+                                        name: 'recording analyzed',
+                                        type: 'events',
+                                        uuid: '286575a9-1485-47d0-9bf6-9d439bc051b3',
+                                        order: 0,
+                                    },
+                                    retentionReference: 'total',
+                                },
+                                aggregation_group_type_index: 0,
+                            },
+                        },
+                        title: "Retention 'recording analyzed' for unique organizations, last 6 weeks",
+                        __init: null,
+                        height: null,
+                        nodeId: 'a562d7e0-068f-40c3-ac1b-ca91f1d5effe',
+                        children: null,
+                    },
+                },
+            ],
+        ],
     ]
 
     contentToExpected.forEach(([name, prevContent, nextContent]) => {

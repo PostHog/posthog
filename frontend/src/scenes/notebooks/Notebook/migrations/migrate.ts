@@ -1,7 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 
-import { funnelsFilterToQuery } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { isLegacyFunnelsFilter } from '~/queries/nodes/InsightQuery/utils/legacy'
+import { funnelsFilterToQuery, retentionFilterToQuery } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { isLegacyFunnelsFilter, isLegacyRetentionFilter } from '~/queries/nodes/InsightQuery/utils/legacy'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { NotebookNodeType, NotebookType } from '~/types'
 
@@ -83,6 +83,13 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
         if (querySource.kind === NodeKind.FunnelsQuery && isLegacyFunnelsFilter(querySource.funnelsFilter as any)) {
             querySource.funnelsFilter = funnelsFilterToQuery(querySource.funnelsFilter as any)
+        }
+
+        if (
+            querySource.kind === NodeKind.RetentionQuery &&
+            isLegacyRetentionFilter(querySource.retentionFilter as any)
+        ) {
+            querySource.retentionFilter = retentionFilterToQuery(querySource.retentionFilter as any)
         }
 
         return {

@@ -18,6 +18,7 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     NodeKind,
+    RetentionFilter,
 } from '~/queries/schema'
 import {
     isFunnelsQuery,
@@ -40,6 +41,7 @@ import {
     PropertyGroupFilterValue,
     PropertyOperator,
     RetentionEntity,
+    RetentionFilterType,
 } from '~/types'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
@@ -299,15 +301,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // retention filter
     if (isRetentionFilter(filters) && isRetentionQuery(query)) {
-        query.retentionFilter = objectCleanWithEmpty({
-            retentionType: filters.retention_type,
-            retentionReference: filters.retention_reference,
-            totalIntervals: filters.total_intervals,
-            returningEntity: sanitizeRetentionEntity(filters.returning_entity),
-            targetEntity: sanitizeRetentionEntity(filters.target_entity),
-            period: filters.period,
-        })
-        // TODO: query.aggregation_group_type_index
+        query.retentionFilter = retentionFilterToQuery(filters)
     }
 
     // paths filter
@@ -377,4 +371,16 @@ export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): Funne
         hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
         funnelAggregateByHogQL: filters.funnel_aggregate_by_hogql,
     })
+}
+
+export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): RetentionFilter => {
+    return objectCleanWithEmpty({
+        retentionType: filters.retention_type,
+        retentionReference: filters.retention_reference,
+        totalIntervals: filters.total_intervals,
+        returningEntity: sanitizeRetentionEntity(filters.returning_entity),
+        targetEntity: sanitizeRetentionEntity(filters.target_entity),
+        period: filters.period,
+    })
+    // TODO: query.aggregation_group_type_index
 }

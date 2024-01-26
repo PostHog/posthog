@@ -19,3 +19,12 @@ export const isLegacyFunnelsFilter = (filters: Record<string, any> | undefined):
     ]
     return legacyKeys.some((key) => key in filters)
 }
+
+export const isLegacyRetentionFilter = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const legacyKeys = ['retention_type', 'retention_reference', 'total_intervals', 'returning_entity', 'target_entity']
+    return legacyKeys.some((key) => key in filters)
+}
