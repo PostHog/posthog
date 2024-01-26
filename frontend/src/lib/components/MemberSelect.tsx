@@ -14,7 +14,7 @@ export type MemberSelectProps = {
 }
 
 export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: MemberSelectProps): JSX.Element {
-    const { meFirstMembers, filteredMembers, search } = useValues(membersLogic)
+    const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -64,7 +64,7 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
                             </LemonButton>
                         </li>
 
-                        {filteredMembers?.map((member) => (
+                        {filteredMembers.map((member) => (
                             <li key={member.user.uuid}>
                                 <LemonButton
                                     fullWidth
@@ -83,7 +83,9 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
                             </li>
                         ))}
 
-                        {filteredMembers?.length === 0 ? (
+                        {membersLoading ? (
+                            <div className="p-2 text-muted-alt italic truncate border-t">Loading...</div>
+                        ) : filteredMembers.length === 0 ? (
                             <div className="p-2 text-muted-alt italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>

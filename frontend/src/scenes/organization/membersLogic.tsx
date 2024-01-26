@@ -15,7 +15,7 @@ import type { membersLogicType } from './membersLogicType'
 
 export interface MembersFuse extends Fuse<OrganizationMemberType> {}
 
-const PAGINATION_LIMIT = 1
+const PAGINATION_LIMIT = 200
 
 export const membersLogic = kea<membersLogicType>([
     path(['scenes', 'organization', 'membersLogic']),
@@ -152,8 +152,8 @@ export const membersLogic = kea<membersLogicType>([
         ],
         filteredMembers: [
             (s) => [s.sortedMembers, s.membersFuse, s.search],
-            (members, membersFuse, search) =>
-                search ? membersFuse.search(search).map((result) => result.item) : members,
+            (members, membersFuse, search): OrganizationMemberType[] =>
+                search ? membersFuse.search(search).map((result) => result.item) : members ?? [],
         ],
         memberCount: [
             (s) => [s.user, s.sortedMembers],
