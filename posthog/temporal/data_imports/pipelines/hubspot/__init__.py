@@ -98,7 +98,6 @@ def hubspot(
         )
 
 
-@limit_paginated_generator
 def crm_objects(
     object_type: str,
     api_key: str,

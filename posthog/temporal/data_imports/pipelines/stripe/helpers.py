@@ -7,7 +7,6 @@ import dlt
 from dlt.common import pendulum
 from dlt.sources import DltResource
 from pendulum import DateTime
-from posthog.temporal.data_imports.pipelines.helpers import limit_paginated_generator
 
 stripe.api_version = "2022-11-15"
 
@@ -49,7 +48,6 @@ def stripe_get_data(
     return response
 
 
-@limit_paginated_generator
 def stripe_pagination(
     api_key: str,
     endpoint: str,
