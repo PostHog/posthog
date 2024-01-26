@@ -45,7 +45,7 @@ export function PayGatePage({
                             </LemonButton>
                         ) : (
                             <LemonButton
-                                to={urls.upgradeToPostHogCloud()}
+                                to={urls.moveToPostHogCloud()}
                                 type="primary"
                                 data-attr={`${featureKey}-upgrade`}
                                 center

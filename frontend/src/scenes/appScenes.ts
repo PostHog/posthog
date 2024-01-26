@@ -71,5 +71,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Products]: () => import('./products/Products'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
-    [Scene.UpgradeToPostHogCloud]: () => import('./upgradeToPostHogCloud/UpgradeToPostHogCloud'),
+    [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
 }

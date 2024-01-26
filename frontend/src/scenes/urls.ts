@@ -209,5 +209,5 @@ export const urls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
-    upgradeToPostHogCloud: (): string => '/upgrade-to-cloud',
+    moveToPostHogCloud: (): string => '/move-to-cloud',
 }

@@ -76,7 +76,7 @@ export enum Scene {
     Products = 'Products',
     Onboarding = 'Onboarding',
     Settings = 'Settings',
-    UpgradeToPostHogCloud = 'UpgradeToPostHogCloud',
+    MoveToPostHogCloud = 'MoveToPostHogCloud',
 }
 
 export type SceneProps = Record<string, any>

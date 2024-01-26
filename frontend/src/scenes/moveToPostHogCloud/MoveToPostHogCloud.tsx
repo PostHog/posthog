@@ -15,7 +15,7 @@ import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
-    component: UpgradeToPostHogCloud,
+    component: moveToPostHogCloud,
 }
 
 type CloudFeature = {
@@ -25,7 +25,7 @@ type CloudFeature = {
     link?: string
 }
 
-export function UpgradeToPostHogCloud(): JSX.Element {
+export function moveToPostHogCloud(): JSX.Element {
     const cloudFeatures: CloudFeature[] = [
         {
             name: 'Hosted for you',
