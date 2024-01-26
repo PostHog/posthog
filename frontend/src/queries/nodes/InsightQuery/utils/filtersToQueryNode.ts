@@ -115,7 +115,7 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
             delete record[key]
         }
     }
-    if ('id' in record) {
+    if ('id' in record && record.type === 'actions') {
         record.id = Number(record.id)
     }
     return record
