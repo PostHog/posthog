@@ -39,14 +39,22 @@ class TestDatabase(BaseTest):
             serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
             for table, possible_columns in serialized_database.items():
                 if table == "numbers":
-                    execute_hogql_query("SELECT number FROM numbers(10) LIMIT 100", self.team)
+                    execute_hogql_query(
+                        "SELECT number FROM numbers(10) LIMIT 100",
+                        self.team,
+                        pretty=False,
+                    )
                 else:
                     columns = [
                         x["key"]
                         for x in possible_columns
                         if "table" not in x and "chain" not in x and "fields" not in x
                     ]
-                    execute_hogql_query(f"SELECT {','.join(columns)} FROM {table}", team=self.team)
+                    execute_hogql_query(
+                        f"SELECT {','.join(columns)} FROM {table}",
+                        team=self.team,
+                        pretty=False,
+                    )
 
     @patch("posthog.hogql.query.sync_execute", return_value=(None, None))
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -66,6 +74,7 @@ class TestDatabase(BaseTest):
         response = execute_hogql_query(
             "select * from whatever",
             team=self.team,
+            pretty=False,
         )
 
         self.assertEqual(
