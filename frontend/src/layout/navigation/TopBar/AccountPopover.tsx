@@ -20,12 +20,13 @@ import {
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
 import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
-import { OrganizationBasicType } from '../../../types'
+import { OrganizationBasicType, SidePanelTab } from '../../../types'
 import { navigationLogic } from '../navigationLogic'
 
 function AccountPopoverSection({
@@ -185,6 +186,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <>
@@ -221,8 +223,10 @@ export function AccountPopoverOverlay(): JSX.Element {
             <AccountPopoverSection>
                 <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
-                    onClick={closeAccountPopover}
-                    to="https://posthog.com/changelog"
+                    onClick={() => {
+                        closeAccountPopover()
+                        openSidePanel(SidePanelTab.Docs, '/changelog')
+                    }}
                     icon={<IconLive />}
                     fullWidth
                     data-attr="whats-new-button"
