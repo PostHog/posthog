@@ -1,7 +1,15 @@
 import { JSONContent } from '@tiptap/core'
 
-import { funnelsFilterToQuery, retentionFilterToQuery } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { isLegacyFunnelsFilter, isLegacyRetentionFilter } from '~/queries/nodes/InsightQuery/utils/legacy'
+import {
+    funnelsFilterToQuery,
+    retentionFilterToQuery,
+    trendsFilterToQuery,
+} from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import {
+    isLegacyFunnelsFilter,
+    isLegacyRetentionFilter,
+    isLegacyTrendsFilter,
+} from '~/queries/nodes/InsightQuery/utils/legacy'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { NotebookNodeType, NotebookType } from '~/types'
 
@@ -78,25 +86,26 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             return node
         }
 
-        const query = node.attrs.query as InsightVizNode
-        const querySource = query.source
+        const insightQuery = node.attrs.query as InsightVizNode
+        const query = insightQuery.source
 
-        if (querySource.kind === NodeKind.FunnelsQuery && isLegacyFunnelsFilter(querySource.funnelsFilter as any)) {
-            querySource.funnelsFilter = funnelsFilterToQuery(querySource.funnelsFilter as any)
+        if (query.kind === NodeKind.TrendsQuery && isLegacyTrendsFilter(query.trendsFilter as any)) {
+            query.trendsFilter = trendsFilterToQuery(query.trendsFilter as any)
         }
 
-        if (
-            querySource.kind === NodeKind.RetentionQuery &&
-            isLegacyRetentionFilter(querySource.retentionFilter as any)
-        ) {
-            querySource.retentionFilter = retentionFilterToQuery(querySource.retentionFilter as any)
+        if (query.kind === NodeKind.FunnelsQuery && isLegacyFunnelsFilter(query.funnelsFilter as any)) {
+            query.funnelsFilter = funnelsFilterToQuery(query.funnelsFilter as any)
+        }
+
+        if (query.kind === NodeKind.RetentionQuery && isLegacyRetentionFilter(query.retentionFilter as any)) {
+            query.retentionFilter = retentionFilterToQuery(query.retentionFilter as any)
         }
 
         return {
             ...node,
             attrs: {
                 ...node.attrs,
-                query: query,
+                query: insightQuery,
             },
         }
     })

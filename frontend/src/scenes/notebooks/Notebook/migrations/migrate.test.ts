@@ -272,6 +272,97 @@ describe('migrate()', () => {
                 },
             ],
         ],
+        [
+            'migrates trends queries (mixed with breakdown)',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        math: 'dau',
+                                        name: '$pageview',
+                                        event: '$pageview',
+                                        properties: [
+                                            {
+                                                key: '$current_url',
+                                                type: 'event',
+                                                value: 'https://(app|eu).posthog.com',
+                                                operator: 'regex',
+                                            },
+                                        ],
+                                    },
+                                ],
+                                interval: 'day',
+                                breakdown: {
+                                    breakdown: '$feature/posthog-3000',
+                                    breakdown_type: 'event',
+                                },
+                                trendsFilter: {
+                                    display: 'ActionsLineGraph',
+                                    show_legend: true,
+                                },
+                                filterTestAccounts: false,
+                            },
+                        },
+                        title: 'Rollout of users on 3000',
+                        __init: null,
+                        height: null,
+                        nodeId: '4c2a07ee-fc9f-45c5-b36c-5e14a10f8e89',
+                        children: null,
+                    },
+                },
+            ],
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        math: 'dau',
+                                        name: '$pageview',
+                                        event: '$pageview',
+                                        properties: [
+                                            {
+                                                key: '$current_url',
+                                                type: 'event',
+                                                value: 'https://(app|eu).posthog.com',
+                                                operator: 'regex',
+                                            },
+                                        ],
+                                    },
+                                ],
+                                interval: 'day',
+                                breakdown: {
+                                    breakdown: '$feature/posthog-3000',
+                                    breakdown_type: 'event',
+                                },
+                                trendsFilter: {
+                                    display: 'ActionsLineGraph',
+                                    showLegend: true,
+                                },
+                                filterTestAccounts: false,
+                            },
+                        },
+                        title: 'Rollout of users on 3000',
+                        __init: null,
+                        height: null,
+                        nodeId: '4c2a07ee-fc9f-45c5-b36c-5e14a10f8e89',
+                        children: null,
+                    },
+                },
+            ],
+        ],
     ]
 
     contentToExpected.forEach(([name, prevContent, nextContent]) => {

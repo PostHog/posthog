@@ -19,6 +19,7 @@ import {
     InsightsQueryBase,
     NodeKind,
     RetentionFilter,
+    TrendsFilter,
 } from '~/queries/schema'
 import {
     isFunnelsQuery,
@@ -42,6 +43,7 @@ import {
     PropertyOperator,
     RetentionEntity,
     RetentionFilterType,
+    TrendsFilterType,
 } from '~/types'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
@@ -277,21 +279,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // trends filter
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
-        query.trendsFilter = objectCleanWithEmpty({
-            smoothingIntervals: filters.smoothing_intervals,
-            showLegend: filters.show_legend,
-            hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-            compare: filters.compare,
-            aggregationAxisFormat: filters.aggregation_axis_format,
-            aggregationAxisPrefix: filters.aggregation_axis_prefix,
-            aggregationAxisPostfix: filters.aggregation_axis_postfix,
-            decimalPlaces: filters.decimal_places,
-            formula: filters.formula,
-            display: filters.display,
-            showValuesOnSeries: filters.show_values_on_series,
-            showPercentStackView: filters.show_percent_stack_view,
-            showLabelsOnSeries: filters.show_labels_on_series,
-        })
+        query.trendsFilter = trendsFilterToQuery(query)
     }
 
     // funnels filter
@@ -345,6 +333,24 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // remove undefined and empty array/objects and return
     return objectCleanWithEmpty(query as Record<string, any>, ['series']) as InsightQueryNode
+}
+
+export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsFilter => {
+    return objectCleanWithEmpty({
+        smoothingIntervals: filters.smoothing_intervals,
+        showLegend: filters.show_legend,
+        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
+        compare: filters.compare,
+        aggregationAxisFormat: filters.aggregation_axis_format,
+        aggregationAxisPrefix: filters.aggregation_axis_prefix,
+        aggregationAxisPostfix: filters.aggregation_axis_postfix,
+        decimalPlaces: filters.decimal_places,
+        formula: filters.formula,
+        display: filters.display,
+        showValuesOnSeries: filters.show_values_on_series,
+        showPercentStackView: filters.show_percent_stack_view,
+        showLabelsOnSeries: filters.show_labels_on_series,
+    })
 }
 
 export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): FunnelsFilter => {

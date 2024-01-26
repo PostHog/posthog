@@ -1,3 +1,23 @@
+export const isLegacyTrendsFilter = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const legacyKeys = [
+        'smoothing_intervals',
+        'show_legend',
+        'hidden_legend_keys',
+        'aggregation_axis_format',
+        'aggregation_axis_prefix',
+        'aggregation_axis_postfix',
+        'decimal_places',
+        'show_values_on_series',
+        'show_percent_stack_view',
+        'show_labels_on_series',
+    ]
+    return legacyKeys.some((key) => key in filters)
+}
+
 export const isLegacyFunnelsFilter = (filters: Record<string, any> | undefined): boolean => {
     if (filters == null) {
         return false
