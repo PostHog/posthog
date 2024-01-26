@@ -3396,7 +3396,7 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export type ExternalDataSourceType = 'Stripe' | 'Hubspot'
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot' | 'Postgres'
 
 export interface ExternalDataSourceCreatePayload {
     source_type: ExternalDataSourceType
@@ -3418,6 +3418,11 @@ export interface SimpleExternalDataSourceSchema {
     name: string
     should_sync: boolean
     last_synced_at?: Dayjs
+}
+
+export interface ExternalDataPostgresSchema {
+    table: string
+    should_sync: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
