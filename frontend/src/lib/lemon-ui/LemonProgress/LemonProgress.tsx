@@ -4,7 +4,7 @@ import clsx from 'clsx'
 
 export type LemonProgressProps = {
     size?: 'medium' | 'large'
-    trackColor?: string
+    strokeColor?: string
     percent: number
     children?: React.ReactNode
     className?: string
@@ -13,7 +13,7 @@ export type LemonProgressProps = {
 export const LemonProgress = ({
     size = 'medium',
     percent,
-    trackColor = 'var(--brand-blue)',
+    strokeColor = 'var(--brand-blue)',
     children,
     className,
 }: LemonProgressProps): JSX.Element => {
@@ -31,7 +31,7 @@ export const LemonProgress = ({
                     percent > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-[0.375rem]') : null
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ width: `${percent}%`, backgroundColor: trackColor }}
+                style={{ width: `${percent}%`, backgroundColor: strokeColor }}
             >
                 {children}
             </span>

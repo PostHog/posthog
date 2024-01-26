@@ -748,7 +748,7 @@ export function Experiment(): JSX.Element {
                                                     <LemonProgress
                                                         size="large"
                                                         percent={experimentProgressPercent}
-                                                        trackColor="var(--success)"
+                                                        strokeColor="var(--success)"
                                                     />
                                                     {experimentInsightType === InsightType.TRENDS &&
                                                         experiment.start_date && (

@@ -134,7 +134,7 @@ export function ExperimentResult(): JSX.Element {
                                         )}
                                         <LemonProgress
                                             percent={Number((experimentResults.probability[variant] * 100).toFixed(1))}
-                                            trackColor={getSeriesColor(
+                                            strokeColor={getSeriesColor(
                                                 getIndexForVariant(variant, experimentInsightType)
                                             )}
                                         />

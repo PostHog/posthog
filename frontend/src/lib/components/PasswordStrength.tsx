@@ -17,7 +17,7 @@ export default function PasswordStrength({
         <Tooltip title="Password strength">
             <LemonProgress
                 percent={passwordScore}
-                trackColor={
+                strokeColor={
                     passwordScore <= 50 ? 'var(--danger)' : passwordScore <= 75 ? 'var(--warning)' : 'var(--success)'
                 }
                 className={className}
