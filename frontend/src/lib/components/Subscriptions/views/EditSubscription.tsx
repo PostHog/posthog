@@ -61,7 +61,7 @@ export function EditSubscription({
         dashboardId,
     })
 
-    const { members, membersLoading } = useValues(membersLogic)
+    const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, isMemberOfSlackChannel } =
         useValues(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
@@ -209,7 +209,7 @@ export function EditSubscription({
                                             disabled={emailDisabled}
                                             mode="multiple-custom"
                                             data-attr="subscribed-emails"
-                                            options={usersLemonSelectOptions(members.map((x) => x.user))}
+                                            options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
                                             placeholder="Enter an email address"
                                         />
