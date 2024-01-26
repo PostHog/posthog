@@ -182,7 +182,7 @@ function SignOutButton(): JSX.Element {
 export function AccountPopoverOverlay(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
 
@@ -193,7 +193,7 @@ export function AccountPopoverOverlay(): JSX.Element {
             </AccountPopoverSection>
             <AccountPopoverSection title="Current organization">
                 {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                {preflight?.cloud || !!billing ? (
+                {isCloudOrDev || !!billing ? (
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={urls.organizationBilling()}
