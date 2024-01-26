@@ -15,7 +15,6 @@ import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',
-    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -85,6 +84,24 @@ export const _OnboardingOtherProducts = (): JSX.Element => {
     useEffect(() => {
         setProduct(billingJson.products[1] as unknown as BillingProductV2Type)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.OTHER_PRODUCTS))
+    }, [])
+    return <App />
+}
+
+export const _OnboardingProductIntroduction = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing-v2/': {
+                ...billingJson,
+            },
+        },
+    })
+
+    const { setProduct } = useActions(onboardingLogic)
+
+    useEffect(() => {
+        setProduct(billingJson.products[0])
+        router.actions.push(urls.onboardingProductIntroduction(ProductKey.PRODUCT_ANALYTICS))
     }, [])
     return <App />
 }

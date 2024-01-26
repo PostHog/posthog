@@ -20,7 +20,7 @@ export const billingJson: BillingV2Type = {
             description: 'Trends, funnels, path analysis, CDP + more.',
             price_description: null,
             usage_key: 'events',
-            image_url: 'https://posthog.com/images/product/product-icons/product-analytics.svg',
+            image_url: 'https://posthog.com/images/products/product-analytics/product-analytics.png',
             screenshot_url: null,
             icon_key: 'IconGraph',
             docs_url: 'https://posthog.com/docs/product-analytics',
