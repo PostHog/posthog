@@ -12,6 +12,7 @@ import {
 
 import {
     ActionsNode,
+    BreakdownFilter,
     EventsNode,
     FunnelsFilter,
     InsightNodeKind,
@@ -257,19 +258,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             filters.breakdown_type = 'event'
         }
 
-        query.breakdownFilter = objectCleanWithEmpty({
-            breakdown_type: filters.breakdown_type,
-            breakdown: filters.breakdown,
-            breakdown_normalize_url: filters.breakdown_normalize_url,
-            breakdowns: filters.breakdowns,
-            breakdown_group_type_index: filters.breakdown_group_type_index,
-            ...(isTrendsFilter(filters)
-                ? {
-                      breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
-                      breakdown_hide_other_aggregation: filters.breakdown_hide_other_aggregation,
-                  }
-                : {}),
-        })
+        query.breakdownFilter = breakdownFilterToQuery(query, isTrendsFilter(filters))
     }
 
     // group aggregation
@@ -389,4 +378,20 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         period: filters.period,
     })
     // TODO: query.aggregation_group_type_index
+}
+
+export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: boolean): BreakdownFilter => {
+    return objectCleanWithEmpty({
+        breakdown_type: filters.breakdown_type,
+        breakdown: filters.breakdown,
+        breakdown_normalize_url: filters.breakdown_normalize_url,
+        breakdowns: filters.breakdowns,
+        breakdown_group_type_index: filters.breakdown_group_type_index,
+        ...(isTrends
+            ? {
+                  breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
+                  breakdown_hide_other_aggregation: filters.breakdown_hide_other_aggregation,
+              }
+            : {}),
+    })
 }

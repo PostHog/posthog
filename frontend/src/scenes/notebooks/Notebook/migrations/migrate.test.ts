@@ -57,7 +57,7 @@ describe('migrate()', () => {
                                     },
                                 ],
                                 interval: 'week',
-                                breakdown: { breakdown_type: 'event', breakdown: '$referring_domain' },
+                                breakdownFilter: { breakdown_type: 'event', breakdown: '$referring_domain' },
                                 trendsFilter: { compare: false, display: 'ActionsBar' },
                             },
                         },
@@ -343,7 +343,7 @@ describe('migrate()', () => {
                                     },
                                 ],
                                 interval: 'day',
-                                breakdown: {
+                                breakdownFilter: {
                                     breakdown: '$feature/posthog-3000',
                                     breakdown_type: 'event',
                                 },
@@ -358,6 +358,125 @@ describe('migrate()', () => {
                         __init: null,
                         height: null,
                         nodeId: '4c2a07ee-fc9f-45c5-b36c-5e14a10f8e89',
+                        children: null,
+                    },
+                },
+            ],
+        ],
+        [
+            'migrates breakdown',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        math: 'dau',
+                                        name: '$pageview',
+                                        event: '$pageview',
+                                        properties: [
+                                            {
+                                                key: '$referring_domain',
+                                                type: 'event',
+                                                value: 'google|duckduckgo|brave|bing',
+                                                operator: 'regex',
+                                            },
+                                            {
+                                                key: 'utm_source',
+                                                type: 'event',
+                                                value: 'is_not_set',
+                                                operator: 'is_not_set',
+                                            },
+                                            {
+                                                key: '$host',
+                                                type: 'event',
+                                                value: ['posthog.com'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                    },
+                                ],
+                                interval: 'week',
+                                breakdown: {
+                                    breakdown: '$referring_domain',
+                                    breakdown_type: 'event',
+                                },
+                                dateRange: { date_to: null, date_from: '-90d' },
+                                properties: {
+                                    type: 'AND',
+                                    values: [{ type: 'AND', values: [] }],
+                                },
+                                trendsFilter: { compare: false, display: 'ActionsBar' },
+                                filterTestAccounts: true,
+                            },
+                        },
+                        title: 'SEO trend last 90 days',
+                        __init: null,
+                        height: null,
+                        nodeId: '245516ed-8bb2-41c3-83c6-fc10bb0c5149',
+                        children: null,
+                    },
+                },
+            ],
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [
+                                    {
+                                        kind: 'EventsNode',
+                                        math: 'dau',
+                                        name: '$pageview',
+                                        event: '$pageview',
+                                        properties: [
+                                            {
+                                                key: '$referring_domain',
+                                                type: 'event',
+                                                value: 'google|duckduckgo|brave|bing',
+                                                operator: 'regex',
+                                            },
+                                            {
+                                                key: 'utm_source',
+                                                type: 'event',
+                                                value: 'is_not_set',
+                                                operator: 'is_not_set',
+                                            },
+                                            {
+                                                key: '$host',
+                                                type: 'event',
+                                                value: ['posthog.com'],
+                                                operator: 'exact',
+                                            },
+                                        ],
+                                    },
+                                ],
+                                interval: 'week',
+                                breakdownFilter: {
+                                    breakdown: '$referring_domain',
+                                    breakdown_type: 'event',
+                                },
+                                dateRange: { date_to: null, date_from: '-90d' },
+                                properties: {
+                                    type: 'AND',
+                                    values: [{ type: 'AND', values: [] }],
+                                },
+                                trendsFilter: { compare: false, display: 'ActionsBar' },
+                                filterTestAccounts: true,
+                            },
+                        },
+                        title: 'SEO trend last 90 days',
+                        __init: null,
+                        height: null,
+                        nodeId: '245516ed-8bb2-41c3-83c6-fc10bb0c5149',
                         children: null,
                     },
                 },

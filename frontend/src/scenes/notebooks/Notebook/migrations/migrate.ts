@@ -1,6 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 
 import {
+    breakdownFilterToQuery,
     funnelsFilterToQuery,
     retentionFilterToQuery,
     trendsFilterToQuery,
@@ -89,6 +90,9 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
         const insightQuery = node.attrs.query as InsightVizNode
         const query = insightQuery.source
 
+        /*
+         * Insight filters
+         */
         if (query.kind === NodeKind.TrendsQuery && isLegacyTrendsFilter(query.trendsFilter as any)) {
             query.trendsFilter = trendsFilterToQuery(query.trendsFilter as any)
         }
@@ -99,6 +103,14 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
         if (query.kind === NodeKind.RetentionQuery && isLegacyRetentionFilter(query.retentionFilter as any)) {
             query.retentionFilter = retentionFilterToQuery(query.retentionFilter as any)
+        }
+
+        /*
+         * Breakdown
+         */
+        if ((query.kind === NodeKind.TrendsQuery || query.kind === NodeKind.FunnelsQuery) && 'breakdown' in query) {
+            query.breakdownFilter = breakdownFilterToQuery(query.breakdown as any, query.kind === NodeKind.TrendsQuery)
+            delete query.breakdown
         }
 
         return {
