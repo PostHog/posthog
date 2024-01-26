@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING, Optional
-from openai import OpenAI
+import openai
 from openai.types.chat import ChatCompletionMessageParam
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
@@ -102,7 +102,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     prompt_tokens_total, completion_tokens_total = 0, 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
         attempt_count += 1
-        result = OpenAI().chat.completions.create(
+        result = openai.chat.completions.create(
             model="gpt-3.5-turbo",
             temperature=0.8,
             messages=messages,

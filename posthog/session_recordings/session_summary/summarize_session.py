@@ -3,7 +3,7 @@ from datetime import datetime
 
 from typing import List, Dict, Any
 
-from openai import OpenAI
+import openai
 
 from prometheus_client import Histogram
 
@@ -291,7 +291,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     instance_region = get_instance_region() or "HOBBY"
 
     with timer("openai_completion"):
-        result = OpenAI().chat.completions.create(
+        result = openai.chat.completions.create(
             # model="gpt-4-1106-preview",  # allows 128k tokens
             model="gpt-4",  # allows 8k tokens
             temperature=0.7,
