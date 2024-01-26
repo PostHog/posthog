@@ -1,6 +1,5 @@
-.filter-row-popover {
-    // so the datepicker is visible
-    overflow: visible;
+.filter-row-popover .Popover__box {
+    overflow: visible; // Only required because the Ant popover is rendered _within_ the filter popover
 }
 
 .property-filter-row {

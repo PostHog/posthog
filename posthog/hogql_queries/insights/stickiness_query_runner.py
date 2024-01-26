@@ -81,12 +81,33 @@ class StickinessQueryRunner(QueryRunner):
 
         return refresh_frequency
 
+    def _aggregation_expressions(self, series: EventsNode | ActionsNode) -> ast.Expr:
+        if series.math == "hogql" and series.math_hogql is not None:
+            return parse_expr(series.math_hogql)
+        elif series.math == "unique_group" and series.math_group_type_index is not None:
+            return ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"])
+
+        return ast.Field(chain=["e", "person_id"])
+
     def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
+        num_intervals_column_expr = ast.Alias(
+            alias="num_intervals",
+            expr=ast.Call(
+                distinct=True,
+                name="count",
+                args=[self.query_date_range.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"]))],
+            ),
+        )
+
+        aggregation = ast.Alias(
+            alias="aggregation_target", expr=self._aggregation_expressions(series_with_extra.series)
+        )
+
         select_query = parse_select(
             """
-                SELECT count(DISTINCT aggregation_target) as aggregation_target, num_intervals
+                SELECT count(DISTINCT aggregation_target), num_intervals
                 FROM (
-                    SELECT e.person_id as aggregation_target, count(DISTINCT toStartOfDay(e.timestamp)) as num_intervals
+                    SELECT {aggregation}, {num_intervals_column_expr}
                     FROM events e
                     SAMPLE {sample}
                     WHERE {where_clause}
@@ -100,6 +121,8 @@ class StickinessQueryRunner(QueryRunner):
                 "where_clause": self.where_clause(series_with_extra),
                 "num_intervals": ast.Constant(value=self.intervals_num()),
                 "sample": self._sample_value(),
+                "num_intervals_column_expr": num_intervals_column_expr,
+                "aggregation": aggregation,
             },
         )
 
@@ -111,9 +134,9 @@ class StickinessQueryRunner(QueryRunner):
         for series in self.series:
             date_range = self.date_range(series)
 
-            interval_subtract = ast.Call(
+            interval_addition = ast.Call(
                 name=f"toInterval{date_range.interval_name.capitalize()}",
-                args=[ast.Constant(value=2)],
+                args=[ast.Constant(value=1)],
             )
 
             select_query = parse_select(
@@ -123,7 +146,7 @@ class StickinessQueryRunner(QueryRunner):
                         SELECT sum(aggregation_target) as aggregation_target, num_intervals
                         FROM (
                             SELECT 0 as aggregation_target, (number + 1) as num_intervals
-                            FROM numbers(dateDiff({interval}, {date_from} - {interval_subtract}, {date_to}))
+                            FROM numbers(dateDiff({interval}, {date_from}, {date_to} + {interval_addition}))
                             UNION ALL
                             {events_query}
                         )
@@ -133,7 +156,7 @@ class StickinessQueryRunner(QueryRunner):
                 """,
                 placeholders={
                     **date_range.to_placeholders(),
-                    "interval_subtract": interval_subtract,
+                    "interval_addition": interval_addition,
                     "events_query": self._events_query(series),
                 },
             )
@@ -290,7 +313,7 @@ class StickinessQueryRunner(QueryRunner):
 
     def intervals_num(self):
         delta = self.query_date_range.date_to() - self.query_date_range.date_from()
-        return delta.days + 2
+        return delta.days + 1
 
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [

@@ -67,10 +67,14 @@ export const urls = {
     batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insights: (): string => '/insights',
-    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
+    insightNew: (
+        filters?: AnyPartialFilterType,
+        dashboardId?: DashboardType['id'] | null,
+        query?: string | Record<string, any>
+    ): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
-            ...(query ? { q: query } : {}),
+            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: (query: string): string =>
         urls.insightNew(

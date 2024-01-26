@@ -16,7 +16,7 @@ import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
 import { Destination } from './types'
-import { RenderApp } from './utils'
+import { RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -87,7 +87,7 @@ function DestinationsTable(): JSX.Element {
                             if (destination.backend === 'plugin') {
                                 return <RenderApp plugin={destination.plugin} />
                             }
-                            return <></> // TODO: batch export
+                            return <RenderBatchExportIcon type={destination.service.type} />
                         },
                     },
                     {

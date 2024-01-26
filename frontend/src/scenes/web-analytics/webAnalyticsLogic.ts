@@ -15,6 +15,7 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema'
+import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     BaseMathType,
     ChartDisplayType,
@@ -471,6 +472,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         breakdownBy: WebStatsBreakdown.Page,
                                         dateRange,
                                         includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                        includeBounceRate: true,
                                         sampling,
                                     },
                                     embedded: false,
@@ -996,8 +998,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             _,
             { filters, date_from, date_to, interval, device_tab, source_tab, graphs_tab, path_tab, geography_tab }
         ) => {
+            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : initialWebAnalyticsFilter
+
             actions.setStateFromUrl({
-                filters: filters || initialWebAnalyticsFilter,
+                filters: parsedFilters,
                 dateFrom: date_from || null,
                 dateTo: date_to || null,
                 interval: interval || null,

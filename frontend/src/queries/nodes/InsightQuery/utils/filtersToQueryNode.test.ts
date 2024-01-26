@@ -381,20 +381,20 @@ describe('filtersToQueryNode', () => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
-                    funnel_from_step: 1,
-                    funnel_to_step: 2,
-                    funnel_step_reference: FunnelStepReference.total,
-                    breakdown_attribution_type: BreakdownAttributionType.AllSteps,
-                    breakdown_attribution_value: 1,
-                    bin_count: 'auto',
-                    funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
-                    funnel_window_interval: 7,
-                    funnel_order_type: StepOrderValue.ORDERED,
+                    funnelVizType: FunnelVizType.Steps,
+                    funnelFromStep: 1,
+                    funnelToStep: 2,
+                    funnelStepReference: FunnelStepReference.total,
+                    breakdownAttributionType: BreakdownAttributionType.AllSteps,
+                    breakdownAttributionValue: 1,
+                    binCount: 'auto',
+                    funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                    funnelWindowInterval: 7,
+                    funnelOrderType: StepOrderValue.ORDERED,
                     exclusions: [
                         {
-                            funnel_from_step: 0,
-                            funnel_to_step: 1,
+                            funnelFromStep: 0,
+                            funnelToStep: 1,
                         },
                     ],
                     layout: FunnelLayout.horizontal,
@@ -1101,7 +1101,7 @@ describe('filtersToQueryNode', () => {
                 ],
                 filterTestAccounts: true,
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
             expect(result).toEqual(query)
@@ -1171,7 +1171,7 @@ describe('filtersToQueryNode', () => {
                 ],
                 filterTestAccounts: true,
                 funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
+                    funnelVizType: FunnelVizType.Steps,
                 },
             }
             expect(result).toEqual(query)

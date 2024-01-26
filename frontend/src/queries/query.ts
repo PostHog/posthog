@@ -25,6 +25,7 @@ import {
     isDataTableNode,
     isDataVisualizationNode,
     isEventsQuery,
+    isFunnelsQuery,
     isHogQLQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -163,6 +164,9 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsStickinessFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]
     )
+    const hogQLInsightsFunnelsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]
+    )
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
     )
@@ -208,10 +212,11 @@ export async function query<N extends DataNode = DataNode>(
                 (hogQLInsightsPathsFlagEnabled && isPathsQuery(queryNode)) ||
                 (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
                 (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
-                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode))
+                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode)) ||
+                (hogQLInsightsFunnelsFlagEnabled && isFunnelsQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
-                    let legacyResponse
+                    let legacyResponse: any
                     ;[response, legacyResponse] = await Promise.all([
                         api.query(queryNode, methodOptions, queryId, refresh),
                         fetchLegacyInsights(),
@@ -225,7 +230,7 @@ export async function query<N extends DataNode = DataNode>(
                         const order = { new: 1, returning: 2, resurrecting: 3, dormant: 4 }
                         res1.sort((a: any, b: any) => order[a.status] - order[b.status])
                         res2.sort((a: any, b: any) => order[a.status] - order[b.status])
-                    } else if (isTrendsQuery(queryNode)) {
+                    } else if (isTrendsQuery(queryNode) || isStickinessQuery(queryNode)) {
                         res1 = res1?.map((n: any) => ({
                             ...n,
                             filter: undefined,
@@ -240,12 +245,34 @@ export async function query<N extends DataNode = DataNode>(
                         }))
                     }
 
+                    const getTimingDiff = (): undefined | { diff: number; legacy: number; hogql: number } => {
+                        const hogQLTimings = response?.timings
+                        const legacyTimings = legacyResponse?.timings
+
+                        if (!hogQLTimings || !legacyTimings) {
+                            return undefined
+                        }
+
+                        const hogqlTotalTime =
+                            hogQLTimings.find((n: { k: string; t: number }) => n['k'] === '.')?.t ?? 0
+                        const legacyTotalTime =
+                            legacyTimings.find((n: { k: string; t: number }) => n['k'] === '.')?.t ?? 0
+
+                        return {
+                            diff: hogqlTotalTime - legacyTotalTime,
+                            legacy: legacyTotalTime,
+                            hogql: hogqlTotalTime,
+                        }
+                    }
+
+                    const timingDiff = getTimingDiff()
+
                     const results = flattenObject(res1)
                     const legacyResults = flattenObject(res2)
                     const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
                         .filter((key) => !key.includes('.persons_urls.') && !key.includes('.people_url'))
                         .sort()
-                    const tableData = [['', 'key', 'HOGQL', 'LEGACY']]
+                    const tableData: any[] = [['', 'key', 'HOGQL', 'LEGACY']]
                     let matchCount = 0
                     let mismatchCount = 0
                     for (const key of sortedKeys) {
@@ -261,6 +288,16 @@ export async function query<N extends DataNode = DataNode>(
                             legacyResults[key],
                         ])
                     }
+
+                    if (timingDiff) {
+                        tableData.push([
+                            timingDiff.diff <= 0 ? '🚀' : '🐌',
+                            'timingDiff',
+                            timingDiff.hogql,
+                            timingDiff.legacy,
+                        ])
+                    }
+
                     const symbols = mismatchCount === 0 ? '🍀🍀🍀' : '🏎️🏎️🏎'
                     // eslint-disable-next-line no-console
                     console.log(`${symbols} Insight Race ${symbols}`, {
@@ -271,6 +308,7 @@ export async function query<N extends DataNode = DataNode>(
                         equal: mismatchCount === 0,
                         response,
                         legacyResponse,
+                        timingDiff,
                     })
                     // eslint-disable-next-line no-console
                     console.groupCollapsed(
@@ -287,6 +325,13 @@ export async function query<N extends DataNode = DataNode>(
                         query: queryNode,
                         equal: mismatchCount === 0,
                         mismatch_count: mismatchCount,
+                        ...(timingDiff
+                            ? {
+                                  timing_diff: timingDiff.diff,
+                                  timing_hogqL: timingDiff.hogql,
+                                  timing_legacy: timingDiff.legacy,
+                              }
+                            : {}),
                     })
                 } else {
                     response = await api.query(queryNode, methodOptions, queryId, refresh)

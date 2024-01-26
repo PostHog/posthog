@@ -37,9 +37,12 @@ def execute_hogql_query(
     limit_context: Optional[LimitContext] = LimitContext.QUERY,
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
+    pretty: Optional[bool] = True,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
+
+    query_modifiers = create_default_modifiers_for_team(team, modifiers)
 
     with timings.measure("query"):
         if isinstance(query, ast.SelectQuery) or isinstance(query, ast.SelectUnionQuery):
@@ -77,7 +80,6 @@ def execute_hogql_query(
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
-        query_modifiers = create_default_modifiers_for_team(team, modifiers)
         with timings.measure("prepare_ast"):
             hogql_query_context = HogQLContext(
                 team_id=team.pk,
@@ -94,7 +96,9 @@ def execute_hogql_query(
             )
 
         with timings.measure("print_ast"):
-            hogql = print_prepared_ast(select_query_hogql, hogql_query_context, "hogql")
+            hogql = print_prepared_ast(
+                select_query_hogql, hogql_query_context, "hogql", pretty=pretty if pretty is not None else True
+            )
             print_columns = []
             columns_query = (
                 select_query_hogql.select_queries[0]
@@ -132,6 +136,7 @@ def execute_hogql_query(
             context=clickhouse_context,
             dialect="clickhouse",
             settings=settings,
+            pretty=pretty if pretty is not None else True,
         )
 
     timings_dict = timings.to_dict()

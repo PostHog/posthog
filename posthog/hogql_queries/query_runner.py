@@ -17,23 +17,25 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
+    HogQLQuery,
+    WebOverviewQuery,
+    WebTopClicksQuery,
+    WebStatsTableQuery,
     QueryTiming,
     SessionsTimelineQuery,
-    StickinessQuery,
-    TrendsQuery,
-    LifecycleQuery,
-    WebTopClicksQuery,
-    WebOverviewQuery,
     ActorsQuery,
     EventsQuery,
-    WebStatsTableQuery,
-    HogQLQuery,
     InsightActorsQuery,
     DashboardFilter,
     HogQLQueryModifiers,
-    RetentionQuery,
-    PathsQuery,
     SamplingRate,
+    InsightActorsQueryOptions,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -79,16 +81,18 @@ class CachedQueryResponse(QueryResponse):
 
 
 RunnableQueryNode = Union[
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
     ActorsQuery,
     EventsQuery,
     HogQLQuery,
     InsightActorsQuery,
-    LifecycleQuery,
-    PathsQuery,
-    RetentionQuery,
+    InsightActorsQueryOptions,
     SessionsTimelineQuery,
-    StickinessQuery,
-    TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
@@ -110,16 +114,6 @@ def get_query_runner(
     else:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
-    if kind == "LifecycleQuery":
-        from .insights.lifecycle_query_runner import LifecycleQueryRunner
-
-        return LifecycleQueryRunner(
-            query=cast(LifecycleQuery | Dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-        )
     if kind == "TrendsQuery":
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
@@ -130,11 +124,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "StickinessQuery":
-        from .insights.stickiness_query_runner import StickinessQueryRunner
+    if kind == "FunnelsQuery":
+        from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
 
-        return StickinessQueryRunner(
-            query=cast(StickinessQuery | Dict[str, Any], query),
+        return FunnelsQueryRunner(
+            query=cast(FunnelsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -155,6 +149,26 @@ def get_query_runner(
 
         return PathsQueryRunner(
             query=cast(PathsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "StickinessQuery":
+        from .insights.stickiness_query_runner import StickinessQueryRunner
+
+        return StickinessQueryRunner(
+            query=cast(StickinessQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "LifecycleQuery":
+        from .insights.lifecycle_query_runner import LifecycleQueryRunner
+
+        return LifecycleQueryRunner(
+            query=cast(LifecycleQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -185,6 +199,16 @@ def get_query_runner(
 
         return InsightActorsQueryRunner(
             query=cast(InsightActorsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "InsightActorsQueryOptions":
+        from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+
+        return InsightActorsQueryOptionsRunner(
+            query=cast(InsightActorsQueryOptions | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

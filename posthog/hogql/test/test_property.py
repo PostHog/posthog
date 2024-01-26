@@ -87,7 +87,7 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "group", "key": "a", "value": "b"})
         self.assertEqual(
             str(e.exception),
-            "Missing required key group_type_index for property type group",
+            "Missing required key group_type_index for property type group with name a",
         )
 
     def test_property_to_expr_event(self):

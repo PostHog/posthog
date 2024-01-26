@@ -40,7 +40,7 @@ dlt==0.4.1a2
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
-drf-spectacular==0.27.0
+drf-spectacular==0.27.1
 gevent==23.9.1
 geoip2==4.6.0
 google-cloud-bigquery==3.11.4
@@ -58,7 +58,7 @@ openapi-spec-validator==0.7.1
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
-Pillow==9.2.0
+Pillow==10.2.0
 posthoganalytics==3.0.1
 prance==23.06.21.0
 psycopg2-binary==2.9.7

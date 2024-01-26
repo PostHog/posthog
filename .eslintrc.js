@@ -205,6 +205,10 @@ module.exports = {
                         message: 'use <LemonCollapse> instead',
                     },
                     {
+                        element: 'Slider',
+                        message: 'use <LemonSlider> instead',
+                    },
+                    {
                         element: 'Checkbox',
                         message: 'use <LemonCheckbox> instead',
                     },
@@ -245,6 +249,7 @@ module.exports = {
         'no-constant-condition': 'off',
         'no-prototype-builtins': 'off',
         'no-irregular-whitespace': 'off',
+        'no-useless-rename': 'error',
         'import/no-restricted-paths': [
             'error',
             {

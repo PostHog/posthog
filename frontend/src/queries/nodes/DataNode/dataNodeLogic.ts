@@ -320,25 +320,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsLifecycleFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
-        ],
-        hogQLInsightsPathsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS],
-        ],
         hogQLInsightsRetentionFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
-        ],
-        hogQLInsightsTrendsFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
-        ],
-        hogQLInsightsStickinessFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
@@ -425,6 +409,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         canLoadNextData: [
             (s) => [s.nextQuery, s.isShowingCachedResults],
             (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
+        ],
+        hasMoreData: [
+            (s) => [s.response],
+            (response): boolean => {
+                if (!response?.hasMore) {
+                    return false
+                }
+                return response.hasMore
+            },
+        ],
+        dataLimit: [
+            // get limit from response
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response?.limit) {
+                    return null
+                }
+                return response.limit
+            },
         ],
         backToSourceQuery: [
             (s) => [s.query],

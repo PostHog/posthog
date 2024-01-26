@@ -11,15 +11,15 @@ export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
     const { insightFilter, steps } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    const { breakdown_attribution_type, breakdown_attribution_value, funnel_order_type } = (insightFilter ||
+    const { breakdownAttributionType, breakdownAttributionValue, funnelOrderType } = (insightFilter ||
         {}) as FunnelsFilter
 
     const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
-        !breakdown_attribution_type
+        !breakdownAttributionType
             ? BreakdownAttributionType.FirstTouch
-            : breakdown_attribution_type === BreakdownAttributionType.Step
-            ? `${breakdown_attribution_type}/${breakdown_attribution_value || 0}`
-            : breakdown_attribution_type
+            : breakdownAttributionType === BreakdownAttributionType.Step
+            ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+            : breakdownAttributionType
 
     return (
         <LemonSelect
@@ -32,7 +32,7 @@ export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
                 {
                     value: BreakdownAttributionType.Step,
                     label: 'Any step',
-                    hidden: funnel_order_type !== StepOrderValue.UNORDERED,
+                    hidden: funnelOrderType !== StepOrderValue.UNORDERED,
                 },
                 {
                     label: 'Specific step',
@@ -43,17 +43,15 @@ export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
                             label: `Step ${stepIndex + 1}`,
                             hidden: stepIndex >= steps.length,
                         })),
-                    hidden: funnel_order_type === StepOrderValue.UNORDERED,
+                    hidden: funnelOrderType === StepOrderValue.UNORDERED,
                 },
             ]}
             onChange={(value) => {
                 const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
                 if (value) {
                     updateInsightFilter({
-                        breakdown_attribution_type: breakdownAttributionType as BreakdownAttributionType,
-                        breakdown_attribution_value: breakdownAttributionValue
-                            ? parseInt(breakdownAttributionValue)
-                            : 0,
+                        breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
+                        breakdownAttributionValue: breakdownAttributionValue ? parseInt(breakdownAttributionValue) : 0,
                     })
                 }
             }}

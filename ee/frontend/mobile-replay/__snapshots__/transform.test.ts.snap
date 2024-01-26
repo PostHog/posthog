@@ -97,6 +97,84 @@ exports[`replay/transform transform can convert images 1`] = `
 ]
 `;
 
+exports[`replay/transform transform can convert navigation bar 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "style": "color: #ee3ee4;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                    },
+                    "childNodes": [],
+                    "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
 exports[`replay/transform transform can convert rect with text 1`] = `
 [
   {
@@ -167,6 +245,146 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                       },
                     ],
                     "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform can convert status bar 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                      "style": "color: #ee3ee4;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;height: 30px;position: fixed;left: 0px;top: 0px;display:flex;flex-direction:row;align-items:center",
+                    },
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "data-rrweb-id": 109,
+                          "style": "width: 5px;",
+                        },
+                        "childNodes": [],
+                        "id": 109,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                      {
+                        "attributes": {
+                          "data-rrweb-id": 107,
+                        },
+                        "childNodes": [
+                          {
+                            "id": 108,
+                            "textContent": "12:00 AM",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 107,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                      "style": "width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;display:flex;flex-direction:row;align-items:center",
+                    },
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "data-rrweb-id": 112,
+                          "style": "width: 5px;",
+                        },
+                        "childNodes": [],
+                        "id": 112,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                      {
+                        "attributes": {
+                          "data-rrweb-id": 110,
+                        },
+                        "childNodes": [
+                          {
+                            "id": 111,
+                            "textContent": "12:00 AM",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 110,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 7,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -330,6 +548,114 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                       },
                     ],
                     "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1,
+    "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform can set background image to base64 png 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12345,
+                      "style": "background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=);background-size: auto;background-repeat: no-repeatheight: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                    },
+                    "childNodes": [],
+                    "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12346,
+                      "style": "background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=);background-size: auto;background-repeat: no-repeatheight: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                    },
+                    "childNodes": [],
+                    "id": 12346,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12346,
+                      "style": "background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=);background-size: cover;background-repeat: no-repeatheight: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                    },
+                    "childNodes": [],
+                    "id": 12346,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 12346,
+                      "style": "height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                    },
+                    "childNodes": [],
+                    "id": 12346,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -571,7 +897,7 @@ exports[`replay/transform transform inputs buttons with nested elements 1`] = `
                   },
                   "childNodes": [
                     {
-                      "id": 107,
+                      "id": 113,
                       "textContent": "click me",
                       "type": 3,
                     },
@@ -720,7 +1046,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                   },
                   "childNodes": [
                     {
-                      "id": 284,
+                      "id": 290,
                       "textContent": "click me",
                       "type": 3,
                     },
@@ -788,7 +1114,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
               "childNodes": [
                 {
                   "attributes": {
-                    "data-rrweb-id": 261,
+                    "data-rrweb-id": 267,
                     "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
@@ -805,12 +1131,12 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
                       "type": 2,
                     },
                     {
-                      "id": 260,
+                      "id": 266,
                       "textContent": "first",
                       "type": 3,
                     },
                   ],
-                  "id": 261,
+                  "id": 267,
                   "tagName": "label",
                   "type": 2,
                 },
@@ -873,7 +1199,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
               "childNodes": [
                 {
                   "attributes": {
-                    "data-rrweb-id": 263,
+                    "data-rrweb-id": 269,
                     "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
@@ -889,12 +1215,12 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
                       "type": 2,
                     },
                     {
-                      "id": 262,
+                      "id": 268,
                       "textContent": "second",
                       "type": 3,
                     },
                   ],
-                  "id": 263,
+                  "id": 269,
                   "tagName": "label",
                   "type": 2,
                 },
@@ -957,7 +1283,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
               "childNodes": [
                 {
                   "attributes": {
-                    "data-rrweb-id": 265,
+                    "data-rrweb-id": 271,
                     "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
@@ -975,12 +1301,12 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
                       "type": 2,
                     },
                     {
-                      "id": 264,
+                      "id": 270,
                       "textContent": "third",
                       "type": 3,
                     },
                   ],
-                  "id": 265,
+                  "id": 271,
                   "tagName": "label",
                   "type": 2,
                 },
@@ -1325,7 +1651,7 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                   "childNodes": [
                     {
                       "attributes": {
-                        "data-rrweb-id": 291,
+                        "data-rrweb-id": 297,
                         "style": "background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;border: 4px solid #35373e;border-radius: 50%;border-top: 4px solid #fff;animation: spin 2s linear infinite;",
                       },
                       "childNodes": [
@@ -1335,17 +1661,17 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                           },
                           "childNodes": [
                             {
-                              "id": 290,
+                              "id": 296,
                               "textContent": "@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }",
                               "type": 3,
                             },
                           ],
-                          "id": 289,
+                          "id": 295,
                           "tagName": "style",
                           "type": 2,
                         },
                       ],
-                      "id": 291,
+                      "id": 297,
                       "tagName": "div",
                       "type": 2,
                     },
@@ -1700,32 +2026,32 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                   "childNodes": [
                     {
                       "attributes": {
-                        "data-rrweb-id": 285,
+                        "data-rrweb-id": 291,
                         "selected": true,
                       },
                       "childNodes": [
                         {
-                          "id": 286,
+                          "id": 292,
                           "textContent": "hello",
                           "type": 3,
                         },
                       ],
-                      "id": 285,
+                      "id": 291,
                       "tagName": "option",
                       "type": 2,
                     },
                     {
                       "attributes": {
-                        "data-rrweb-id": 287,
+                        "data-rrweb-id": 293,
                       },
                       "childNodes": [
                         {
-                          "id": 288,
+                          "id": 294,
                           "textContent": "world",
                           "type": 3,
                         },
                       ],
-                      "id": 287,
+                      "id": 293,
                       "tagName": "option",
                       "type": 2,
                     },
@@ -2139,12 +2465,12 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
               "childNodes": [
                 {
                   "attributes": {
-                    "data-rrweb-id": 270,
+                    "data-rrweb-id": 276,
                     "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
-                      "id": 269,
+                      "id": 275,
                       "textContent": "first",
                       "type": 3,
                     },
@@ -2156,34 +2482,34 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                       "childNodes": [
                         {
                           "attributes": {
-                            "data-rrweb-id": 266,
+                            "data-rrweb-id": 272,
                             "style": "position:relative;width:100%;height:100%;",
                           },
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 267,
+                                "data-rrweb-id": 273,
                                 "data-toggle-part": "slider",
                                 "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
                               },
                               "childNodes": [],
-                              "id": 267,
+                              "id": 273,
                               "tagName": "div",
                               "type": 2,
                             },
                             {
                               "attributes": {
-                                "data-rrweb-id": 268,
+                                "data-rrweb-id": 274,
                                 "data-toggle-part": "handle",
                                 "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
                               },
                               "childNodes": [],
-                              "id": 268,
+                              "id": 274,
                               "tagName": "div",
                               "type": 2,
                             },
                           ],
-                          "id": 266,
+                          "id": 272,
                           "tagName": "div",
                           "type": 2,
                         },
@@ -2193,7 +2519,7 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 270,
+                  "id": 276,
                   "tagName": "label",
                   "type": 2,
                 },
@@ -2256,12 +2582,12 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
               "childNodes": [
                 {
                   "attributes": {
-                    "data-rrweb-id": 275,
+                    "data-rrweb-id": 281,
                     "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
-                      "id": 274,
+                      "id": 280,
                       "textContent": "second",
                       "type": 3,
                     },
@@ -2273,34 +2599,34 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                       "childNodes": [
                         {
                           "attributes": {
-                            "data-rrweb-id": 271,
+                            "data-rrweb-id": 277,
                             "style": "position:relative;width:100%;height:100%;",
                           },
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 272,
+                                "data-rrweb-id": 278,
                                 "data-toggle-part": "slider",
                                 "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#f3f4ef;opacity: 0.2;border-radius:7.5%;",
                               },
                               "childNodes": [],
-                              "id": 272,
+                              "id": 278,
                               "tagName": "div",
                               "type": 2,
                             },
                             {
                               "attributes": {
-                                "data-rrweb-id": 273,
+                                "data-rrweb-id": 279,
                                 "data-toggle-part": "handle",
                                 "style": "position:absolute;top:1.5%;left:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#f3f4ef;border:2px solid #f3f4ef;border-radius:50%;",
                               },
                               "childNodes": [],
-                              "id": 273,
+                              "id": 279,
                               "tagName": "div",
                               "type": 2,
                             },
                           ],
-                          "id": 271,
+                          "id": 277,
                           "tagName": "div",
                           "type": 2,
                         },
@@ -2310,7 +2636,7 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 275,
+                  "id": 281,
                   "tagName": "label",
                   "type": 2,
                 },
@@ -2373,12 +2699,12 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
               "childNodes": [
                 {
                   "attributes": {
-                    "data-rrweb-id": 280,
+                    "data-rrweb-id": 286,
                     "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
-                      "id": 279,
+                      "id": 285,
                       "textContent": "third",
                       "type": 3,
                     },
@@ -2390,34 +2716,34 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                       "childNodes": [
                         {
                           "attributes": {
-                            "data-rrweb-id": 276,
+                            "data-rrweb-id": 282,
                             "style": "position:relative;width:100%;height:100%;",
                           },
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 277,
+                                "data-rrweb-id": 283,
                                 "data-toggle-part": "slider",
                                 "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
                               },
                               "childNodes": [],
-                              "id": 277,
+                              "id": 283,
                               "tagName": "div",
                               "type": 2,
                             },
                             {
                               "attributes": {
-                                "data-rrweb-id": 278,
+                                "data-rrweb-id": 284,
                                 "data-toggle-part": "handle",
                                 "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
                               },
                               "childNodes": [],
-                              "id": 278,
+                              "id": 284,
                               "tagName": "div",
                               "type": 2,
                             },
                           ],
-                          "id": 276,
+                          "id": 282,
                           "tagName": "div",
                           "type": 2,
                         },
@@ -2427,7 +2753,7 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 280,
+                  "id": 286,
                   "tagName": "label",
                   "type": 2,
                 },
@@ -2496,34 +2822,34 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                   "childNodes": [
                     {
                       "attributes": {
-                        "data-rrweb-id": 281,
+                        "data-rrweb-id": 287,
                         "style": "position:relative;width:100%;height:100%;",
                       },
                       "childNodes": [
                         {
                           "attributes": {
-                            "data-rrweb-id": 282,
+                            "data-rrweb-id": 288,
                             "data-toggle-part": "slider",
                             "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
                           },
                           "childNodes": [],
-                          "id": 282,
+                          "id": 288,
                           "tagName": "div",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 283,
+                            "data-rrweb-id": 289,
                             "data-toggle-part": "handle",
                             "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
                           },
                           "childNodes": [],
-                          "id": 283,
+                          "id": 289,
                           "tagName": "div",
                           "type": 2,
                         },
                       ],
-                      "id": 281,
+                      "id": 287,
                       "tagName": "div",
                       "type": 2,
                     },
@@ -2643,11 +2969,11 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 210,
+            "data-rrweb-id": 216,
             "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
           },
           "childNodes": [],
-          "id": 210,
+          "id": 216,
           "tagName": "div",
           "type": 2,
         },
@@ -2657,11 +2983,11 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 210,
+            "data-rrweb-id": 216,
             "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
           },
           "childNodes": [],
-          "id": 210,
+          "id": 216,
           "tagName": "div",
           "type": 2,
         },
@@ -2671,1213 +2997,1213 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 162,
+            "data-rrweb-id": 168,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 162,
+          "id": 168,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 162,
+            "data-rrweb-id": 168,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 162,
+          "id": 168,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 163,
+            "data-rrweb-id": 169,
           },
           "childNodes": [],
-          "id": 163,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 162,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 163,
-          },
-          "childNodes": [],
-          "id": 163,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 162,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 165,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 163,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 164,
-          },
-          "childNodes": [],
-          "id": 164,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 162,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 164,
-          },
-          "childNodes": [],
-          "id": 164,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 162,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 166,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 166,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 210,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 166,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 166,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 210,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 167,
-          },
-          "childNodes": [],
-          "id": 167,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 166,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 167,
-          },
-          "childNodes": [],
-          "id": 167,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 166,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 169,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 168,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 169,
+          },
+          "childNodes": [],
+          "id": 169,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 168,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 171,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 167,
+        "parentId": 169,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 168,
+            "data-rrweb-id": 170,
           },
           "childNodes": [],
-          "id": 168,
+          "id": 170,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 166,
+        "parentId": 168,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 168,
+            "data-rrweb-id": 170,
           },
           "childNodes": [],
-          "id": 168,
+          "id": 170,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 166,
+        "parentId": 168,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 170,
+            "data-rrweb-id": 172,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 170,
+          "id": 172,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 170,
+            "data-rrweb-id": 172,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 170,
+          "id": 172,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 171,
+            "data-rrweb-id": 173,
           },
           "childNodes": [],
-          "id": 171,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 170,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 171,
-          },
-          "childNodes": [],
-          "id": 171,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 170,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 173,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 172,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 173,
+          },
+          "childNodes": [],
+          "id": 173,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 172,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 175,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 171,
+        "parentId": 173,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 172,
+            "data-rrweb-id": 174,
           },
           "childNodes": [],
-          "id": 172,
+          "id": 174,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 170,
+        "parentId": 172,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 172,
+            "data-rrweb-id": 174,
           },
           "childNodes": [],
-          "id": 172,
+          "id": 174,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 170,
+        "parentId": 172,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 174,
+            "data-rrweb-id": 176,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 174,
+          "id": 176,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 174,
+            "data-rrweb-id": 176,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 174,
+          "id": 176,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 175,
+            "data-rrweb-id": 177,
           },
           "childNodes": [],
-          "id": 175,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 174,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 175,
-          },
-          "childNodes": [],
-          "id": 175,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 174,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 177,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 176,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 177,
+          },
+          "childNodes": [],
+          "id": 177,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 176,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 179,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 175,
+        "parentId": 177,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 176,
+            "data-rrweb-id": 178,
           },
           "childNodes": [],
-          "id": 176,
+          "id": 178,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 174,
+        "parentId": 176,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 176,
+            "data-rrweb-id": 178,
           },
           "childNodes": [],
-          "id": 176,
+          "id": 178,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 174,
+        "parentId": 176,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 178,
+            "data-rrweb-id": 180,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 178,
+          "id": 180,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 178,
+            "data-rrweb-id": 180,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 178,
+          "id": 180,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 179,
+            "data-rrweb-id": 181,
           },
           "childNodes": [],
-          "id": 179,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 178,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 179,
-          },
-          "childNodes": [],
-          "id": 179,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 178,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 181,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 180,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 181,
+          },
+          "childNodes": [],
+          "id": 181,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 180,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 183,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 179,
+        "parentId": 181,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 180,
+            "data-rrweb-id": 182,
           },
           "childNodes": [],
-          "id": 180,
+          "id": 182,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 178,
+        "parentId": 180,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 180,
+            "data-rrweb-id": 182,
           },
           "childNodes": [],
-          "id": 180,
+          "id": 182,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 178,
+        "parentId": 180,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 182,
+            "data-rrweb-id": 184,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 182,
+          "id": 184,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 182,
+            "data-rrweb-id": 184,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 182,
+          "id": 184,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 183,
+            "data-rrweb-id": 185,
           },
           "childNodes": [],
-          "id": 183,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 182,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 183,
-          },
-          "childNodes": [],
-          "id": 183,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 182,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 185,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 184,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 185,
+          },
+          "childNodes": [],
+          "id": 185,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 184,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 187,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 183,
+        "parentId": 185,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 184,
+            "data-rrweb-id": 186,
           },
           "childNodes": [],
-          "id": 184,
+          "id": 186,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 182,
+        "parentId": 184,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 184,
+            "data-rrweb-id": 186,
           },
           "childNodes": [],
-          "id": 184,
+          "id": 186,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 182,
+        "parentId": 184,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 186,
+            "data-rrweb-id": 188,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 186,
+          "id": 188,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 186,
+            "data-rrweb-id": 188,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 186,
+          "id": 188,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 187,
+            "data-rrweb-id": 189,
           },
           "childNodes": [],
-          "id": 187,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 186,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 187,
-          },
-          "childNodes": [],
-          "id": 187,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 186,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 189,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 188,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 189,
+          },
+          "childNodes": [],
+          "id": 189,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 188,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 191,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 189,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 190,
+          },
+          "childNodes": [],
+          "id": 190,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 188,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 190,
+          },
+          "childNodes": [],
+          "id": 190,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 188,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 192,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 192,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 216,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 192,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 192,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 216,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 193,
+          },
+          "childNodes": [],
+          "id": 193,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 192,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 193,
+          },
+          "childNodes": [],
+          "id": 193,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 192,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 195,
           "textContent": "half-filled star",
           "type": 3,
         },
-        "parentId": 187,
+        "parentId": 193,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 188,
+            "data-rrweb-id": 194,
           },
           "childNodes": [],
-          "id": 188,
+          "id": 194,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 186,
+        "parentId": 192,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 188,
-          },
-          "childNodes": [],
-          "id": 188,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 186,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 190,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 190,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 210,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 190,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 190,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 210,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 191,
-          },
-          "childNodes": [],
-          "id": 191,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 190,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 191,
-          },
-          "childNodes": [],
-          "id": 191,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 190,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 193,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 191,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 192,
-          },
-          "childNodes": [],
-          "id": 192,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 190,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 192,
-          },
-          "childNodes": [],
-          "id": 192,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 190,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 194,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 194,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 192,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 194,
+            "data-rrweb-id": 196,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 194,
+          "id": 196,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 195,
+            "data-rrweb-id": 196,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 195,
+          "id": 196,
           "isSVG": true,
-          "tagName": "title",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 194,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 195,
+            "data-rrweb-id": 197,
           },
           "childNodes": [],
-          "id": 195,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 194,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 197,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 196,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 197,
+          },
+          "childNodes": [],
+          "id": 197,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 196,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 199,
           "textContent": "empty star",
           "type": 3,
         },
-        "parentId": 195,
+        "parentId": 197,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 196,
+            "data-rrweb-id": 198,
           },
           "childNodes": [],
-          "id": 196,
+          "id": 198,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 194,
+        "parentId": 196,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 196,
+            "data-rrweb-id": 198,
           },
           "childNodes": [],
-          "id": 196,
+          "id": 198,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 194,
+        "parentId": 196,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 198,
+            "data-rrweb-id": 200,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 198,
+          "id": 200,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 198,
+            "data-rrweb-id": 200,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 198,
+          "id": 200,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 199,
+            "data-rrweb-id": 201,
           },
           "childNodes": [],
-          "id": 199,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 198,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 199,
-          },
-          "childNodes": [],
-          "id": 199,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 198,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 201,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 200,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 201,
+          },
+          "childNodes": [],
+          "id": 201,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 200,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 203,
           "textContent": "empty star",
           "type": 3,
         },
-        "parentId": 199,
+        "parentId": 201,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 200,
+            "data-rrweb-id": 202,
           },
           "childNodes": [],
-          "id": 200,
+          "id": 202,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 198,
+        "parentId": 200,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 200,
+            "data-rrweb-id": 202,
           },
           "childNodes": [],
-          "id": 200,
+          "id": 202,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 198,
+        "parentId": 200,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 202,
+            "data-rrweb-id": 204,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 202,
+          "id": 204,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 202,
+            "data-rrweb-id": 204,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 202,
+          "id": 204,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 203,
+            "data-rrweb-id": 205,
           },
           "childNodes": [],
-          "id": 203,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 202,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 203,
-          },
-          "childNodes": [],
-          "id": 203,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 202,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 205,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 204,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 205,
+          },
+          "childNodes": [],
+          "id": 205,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 204,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 207,
           "textContent": "empty star",
           "type": 3,
         },
-        "parentId": 203,
+        "parentId": 205,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 204,
+            "data-rrweb-id": 206,
           },
           "childNodes": [],
-          "id": 204,
+          "id": 206,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 202,
+        "parentId": 204,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 204,
+            "data-rrweb-id": 206,
           },
           "childNodes": [],
-          "id": 204,
+          "id": 206,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 202,
+        "parentId": 204,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 206,
+            "data-rrweb-id": 208,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 206,
+          "id": 208,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 206,
+            "data-rrweb-id": 208,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 206,
+          "id": 208,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 210,
+        "parentId": 216,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 207,
+            "data-rrweb-id": 209,
           },
           "childNodes": [],
-          "id": 207,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 206,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 207,
-          },
-          "childNodes": [],
-          "id": 207,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 206,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 209,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 208,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 209,
+          },
+          "childNodes": [],
+          "id": 209,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 208,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 211,
           "textContent": "empty star",
           "type": 3,
         },
-        "parentId": 207,
+        "parentId": 209,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 208,
+            "data-rrweb-id": 210,
           },
           "childNodes": [],
-          "id": 208,
+          "id": 210,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 206,
+        "parentId": 208,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 208,
+            "data-rrweb-id": 210,
           },
           "childNodes": [],
-          "id": 208,
+          "id": 210,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 206,
+        "parentId": 208,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 212,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 212,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 216,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 212,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 212,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 216,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 213,
+          },
+          "childNodes": [],
+          "id": 213,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 212,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 213,
+          },
+          "childNodes": [],
+          "id": 213,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 212,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 215,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 213,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 214,
+          },
+          "childNodes": [],
+          "id": 214,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 212,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 214,
+          },
+          "childNodes": [],
+          "id": 214,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 212,
       },
     ],
     "attributes": [],
@@ -3928,11 +4254,11 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 259,
+            "data-rrweb-id": 265,
             "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
           },
           "childNodes": [],
-          "id": 259,
+          "id": 265,
           "tagName": "div",
           "type": 2,
         },
@@ -3942,11 +4268,11 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 259,
+            "data-rrweb-id": 265,
             "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
           },
           "childNodes": [],
-          "id": 259,
+          "id": 265,
           "tagName": "div",
           "type": 2,
         },
@@ -3956,1213 +4282,1213 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 211,
+            "data-rrweb-id": 217,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 211,
+          "id": 217,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 211,
+            "data-rrweb-id": 217,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 211,
+          "id": 217,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 212,
+            "data-rrweb-id": 218,
           },
           "childNodes": [],
-          "id": 212,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 211,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 212,
-          },
-          "childNodes": [],
-          "id": 212,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 211,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 214,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 212,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 213,
-          },
-          "childNodes": [],
-          "id": 213,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 211,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 213,
-          },
-          "childNodes": [],
-          "id": 213,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 211,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 215,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 215,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 259,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 215,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 215,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 259,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 216,
-          },
-          "childNodes": [],
-          "id": 216,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 215,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 216,
-          },
-          "childNodes": [],
-          "id": 216,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 215,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 218,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 217,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 218,
+          },
+          "childNodes": [],
+          "id": 218,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 217,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 220,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 216,
+        "parentId": 218,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 217,
+            "data-rrweb-id": 219,
           },
           "childNodes": [],
-          "id": 217,
+          "id": 219,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 215,
+        "parentId": 217,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 217,
+            "data-rrweb-id": 219,
           },
           "childNodes": [],
-          "id": 217,
+          "id": 219,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 215,
+        "parentId": 217,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 219,
+            "data-rrweb-id": 221,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 219,
+          "id": 221,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 219,
+            "data-rrweb-id": 221,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 219,
+          "id": 221,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 220,
+            "data-rrweb-id": 222,
           },
           "childNodes": [],
-          "id": 220,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 219,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 220,
-          },
-          "childNodes": [],
-          "id": 220,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 219,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 222,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 221,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 222,
+          },
+          "childNodes": [],
+          "id": 222,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 221,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 224,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 220,
+        "parentId": 222,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 221,
+            "data-rrweb-id": 223,
           },
           "childNodes": [],
-          "id": 221,
+          "id": 223,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 219,
+        "parentId": 221,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 221,
+            "data-rrweb-id": 223,
           },
           "childNodes": [],
-          "id": 221,
+          "id": 223,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 219,
+        "parentId": 221,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 223,
+            "data-rrweb-id": 225,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 223,
+          "id": 225,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 223,
+            "data-rrweb-id": 225,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 223,
+          "id": 225,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 224,
+            "data-rrweb-id": 226,
           },
           "childNodes": [],
-          "id": 224,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 223,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 224,
-          },
-          "childNodes": [],
-          "id": 224,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 223,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 226,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 225,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 226,
+          },
+          "childNodes": [],
+          "id": 226,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 225,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 228,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 224,
+        "parentId": 226,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 225,
+            "data-rrweb-id": 227,
           },
           "childNodes": [],
-          "id": 225,
+          "id": 227,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 223,
+        "parentId": 225,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 225,
+            "data-rrweb-id": 227,
           },
           "childNodes": [],
-          "id": 225,
+          "id": 227,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 223,
+        "parentId": 225,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 227,
+            "data-rrweb-id": 229,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 227,
+          "id": 229,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 227,
+            "data-rrweb-id": 229,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 227,
+          "id": 229,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 228,
+            "data-rrweb-id": 230,
           },
           "childNodes": [],
-          "id": 228,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 227,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 228,
-          },
-          "childNodes": [],
-          "id": 228,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 227,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 230,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 229,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 230,
+          },
+          "childNodes": [],
+          "id": 230,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 229,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 232,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 228,
+        "parentId": 230,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 229,
+            "data-rrweb-id": 231,
           },
           "childNodes": [],
-          "id": 229,
+          "id": 231,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 227,
+        "parentId": 229,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 229,
+            "data-rrweb-id": 231,
           },
           "childNodes": [],
-          "id": 229,
+          "id": 231,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 227,
+        "parentId": 229,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 231,
+            "data-rrweb-id": 233,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 231,
+          "id": 233,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 231,
+            "data-rrweb-id": 233,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 231,
+          "id": 233,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 232,
+            "data-rrweb-id": 234,
           },
           "childNodes": [],
-          "id": 232,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 231,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 232,
-          },
-          "childNodes": [],
-          "id": 232,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 231,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 234,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 233,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 234,
+          },
+          "childNodes": [],
+          "id": 234,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 233,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 236,
           "textContent": "filled star",
           "type": 3,
         },
-        "parentId": 232,
+        "parentId": 234,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 233,
+            "data-rrweb-id": 235,
           },
           "childNodes": [],
-          "id": 233,
+          "id": 235,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 231,
+        "parentId": 233,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 233,
+            "data-rrweb-id": 235,
           },
           "childNodes": [],
-          "id": 233,
+          "id": 235,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 231,
+        "parentId": 233,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 235,
+            "data-rrweb-id": 237,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 235,
+          "id": 237,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 235,
+            "data-rrweb-id": 237,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 235,
+          "id": 237,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 236,
+            "data-rrweb-id": 238,
           },
           "childNodes": [],
-          "id": 236,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 235,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 236,
-          },
-          "childNodes": [],
-          "id": 236,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 235,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 238,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 237,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 238,
+          },
+          "childNodes": [],
+          "id": 238,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 237,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 240,
+          "textContent": "filled star",
+          "type": 3,
+        },
+        "parentId": 238,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 239,
+          },
+          "childNodes": [],
+          "id": 239,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 237,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+            "data-rrweb-id": 239,
+          },
+          "childNodes": [],
+          "id": 239,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 237,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 241,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 241,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 265,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 241,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 241,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 265,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 242,
+          },
+          "childNodes": [],
+          "id": 242,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 241,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 242,
+          },
+          "childNodes": [],
+          "id": 242,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 241,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 244,
           "textContent": "half-filled star",
           "type": 3,
         },
-        "parentId": 236,
+        "parentId": 242,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 237,
+            "data-rrweb-id": 243,
           },
           "childNodes": [],
-          "id": 237,
+          "id": 243,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 235,
+        "parentId": 241,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 237,
-          },
-          "childNodes": [],
-          "id": 237,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 235,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 239,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 239,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 259,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 239,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 239,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 259,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 240,
-          },
-          "childNodes": [],
-          "id": 240,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 239,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 240,
-          },
-          "childNodes": [],
-          "id": 240,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 239,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 242,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 240,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 241,
-          },
-          "childNodes": [],
-          "id": 241,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 239,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 241,
-          },
-          "childNodes": [],
-          "id": 241,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 239,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 243,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
           "id": 243,
           "isSVG": true,
-          "tagName": "svg",
+          "tagName": "path",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 241,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 243,
+            "data-rrweb-id": 245,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 243,
+          "id": 245,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 244,
+            "data-rrweb-id": 245,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 244,
+          "id": 245,
           "isSVG": true,
-          "tagName": "title",
+          "tagName": "svg",
           "type": 2,
         },
-        "parentId": 243,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 244,
+            "data-rrweb-id": 246,
           },
           "childNodes": [],
-          "id": 244,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 243,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 246,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 245,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 246,
+          },
+          "childNodes": [],
+          "id": 246,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 245,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 248,
           "textContent": "empty star",
           "type": 3,
         },
-        "parentId": 244,
+        "parentId": 246,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 245,
+            "data-rrweb-id": 247,
           },
           "childNodes": [],
-          "id": 245,
+          "id": 247,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 243,
+        "parentId": 245,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 245,
+            "data-rrweb-id": 247,
           },
           "childNodes": [],
-          "id": 245,
+          "id": 247,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 243,
+        "parentId": 245,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 247,
+            "data-rrweb-id": 249,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 247,
+          "id": 249,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 247,
+            "data-rrweb-id": 249,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 247,
+          "id": 249,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 248,
+            "data-rrweb-id": 250,
           },
           "childNodes": [],
-          "id": 248,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 247,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 248,
-          },
-          "childNodes": [],
-          "id": 248,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 247,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 250,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 249,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 250,
+          },
+          "childNodes": [],
+          "id": 250,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 249,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 252,
           "textContent": "empty star",
           "type": 3,
         },
-        "parentId": 248,
+        "parentId": 250,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 249,
+            "data-rrweb-id": 251,
           },
           "childNodes": [],
-          "id": 249,
+          "id": 251,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 247,
+        "parentId": 249,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 249,
+            "data-rrweb-id": 251,
           },
           "childNodes": [],
-          "id": 249,
+          "id": 251,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 247,
+        "parentId": 249,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 251,
+            "data-rrweb-id": 253,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 251,
+          "id": 253,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 251,
+            "data-rrweb-id": 253,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 251,
+          "id": 253,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 252,
+            "data-rrweb-id": 254,
           },
           "childNodes": [],
-          "id": 252,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 251,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 252,
-          },
-          "childNodes": [],
-          "id": 252,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 251,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 254,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 253,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 254,
+          },
+          "childNodes": [],
+          "id": 254,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 253,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 256,
           "textContent": "empty star",
           "type": 3,
         },
-        "parentId": 252,
+        "parentId": 254,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 253,
+            "data-rrweb-id": 255,
           },
           "childNodes": [],
-          "id": 253,
+          "id": 255,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 251,
+        "parentId": 253,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 253,
+            "data-rrweb-id": 255,
           },
           "childNodes": [],
-          "id": 253,
+          "id": 255,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 251,
+        "parentId": 253,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 255,
+            "data-rrweb-id": 257,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 255,
+          "id": 257,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 255,
+            "data-rrweb-id": 257,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
-          "id": 255,
+          "id": 257,
           "isSVG": true,
           "tagName": "svg",
           "type": 2,
         },
-        "parentId": 259,
+        "parentId": 265,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 256,
+            "data-rrweb-id": 258,
           },
           "childNodes": [],
-          "id": 256,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 255,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 256,
-          },
-          "childNodes": [],
-          "id": 256,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 255,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 258,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 257,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 258,
+          },
+          "childNodes": [],
+          "id": 258,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 257,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 260,
           "textContent": "empty star",
           "type": 3,
         },
-        "parentId": 256,
+        "parentId": 258,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 257,
+            "data-rrweb-id": 259,
           },
           "childNodes": [],
-          "id": 257,
+          "id": 259,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 255,
+        "parentId": 257,
       },
       {
         "nextId": null,
         "node": {
           "attributes": {
             "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 257,
+            "data-rrweb-id": 259,
           },
           "childNodes": [],
-          "id": 257,
+          "id": 259,
           "isSVG": true,
           "tagName": "path",
           "type": 2,
         },
-        "parentId": 255,
+        "parentId": 257,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 261,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 261,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 265,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 261,
+            "fill": "currentColor",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "viewBox": "0 0 24 24",
+          },
+          "childNodes": [],
+          "id": 261,
+          "isSVG": true,
+          "tagName": "svg",
+          "type": 2,
+        },
+        "parentId": 265,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 262,
+          },
+          "childNodes": [],
+          "id": 262,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 261,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "data-rrweb-id": 262,
+          },
+          "childNodes": [],
+          "id": 262,
+          "isSVG": true,
+          "tagName": "title",
+          "type": 2,
+        },
+        "parentId": 261,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "id": 264,
+          "textContent": "empty star",
+          "type": 3,
+        },
+        "parentId": 262,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 263,
+          },
+          "childNodes": [],
+          "id": 263,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 261,
+      },
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+            "data-rrweb-id": 263,
+          },
+          "childNodes": [],
+          "id": 263,
+          "isSVG": true,
+          "tagName": "path",
+          "type": 2,
+        },
+        "parentId": 261,
       },
     ],
     "attributes": [],
@@ -5193,7 +5519,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
           },
           "childNodes": [
             {
-              "id": 160,
+              "id": 166,
               "textContent": "keyboard",
               "type": 3,
             },
@@ -5207,7 +5533,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
       {
         "nextId": null,
         "node": {
-          "id": 161,
+          "id": 167,
           "textContent": "keyboard",
           "type": 3,
         },
@@ -5268,7 +5594,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                   },
                   "childNodes": [
                     {
-                      "id": 292,
+                      "id": 298,
                       "textContent": "hello",
                       "type": 3,
                     },
@@ -5342,13 +5668,13 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                   "childNodes": [
                     {
                       "attributes": {
-                        "data-rrweb-id": 159,
+                        "data-rrweb-id": 165,
                         "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
                       },
                       "childNodes": [
                         {
                           "attributes": {
-                            "data-rrweb-id": 111,
+                            "data-rrweb-id": 117,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5356,16 +5682,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 112,
+                                "data-rrweb-id": 118,
                               },
                               "childNodes": [
                                 {
-                                  "id": 114,
+                                  "id": 120,
                                   "textContent": "filled star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 112,
+                              "id": 118,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5373,23 +5699,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                                "data-rrweb-id": 113,
+                                "data-rrweb-id": 119,
                               },
                               "childNodes": [],
-                              "id": 113,
+                              "id": 119,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 111,
+                          "id": 117,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 115,
+                            "data-rrweb-id": 121,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5397,16 +5723,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 116,
+                                "data-rrweb-id": 122,
                               },
                               "childNodes": [
                                 {
-                                  "id": 118,
+                                  "id": 124,
                                   "textContent": "filled star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 116,
+                              "id": 122,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5414,23 +5740,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                                "data-rrweb-id": 117,
+                                "data-rrweb-id": 123,
                               },
                               "childNodes": [],
-                              "id": 117,
+                              "id": 123,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 115,
+                          "id": 121,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 119,
+                            "data-rrweb-id": 125,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5438,16 +5764,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 120,
+                                "data-rrweb-id": 126,
                               },
                               "childNodes": [
                                 {
-                                  "id": 122,
+                                  "id": 128,
                                   "textContent": "filled star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 120,
+                              "id": 126,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5455,23 +5781,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                                "data-rrweb-id": 121,
+                                "data-rrweb-id": 127,
                               },
                               "childNodes": [],
-                              "id": 121,
+                              "id": 127,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 119,
+                          "id": 125,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 123,
+                            "data-rrweb-id": 129,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5479,16 +5805,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 124,
+                                "data-rrweb-id": 130,
                               },
                               "childNodes": [
                                 {
-                                  "id": 126,
+                                  "id": 132,
                                   "textContent": "filled star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 124,
+                              "id": 130,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5496,23 +5822,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                                "data-rrweb-id": 125,
+                                "data-rrweb-id": 131,
                               },
                               "childNodes": [],
-                              "id": 125,
+                              "id": 131,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 123,
+                          "id": 129,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 127,
+                            "data-rrweb-id": 133,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5520,16 +5846,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 128,
+                                "data-rrweb-id": 134,
                               },
                               "childNodes": [
                                 {
-                                  "id": 130,
+                                  "id": 136,
                                   "textContent": "filled star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 128,
+                              "id": 134,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5537,23 +5863,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                                "data-rrweb-id": 129,
+                                "data-rrweb-id": 135,
                               },
                               "childNodes": [],
-                              "id": 129,
+                              "id": 135,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 127,
+                          "id": 133,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 131,
+                            "data-rrweb-id": 137,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5561,16 +5887,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 132,
+                                "data-rrweb-id": 138,
                               },
                               "childNodes": [
                                 {
-                                  "id": 134,
+                                  "id": 140,
                                   "textContent": "filled star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 132,
+                              "id": 138,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5578,23 +5904,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                                "data-rrweb-id": 133,
+                                "data-rrweb-id": 139,
                               },
                               "childNodes": [],
-                              "id": 133,
+                              "id": 139,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 131,
+                          "id": 137,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 135,
+                            "data-rrweb-id": 141,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5602,16 +5928,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 136,
+                                "data-rrweb-id": 142,
                               },
                               "childNodes": [
                                 {
-                                  "id": 138,
+                                  "id": 144,
                                   "textContent": "half-filled star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 136,
+                              "id": 142,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5619,23 +5945,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                                "data-rrweb-id": 137,
+                                "data-rrweb-id": 143,
                               },
                               "childNodes": [],
-                              "id": 137,
+                              "id": 143,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 135,
+                          "id": 141,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 139,
+                            "data-rrweb-id": 145,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5643,16 +5969,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 140,
+                                "data-rrweb-id": 146,
                               },
                               "childNodes": [
                                 {
-                                  "id": 142,
+                                  "id": 148,
                                   "textContent": "empty star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 140,
+                              "id": 146,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5660,23 +5986,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                                "data-rrweb-id": 141,
+                                "data-rrweb-id": 147,
                               },
                               "childNodes": [],
-                              "id": 141,
+                              "id": 147,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 139,
+                          "id": 145,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 143,
+                            "data-rrweb-id": 149,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5684,16 +6010,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 144,
+                                "data-rrweb-id": 150,
                               },
                               "childNodes": [
                                 {
-                                  "id": 146,
+                                  "id": 152,
                                   "textContent": "empty star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 144,
+                              "id": 150,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5701,23 +6027,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                                "data-rrweb-id": 145,
+                                "data-rrweb-id": 151,
                               },
                               "childNodes": [],
-                              "id": 145,
+                              "id": 151,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 143,
+                          "id": 149,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 147,
+                            "data-rrweb-id": 153,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5725,16 +6051,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 148,
+                                "data-rrweb-id": 154,
                               },
                               "childNodes": [
                                 {
-                                  "id": 150,
+                                  "id": 156,
                                   "textContent": "empty star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 148,
+                              "id": 154,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5742,23 +6068,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                                "data-rrweb-id": 149,
+                                "data-rrweb-id": 155,
                               },
                               "childNodes": [],
-                              "id": 149,
+                              "id": 155,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 147,
+                          "id": 153,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 151,
+                            "data-rrweb-id": 157,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5766,16 +6092,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 152,
+                                "data-rrweb-id": 158,
                               },
                               "childNodes": [
                                 {
-                                  "id": 154,
+                                  "id": 160,
                                   "textContent": "empty star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 152,
+                              "id": 158,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5783,23 +6109,23 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                                "data-rrweb-id": 153,
+                                "data-rrweb-id": 159,
                               },
                               "childNodes": [],
-                              "id": 153,
+                              "id": 159,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 151,
+                          "id": 157,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                         {
                           "attributes": {
-                            "data-rrweb-id": 155,
+                            "data-rrweb-id": 161,
                             "fill": "currentColor",
                             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
                             "viewBox": "0 0 24 24",
@@ -5807,16 +6133,16 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "childNodes": [
                             {
                               "attributes": {
-                                "data-rrweb-id": 156,
+                                "data-rrweb-id": 162,
                               },
                               "childNodes": [
                                 {
-                                  "id": 158,
+                                  "id": 164,
                                   "textContent": "empty star",
                                   "type": 3,
                                 },
                               ],
-                              "id": 156,
+                              "id": 162,
                               "isSVG": true,
                               "tagName": "title",
                               "type": 2,
@@ -5824,22 +6150,22 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                             {
                               "attributes": {
                                 "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                                "data-rrweb-id": 157,
+                                "data-rrweb-id": 163,
                               },
                               "childNodes": [],
-                              "id": 157,
+                              "id": 163,
                               "isSVG": true,
                               "tagName": "path",
                               "type": 2,
                             },
                           ],
-                          "id": 155,
+                          "id": 161,
                           "isSVG": true,
                           "tagName": "svg",
                           "type": 2,
                         },
                       ],
-                      "id": 159,
+                      "id": 165,
                       "tagName": "div",
                       "type": 2,
                     },
@@ -6102,7 +6428,7 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
                   },
                   "childNodes": [
                     {
-                      "id": 293,
+                      "id": 299,
                       "textContent": "web_view",
                       "type": 3,
                     },
@@ -6175,7 +6501,7 @@ exports[`replay/transform transform inputs web_view with URL 1`] = `
                   },
                   "childNodes": [
                     {
-                      "id": 110,
+                      "id": 116,
                       "textContent": "https://example.com",
                       "type": 3,
                     },
@@ -6243,7 +6569,7 @@ exports[`replay/transform transform inputs wrapping with labels 1`] = `
               "childNodes": [
                 {
                   "attributes": {
-                    "data-rrweb-id": 109,
+                    "data-rrweb-id": 115,
                     "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
@@ -6259,12 +6585,12 @@ exports[`replay/transform transform inputs wrapping with labels 1`] = `
                       "type": 2,
                     },
                     {
-                      "id": 108,
+                      "id": 114,
                       "textContent": "i will wrap the checkbox",
                       "type": 3,
                     },
                   ],
-                  "id": 109,
+                  "id": 115,
                   "tagName": "label",
                   "type": 2,
                 },

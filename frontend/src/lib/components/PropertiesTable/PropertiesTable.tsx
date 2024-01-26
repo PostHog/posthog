@@ -4,11 +4,12 @@ import { IconPencil, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
 import { isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
@@ -206,7 +207,8 @@ export function PropertiesTable({
     type,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
-    const [filtered, setFiltered] = useState(false)
+    const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
+    const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
     if (Array.isArray(properties)) {
         return (
@@ -249,7 +251,7 @@ export function PropertiesTable({
             })
         }
 
-        if (filterable && filtered) {
+        if (filterable && hidePostHogPropertiesInTable) {
             entries = entries.filter(([key]) => !key.startsWith('$') && !keyMappingKeys.includes(key))
         }
 
@@ -278,7 +280,7 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, filtered])
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable])
 
     if (properties instanceof Object) {
         const columns: LemonTableColumns<Record<string, any>> = [
@@ -376,10 +378,10 @@ export function PropertiesTable({
 
                             {filterable && (
                                 <LemonCheckbox
-                                    checked={filtered}
+                                    checked={hidePostHogPropertiesInTable}
                                     label="Hide PostHog properties"
                                     bordered
-                                    onChange={setFiltered}
+                                    onChange={setHidePostHogPropertiesInTable}
                                 />
                             )}
                         </span>
@@ -398,14 +400,14 @@ export function PropertiesTable({
                     className={className}
                     emptyState={
                         <>
-                            {filtered || searchTerm ? (
+                            {hidePostHogPropertiesInTable || searchTerm ? (
                                 <span className="flex gap-2">
                                     <span>No properties found</span>
                                     <LemonButton
                                         noPadding
                                         onClick={() => {
                                             setSearchTerm('')
-                                            setFiltered(false)
+                                            setHidePostHogPropertiesInTable(false)
                                         }}
                                     >
                                         Clear filters

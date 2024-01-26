@@ -37,4 +37,21 @@
             );
         }
     }
+
+    &--with-label {
+        display: flex;
+        height: unset;
+        background: none;
+
+        &::before,
+        &::after {
+            position: relative;
+            top: 50%;
+            display: block;
+            width: 50%;
+            content: '';
+            border-top: 1px solid var(--border);
+            transform: translateY(50%);
+        }
+    }
 }

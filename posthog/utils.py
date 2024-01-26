@@ -10,7 +10,6 @@ import os
 import re
 import secrets
 import string
-import subprocess
 import time
 import uuid
 import zlib
@@ -53,6 +52,7 @@ from sentry_sdk.api import capture_exception
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
+from posthog.git import get_git_branch, get_git_commit
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
@@ -258,36 +258,6 @@ def relative_date_parse(
     return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
 
 
-def get_git_branch() -> Optional[str]:
-    """
-    Returns the symbolic name of the current active branch. Will return None in case of failure.
-    Example: get_git_branch()
-        => "master"
-    """
-
-    try:
-        return (
-            subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
-            .decode("utf-8")
-            .strip()
-        )
-    except Exception:
-        return None
-
-
-def get_git_commit() -> Optional[str]:
-    """
-    Returns the short hash of the last commit.
-    Example: get_git_commit()
-        => "4ff54c8d"
-    """
-
-    try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
-    except Exception:
-        return None
-
-
 def get_js_url(request: HttpRequest) -> str:
     """
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
@@ -314,15 +284,16 @@ def render_template(
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["self_capture"] = settings.SELF_CAPTURE
+    context["region"] = get_instance_region()
 
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = sentry_dsn
     if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
         context["sentry_environment"] = sentry_environment
 
+    context["git_rev"] = get_git_commit()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
-        context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
     if settings.E2E_TESTING:
