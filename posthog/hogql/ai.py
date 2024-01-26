@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING, Optional
-import openai
+from openai import OpenAI
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
@@ -8,6 +8,8 @@ from posthog.hogql.printer import print_ast
 from .database.database import create_hogql_database, serialize_database
 from posthog.utils import get_instance_region
 from .query import create_default_modifiers_for_team
+
+openai_client = OpenAI()
 
 if TYPE_CHECKING:
     from posthog.models import User, Team
@@ -101,15 +103,15 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     prompt_tokens_total, completion_tokens_total = 0, 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
         attempt_count += 1
-        result = openai.ChatCompletion.create(
+        result = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             temperature=0.8,
             messages=messages,
             user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
         )
-        content: str = result["choices"][0]["message"]["content"].removesuffix(";")
-        prompt_tokens_last = result["usage"]["prompt_tokens"]
-        completion_tokens_last = result["usage"]["completion_tokens"]
+        content: str = result.choices[0].message.content.removesuffix(";")
+        prompt_tokens_last = result.usage.prompt_tokens
+        completion_tokens_last = result.usage.completion_tokens
         prompt_tokens_total += prompt_tokens_last
         completion_tokens_total += completion_tokens_last
         if content.startswith(UNCLEAR_PREFIX):

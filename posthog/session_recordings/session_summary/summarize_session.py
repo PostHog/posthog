@@ -3,7 +3,8 @@ from datetime import datetime
 
 from typing import List, Dict, Any
 
-import openai
+from openai import OpenAI
+
 from prometheus_client import Histogram
 
 from posthog.api.activity_log import ServerTimingsGathered
@@ -14,6 +15,8 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from posthog.utils import get_instance_region
+
+openai_client = OpenAI()
 
 TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
     "posthog_session_summary_tokens_in_prompt_histogram",
@@ -328,17 +331,17 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     ]
 
     with timer("openai_completion"):
-        result = openai.ChatCompletion.create(
+        result = openai_client.chat.completions.create(
             # model="gpt-4-1106-preview",  # allows 128k tokens
             model="gpt-4",  # allows 8k tokens
             temperature=0.7,
             messages=messages,
-            user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
+            user=f"{instance_region}/{user.pk}",  # allows 8k tokens
         )
 
-        usage = result.get("usage", {}).get("prompt_tokens", None)
+        usage = result.usage.prompt_tokens
         if usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
 
-    content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+    content: str = result.choices[0].message.content
     return {"ai_result": result, "content": content, "prompt": messages, "timings": timer.get_all_timings()}
