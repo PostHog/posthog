@@ -51,6 +51,7 @@ export function MetricSelector({
             <div className="flex items-center w-full gap-2 mb-4">
                 <span>Insight Type</span>
                 <LemonSelect
+                    data-attr="metrics-selector"
                     value={isTrends ? InsightType.TRENDS : InsightType.FUNNELS}
                     onChange={(val) => {
                         val && setPreviewInsight({ insight: val })

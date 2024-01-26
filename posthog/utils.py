@@ -291,9 +291,9 @@ def render_template(
     if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
         context["sentry_environment"] = sentry_environment
 
+    context["git_rev"] = get_git_commit()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
-        context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
     if settings.E2E_TESTING:

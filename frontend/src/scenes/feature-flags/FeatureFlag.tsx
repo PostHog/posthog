@@ -975,8 +975,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         max={100}
                                                         value={value}
                                                         onChange={(changedValue) => {
-                                                            if (changedValue !== null && changedValue !== undefined) {
-                                                                const valueInt = parseInt(changedValue.toString())
+                                                            if (changedValue !== null) {
+                                                                const valueInt =
+                                                                    changedValue !== undefined
+                                                                        ? parseInt(changedValue.toString())
+                                                                        : 0
                                                                 if (!isNaN(valueInt)) {
                                                                     onChange(valueInt)
                                                                 }

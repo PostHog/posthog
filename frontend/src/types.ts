@@ -946,7 +946,7 @@ export interface MatchedRecording {
     events: MatchedRecordingEvent[]
 }
 
-interface CommonActorType {
+export interface CommonActorType {
     id: string | number
     properties: Record<string, any>
     /** @format date-time */
@@ -3579,6 +3579,9 @@ export type BatchExportDestinationRedshift = {
     }
 }
 
+// When adding a new option here also add a icon for it to
+// src/scenes/pipeline/icons/
+// and update RenderBatchExportIcon
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake

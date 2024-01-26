@@ -13,6 +13,7 @@ import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSu
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
@@ -265,16 +266,27 @@ export function FeatureFlagReleaseConditions({
                         <div className="feature-flag-form-row gap-2">
                             <div className="flex items-center gap-1">
                                 Roll out to{' '}
+                                <LemonSlider
+                                    value={group.rollout_percentage ?? 100}
+                                    onChange={(value) => {
+                                        updateConditionSet(index, value)
+                                    }}
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    className="ml-1.5 w-20"
+                                />
                                 <LemonInput
                                     data-attr="rollout-percentage"
                                     type="number"
-                                    className="mx-2"
+                                    className="ml-2 mr-1.5 max-w-30"
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value || 100)
+                                        updateConditionSet(index, value === undefined ? 0 : value)
                                     }}
-                                    value={group.rollout_percentage != null ? group.rollout_percentage : 100}
+                                    value={group.rollout_percentage ?? 100}
                                     min={0}
                                     max={100}
+                                    step="any"
                                     suffix={<span>%</span>}
                                 />{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
