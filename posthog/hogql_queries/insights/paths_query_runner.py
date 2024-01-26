@@ -290,8 +290,14 @@ class PathsQueryRunner(QueryRunner):
                     name="arraySlice",
                     args=[
                         ast.Field(chain=[f"filtered_{field}"]),
-                        ast.Constant(value=1),
-                        ast.Constant(value=self.event_in_session_limit),
+                        *(
+                            [ast.Constant(value=-1 * self.event_in_session_limit)]
+                            if self.query.pathsFilter.endPoint
+                            else [
+                                ast.Constant(value=1),
+                                ast.Constant(value=self.event_in_session_limit),
+                            ]
+                        ),
                     ],
                 ),
             )
