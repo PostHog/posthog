@@ -139,7 +139,8 @@ export async function query<N extends DataNode = DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
-    queryId?: string
+    queryId?: string,
+    legacyUrl?: string
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
@@ -170,6 +171,11 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
     )
+
+    async function fetchLegacyUrl(): Promise<Record<string, any>> {
+        const response = await api.getResponse(legacyUrl!)
+        return response.json()
+    }
 
     async function fetchLegacyInsights(): Promise<Record<string, any>> {
         if (!isInsightQueryNode(queryNode)) {
@@ -206,20 +212,22 @@ export async function query<N extends DataNode = DataNode>(
                 },
                 methodOptions
             )
-        } else if (isInsightQueryNode(queryNode)) {
+        } else if (isInsightQueryNode(queryNode) || isActorsQuery(queryNode)) {
             if (
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
-                (hogQLInsightsPathsFlagEnabled && isPathsQuery(queryNode)) ||
+                (hogQLInsightsPathsFlagEnabled &&
+                    (isPathsQuery(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl))) ||
                 (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
                 (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
                 (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode)) ||
                 (hogQLInsightsFunnelsFlagEnabled && isFunnelsQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
+                    const legacyFunction = legacyUrl ? fetchLegacyUrl : fetchLegacyInsights
                     let legacyResponse: any
                     ;[response, legacyResponse] = await Promise.all([
                         api.query(queryNode, methodOptions, queryId, refresh),
-                        fetchLegacyInsights(),
+                        legacyFunction(),
                     ])
 
                     let res1 = response?.result || response?.results
@@ -243,6 +251,9 @@ export async function query<N extends DataNode = DataNode>(
                             action: undefined,
                             persons: undefined,
                         }))
+                    } else if (res2.length > 0 && res2[0].people) {
+                        res2 = res2[0]?.people.map((n: any) => n.id)
+                        res1 = res1.map((n: any) => n[0].id)
                     }
 
                     const getTimingDiff = (): undefined | { diff: number; legacy: number; hogql: number } => {
@@ -265,6 +276,9 @@ export async function query<N extends DataNode = DataNode>(
                         }
                     }
 
+                    const almostEqual = (n1: number, n2: number, epsilon: number = 1.0): boolean =>
+                        Math.abs(n1 - n2) < epsilon
+
                     const timingDiff = getTimingDiff()
 
                     const results = flattenObject(res1)
@@ -276,17 +290,21 @@ export async function query<N extends DataNode = DataNode>(
                     let matchCount = 0
                     let mismatchCount = 0
                     for (const key of sortedKeys) {
-                        if (results[key] === legacyResults[key]) {
+                        let isMatch = false
+                        if (
+                            results[key] === legacyResults[key] ||
+                            (key.includes('average_conversion_time') && almostEqual(results[key], legacyResults[key]))
+                        ) {
+                            isMatch = true
+                        }
+
+                        if (isMatch) {
                             matchCount++
                         } else {
                             mismatchCount++
                         }
-                        tableData.push([
-                            results[key] === legacyResults[key] ? '✅' : '🚨',
-                            key,
-                            results[key],
-                            legacyResults[key],
-                        ])
+
+                        tableData.push([isMatch ? '✅' : '🚨', key, results[key], legacyResults[key]])
                     }
 
                     if (timingDiff) {
@@ -310,12 +328,10 @@ export async function query<N extends DataNode = DataNode>(
                         legacyResponse,
                         timingDiff,
                     })
+                    const resultsLabel = mismatchCount === 0 ? '👏' : '⚠️'
+                    const alertLabel = mismatchCount > 0 ? `🚨${mismatchCount}` : ''
                     // eslint-disable-next-line no-console
-                    console.groupCollapsed(
-                        `Results: ${mismatchCount === 0 ? '✅✅✅' : '✅'} ${matchCount}${
-                            mismatchCount > 0 ? ` 🚨🚨🚨${mismatchCount}` : ''
-                        }`
-                    )
+                    console.groupCollapsed(`Results: ${resultsLabel} ✅${matchCount} ${alertLabel} ${queryNode.kind}`)
                     // eslint-disable-next-line no-console
                     console.table(tableData)
                     // eslint-disable-next-line no-console
