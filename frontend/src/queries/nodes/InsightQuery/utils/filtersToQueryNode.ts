@@ -260,7 +260,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             filters.breakdown_type = 'event'
         }
 
-        query.breakdownFilter = breakdownFilterToQuery(query, isTrendsFilter(filters))
+        query.breakdownFilter = breakdownFilterToQuery(filters, isTrendsFilter(filters))
     }
 
     // group aggregation
