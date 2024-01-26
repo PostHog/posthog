@@ -1,4 +1,5 @@
 import time
+from unittest.mock import patch
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -7,6 +8,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from ee.billing.quota_limiting import (
+    QUOTA_LIMIT_DATA_RETENTION_FLAG,
     QUOTA_LIMITER_CACHE_KEY,
     QuotaResource,
     list_limited_team_attributes,
@@ -25,6 +27,41 @@ class TestQuotaLimiting(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.capture")
+    def test_dont_quota_limit_feature_flag_enabled(self, patch_feature_enabled, patch_capture) -> None:
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": 99, "limit": 100},
+                "recordings": {"usage": 1, "limit": 100},
+                "rows_synced": {"usage": 5, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            distinct_id = str(uuid4())
+
+            # add a bunch of events so that the organization is over the limit
+            # Because the feature flag is enabled
+            for _ in range(0, 10):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=1),
+                    team=self.team,
+                )
+        time.sleep(1)
+        result = update_all_org_billing_quotas()
+        assert patch_feature_enabled.called_once_with(QUOTA_LIMIT_DATA_RETENTION_FLAG)
+        assert result["events"] == {}
+        assert result["recordings"] == {}
+        assert result["rows_synced"] == {}
+
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
