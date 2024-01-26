@@ -102,6 +102,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     is_member_join_email_enabled: true,
     metadata: {},
     available_product_features: [],
+    member_count: 2,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
