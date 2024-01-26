@@ -168,7 +168,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(
-            api_key=stripe_secret_key, endpoints=tuple(inputs.schemas), job_id=str(model.id), team_id=inputs.team_id
+            api_key=stripe_secret_key,
+            endpoints=tuple(inputs.schemas),
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
@@ -185,8 +186,6 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         source = hubspot(
             api_key=hubspot_access_code,
             refresh_token=refresh_token,
-            job_id=str(model.id),
-            team_id=inputs.team_id,
             endpoints=tuple(inputs.schemas),
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
