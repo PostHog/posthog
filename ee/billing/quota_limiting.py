@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 
 import dateutil.parser
+import posthoganalytics
 from django.db.models import Q
 from django.utils import timezone
 from sentry_sdk import capture_exception
@@ -22,6 +23,8 @@ from posthog.tasks.usage_report import (
 from posthog.utils import get_current_day
 
 QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
+
+QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
 
 class QuotaResource(Enum):
@@ -87,6 +90,14 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
 
     if is_quota_limited and organization.never_drop_data:
+        return None
+
+    if posthoganalytics.feature_enabled(QUOTA_LIMIT_DATA_RETENTION_FLAG):
+        # Don't drop data for this user but record that they __would have__ been
+        # limited.
+        report_organization_action(
+            organization.id, "quota_limiting_suspended", properties={"current_usage": todays_usage}
+        )
         return None
 
     if is_quota_limited and billing_period_end:
