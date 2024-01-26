@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
-import billingJson from '~/mocks/fixtures/_billing_v2'
+import { billingJson } from '~/mocks/fixtures/_billing_v2'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingProductV2Type, ProductKey } from '~/types'
 
