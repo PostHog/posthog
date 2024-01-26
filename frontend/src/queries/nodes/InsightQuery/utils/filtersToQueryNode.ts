@@ -37,6 +37,7 @@ import {
     PropertyFilterType,
     PropertyGroupFilterValue,
     PropertyOperator,
+    RetentionEntity,
 } from '~/types'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
@@ -103,6 +104,18 @@ export const cleanHiddenLegendSeries = (
               .filter(([k, v]) => !/^\d+$/.test(k) && v === true)
               .map(([k]) => k)
         : undefined
+}
+export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): RetentionEntity | undefined => {
+    if (!entity) {
+        return undefined
+    }
+    const record = { ...entity }
+    for (const key of Object.keys(record)) {
+        if (!['id', 'kind', 'name', 'type', 'order', 'uuid', 'custom_name'].includes(key)) {
+            delete record[key]
+        }
+    }
+    return record
 }
 
 const cleanProperties = (parentProperties: FilterType['properties']): InsightsQueryBase['properties'] => {
@@ -307,8 +320,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             retentionType: filters.retention_type,
             retentionReference: filters.retention_reference,
             totalIntervals: filters.total_intervals,
-            returningEntity: filters.returning_entity,
-            targetEntity: filters.target_entity,
+            returningEntity: sanitizeRetentionEntity(filters.returning_entity),
+            targetEntity: sanitizeRetentionEntity(filters.target_entity),
             period: filters.period,
         })
         // TODO: query.aggregation_group_type_index
