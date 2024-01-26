@@ -357,8 +357,12 @@ class PathsQueryRunner(QueryRunner):
                 ast.Alias(
                     alias=f"limited_{field}",
                     expr=parse_expr(
-                        "if(length({field}) > {event_in_session_limit}, arrayConcat(arraySlice({field}, 1, intDiv({event_in_session_limit}, 2)), [{field}[1+intDiv({event_in_session_limit}, 2)]], arraySlice({field}, (-1)*intDiv({event_in_session_limit}, 2), intDiv({event_in_session_limit}, 2))), {field})",
-                        {
+                        expr=(
+                            "if(length({field}) > {event_in_session_limit}, arrayConcat(arraySlice({field}, 1, intDiv({event_in_session_limit}, 2)), ['...'], arraySlice({field}, (-1)*intDiv({event_in_session_limit}, 2), intDiv({event_in_session_limit}, 2))), {field})"
+                            if field == "path"
+                            else "if(length({field}) > {event_in_session_limit}, arrayConcat(arraySlice({field}, 1, intDiv({event_in_session_limit}, 2)), [{field}[1+intDiv({event_in_session_limit}, 2)]], arraySlice({field}, (-1)*intDiv({event_in_session_limit}, 2), intDiv({event_in_session_limit}, 2))), {field})"
+                        ),
+                        placeholders={
                             "field": ast.Field(chain=[f"filtered_{field}"]),
                             "event_in_session_limit": ast.Constant(value=self.event_in_session_limit),
                         },
