@@ -6,11 +6,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightActorsQuery, NodeKind, PathsQuery } from '~/queries/schema'
+import { NodeKind, PathsQuery } from '~/queries/schema'
 import { isPathsQuery } from '~/queries/utils'
 import {
     ActionFilter,
@@ -128,8 +128,14 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 filters,
                 response: values.insightData,
             })
+            const modalProps: OpenPersonsModalProps = {
+                title: pathsTitle({
+                    label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
+                    mode: path_dropoff_key ? 'dropOff' : path_start_key ? 'continue' : 'completion',
+                }),
+            }
             if (values.hogQLInsightsPathsFlagEnabled && values.vizQuerySource?.kind === NodeKind.PathsQuery) {
-                const pathsActorsQuery: InsightActorsQuery<PathsQuery> = {
+                modalProps['query'] = {
                     kind: NodeKind.InsightActorsQuery,
                     source: {
                         ...values.vizQuerySource,
@@ -141,27 +147,14 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                         },
                     },
                 }
-                openPersonsModal({
-                    url: personsUrl,
-                    query: pathsActorsQuery,
-                    title: pathsTitle({
-                        label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
-                        isDropOff: Boolean(path_dropoff_key),
-                    }),
-                    additionalFields: {
-                        value_at_data_point: 'event_count',
-                        matched_recordings: 'matched_recordings',
-                    },
-                })
+                modalProps['additionalFields'] = {
+                    value_at_data_point: 'event_count',
+                    matched_recordings: 'matched_recordings',
+                }
             } else if (personsUrl) {
-                openPersonsModal({
-                    url: personsUrl,
-                    title: pathsTitle({
-                        label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
-                        isDropOff: Boolean(path_dropoff_key),
-                    }),
-                })
+                modalProps['url'] = personsUrl
             }
+            openPersonsModal(modalProps)
         },
         viewPathToFunnel: ({ pathItemCard }) => {
             const events: ActionFilter[] = []
