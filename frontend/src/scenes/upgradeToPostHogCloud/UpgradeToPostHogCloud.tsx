@@ -109,7 +109,11 @@ export function UpgradeToPostHogCloud(): JSX.Element {
                             especially at scale. Let us handle the hosting, so you can focus on building your product.
                         </p>
                         <div className="flex">
-                            <LemonButton to="https://us.posthog.com/signup" type="primary" status="alt">
+                            <LemonButton
+                                to="https://us.posthog.com/signup?utm_medium=in-product&utm_campaign=move-to-cloud"
+                                type="primary"
+                                status="alt"
+                            >
                                 Move to PostHog Cloud
                             </LemonButton>
                         </div>

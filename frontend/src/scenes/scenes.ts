@@ -373,6 +373,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.UpgradeToPostHogCloud]: {
         name: 'Upgrade to PostHog Cloud',
+        hideProjectNotice: true,
     },
 }
 
