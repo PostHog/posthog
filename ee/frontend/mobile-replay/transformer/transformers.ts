@@ -77,8 +77,6 @@ function* ids(): Generator<number> {
     }
 }
 
-// TODO this is shared for the lifetime of the page,
-//  so a very, very long-lived session could exhaust the ids
 let globalIdSequence = ids()
 
 // there are some fixed ids that we need to use for fixed elements or artificial mutations
