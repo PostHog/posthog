@@ -184,9 +184,13 @@ export function ExperimentResult(): JSX.Element {
                         <div className="no-experiment-results p-4">
                             {!experimentResultsLoading && (
                                 <div className="text-center">
-                                    <b>There are no results for this experiment yet.</b>
+                                    <div className="mb-4">
+                                        <b>There are no results for this experiment yet.</b>
+                                    </div>
+                                    {!!experimentResultCalculationError && (
+                                        <div className="text-sm mb-2">{experimentResultCalculationError}</div>
+                                    )}
                                     <div className="text-sm ">
-                                        {!!experimentResultCalculationError && `${experimentResultCalculationError}. `}{' '}
                                         Wait a bit longer for your users to be exposed to the experiment. Double check
                                         your feature flag implementation if you're still not seeing results.
                                     </div>
