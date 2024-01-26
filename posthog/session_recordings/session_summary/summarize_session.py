@@ -343,5 +343,5 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         if usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
 
-    content: str = result.choices[0].message.content
+    content: str = result.choices[0].message.content or ""
     return {"ai_result": result, "content": content, "prompt": messages, "timings": timer.get_all_timings()}
