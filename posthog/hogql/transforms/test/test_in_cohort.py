@@ -49,6 +49,7 @@ class TestInCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
         self.assertEqual(len(response.results or []), 1)
@@ -65,6 +66,7 @@ class TestInCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk}",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
 
@@ -80,6 +82,7 @@ class TestInCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
 
@@ -91,6 +94,7 @@ class TestInCohort(BaseTest):
                 f"SELECT event FROM events WHERE person_id IN COHORT true",
                 self.team,
                 modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.subquery),
+                pretty=False,
             )
         self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
 
@@ -99,6 +103,7 @@ class TestInCohort(BaseTest):
                 f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'",
                 self.team,
                 modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.subquery),
+                pretty=False,
             )
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
 
@@ -114,6 +119,7 @@ class TestInCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
 
@@ -128,6 +134,7 @@ class TestInCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk}",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
 
@@ -144,6 +151,7 @@ class TestInCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+            pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
         self.assertEqual(len(response.results or []), 1)
@@ -157,6 +165,7 @@ class TestInCohort(BaseTest):
                 f"SELECT event FROM events WHERE person_id IN COHORT true",
                 self.team,
                 modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+                pretty=False,
             )
         self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
 
@@ -165,5 +174,6 @@ class TestInCohort(BaseTest):
                 f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'",
                 self.team,
                 modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.leftjoin_conjoined),
+                pretty=False,
             )
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
