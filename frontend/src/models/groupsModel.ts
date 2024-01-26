@@ -1,9 +1,9 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
@@ -22,9 +22,10 @@ export const groupsModel = kea<groupsModelType>([
     }),
     loaders(({ values }) => ({
         groupTypesRaw: [
-            [] as Array<GroupType>,
+            null as Array<GroupType> | null,
             {
                 loadAllGroupTypes: async () => {
+                    console.log('loadAllGroupTypes called!')
                     return await api.get(`api/projects/${values.currentTeamId}/groups_types`)
                 },
                 updateGroupTypesMetadata: async (payload: Array<GroupType>) => {
@@ -44,7 +45,7 @@ export const groupsModel = kea<groupsModelType>([
             (s) => [s.groupTypesRaw],
             (groupTypesRaw) =>
                 new Map<GroupTypeIndex, GroupType>(
-                    groupTypesRaw.map((groupType) => [groupType.group_type_index, groupType])
+                    groupTypesRaw?.map((groupType) => [groupType.group_type_index, groupType]) ?? []
                 ),
         ],
         groupTypesLoading: [(s) => [s.groupTypesRawLoading], (groupTypesRawLoading) => groupTypesRawLoading],
@@ -102,12 +103,9 @@ export const groupsModel = kea<groupsModelType>([
     subscriptions(({ values }) => ({
         groupsEnabled: (enabled) => {
             // Load the groups types in the case of groups becoming an available feature after this logic is mounted
-            if (!values.groupTypesLoading && enabled) {
+            if (!values.groupTypesLoading && enabled && !values.groupTypesRaw) {
                 groupsModel.actions.loadAllGroupTypes()
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadAllGroupTypes()
-    }),
 ])
