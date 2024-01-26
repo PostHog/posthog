@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import hubspotLogo from 'public/hubspot-logo.svg'
+import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
@@ -95,7 +96,10 @@ function FirstStep(): JSX.Element {
         if (config.name === 'Postgres' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_POSTGRES_IMPORT]) {
             return (
                 <LemonButton onClick={onClick} fullWidth center type="secondary">
-                    Postgres
+                    <div className="flex flex-row gap-2 justify-center items-center">
+                        <img src={postgresLogo} alt="postgres logo" height={45} />
+                        <div className="text-base">Postgres</div>
+                    </div>
                 </LemonButton>
             )
         }
