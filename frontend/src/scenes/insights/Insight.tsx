@@ -1,5 +1,6 @@
 import './Insight.scss'
 
+import equal from 'fast-deep-equal'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
@@ -50,9 +51,9 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
-    const setQuery = (query: Node): void => {
-        if (!isInsightVizNode(query)) {
-            setInsightQuery(query)
+    const setQuery = (queryToSet: Node): void => {
+        if (!equal(query, queryToSet)) {
+            setInsightQuery(queryToSet)
         }
     }
 
