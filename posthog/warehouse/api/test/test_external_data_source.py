@@ -146,7 +146,7 @@ class TestSavedQuery(APIBaseTest):
             data={
                 "host": settings.PG_HOST,
                 "port": int(settings.PG_PORT),
-                "database": settings.PG_DATABASE,
+                "dbname": settings.PG_DATABASE,
                 "user": settings.PG_USER,
                 "password": settings.PG_PASSWORD,
                 "schema": "public",

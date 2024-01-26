@@ -41,6 +41,7 @@ import aioboto3
 import functools
 from django.conf import settings
 import asyncio
+import psycopg
 
 BUCKET_NAME = "test-external-data-jobs"
 SESSION = aioboto3.Session()
@@ -87,6 +88,33 @@ async def minio_client(bucket_name):
         await delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
 
         await minio_client.delete_bucket(Bucket=bucket_name)
+
+
+@pytest.fixture
+def postgres_config():
+    return {
+        "user": settings.PG_USER,
+        "password": settings.PG_PASSWORD,
+        "database": "external_data_database",
+        "schema": "external_data_schema",
+        "host": settings.PG_HOST,
+        "port": int(settings.PG_PORT),
+    }
+
+
+@pytest_asyncio.fixture
+async def postgres_connection(postgres_config, setup_postgres_test_db):
+    connection = await psycopg.AsyncConnection.connect(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        dbname=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+    )
+
+    yield connection
+
+    await connection.close()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -493,7 +521,17 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_run_postgres_job(activity_environment, team, minio_client, **kwargs):
+async def test_run_postgres_job(
+    activity_environment, team, minio_client, postgres_connection, postgres_config, **kwargs
+):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.posthog_test (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.posthog_test (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
     async def setup_job_1():
         new_source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
@@ -503,12 +541,12 @@ async def test_run_postgres_job(activity_environment, team, minio_client, **kwar
             status="running",
             source_type="Postgres",
             job_inputs={
-                "host": settings.PG_HOST,
-                "port": int(settings.PG_PORT),
-                "database": settings.PG_DATABASE,
-                "user": settings.PG_USER,
-                "password": settings.PG_PASSWORD,
-                "schema": "public",
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
             },
         )  # type: ignore
 
@@ -521,7 +559,7 @@ async def test_run_postgres_job(activity_environment, team, minio_client, **kwar
 
         new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
 
-        schemas = ["posthog_team"]
+        schemas = ["posthog_test"]
         inputs = ExternalDataJobInputs(
             team_id=team.id,
             run_id=new_job.pk,
@@ -543,6 +581,6 @@ async def test_run_postgres_job(activity_environment, team, minio_client, **kwar
         )
 
         job_1_team_objects = await minio_client.list_objects_v2(
-            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/posthog_team/"
+            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/posthog_test/"
         )
         assert len(job_1_team_objects["Contents"]) == 1

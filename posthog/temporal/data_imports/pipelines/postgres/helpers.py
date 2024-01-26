@@ -93,6 +93,8 @@ def table_rows(
     loader = TableLoader(engine, table, incremental=incremental, chunk_size=chunk_size)
     yield from loader.load_rows()
 
+    engine.dispose()
+
 
 def engine_from_credentials(credentials: Union[ConnectionStringCredentials, Engine, str]) -> Engine:
     if isinstance(credentials, Engine):

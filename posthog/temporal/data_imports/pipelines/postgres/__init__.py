@@ -1,7 +1,7 @@
 """Source that loads tables form any SQLAlchemy supported database, supports batching requests and incremental loads."""
 
 from typing import List, Optional, Union, Iterable, Any
-from sqlalchemy import MetaData, Table
+from sqlalchemy import MetaData, Table, text
 from sqlalchemy.engine import Engine
 
 import dlt
@@ -70,37 +70,3 @@ def sql_database(
             primary_key=get_primary_key(table),
             spec=SqlDatabaseTableConfiguration,
         )(engine, table)
-
-
-@dlt.common.configuration.with_config(sections=("sources", "sql_database"), spec=SqlTableResourceConfiguration)
-def sql_table(
-    credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
-    table: str = dlt.config.value,
-    schema: Optional[str] = dlt.config.value,
-    metadata: Optional[MetaData] = None,
-    incremental: Optional[dlt.sources.incremental[Any]] = None,
-) -> DltResource:
-    """
-    A dlt resource which loads data from an SQL database table using SQLAlchemy.
-
-    Args:
-        credentials (Union[ConnectionStringCredentials, Engine, str]): Database credentials or an `Engine` instance representing the database connection.
-        table (str): Name of the table to load.
-        schema (Optional[str]): Optional name of the schema the table belongs to.
-        metadata (Optional[MetaData]): Optional `sqlalchemy.MetaData` instance. If provided, the `schema` argument is ignored.
-        incremental (Optional[dlt.sources.incremental[Any]]): Option to enable incremental loading for the table.
-            E.g., `incremental=dlt.sources.incremental('updated_at', pendulum.parse('2022-01-01T00:00:00Z'))`
-        write_disposition (str): Write disposition of the resource.
-
-    Returns:
-        DltResource: The dlt resource for loading data from the SQL database table.
-    """
-    engine = engine_from_credentials(credentials)
-    engine.execution_options(stream_results=True)
-    metadata = metadata or MetaData(schema=schema)
-
-    table_obj = Table(table, metadata, autoload_with=engine)
-
-    return dlt.resource(table_rows, name=table_obj.name, primary_key=get_primary_key(table_obj))(
-        engine, table_obj, incremental=incremental
-    )

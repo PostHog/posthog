@@ -65,4 +65,6 @@ def get_postgres_schemas(host: str, port: str, database: str, user: str, passwor
         result = cursor.fetchall()
         result = [row[0] for row in result]
 
+    connection.close()
+
     return result
