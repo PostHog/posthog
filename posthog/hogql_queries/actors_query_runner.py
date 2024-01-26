@@ -39,12 +39,19 @@ class ActorsQueryRunner(QueryRunner):
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
+    def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
+        return (
+            {"session_id": session_id, "events": recordings_lookup[session_id]}
+            for session_id in (event[2] for event in event_results)
+            if session_id in recordings_lookup
+        )
+
     def enrich_with_actors(
         self,
         results,
         actor_column_index,
         actors_lookup,
-        column_index_events,
+        column_index_events: Optional[int],
         recordings_lookup: Optional[dict[str, list[dict]]],
     ) -> Generator[List, None, None]:
         for result in results:
@@ -52,15 +59,19 @@ class ActorsQueryRunner(QueryRunner):
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
-            new_row[column_index_events] = None
-            if recordings_lookup:
-                session_ids = (event[2] for event in result[column_index_events])
-                new_row[column_index_events] = (
-                    {"session_id": session_id, "events": recordings_lookup[session_id]}
-                    for session_id in session_ids
-                    if session_id in recordings_lookup
-                )
+            if column_index_events and recordings_lookup:
+                new_row[column_index_events] = self.get_recordings(result[column_index_events], recordings_lookup)
             yield new_row
+
+    def prepare_recordings(self, column_name, input_columns):
+        if column_name != "person" or "matched_recordings" not in input_columns:
+            return None, None
+
+        column_index_events = input_columns.index("matched_recordings")
+        matching_events_list = itertools.chain.from_iterable(
+            (row[column_index_events] for row in self.paginator.results)
+        )
+        return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
         response = self.paginator.execute_hogql_query(
@@ -79,15 +90,7 @@ class ActorsQueryRunner(QueryRunner):
             column_index_actor = input_columns.index(column_name)
             actor_ids = (row[column_index_actor] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
-            recordings_lookup: Optional[dict[str, list[dict]]] = None
-            column_index_events = None
-
-            if "matched_recordings" in input_columns and column_name == "person":
-                column_index_events = input_columns.index("matched_recordings")
-                matching_events_list = itertools.chain.from_iterable(
-                    (row[column_index_events] for row in self.paginator.results)
-                )
-                recordings_lookup = self.strategy.get_recordings(matching_events_list)
+            column_index_events, recordings_lookup = self.prepare_recordings(column_name, input_columns)
 
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
             results = self.enrich_with_actors(

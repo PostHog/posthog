@@ -1,15 +1,13 @@
-from collections import defaultdict
 from typing import Dict, List, cast, Literal, Optional
 
 from django.db.models import Prefetch
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.utils.recordings import RecordingsHelper
 from posthog.models import Team, Person, Group
 from posthog.schema import ActorsQuery
-from posthog.session_recordings.models.session_recording import SessionRecording
 
 
 class ActorStrategy:
@@ -56,51 +54,8 @@ class PersonStrategy(ActorStrategy):
             .iterator(chunk_size=self.paginator.limit)
         }
 
-    def session_ids_all(self, session_ids) -> set[str]:
-        query = """
-          SELECT DISTINCT session_id
-          FROM session_replay_events
-          WHERE session_id in {session_ids}
-          """
-
-        # TODO: Date filters
-
-        response = execute_hogql_query(
-            query,
-            placeholders={"session_ids": ast.Array(exprs=[ast.Constant(value=s) for s in session_ids])},
-            team=self.team,
-        )
-        return {str(result[0]) for result in response.results}
-
-    def session_ids_with_deleted_recordings(self, session_ids) -> set[str]:
-        return set(
-            SessionRecording.objects.filter(team_id=self.team.pk, session_id__in=session_ids, deleted=True).values_list(
-                "session_id", flat=True
-            )
-        )
-
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        mapped_events = defaultdict(list)
-        for event in matching_events:
-            mapped_events[event[2]].append(event)
-
-        raw_session_ids = mapped_events.keys()
-        valid_session_ids = self.session_ids_all(raw_session_ids) - self.session_ids_with_deleted_recordings(
-            raw_session_ids
-        )
-
-        return {
-            str(session_id): [
-                {
-                    "timestamp": event[0],
-                    "uuid": event[1],
-                    "window_id": event[3],
-                }
-                for event in events
-            ]
-            for session_id, events in mapped_events.items()
-            if session_id in valid_session_ids and len(events) > 0
-        }
+        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> List[str]:
         return ["person", "id", "created_at", "person.$delete"]
