@@ -5,6 +5,8 @@ import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { identifierToHuman } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
@@ -26,6 +28,7 @@ export function PayGatePage({
     featureName,
 }: PayGatePageInterface): JSX.Element {
     const { upgradeLink } = useValues(billingLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     featureName = featureName || identifierToHuman(featureKey, 'title')
 
     return (
@@ -33,12 +36,26 @@ export function PayGatePage({
             <h2>{header}</h2>
             <div className="pay-caption">{caption}</div>
             <div className="pay-buttons space-y-4">
+                {!isCloudOrDev && <p>This feature is available on PostHog Cloud.</p>}
                 {!hideUpgradeButton && (
-                    <LemonButton to={upgradeLink} type="primary" data-attr={`${featureKey}-upgrade`} center>
-                        Upgrade now to get {featureName}
-                    </LemonButton>
+                    <>
+                        {isCloudOrDev ? (
+                            <LemonButton to={upgradeLink} type="primary" data-attr={`${featureKey}-upgrade`} center>
+                                Upgrade now to get {featureName}
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                to={urls.upgradeToPostHogCloud()}
+                                type="primary"
+                                data-attr={`${featureKey}-upgrade`}
+                                center
+                            >
+                                Learn more about PostHog cloud
+                            </LemonButton>
+                        )}
+                    </>
                 )}
-                {docsLink && (
+                {docsLink && isCloudOrDev && (
                     <LemonButton
                         type={hideUpgradeButton ? 'primary' : 'secondary'}
                         to={`${docsLink}?utm_medium=in-product&utm_campaign=${featureKey}-upgrade-learn-more`}
