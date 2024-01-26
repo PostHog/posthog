@@ -253,62 +253,59 @@ class PathsQueryRunner(QueryRunner):
             ]
         )
 
+    def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
+        if self.query.pathsFilter.endPoint:
+            return "arrayResize"
+
+        return "arraySlice"
+
     def get_filtered_path_ordering(self) -> list[ast.Expr]:
         fields = {
             "compact_path": "path",
             "timings": "timings",
             **{f: f for f in self.extra_event_fields_and_properties},
         }
-        return [
-            ast.Alias(
-                alias=f"filtered_{field}",
-                expr=ast.Call(
-                    name="if",
-                    args=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Field(chain=["target_index"]),
-                            right=ast.Constant(value=0),
-                        ),
-                        ast.Call(
-                            name=self.get_array_compacting_function(),
-                            args=[ast.Field(chain=[orig]), ast.Field(chain=["target_index"])],
-                        ),
-                        ast.Field(chain=[orig]),
-                    ],
+        expressions = (
+            [
+                ast.Alias(
+                    alias=f"filtered_{field}",
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Field(chain=["target_index"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Call(
+                                name=self.get_array_compacting_function(),
+                                args=[ast.Field(chain=[orig]), ast.Field(chain=["target_index"])],
+                            ),
+                            ast.Field(chain=[orig]),
+                        ],
+                    ),
                 ),
-            )
+                ast.Alias(
+                    alias=f"limited_{field}",
+                    expr=ast.Call(
+                        name="arraySlice",
+                        args=[
+                            ast.Field(chain=[f"filtered_{field}"]),
+                            *(
+                                [ast.Constant(value=-1 * self.event_in_session_limit)]
+                                if self.query.pathsFilter.endPoint
+                                else [
+                                    ast.Constant(value=1),
+                                    ast.Constant(value=self.event_in_session_limit),
+                                ]
+                            ),
+                        ],
+                    ),
+                ),
+            ]
             for orig, field in fields.items()
-        ]
-
-    def get_limited_path_ordering(self) -> list[ast.Expr]:
-        fields_to_include = ["path", "timings", *self.extra_event_fields_and_properties]
-        return [
-            ast.Alias(
-                alias=f"limited_{field}",
-                expr=ast.Call(
-                    name="arraySlice",
-                    args=[
-                        ast.Field(chain=[f"filtered_{field}"]),
-                        *(
-                            [ast.Constant(value=-1 * self.event_in_session_limit)]
-                            if self.query.pathsFilter.endPoint
-                            else [
-                                ast.Constant(value=1),
-                                ast.Constant(value=self.event_in_session_limit),
-                            ]
-                        ),
-                    ],
-                ),
-            )
-            for field in fields_to_include
-        ]
-
-    def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
-        if self.query.pathsFilter.endPoint:
-            return "arrayResize"
-
-        return "arraySlice"
+        )
+        return list(itertools.chain.from_iterable(expressions))
 
     def get_start_end_filtered_limited(self) -> list[ast.Expr]:
         fields = {
@@ -404,9 +401,7 @@ class PathsQueryRunner(QueryRunner):
             clauses.extend(filtered_limited[1:])
             return clauses
         else:
-            filtered_paths = self.get_filtered_path_ordering()
-            limited_paths = self.get_limited_path_ordering()
-            return filtered_paths + limited_paths
+            return self.get_filtered_path_ordering()
 
     def paths_per_person_query(self) -> ast.SelectQuery:
         target_point = self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint
