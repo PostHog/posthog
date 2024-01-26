@@ -82,6 +82,10 @@ class TestProperty(BaseTest):
                 {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
             ),
         )
+        self.assertEqual(
+            self._property_to_expr(Property(type="group", group_type_index=0, key="a", value=["b", "c"])),
+            self._parse_expr("group_0.properties.a = 'b' OR group_0.properties.a = 'c'"),
+        )
 
         with self.assertRaises(Exception) as e:
             self._property_to_expr({"type": "group", "key": "a", "value": "b"})
