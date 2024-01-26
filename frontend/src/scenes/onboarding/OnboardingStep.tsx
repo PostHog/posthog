@@ -6,7 +6,6 @@ import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import React from 'react'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
@@ -38,12 +37,8 @@ export const OnboardingStep = ({
     backActionOverride?: () => void
     hedgehog?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, hasPreviousStep, productKey } = useValues(onboardingLogic)
+    const { hasNextStep, hasPreviousStep, productKey, isFirstProductOnboarding } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const isFirstProductOnboarding = !Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
-        (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
-    )
     const { openSupportForm } = useActions(supportLogic)
 
     const hedgehogToRender = React.cloneElement(hedgehog || <PhonePairHogs />, {

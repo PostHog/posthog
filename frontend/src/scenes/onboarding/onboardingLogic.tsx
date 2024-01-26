@@ -154,6 +154,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
         ],
+        isFirstProductOnboarding: [
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                return !Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
+                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
+                )
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadBillingSuccess: () => {

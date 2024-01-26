@@ -5,7 +5,6 @@ import { LaptopHog1 } from 'lib/components/hedgehogs'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useEffect } from 'react'
 import React from 'react'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { ProductKey, SDKInstructionsMap } from '~/types'
@@ -44,11 +43,9 @@ export function SDKs({
         panel,
         hasSnippetEvents,
     } = useValues(sdksLogic)
-    const { productKey, product } = useValues(onboardingLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { productKey, product, isFirstProductOnboarding } = useValues(onboardingLogic)
     const { width } = useWindowSize()
     const minimumSideBySideSize = 768
-    const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
 
     useEffect(() => {
         setAvailableSDKInstructionsMap(sdkInstructionMap)
@@ -58,13 +55,13 @@ export function SDKs({
         width && setShowSideBySide(width > minimumSideBySideSize)
     }, [width])
 
-    return !isFirstProduct && hasSnippetEvents === null ? (
+    return !isFirstProductOnboarding && hasSnippetEvents === null ? (
         <OnboardingStep title="Checking for snippet installation..." stepKey={stepKey} hedgehog={<LaptopHog1 />}>
             <div className="flex justify-center mt-6">
                 <Spinner className="text-xl" />
             </div>
         </OnboardingStep>
-    ) : !isFirstProduct && hasSnippetEvents ? (
+    ) : !isFirstProductOnboarding && hasSnippetEvents ? (
         <OnboardingStep
             title={`Huzzah! You've already installed PostHog.js.`}
             stepKey={stepKey}
