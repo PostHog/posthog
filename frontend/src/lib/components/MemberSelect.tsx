@@ -1,8 +1,8 @@
 import { LemonButton, LemonDropdown, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { fullName } from 'lib/utils'
-import { useMemo, useState } from 'react'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { useEffect, useMemo, useState } from 'react'
+import { searchableMembersLogic } from 'scenes/organization/membersV2Logic'
 
 import { UserBasicType } from '~/types'
 
@@ -14,13 +14,9 @@ export type MemberSelectProps = {
 }
 
 export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: MemberSelectProps): JSX.Element {
-    const { meFirstMembers, membersFuse } = useValues(membersLogic)
+    const { meFirstMembers, filteredMembers, search } = useValues(searchableMembersLogic({ logicKey: 'select' }))
+    const { setSearch } = useActions(searchableMembersLogic({ logicKey: 'select' }))
     const [showPopover, setShowPopover] = useState(false)
-    const [searchTerm, setSearchTerm] = useState('')
-
-    const filteredMembers = useMemo(() => {
-        return searchTerm ? membersFuse.search(searchTerm).map((result) => result.item) : meFirstMembers
-    }, [searchTerm, meFirstMembers])
 
     const selectedMember = useMemo(() => {
         if (!value) {
@@ -28,7 +24,7 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
         }
         if (typeof value === 'string' || typeof value === 'number') {
             const propToCompare = typeof value === 'string' ? 'uuid' : 'id'
-            return meFirstMembers.find((member) => member.user[propToCompare] === value)?.user ?? `${value}`
+            return meFirstMembers.find((member) => member[propToCompare] === value) ?? `${value}`
         }
         return value
     }, [value, meFirstMembers])
@@ -37,6 +33,12 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
         setShowPopover(false)
         onChange(value)
     }
+
+    useEffect(() => {
+        if (showPopover) {
+            setSearch('')
+        }
+    }, [showPopover])
 
     return (
         <LemonDropdown
@@ -51,8 +53,8 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
                         type="search"
                         placeholder="Search"
                         autoFocus
-                        value={searchTerm}
-                        onChange={setSearchTerm}
+                        value={search}
+                        onChange={setSearch}
                         fullWidth
                     />
                     <ul className="space-y-px">
@@ -63,16 +65,16 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
                         </li>
 
                         {filteredMembers.map((member) => (
-                            <li key={member.user.uuid}>
+                            <li key={member.uuid}>
                                 <LemonButton
                                     fullWidth
                                     role="menuitem"
                                     size="small"
-                                    icon={<ProfilePicture size="md" user={member.user} />}
-                                    onClick={() => _onChange(member.user)}
+                                    icon={<ProfilePicture size="md" user={member} />}
+                                    onClick={() => _onChange(member)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span>{fullName(member.user)}</span>
+                                        <span>{fullName(member)}</span>
                                         <span className="text-muted-alt">
                                             {meFirstMembers[0] === member && `(you)`}
                                         </span>
@@ -83,7 +85,7 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
 
                         {filteredMembers.length === 0 ? (
                             <div className="p-2 text-muted-alt italic truncate border-t">
-                                {searchTerm ? <span>No matches</span> : <span>No users</span>}
+                                {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
                         ) : null}
                     </ul>
@@ -96,7 +98,7 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: Mem
                 ) : selectedMember ? (
                     <span>
                         {fullName(selectedMember)}
-                        {meFirstMembers[0].user.uuid === selectedMember.uuid ? ` (you)` : ''}
+                        {meFirstMembers[0].uuid === selectedMember.uuid ? ` (you)` : ''}
                     </span>
                 ) : (
                     defaultLabel

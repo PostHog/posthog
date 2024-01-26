@@ -18,7 +18,7 @@ import {
 } from 'lib/utils/permissioning'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { membersV2Logic, searchableMembersLogic } from 'scenes/organization/membersV2Logic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -28,7 +28,7 @@ import { OrganizationMemberType } from '~/types'
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember, changeMemberAccessLevel } = useActions(membersLogic)
+    const { removeMember, changeMemberAccessLevel } = useActions(membersV2Logic)
 
     if (!user) {
         return null
@@ -134,6 +134,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 }
 
 export function Members(): JSX.Element | null {
+    const membersLogic = searchableMembersLogic({ logicKey: 'settings' })
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { setSearch } = useActions(membersLogic)
@@ -211,7 +212,7 @@ export function Members(): JSX.Element | null {
                                     onSuccess={() => {
                                         set2FAModalVisible(false)
                                         userLogic.actions.updateUser({})
-                                        membersLogic.actions.loadMembers()
+                                        membersV2Logic.actions.clearMembers()
                                     }}
                                 />
                             </LemonModal>

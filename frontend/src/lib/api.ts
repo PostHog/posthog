@@ -27,8 +27,8 @@ import {
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
-    EventsListQueryParams,
     EventType,
+    EventsListQueryParams,
     Experiment,
     ExportedAssetType,
     ExternalDataSourceCreatePayload,
@@ -40,6 +40,7 @@ import {
     GroupListParams,
     InsightModel,
     IntegrationType,
+    ListOrganizationMembersParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -47,6 +48,7 @@ import {
     NotebookType,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
+    OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
     PersonListParams,
@@ -56,15 +58,15 @@ import {
     PropertyDefinitionType,
     RawAnnotationType,
     RoleMemberType,
-    RolesListParams,
     RoleType,
+    RolesListParams,
     ScheduledChangeType,
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotResponse,
-    SessionRecordingsResponse,
     SessionRecordingType,
+    SessionRecordingsResponse,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -461,6 +463,15 @@ class ApiRequest {
 
     public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
         return this.roleMemberships(roleId).addPathComponent(userUuid)
+    }
+
+    // # Members
+    public members(): ApiRequest {
+        return this.organizations().current().addPathComponent('members')
+    }
+
+    public member(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
+        return this.members().addPathComponent(uuid)
     }
 
     // # Persons
@@ -1250,6 +1261,27 @@ const api = {
     experiments: {
         async get(id: number): Promise<Experiment> {
             return new ApiRequest().experimentsDetail(id).get()
+        },
+    },
+
+    members: {
+        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+            return await new ApiRequest().members().withQueryString(params).get()
+        },
+
+        async getCount(): Promise<number> {
+            return (await new ApiRequest().members().withAction('count').get()).count
+        },
+
+        async delete(uuid: OrganizationMemberType['user']['uuid']): Promise<PaginatedResponse<void>> {
+            return await new ApiRequest().member(uuid).delete()
+        },
+
+        async update(
+            uuid: string,
+            data: Partial<Pick<OrganizationMemberType, 'level'>>
+        ): Promise<OrganizationMemberType> {
+            return new ApiRequest().member(uuid).update({ data })
         },
     },
 

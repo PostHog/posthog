@@ -5,7 +5,7 @@ import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBud
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { membersV2Logic } from 'scenes/organization/membersV2Logic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
@@ -69,7 +69,7 @@ export function GlobalModals(): JSX.Element {
                     <Setup2FA
                         onSuccess={() => {
                             userLogic.actions.loadUser()
-                            membersLogic.actions.loadMembers()
+                            membersV2Logic.actions.clearMembers()
                         }}
                     />
                 </LemonModal>

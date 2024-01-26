@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { membersV2Logic } from 'scenes/organization/membersV2Logic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -22,7 +22,7 @@ export type ProjectNoticeVariant =
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
+        values: [sceneLogic, ['sceneConfig'], membersV2Logic, ['memberCount']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
@@ -97,8 +97,7 @@ export const navigationLogic = kea<navigationLogicType>([
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
                 userLogic.selectors.user,
-                s.members,
-                s.membersLoading,
+                s.memberCount,
                 s.projectNoticesAcknowledged,
             ],
             (
@@ -106,8 +105,7 @@ export const navigationLogic = kea<navigationLogicType>([
                 currentTeam,
                 preflight,
                 user,
-                members,
-                membersLoading,
+                memberCount,
                 projectNoticesAcknowledged
             ): [ProjectNoticeVariant, boolean] | null => {
                 if (!organization) {
@@ -128,7 +126,7 @@ export const navigationLogic = kea<navigationLogicType>([
                     !currentTeam.ingested_event
                 ) {
                     return ['real_project_with_no_events', true]
-                } else if (!projectNoticesAcknowledged['invite_teammates'] && !membersLoading && members.length <= 1) {
+                } else if (!projectNoticesAcknowledged['invite_teammates'] && !memberCount) {
                     return ['invite_teammates', true]
                 }
 

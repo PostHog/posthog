@@ -12,8 +12,8 @@ import {
     ENTITY_MATCH_TYPE,
     FunnelLayout,
     OrganizationMembershipLevel,
-    PluginsAccessLevel,
     PROPERTY_MATCH_TYPE,
+    PluginsAccessLevel,
     RETENTION_FIRST_TIME,
     RETENTION_RECURRING,
     ShownAsValue,
@@ -240,6 +240,7 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
+    member_count: number
 }
 
 export interface OrganizationDomainType {
@@ -299,6 +300,12 @@ export interface FusedTeamMemberType extends BaseMemberType {
     organization_level: OrganizationMembershipLevel
     /** Effective level of the user within the project. */
     level: OrganizationMembershipLevel
+}
+
+export interface ListOrganizationMembersParams {
+    search?: string
+    offset?: number
+    limit?: number
 }
 
 export interface APIErrorType {
