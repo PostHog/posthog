@@ -1,5 +1,3 @@
-import './LemonProgress.scss'
-
 import clsx from 'clsx'
 
 export type LemonProgressProps = {
@@ -21,14 +19,14 @@ export const LemonProgress = ({
         <div
             className={clsx(
                 'LemonProgress rounded-full w-full inline-block bg-bg-3000',
-                size === 'large' ? 'h-5' : 'h-[0.375rem]',
+                size === 'large' ? 'h-5' : 'h-1.5',
                 className
             )}
         >
             <span
                 className={clsx(
-                    'LemonProgress__track block h-full rounded-full',
-                    percent > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-[0.375rem]') : null
+                    'block h-full rounded-full transition-all',
+                    percent > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${percent}%`, backgroundColor: strokeColor }}
