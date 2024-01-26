@@ -25,7 +25,7 @@ export const LemonProgress = ({
         >
             <span
                 className={clsx(
-                    'block h-full rounded-full transition-all',
+                    'LemonProgress__track block h-full rounded-full transition-all',
                     percent > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
