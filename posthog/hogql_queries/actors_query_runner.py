@@ -51,7 +51,7 @@ class ActorsQueryRunner(QueryRunner):
         results,
         actor_column_index,
         actors_lookup,
-        column_index_events: Optional[int],
+        recordings_column_index: Optional[int],
         recordings_lookup: Optional[dict[str, list[dict]]],
     ) -> Generator[List, None, None]:
         for result in results:
@@ -59,8 +59,11 @@ class ActorsQueryRunner(QueryRunner):
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
-            if column_index_events and recordings_lookup:
-                new_row[column_index_events] = self.get_recordings(result[column_index_events], recordings_lookup)
+            new_row[recordings_column_index] = None  # This would otherwise leak events
+            if recordings_column_index and recordings_lookup:
+                new_row[recordings_column_index] = self.get_recordings(
+                    result[recordings_column_index], recordings_lookup
+                )
             yield new_row
 
     def prepare_recordings(self, column_name, input_columns):
@@ -87,14 +90,14 @@ class ActorsQueryRunner(QueryRunner):
 
         enrich_columns = filter(lambda column: column in ("person", "group"), input_columns)
         for column_name in enrich_columns:
-            column_index_actor = input_columns.index(column_name)
-            actor_ids = (row[column_index_actor] for row in self.paginator.results)
+            actor_column_index = input_columns.index(column_name)
+            actor_ids = (row[actor_column_index] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
-            column_index_events, recordings_lookup = self.prepare_recordings(column_name, input_columns)
+            recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
 
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
             results = self.enrich_with_actors(
-                results, column_index_actor, actors_lookup, column_index_events, recordings_lookup
+                results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
             )
 
         return ActorsQueryResponse(
