@@ -41,24 +41,28 @@ class TrendsQueryBuilder:
         self.modifiers = modifiers
 
     def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        breakdown = self._breakdown(is_actors_query=False)
+
         events_query: ast.SelectQuery | ast.SelectUnionQuery
 
         if self._trends_display.should_aggregate_values():
-            events_query = self._get_events_subquery(False, is_actors_query=False)
+            events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
         else:
-            date_subqueries = self._get_date_subqueries()
-            event_query = self._get_events_subquery(False, is_actors_query=False)
+            date_subqueries = self._get_date_subqueries(breakdown=breakdown)
+            event_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
 
             events_query = ast.SelectUnionQuery(select_queries=[*date_subqueries, event_query])
 
-        inner_select = self._inner_select_query(events_query)
-        full_query = self._outer_select_query(inner_select)
+        inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
+        full_query = self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
         return full_query
 
     def build_actors_query(
         self, time_frame: Optional[str | int] = None, breakdown_filter: Optional[str | int] = None
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        breakdown = self._breakdown(is_actors_query=True, breakdown_values_override=breakdown_filter)
+
         return parse_select(
             """
                 SELECT DISTINCT person_id
@@ -68,15 +72,14 @@ class TrendsQueryBuilder:
                 "subquery": self._get_events_subquery(
                     False,
                     is_actors_query=True,
+                    breakdown=breakdown,
                     breakdown_values_override=breakdown_filter,
                     actors_query_time_frame=time_frame,
                 )
             },
         )
 
-    def _get_date_subqueries(self, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
-        breakdown = self._breakdown(is_actors_query=False)
-
+    def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
         if not breakdown.enabled or ignore_breakdowns:
             return [
                 cast(
@@ -151,6 +154,7 @@ class TrendsQueryBuilder:
         self,
         no_modifications: Optional[bool],
         is_actors_query: bool,
+        breakdown: Breakdown,
         breakdown_values_override: Optional[str | int] = None,
         actors_query_time_frame: Optional[str | int] = None,
     ) -> ast.SelectQuery:
@@ -163,6 +167,7 @@ class TrendsQueryBuilder:
 
         events_filter = self._events_filter(
             ignore_breakdowns=False,
+            breakdown=breakdown,
             is_actors_query=is_actors_query,
             breakdown_values_override=breakdown_values_override,
             actors_query_time_frame=actors_query_time_frame,
@@ -197,10 +202,6 @@ class TrendsQueryBuilder:
             default_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
             default_query.distinct = True
             default_query.group_by = []
-
-        breakdown = self._breakdown(
-            is_actors_query=is_actors_query, breakdown_values_override=breakdown_values_override
-        )
 
         # No breakdowns and no complex series aggregation
         if (
@@ -316,9 +317,7 @@ class TrendsQueryBuilder:
 
         return default_query
 
-    def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        breakdown = self._breakdown(is_actors_query=False)
-
+    def _outer_select_query(self, breakdown: Breakdown, inner_query: ast.SelectQuery) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -335,7 +334,9 @@ class TrendsQueryBuilder:
         query = self._trends_display.modify_outer_query(
             outer_query=query,
             inner_query=inner_query,
-            dates_queries=ast.SelectUnionQuery(select_queries=self._get_date_subqueries(ignore_breakdowns=True)),
+            dates_queries=ast.SelectUnionQuery(
+                select_queries=self._get_date_subqueries(ignore_breakdowns=True, breakdown=breakdown)
+            ),
         )
 
         query.order_by = [ast.OrderExpr(expr=ast.Call(name="sum", args=[ast.Field(chain=["count"])]), order="DESC")]
@@ -358,9 +359,9 @@ class TrendsQueryBuilder:
 
         return query
 
-    def _inner_select_query(self, inner_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
-        breakdown = self._breakdown(is_actors_query=False)
-
+    def _inner_select_query(
+        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery
+    ) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -424,6 +425,7 @@ class TrendsQueryBuilder:
     def _events_filter(
         self,
         is_actors_query: bool,
+        breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
         breakdown_values_override: Optional[str | int] = None,
         actors_query_time_frame: Optional[str | int] = None,
@@ -491,11 +493,7 @@ class TrendsQueryBuilder:
                 filters.append(parse_expr("1 = 2"))
 
         # Breakdown
-        if not ignore_breakdowns:
-            breakdown = self._breakdown(
-                is_actors_query=is_actors_query, breakdown_values_override=breakdown_values_override
-            )
-
+        if not ignore_breakdowns and breakdown is not None:
             if breakdown.enabled and not breakdown.is_histogram_breakdown:
                 breakdown_filter = breakdown.events_where_filter()
                 if breakdown_filter is not None:
@@ -541,6 +539,7 @@ class TrendsQueryBuilder:
             timings=self.timings,
             modifiers=self.modifiers,
             events_filter=self._events_filter(
+                breakdown=None,  # Passing in None because we know we dont actually need it
                 ignore_breakdowns=True,
                 is_actors_query=is_actors_query,
                 breakdown_values_override=breakdown_values_override,

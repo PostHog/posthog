@@ -276,7 +276,7 @@ class TrendsQueryRunner(QueryRunner):
 
         # This exists so that we're not spawning threads during unit tests. We can't do
         # this right now due to the lack of multithreaded support of Django
-        if settings.IN_UNIT_TESTING:  # type: ignore
+        if settings.IN_UNIT_TESTING:
             for index, query in enumerate(queries):
                 run(index, query, False)
         elif len(queries) == 1:
