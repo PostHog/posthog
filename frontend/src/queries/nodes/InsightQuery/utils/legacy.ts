@@ -48,3 +48,27 @@ export const isLegacyRetentionFilter = (filters: Record<string, any> | undefined
     const legacyKeys = ['retention_type', 'retention_reference', 'total_intervals', 'returning_entity', 'target_entity']
     return legacyKeys.some((key) => key in filters)
 }
+
+export const isLegacyPathsFilter = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const legacyKeys = [
+        'paths_hogql_expression',
+        'include_event_types',
+        'start_point',
+        'end_point',
+        'path_groupings',
+        'funnel_paths',
+        'funnel_filter',
+        'exclude_events',
+        'step_limit',
+        'path_replacements',
+        'local_path_cleaning_filters',
+        'edge_limit',
+        'min_edge_weight',
+        'max_edge_weight',
+    ]
+    return legacyKeys.some((key) => key in filters)
+}

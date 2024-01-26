@@ -19,6 +19,7 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     NodeKind,
+    PathsFilter,
     RetentionFilter,
     TrendsFilter,
 } from '~/queries/schema'
@@ -39,6 +40,7 @@ import {
     FilterType,
     FunnelsFilterType,
     InsightType,
+    PathsFilterType,
     PropertyFilterType,
     PropertyGroupFilterValue,
     PropertyOperator,
@@ -283,22 +285,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // paths filter
     if (isPathsFilter(filters) && isPathsQuery(query)) {
-        query.pathsFilter = objectCleanWithEmpty({
-            pathsHogQLExpression: filters.paths_hogql_expression,
-            includeEventTypes: filters.include_event_types,
-            startPoint: filters.start_point,
-            endPoint: filters.end_point,
-            pathGroupings: filters.path_groupings,
-            funnelPaths: filters.funnel_paths,
-            funnelFilter: filters.funnel_filter,
-            excludeEvents: filters.exclude_events,
-            stepLimit: filters.step_limit,
-            pathReplacements: filters.path_replacements,
-            localPathCleaningFilters: filters.local_path_cleaning_filters,
-            edgeLimit: filters.edge_limit,
-            minEdgeWeight: filters.min_edge_weight,
-            maxEdgeWeight: filters.max_edge_weight,
-        })
+        query.pathsFilter = pathsFilterToQuery(filters)
     }
 
     // stickiness filter
@@ -378,6 +365,25 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         period: filters.period,
     })
     // TODO: query.aggregation_group_type_index
+}
+
+export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilter => {
+    return objectCleanWithEmpty({
+        pathsHogQLExpression: filters.paths_hogql_expression,
+        includeEventTypes: filters.include_event_types,
+        startPoint: filters.start_point,
+        endPoint: filters.end_point,
+        pathGroupings: filters.path_groupings,
+        funnelPaths: filters.funnel_paths,
+        funnelFilter: filters.funnel_filter,
+        excludeEvents: filters.exclude_events,
+        stepLimit: filters.step_limit,
+        pathReplacements: filters.path_replacements,
+        localPathCleaningFilters: filters.local_path_cleaning_filters,
+        edgeLimit: filters.edge_limit,
+        minEdgeWeight: filters.min_edge_weight,
+        maxEdgeWeight: filters.max_edge_weight,
+    })
 }
 
 export const breakdownFilterToQuery = (filters: Record<string, any>, isTrends: boolean): BreakdownFilter => {

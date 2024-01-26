@@ -482,6 +482,63 @@ describe('migrate()', () => {
                 },
             ],
         ],
+        [
+            'migrates paths filter',
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'PathsQuery',
+                                interval: 'day',
+                                dateRange: { date_to: null, date_from: '-30d' },
+                                pathsFilter: {
+                                    edge_limit: 20,
+                                    step_limit: 9,
+                                    start_point: 'https://posthog.com/blog/best-mixpanel-alternatives',
+                                    include_event_types: ['$pageview'],
+                                },
+                                filterTestAccounts: true,
+                            },
+                        },
+                        title: null,
+                        __init: null,
+                        height: null,
+                        nodeId: 'e2f225af-7e5f-40c0-afbd-832cbb866079',
+                        children: null,
+                    },
+                },
+            ],
+            [
+                {
+                    type: 'ph-query',
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'PathsQuery',
+                                interval: 'day',
+                                dateRange: { date_to: null, date_from: '-30d' },
+                                pathsFilter: {
+                                    edgeLimit: 20,
+                                    stepLimit: 9,
+                                    startPoint: 'https://posthog.com/blog/best-mixpanel-alternatives',
+                                    includeEventTypes: ['$pageview'],
+                                },
+                                filterTestAccounts: true,
+                            },
+                        },
+                        title: null,
+                        __init: null,
+                        height: null,
+                        nodeId: 'e2f225af-7e5f-40c0-afbd-832cbb866079',
+                        children: null,
+                    },
+                },
+            ],
+        ],
     ]
 
     contentToExpected.forEach(([name, prevContent, nextContent]) => {

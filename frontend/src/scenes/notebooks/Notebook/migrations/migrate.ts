@@ -3,11 +3,13 @@ import { JSONContent } from '@tiptap/core'
 import {
     breakdownFilterToQuery,
     funnelsFilterToQuery,
+    pathsFilterToQuery,
     retentionFilterToQuery,
     trendsFilterToQuery,
 } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     isLegacyFunnelsFilter,
+    isLegacyPathsFilter,
     isLegacyRetentionFilter,
     isLegacyTrendsFilter,
 } from '~/queries/nodes/InsightQuery/utils/legacy'
@@ -103,6 +105,10 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
         if (query.kind === NodeKind.RetentionQuery && isLegacyRetentionFilter(query.retentionFilter as any)) {
             query.retentionFilter = retentionFilterToQuery(query.retentionFilter as any)
+        }
+
+        if (query.kind === NodeKind.PathsQuery && isLegacyPathsFilter(query.pathsFilter as any)) {
+            query.pathsFilter = pathsFilterToQuery(query.pathsFilter as any)
         }
 
         /*
