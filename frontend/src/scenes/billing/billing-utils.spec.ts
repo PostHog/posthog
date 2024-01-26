@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
 
-import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import billingJson from '~/mocks/fixtures/_billing_v2'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_v2_with_flat_fee.json'
 
 import {
