@@ -1,3 +1,4 @@
+import itertools
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
@@ -303,31 +304,99 @@ class PathsQueryRunner(QueryRunner):
 
         return "arraySlice"
 
+    def get_start_end_filtered_limited(self) -> list[ast.Expr]:
+        fields = {
+            "compact_path": "path",
+            "timings": "timings",
+            **{f: f for f in self.extra_event_fields_and_properties},
+        }
+        expressions = (
+            [
+                ast.Alias(
+                    alias=f"start_filtered_{field}",
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Field(chain=["start_target_index"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Call(
+                                name="arraySlice",
+                                args=[ast.Field(chain=[orig]), ast.Field(chain=["start_target_index"])],
+                            ),
+                            ast.Field(chain=[orig]),
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    alias=f"filtered_{field}",
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Field(chain=["end_target_index"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Call(
+                                name="arrayResize",
+                                args=[
+                                    ast.Field(chain=[f"start_filtered_{field}"]),
+                                    ast.Field(chain=["end_target_index"]),
+                                ],
+                            ),
+                            ast.Field(chain=[f"start_filtered_{field}"]),
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    alias=f"limited_{field}",
+                    expr=parse_expr(
+                        "if(length({field}) > {event_in_session_limit}, arrayConcat(arraySlice({field}, 1, intDiv({event_in_session_limit}, 2)), [{field}[1+intDiv({event_in_session_limit}, 2)]], arraySlice({field}, (-1)*intDiv({event_in_session_limit}, 2), intDiv({event_in_session_limit}, 2))), {field})",
+                        {
+                            "field": ast.Field(chain=[f"filtered_{field}"]),
+                            "event_in_session_limit": ast.Constant(value=self.event_in_session_limit),
+                        },
+                    ),
+                ),
+            ]
+            for orig, field in fields.items()
+        )
+        return list(itertools.chain.from_iterable(expressions))
+
     def get_target_clause(self) -> list[ast.Expr]:
         if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
-            clause = f"""
-            , indexOf(compact_path, %(secondary_target_point)s) as start_target_index
-            , if(start_target_index > 0, arraySlice(compact_path, start_target_index), compact_path) as start_filtered_path
-            , if(start_target_index > 0, arraySlice(timings, start_target_index), timings) as start_filtered_timings
-            , indexOf(start_filtered_path, %(target_point)s) as end_target_index
-            , if(end_target_index > 0, arrayResize(start_filtered_path, end_target_index), start_filtered_path) as filtered_path
-            , if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings
-            , if(length(filtered_path) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_path, 1, intDiv(%(event_in_session_limit)s,2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_path) AS limited_path
-            , if(length(filtered_timings) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_timings, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_timings[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_timings, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_timings) AS limited_timings
-            """
-
-            # Add target clause for extra fields
-            clause += " ".join(
-                [
-                    f"""
-                        , if(start_target_index > 0, arraySlice({field}s, start_target_index), {field}s) as start_filtered_{field}s
-                        , if(end_target_index > 0, arrayResize(start_filtered_{field}s, end_target_index), start_filtered_{field}s) as filtered_{field}s
-                        , if(length(filtered_{field}s) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_{field}s, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_{field}s[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_{field}s, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_{field}s) AS limited_{field}s
-                    """
-                    for field in self.extra_event_fields_and_properties
-                ]
+            clauses = [
+                ast.Alias(
+                    alias=f"start_target_index",
+                    expr=ast.Call(
+                        name="indexOf",
+                        args=[
+                            ast.Field(chain=["compact_path"]),
+                            ast.Constant(value=self.query.pathsFilter.startPoint),
+                        ],
+                    ),
+                ),
+            ]
+            filtered_limited = self.get_start_end_filtered_limited()
+            # We need a special order of fields due to dependencies
+            clauses.append(filtered_limited[0])
+            clauses.append(
+                ast.Alias(
+                    alias=f"end_target_index",
+                    expr=ast.Call(
+                        name="indexOf",
+                        args=[
+                            ast.Field(chain=["start_filtered_path"]),
+                            ast.Constant(value=self.query.pathsFilter.endPoint),
+                        ],
+                    ),
+                ),
             )
-            return []
+            clauses.extend(filtered_limited[1:])
+            return clauses
         else:
             filtered_paths = self.get_filtered_path_ordering()
             limited_paths = self.get_limited_path_ordering()
