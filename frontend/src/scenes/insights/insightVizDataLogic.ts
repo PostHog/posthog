@@ -272,6 +272,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return insightDataError?.queryId || null
             },
         ],
+        validationError: [
+            (s) => [s.insightDataError],
+            (insightDataError): string => {
+                return insightDataError?.status === 400 && insightDataError.type === 'validation_error'
+                    ? insightDataError.detail
+                    : ''
+            },
+        ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
 
@@ -298,12 +306,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (funnelsFilter): FilterType => ({
                 events: funnelsFilter?.exclusions,
             }),
-        ],
-        areExclusionFiltersValid: [
-            (s) => [s.insightDataError],
-            (insightDataError): boolean => {
-                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
-            },
         ],
     }),
 

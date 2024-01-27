@@ -39,8 +39,8 @@ export function InsightEmptyState({
                 <div className="illustration-main">
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
-                <h2>{heading}</h2>
-                <p className="text-center">{detail}</p>
+                <h2 className="text-xl">{heading}</h2>
+                <p className="text-sm text-center text-balance">{detail}</p>
             </div>
         </div>
     )
@@ -88,7 +88,7 @@ export function InsightTimeoutState({
                         <div className="illustration-main">
                             <IconErrorOutline />
                         </div>
-                        <h2 className="mb-6">Your query took too long to complete</h2>
+                        <h2 className="text-xl mb-6">Your query took too long to complete</h2>
                     </>
                 ) : (
                     <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
@@ -155,14 +155,14 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                 <div className="illustration-main">
                     <IconErrorOutline />
                 </div>
-                <h2>{title || 'There was an error completing this query'}</h2>
+                <h2 className="text-xl">{title || 'There was a problem completing this query'}</h2>
                 {!excludeDetail && (
                     <div className="mt-4">
                         We apologize for this unexpected situation. There are a couple of things you can do:
                         <ol>
                             <li>
-                                First and foremost you can <b>try again</b>. We recommended you wait a few moments
-                                before doing so.
+                                First and foremost you can <b>try again</b>. We recommended you wait a moment before
+                                doing so.
                             </li>
                             <li>
                                 <Link
@@ -203,8 +203,8 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                 <div className="illustration-main">
                     <PlusCircleOutlined />
                 </div>
-                <h2 className="funnels-empty-state__title">Add another step!</h2>
-                <p className="text-center">
+                <h2 className="text-xl funnels-empty-state__title">Add another step!</h2>
+                <p className="text-sm text-center text-balance">
                     You’re almost there! Funnels require at least two steps before calculating.
                     {actionable &&
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}
@@ -238,28 +238,27 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     )
 }
 
-export function FunnelInvalidExclusionState(): JSX.Element {
+export function FunnelValidationError({ detail }: { detail: string }): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IconWarning />
                 </div>
-                <h2>Invalid exclusion filters</h2>
-                <p>
-                    You're excluding events or actions that are part of the funnel steps. Try changing your funnel step
-                    filters, or removing the overlapping exclusion event.
-                </p>
-                <div className="mt-4">
-                    <Link
-                        data-attr="insight-funnels-emptystate-help"
-                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
-                        target="_blank"
-                    >
-                        Learn more about funnels in PostHog docs
-                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </Link>
-                </div>
+                <h2 className="text-xl">There is a problem with this query</h2>
+                <p className="text-sm text-center text-balance">{detail}</p>
+                {detail.includes('Exclusion') && (
+                    <div className="mt-4">
+                        <Link
+                            data-attr="insight-funnels-emptystate-help"
+                            to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
+                            target="_blank"
+                        >
+                            Learn more about funnels in PostHog docs
+                            <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
+                        </Link>
+                    </div>
+                )}
             </div>
         </div>
     )
