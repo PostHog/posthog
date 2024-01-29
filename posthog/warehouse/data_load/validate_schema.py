@@ -13,6 +13,7 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from typing import Dict
+from django.db import close_old_connections
 
 
 def validate_schema(credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int) -> Dict:
@@ -51,7 +52,9 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
 
     logger = async_to_sync(bind_temporal_worker_logger)(team_id=team_id)
 
+    close_old_connections()
     job = ExternalDataJob.objects.get(pk=run_id)
+
     last_successful_job = get_latest_run_if_exists(job.team_id, job.pipeline_id)
 
     credential = get_or_create_datawarehouse_credential(

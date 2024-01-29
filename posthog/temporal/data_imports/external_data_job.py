@@ -148,9 +148,6 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         team_id=inputs.team_id,
         run_id=inputs.run_id,
     )
-    pipeline: ExternalDataSource = await sync_to_async(ExternalDataSource.objects.get)(  # type: ignore
-        team_id=inputs.team_id, id=inputs.source_id
-    )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
@@ -159,27 +156,27 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         schemas=inputs.schemas,
         run_id=inputs.run_id,
         team_id=inputs.team_id,
-        job_type=pipeline.source_type,
+        job_type=model.pipeline.source_type,
         dataset_name=model.folder_path,
     )
 
     source = None
-    if pipeline.source_type == ExternalDataSource.Type.STRIPE:
+    if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
         from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
 
-        stripe_secret_key = pipeline.job_inputs.get("stripe_secret_key", None)
+        stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(
             api_key=stripe_secret_key,
             endpoints=tuple(inputs.schemas),
         )
-    elif pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
+    elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
         from posthog.temporal.data_imports.pipelines.hubspot import hubspot
 
-        hubspot_access_code = pipeline.job_inputs.get("hubspot_secret_key", None)
-        refresh_token = pipeline.job_inputs.get("hubspot_refresh_token", None)
+        hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
+        refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
         if not refresh_token:
             raise ValueError(f"Hubspot refresh token not found for job {model.id}")
 
@@ -191,15 +188,15 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
             refresh_token=refresh_token,
             endpoints=tuple(inputs.schemas),
         )
-    elif pipeline.source_type == ExternalDataSource.Type.POSTGRES:
+    elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
         from posthog.temporal.data_imports.pipelines.postgres import postgres_source
 
-        host = pipeline.job_inputs.get("host")
-        port = pipeline.job_inputs.get("port")
-        user = pipeline.job_inputs.get("user")
-        password = pipeline.job_inputs.get("password")
-        database = pipeline.job_inputs.get("database")
-        schema = pipeline.job_inputs.get("schema")
+        host = model.pipeline.job_inputs.get("host")
+        port = model.pipeline.job_inputs.get("port")
+        user = model.pipeline.job_inputs.get("user")
+        password = model.pipeline.job_inputs.get("password")
+        database = model.pipeline.job_inputs.get("database")
+        schema = model.pipeline.job_inputs.get("schema")
 
         source = postgres_source(
             host=host,
@@ -213,7 +210,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         )
 
     else:
-        raise ValueError(f"Source type {pipeline.source_type} not supported")
+        raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
     # Temp background heartbeat for now
     async def heartbeat() -> None:
