@@ -12,6 +12,7 @@ from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, to_printed_hogql
+from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
 from posthog.test.base import BaseTest
@@ -1064,6 +1065,42 @@ class TestPrinter(BaseTest):
             # ...
             f"FROM (SELECT min(session_replay_events.min_first_timestamp) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT 10000"
         )
+
+    def test_field_nullable_boolean(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="is_boolean", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+        materialize("events", "is_boolean")
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        generated_sql_statements1 = self._select(
+            "SELECT "
+            "properties.is_boolean = true,"
+            "properties.is_boolean = false, "
+            "properties.is_boolean is null "
+            "FROM events",
+            context=context,
+        )
+        assert generated_sql_statements1 == (
+            f"SELECT "
+            "ifNull(equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s, NULL), true), 0), "
+            "ifNull(equals(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_2)s, %(hogql_val_3)s, NULL), false), 0), "
+            "isNull(transform(nullIf(nullIf(events.mat_is_boolean, ''), 'null'), %(hogql_val_4)s, %(hogql_val_5)s, NULL)) "
+            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
+        )
+        assert context.values == {
+            "hogql_val_0": ["true", "false"],
+            "hogql_val_1": [True, False],
+            "hogql_val_2": ["true", "false"],
+            "hogql_val_3": [True, False],
+            "hogql_val_4": ["true", "false"],
+            "hogql_val_5": [True, False],
+        }
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
