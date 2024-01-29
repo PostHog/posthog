@@ -133,6 +133,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                     mode: path_dropoff_key ? 'dropOff' : path_start_key ? 'continue' : 'completion',
                 }),
+                orderBy: ['id'],
             }
             if (values.hogQLInsightsPathsFlagEnabled && values.vizQuerySource?.kind === NodeKind.PathsQuery) {
                 modalProps['query'] = {
@@ -147,7 +148,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                         },
                     },
                 }
-                modalProps['additionalFields'] = {
+                modalProps['additionalSelect'] = {
                     value_at_data_point: 'event_count',
                     matched_recordings: 'matched_recordings',
                 }

@@ -36,7 +36,8 @@ const RESULTS_PER_PAGE = 100
 export interface PersonModalLogicProps {
     query?: InsightActorsQuery | null
     url?: string | null
-    additionalFields?: Partial<Record<keyof CommonActorType, string>>
+    additionalSelect?: Partial<Record<keyof CommonActorType, string>>
+    orderBy?: string[]
 }
 
 export interface ListActorsResponse {
@@ -63,19 +64,19 @@ export const personsModalLogic = kea<personsModalLogicType>([
             query,
             clear,
             offset,
-            additionalFields,
+            additionalSelect,
         }: {
             url?: string | null
             query?: InsightActorsQuery | null
             clear?: boolean
             offset?: number
-            additionalFields?: PersonModalLogicProps['additionalFields']
+            additionalSelect?: PersonModalLogicProps['additionalSelect']
         }) => ({
             url,
             query,
             clear,
             offset,
-            additionalFields,
+            additionalSelect,
         }),
         loadNextActors: true,
         updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
@@ -90,7 +91,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, query, clear, offset, additionalFields }, breakpoint) => {
+                loadActors: async ({ url, query, clear, offset, additionalSelect }, breakpoint) => {
                     if (url) {
                         url += '&include_recordings=true'
 
@@ -122,7 +123,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
-                        const additionalFieldIndices = Object.values(additionalFields || {}).map((field) =>
+                        const additionalFieldIndices = Object.values(additionalSelect || {}).map((field) =>
                             assembledSelectFields.indexOf(field)
                         )
                         const newResponse: ListActorsResponse = {
@@ -144,7 +145,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 value_at_data_point: null,
                                             }
 
-                                            Object.keys(additionalFields || {}).forEach((field, index) => {
+                                            Object.keys(additionalSelect || {}).forEach((field, index) => {
                                                 person[field] = result[additionalFieldIndices[index]]
                                             })
 
@@ -326,15 +327,15 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         selectFields: [
-            () => [(_, p) => p.additionalFields],
-            (additionalFields: PersonModalLogicProps['additionalFields']): string[] => {
-                const extra = Object.values(additionalFields || {})
+            () => [(_, p) => p.additionalSelect],
+            (additionalSelect: PersonModalLogicProps['additionalSelect']): string[] => {
+                const extra = Object.values(additionalSelect || {})
                 return ['person', 'created_at', ...extra]
             },
         ],
         actorsQuery: [
-            (s) => [(_, p) => p.query, s.searchTerm, s.selectFields],
-            (query, searchTerm, selectFields): ActorsQuery | null => {
+            (s) => [(_, p) => p.query, (_, p) => p.orderBy, s.searchTerm, s.selectFields],
+            (query, orderBy, searchTerm, selectFields): ActorsQuery | null => {
                 if (!query) {
                     return null
                 }
@@ -342,7 +343,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     kind: NodeKind.ActorsQuery,
                     source: query,
                     select: selectFields,
-                    orderBy: ['created_at DESC'],
+                    orderBy: orderBy || ['created_at DESC'],
                     search: searchTerm,
                 }
             },
@@ -365,7 +366,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
-        actions.loadActors({ query: props.query, url: props.url, additionalFields: props.additionalFields })
+        actions.loadActors({ query: props.query, url: props.url, additionalSelect: props.additionalSelect })
 
         actions.reportPersonsModalViewed({
             url: props.url,
