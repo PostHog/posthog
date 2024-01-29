@@ -40,7 +40,7 @@ export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlag
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlags()
         case ProductKey.SURVEYS:
-            return urls.surveys()
+            return urls.surveyTemplates()
         default:
             return urls.default()
     }
@@ -134,8 +134,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowOtherProductsStep: [
-            (s) => [s.suggestedProducts],
-            (suggestedProducts: BillingProductV2Type[]) => suggestedProducts.length > 0,
+            (s) => [s.suggestedProducts, s.isFirstProductOnboarding],
+            (suggestedProducts: BillingProductV2Type[], isFirstProductOnboarding: boolean) =>
+                suggestedProducts.length > 0 && isFirstProductOnboarding,
         ],
         suggestedProducts: [
             (s) => [s.billing, s.product, s.currentTeam],
