@@ -348,27 +348,24 @@ export function FlutterSnippet({ flagKey }: FeatureFlagSnippet): JSX.Element {
 }
 
 export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
-    const clientSuffix = 'posthog.'
+    const clientSuffix = 'PostHogSDK.shared.'
 
     if (payload) {
         return (
             <CodeSnippet language={Language.Swift} wrap>
-                {`${clientSuffix}getFeatureFlagStringPayload("${flagKey}", defaultValue: "myDefaultValue")`}
+                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
             </CodeSnippet>
         )
     }
 
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
-    const variantSuffix = multivariant ? ` == "example-variant"` : ''
+    const variantSuffix = multivariant ? `as? String == "example-variant"` : ''
     return (
         <CodeSnippet language={Language.Swift} wrap>
-            {`// In Swift
-
-if (${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix}) {
+            {`if ${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix} {
     // do something
-}
-            `}
+}`}
         </CodeSnippet>
     )
 }
