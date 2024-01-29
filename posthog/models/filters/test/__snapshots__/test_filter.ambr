@@ -1,6 +1,5 @@
-# serializer version: 1
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -22,7 +21,6 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -56,10 +54,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons.1
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -81,7 +79,6 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -115,10 +112,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons.2
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -140,7 +137,6 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -174,10 +170,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons.3
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -199,7 +195,6 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -233,10 +228,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons.4
-  '''
+  '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -258,7 +253,6 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -292,10 +286,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons.5
-  '''
+  '
   SELECT "posthog_person"."id",
          "posthog_person"."created_at",
          "posthog_person"."properties_last_updated_at",
@@ -311,71 +305,71 @@
          AND "posthog_person"."properties" ? 'urls'
          AND NOT (("posthog_person"."properties" -> 'urls') = 'null')
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons.6
-  '''
+  '
   SELECT "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_icontains_with_array_value
-  '''
+  '
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%[''red'']%')
          AND "posthog_person"."properties" ? '$key'
          AND NOT (("posthog_person"."properties" -> '$key') = 'null')
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_icontains_with_array_value.1
-  '''
+  '
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE (UPPER(("posthog_person"."properties" ->> '$key')::text) LIKE UPPER('%red%')
          AND "posthog_person"."properties" ? '$key'
          AND NOT (("posthog_person"."properties" -> '$key') = 'null')
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_icontains_with_array_value.2
-  '''
+  '
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE (("posthog_person"."properties" -> '$key') > '["2"]'
          AND "posthog_person"."properties" ? '$key'
          AND NOT (("posthog_person"."properties" -> '$key') = 'null')
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date
-  '''
-  SELECT (1) AS "a"
+  '
+  SELECT 1 AS "a"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_person"."team_id" = 2
-         AND "posthog_person"."id" = -1)
+         AND ("posthog_person"."properties" -> 'created_at') > '"2021-02-06T10:00:00+00:00"')
   LIMIT 1
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date.1
-  '''
-  SELECT (1) AS "a"
+  '
+  SELECT 1 AS "a"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_person"."team_id" = 2
          AND "posthog_person"."id" = -1)
   LIMIT 1
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts
-  '''
+  '
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -395,12 +389,11 @@
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   WHERE "posthog_cohort"."id" = 2
-  ORDER BY "posthog_cohort"."id" ASC
-  LIMIT 1
-  '''
-# ---
+  LIMIT 21
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.1
-  '''
+  '
   SELECT "posthog_person"."id",
          "posthog_person"."created_at",
          "posthog_person"."properties_last_updated_at",
@@ -428,28 +421,28 @@
               AND "posthog_person"."properties" ? 'bla'
               AND NOT (("posthog_person"."properties" -> 'bla') = 'null')))
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.2
-  '''
+  '
   SELECT "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.3
-  '''
+  '
   SELECT "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match
-  '''
+  '
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -469,12 +462,11 @@
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   WHERE "posthog_cohort"."id" = 2
-  ORDER BY "posthog_cohort"."id" ASC
-  LIMIT 1
-  '''
-# ---
+  LIMIT 21
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.1
-  '''
+  '
   SELECT "posthog_person"."id",
          "posthog_person"."created_at",
          "posthog_person"."properties_last_updated_at",
@@ -502,19 +494,19 @@
               AND "posthog_person"."properties" ? 'bla'
               AND NOT (("posthog_person"."properties" -> 'bla') = 'null')))
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match.2
-  '''
+  '
   SELECT "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts
-  '''
+  '
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -534,12 +526,11 @@
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   WHERE "posthog_cohort"."id" = 2
-  ORDER BY "posthog_cohort"."id" ASC
-  LIMIT 1
-  '''
-# ---
+  LIMIT 21
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.1
-  '''
+  '
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -559,12 +550,11 @@
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   WHERE "posthog_cohort"."id" = 2
-  ORDER BY "posthog_cohort"."id" ASC
-  LIMIT 1
-  '''
-# ---
+  LIMIT 21
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.2
-  '''
+  '
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -584,12 +574,11 @@
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   WHERE "posthog_cohort"."id" = 2
-  ORDER BY "posthog_cohort"."id" ASC
-  LIMIT 1
-  '''
-# ---
+  LIMIT 21
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.3
-  '''
+  '
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -609,12 +598,11 @@
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   WHERE "posthog_cohort"."id" = 2
-  ORDER BY "posthog_cohort"."id" ASC
-  LIMIT 1
-  '''
-# ---
+  LIMIT 21
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.4
-  '''
+  '
   SELECT "posthog_person"."id",
          "posthog_person"."created_at",
          "posthog_person"."properties_last_updated_at",
@@ -642,23 +630,23 @@
          AND "posthog_person"."properties" ? 'other'
          AND NOT (("posthog_person"."properties" -> 'other') = 'null')
          AND "posthog_person"."team_id" = 2)
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.5
-  '''
+  '
   SELECT "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
-  '''
-# ---
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.6
-  '''
+  '
   SELECT "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
-  '''
-# ---
+  '
+---

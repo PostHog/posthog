@@ -11,12 +11,13 @@
 
 -c requirements.txt
 
-ruff>=0.1.2
+ruff>=0.1.2s==0.4.3
+datamodel-code-generator==0.21.5
 pip-tools==7.3.0
 mypy~=1.8.0
 mypy-baseline~=0.6.1
-mypy-extensions==1.0.0
-datamodel-code-generator==0.25.2
+mypy-extensions==0.4.3
+datamodel-code-generator==0.21.5
 djangorestframework-stubs==1.4.0
 django-stubs==1.8.0
 Faker==17.5.0

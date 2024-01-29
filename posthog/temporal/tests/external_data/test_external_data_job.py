@@ -130,14 +130,14 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
         team=team,
         status="running",
         source_type="Stripe",
-    )  # type: ignore
+    )
 
     inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
     run_id, schemas = await activity_environment.run(create_external_data_job_model, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
-    assert await sync_to_async(runs.exists)()  # type:ignore
+    assert await sync_to_async(runs.exists)()
     assert len(schemas) == 0
     count = await sync_to_async(ExternalDataSchema.objects.filter(source_id=new_source.pk).count)()  # type:ignore
     assert count == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
@@ -153,15 +153,15 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
         team=team,
         status="running",
         source_type="Stripe",
-    )  # type: ignore
+    )
 
-    await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
+    await sync_to_async(ExternalDataSchema.objects.create)(
         name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
         team_id=team.id,
         source_id=new_source.pk,
     )
 
-    await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
+    await sync_to_async(ExternalDataSchema.objects.create)(
         name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][1],
         team_id=team.id,
         source_id=new_source.pk,
@@ -173,7 +173,7 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
     run_id, schemas = await activity_environment.run(create_external_data_job_model, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
-    assert await sync_to_async(runs.exists)()  # type:ignore
+    assert await sync_to_async(runs.exists)()
     assert len(schemas) == 1
     # doesn't overlap
     count = await sync_to_async(ExternalDataSchema.objects.filter(source_id=new_source.pk).count)()  # type:ignore
@@ -193,11 +193,11 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
         team=team,
         status="running",
         source_type="Stripe",
-    )  # type: ignore
+    )
 
     new_job = await sync_to_async(create_external_data_job)(
         team_id=team.id, external_data_source_id=new_source.pk, workflow_id=activity_environment.info.workflow_id
-    )  # type: ignore
+    )
 
     inputs = UpdateExternalDataJobStatusInputs(
         id=str(new_job.id),
@@ -208,7 +208,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
     )
 
     await activity_environment.run(update_external_data_job_model, inputs)
-    await sync_to_async(new_job.refresh_from_db)()  # type: ignore
+    await sync_to_async(new_job.refresh_from_db)()
 
     assert new_job.status == ExternalDataJob.Status.COMPLETED
 
@@ -340,9 +340,9 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
-    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(
         team_id=team.id,
         pipeline_id=new_source.pk,
         status=ExternalDataJob.Status.RUNNING,
@@ -374,9 +374,9 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
-    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(
         team_id=team.id,
         pipeline_id=new_source.pk,
         status=ExternalDataJob.Status.RUNNING,
@@ -396,7 +396,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
 
         assert mock_get_columns.call_count == 10
         all_tables = DataWarehouseTable.objects.all()
-        table_length = await sync_to_async(len)(all_tables)  # type: ignore
+        table_length = await sync_to_async(len)(all_tables)
         assert table_length == 5
 
 
@@ -415,7 +415,7 @@ async def test_external_data_job_workflow_blank(team, **kwargs):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
     workflow_id = str(uuid.uuid4())
     inputs = ExternalDataWorkflowInputs(
@@ -446,7 +446,7 @@ async def test_external_data_job_workflow_blank(team, **kwargs):
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
-    run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)  # type: ignore
+    run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
 
@@ -465,7 +465,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
     workflow_id = str(uuid.uuid4())
     inputs = ExternalDataWorkflowInputs(
@@ -509,12 +509,12 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
-    run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)  # type: ignore
+    run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
 
-    assert await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == len(  # type: ignore
+    assert await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == len(
         PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]
     )
 
