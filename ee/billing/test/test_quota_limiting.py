@@ -54,7 +54,7 @@ class TestQuotaLimiting(BaseTest):
                 )
         time.sleep(1)
         result = update_all_org_billing_quotas()
-        patch_feature_enabled.assert_called_with(QUOTA_LIMIT_DATA_RETENTION_FLAG)
+        patch_feature_enabled.assert_called_with(QUOTA_LIMIT_DATA_RETENTION_FLAG, self.organization.id)
         patch_capture.called_once_with(self.organization.id, "quota_limiting_suspended", {"current_usage": 109})
         assert result["events"] == {}
         assert result["recordings"] == {}
@@ -70,7 +70,7 @@ class TestQuotaLimiting(BaseTest):
         # Confirm that we don't send an event if they weren't going to be limited.
         with self.settings(USE_TZ=False):
             self.organization.usage = {
-                "events": {"usage": 99, "limit": 100},
+                "events": {"usage": 60, "limit": 100},
                 "recordings": {"usage": 1, "limit": 100},
                 "rows_synced": {"usage": 5, "limit": 100},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
