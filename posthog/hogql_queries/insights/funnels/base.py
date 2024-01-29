@@ -166,6 +166,82 @@ class FunnelBase(ABC):
         # return expr
         return ast.Constant(value=True)
 
+    def _get_count_columns(self, max_steps: int) -> List[ast.Expr]:
+        exprs: List[ast.Expr] = []
+
+        for i in range(max_steps):
+            exprs.append(parse_expr(f"countIf(steps = {i + 1}) step_{i + 1}"))
+
+        return exprs
+
+    def _get_step_time_names(self, max_steps: int) -> List[ast.Expr]:
+        exprs: List[ast.Expr] = []
+
+        for i in range(1, max_steps):
+            exprs.append(parse_expr(f"step_{i}_conversion_time"))
+
+        return exprs
+
+    # def _get_final_matching_event(self, max_steps: int):
+    #     statement = None
+    #     for i in range(max_steps - 1, -1, -1):
+    #         if i == max_steps - 1:
+    #             statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+    #         elif i == 0:
+    #             statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
+    #         else:
+    #             statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+    #     return f",{statement} as final_matching_event" if statement else ""
+
+    def _get_matching_events(self, max_steps: int) -> List[ast.Expr]:
+        # if self._filter.include_recordings:
+        #     events = []
+        #     for i in range(0, max_steps):
+        #         event_fields = ["latest"] + self.extra_event_fields_and_properties
+        #         event_fields_with_step = ", ".join([f'"{field}_{i}"' for field in event_fields])
+        #         event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
+        #         events.append(event_clause)
+        #     matching_event_select_statements = "," + ", ".join(events)
+
+        #     final_matching_event_statement = self._get_final_matching_event(max_steps)
+
+        #     return matching_event_select_statements + final_matching_event_statement
+
+        return []
+
+    def _get_matching_event_arrays(self, max_steps: int) -> List[ast.Expr]:
+        # select_clause = ""
+        # if self._filter.include_recordings:
+        #     for i in range(0, max_steps):
+        #         select_clause += f", groupArray(10)(step_{i}_matching_event) as step_{i}_matching_events"
+        #     select_clause += f", groupArray(10)(final_matching_event) as final_matching_events"
+        # return select_clause
+        return []
+
+    def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False) -> List[ast.Expr]:
+        exprs: List[ast.Expr] = []
+
+        for i in range(1, max_steps):
+            exprs.append(
+                parse_expr(f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time_inner")
+                if inner_query
+                else parse_expr(f"avg(step_{i}_average_conversion_time_inner) step_{i}_average_conversion_time")
+            )
+
+        return exprs
+
+    def _get_step_time_median(self, max_steps: int, inner_query: bool = False) -> List[ast.Expr]:
+        exprs: List[ast.Expr] = []
+
+        for i in range(1, max_steps):
+            exprs.append(
+                parse_expr(f"median(step_{i}_conversion_time) step_{i}_median_conversion_time_inner")
+                if inner_query
+                else parse_expr(f"median(step_{i}_median_conversion_time_inner) step_{i}_median_conversion_time")
+            )
+
+        return exprs
+
     def _get_timestamp_selects(self) -> Tuple[List[ast.Expr], List[ast.Expr]]:
         """
         Returns timestamp selectors for the target step and optionally the preceding step.
@@ -204,6 +280,26 @@ class FunnelBase(ABC):
         # else:
         #     return "", ""
         return [], []
+
+    def _get_step_times(self, max_steps: int) -> List[ast.Expr]:
+        windowInterval = self.context.funnelWindowInterval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
+
+        exprs: List[ast.Expr] = []
+
+        for i in range(1, max_steps):
+            exprs.extend(
+                [
+                    parse_expr(
+                        f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, "
+                    ),
+                    parse_expr(
+                        f"dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
+                    ),
+                ]
+            )
+
+        return exprs
 
     def _get_partition_cols(self, level_index: int, max_steps: int) -> List[ast.Expr]:
         # funnelsFilter = self.context.query.funnelsFilter or FunnelsFilter()

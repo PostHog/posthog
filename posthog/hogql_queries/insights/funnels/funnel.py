@@ -31,15 +31,15 @@ class Funnel(FunnelBase):
     """
 
     def get_query(self):
-        # max_steps = self.context.max_steps
+        max_steps = self.context.max_steps
 
         breakdown_exprs = self._get_breakdown_prop()
 
         select: List[ast.Expr] = [
-            # {self._get_count_columns(max_steps)}
-            # {self._get_step_time_avgs(max_steps)}
-            # {self._get_step_time_median(max_steps)}
-            *breakdown_exprs
+            *self._get_count_columns(max_steps),
+            *self._get_step_time_avgs(max_steps),
+            *self._get_step_time_median(max_steps),
+            *breakdown_exprs,
         ]
 
         return ast.SelectQuery(
@@ -49,7 +49,7 @@ class Funnel(FunnelBase):
         )
 
     def get_step_counts_query(self):
-        # max_steps = self.context.max_steps
+        max_steps = self.context.max_steps
         breakdown_exprs = self._get_breakdown_prop()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties()
@@ -62,9 +62,9 @@ class Funnel(FunnelBase):
 
         outer_select: List[ast.Expr] = [
             *group_by_columns,
-            # {self._get_step_time_avgs(max_steps, inner_query=True)}
-            # {self._get_step_time_median(max_steps, inner_query=True)}
-            # {self._get_matching_event_arrays(max_steps)}
+            *self._get_step_time_avgs(max_steps, inner_query=True),
+            *self._get_step_time_median(max_steps, inner_query=True),
+            *self._get_matching_event_arrays(max_steps),
             *breakdown_exprs,
             *outer_timestamps,
             *person_and_group_properties,
@@ -80,8 +80,8 @@ class Funnel(FunnelBase):
         inner_select: List[ast.Expr] = [
             *group_by_columns,
             max_steps_expr,
-            # {self._get_step_time_names(max_steps)}
-            # {self._get_matching_events(max_steps)}
+            # *self._get_step_time_names(max_steps),
+            *self._get_matching_events(max_steps),
             *breakdown_exprs,
             *inner_timestamps,
             *person_and_group_properties,
@@ -132,9 +132,10 @@ class Funnel(FunnelBase):
             ast.Field(chain=["*"]),
             ast.Alias(alias="steps", expr=self._get_sorting_condition(max_steps, max_steps)),
             # {exclusion_clause}
-            # {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)}
+            *self._get_step_times(max_steps),
+            *self._get_matching_events(max_steps),
             *breakdown_exprs,
-            # {self._get_person_and_group_properties()}
+            *self._get_person_and_group_properties(),
         ]
 
         # return f"""
