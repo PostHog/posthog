@@ -88,9 +88,9 @@ export function moveToPostHogCloud(): JSX.Element {
             link: 'https://posthog.com/handbook/company/security',
         },
         {
-            name: 'HIPAA compliant (coming soon)',
+            name: 'HIPAA compliant',
             description:
-                "We'll be HIPAA compliant very soon (just waiting on paperwork), so you can rest easy knowing your data is secure.",
+                "Rest easy knowing your customers' data is secure.",
             icon: <IconHeart />,
         },
     ]
