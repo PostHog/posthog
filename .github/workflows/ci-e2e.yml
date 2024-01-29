@@ -23,7 +23,7 @@ jobs:
             shouldTriggerCypress: ${{ steps.changes.outputs.shouldTriggerCypress }}
         steps:
             # For pull requests it's not necessary to check out the code
-            - uses: dorny/paths-filter@v2
+            - uses: dorny/paths-filter@v3
               id: changes
               with:
                   filters: |
