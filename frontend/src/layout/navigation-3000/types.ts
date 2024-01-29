@@ -30,7 +30,7 @@ interface NavbarItemBase {
     icon: JSX.Element
     featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     tag?: 'alpha' | 'beta' | 'new'
-    sideAction?: Omit<SideAction, 'divider' | 'data-attr'> & { identifier: string }
+    sideAction?: Omit<SideAction, 'divider' | 'data-attr' | 'tooltipPlacement'> & { identifier: string }
 }
 export interface SceneNavbarItem extends NavbarItemBase {
     to: string

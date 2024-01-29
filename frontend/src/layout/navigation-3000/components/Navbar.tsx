@@ -91,7 +91,6 @@ export function Navbar(): JSX.Element {
                                             <KeyboardShortcut command shift k muted className="text-xs ml-2" />
                                         </span>
                                     ),
-                                    tooltipPlacement: 'right',
                                     onClick: toggleActionsBar,
                                 }}
                             />
