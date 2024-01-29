@@ -277,6 +277,8 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                     sourceFormLogic({ sourceType: 'Postgres' }).actions.submitDatabaseSchemaForm()
                 } else if (values.selectedConnector?.name) {
                     sourceFormLogic({ sourceType: values.selectedConnector?.name }).actions.submitExternalDataSource()
+                } else {
+                    dataWarehouseTableLogic.actions.submitTable()
                 }
             }
 
