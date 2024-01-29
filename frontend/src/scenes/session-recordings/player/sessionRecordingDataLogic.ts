@@ -282,7 +282,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshotsSuccess: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
-                // We got only a snapshot response for realtime, and it was empty
+                // We got only a single source to load, loaded it successfully, but it had no snapshots.
                 posthog.capture('recording_snapshots_v2_empty_response', {
                     source: sources[0],
                 })
