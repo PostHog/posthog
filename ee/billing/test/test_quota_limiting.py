@@ -28,8 +28,8 @@ class TestQuotaLimiting(BaseTest):
         super().setUp()
         self.redis_client = get_client()
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_dont_quota_limit_feature_flag_enabled(self, patch_feature_enabled, patch_capture) -> None:
         with self.settings(USE_TZ=False):
             self.organization.usage = {
@@ -54,7 +54,8 @@ class TestQuotaLimiting(BaseTest):
                 )
         time.sleep(1)
         result = update_all_org_billing_quotas()
-        assert patch_feature_enabled.called_once_with(QUOTA_LIMIT_DATA_RETENTION_FLAG)
+        patch_feature_enabled.assert_called_with(QUOTA_LIMIT_DATA_RETENTION_FLAG)
+        patch_capture.called_once_with(self.organization.id, "quota_limiting_suspended", {"current_usage": 109})
         assert result["events"] == {}
         assert result["recordings"] == {}
         assert result["rows_synced"] == {}
@@ -63,8 +64,8 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_quota_limit_feature_flag_not_on(self, patch_feature_enabled, patch_capture) -> None:
         # Confirm that we don't send an event if they weren't going to be limited.
         with self.settings(USE_TZ=False):
@@ -78,8 +79,9 @@ class TestQuotaLimiting(BaseTest):
 
         time.sleep(1)
         result = update_all_org_billing_quotas()
-        assert patch_feature_enabled.called_once_with(QUOTA_LIMIT_DATA_RETENTION_FLAG)
-        assert not patch_capture.called
+        # Shouldn't be called due to lazy evaluation of the conditional
+        patch_feature_enabled.assert_not_called()
+        patch_capture.assert_not_called()
         assert result["events"] == {}
         assert result["recordings"] == {}
         assert result["rows_synced"] == {}
