@@ -3,12 +3,13 @@ import { useState } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { PersonPropertySelect, PersonPropertySelectProps } from './PersonPropertySelect'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { PropertySelect, PropertySelectProps } from './PropertySelect'
 
-type Story = StoryObj<typeof PersonPropertySelect>
-const meta: Meta<typeof PersonPropertySelect> = {
-    title: 'Filters/Person Property Select',
-    component: PersonPropertySelect,
+type Story = StoryObj<typeof PropertySelect>
+const meta: Meta<typeof PropertySelect> = {
+    title: 'Filters/Property Select',
+    component: PropertySelect,
     decorators: [
         mswDecorator({
             get: {
@@ -31,7 +32,7 @@ const meta: Meta<typeof PersonPropertySelect> = {
 }
 export default meta
 
-const Template: StoryFn<typeof PersonPropertySelect> = (props: Partial<PersonPropertySelectProps>) => {
+const Template: StoryFn<typeof PropertySelect> = (props: Partial<PropertySelectProps>) => {
     const [selectedProperties, setSelectProperties] = useState<string[]>([
         '$initial_geoip_postal_code',
         '$initial_geoip_latitude',
@@ -54,9 +55,10 @@ const Template: StoryFn<typeof PersonPropertySelect> = (props: Partial<PersonPro
     ])
 
     return (
-        <PersonPropertySelect
+        <PropertySelect
             selectedProperties={selectedProperties}
             onChange={setSelectProperties}
+            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
             addText="Add"
             {...props}
         />

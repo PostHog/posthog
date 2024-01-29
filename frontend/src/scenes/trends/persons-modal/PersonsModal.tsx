@@ -67,7 +67,7 @@ export function PersonsModal({
     })
 
     const {
-        query: query,
+        query,
         actors,
         actorsResponseLoading,
         actorsResponse,

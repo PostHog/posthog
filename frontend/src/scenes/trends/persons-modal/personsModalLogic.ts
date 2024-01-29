@@ -97,7 +97,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         if (values.searchTerm) {
                             url += `&search=${values.searchTerm}`
                         }
-
+                    }
+                    if (url && !query) {
                         const res = await api.get(url)
                         breakpoint()
 
@@ -105,12 +106,19 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             actions.resetActors()
                         }
                         return res
-                    } else if (query) {
-                        const response = await performQuery({
-                            ...values.actorsQuery,
-                            limit: RESULTS_PER_PAGE + 1,
-                            offset: offset || 0,
-                        } as ActorsQuery)
+                    }
+                    if (query) {
+                        const response = await performQuery(
+                            {
+                                ...values.actorsQuery,
+                                limit: RESULTS_PER_PAGE + 1,
+                                offset: offset || 0,
+                            } as ActorsQuery,
+                            undefined,
+                            undefined,
+                            undefined,
+                            url ?? undefined
+                        )
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields

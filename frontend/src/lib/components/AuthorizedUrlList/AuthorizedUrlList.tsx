@@ -9,7 +9,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
-import { authorizedUrlListLogic, AuthorizedUrlListType as AuthorizedUrlListType } from './authorizedUrlListLogic'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
 
 function EmptyState({
     numberOfResults,

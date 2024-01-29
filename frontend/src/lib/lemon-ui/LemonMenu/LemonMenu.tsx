@@ -66,7 +66,6 @@ export interface LemonMenuProps
             LemonDropdownProps,
             | 'placement'
             | 'fallbackPlacements'
-            | 'actionable'
             | 'sameWidth'
             | 'maxContentWidth'
             | 'visible'
@@ -167,7 +166,7 @@ export function LemonMenuSectionList({
                         <section className="space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
-                                    <h5>{section.title}</h5>
+                                    <h5 className="mx-2 my-1">{section.title}</h5>
                                 ) : (
                                     section.title
                                 )
@@ -265,7 +264,6 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     items={items}
                     tooltipPlacement={tooltipPlacement}
                     placement="right-start"
-                    actionable
                     closeOnClickInside={custom ? false : true}
                     closeParentPopoverOnClickInside={custom ? false : true}
                 >

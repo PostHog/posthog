@@ -41,6 +41,7 @@ import aioboto3
 import functools
 from django.conf import settings
 import asyncio
+import psycopg
 
 BUCKET_NAME = "test-external-data-jobs"
 SESSION = aioboto3.Session()
@@ -89,6 +90,33 @@ async def minio_client(bucket_name):
         await minio_client.delete_bucket(Bucket=bucket_name)
 
 
+@pytest.fixture
+def postgres_config():
+    return {
+        "user": settings.PG_USER,
+        "password": settings.PG_PASSWORD,
+        "database": "external_data_database",
+        "schema": "external_data_schema",
+        "host": settings.PG_HOST,
+        "port": int(settings.PG_PORT),
+    }
+
+
+@pytest_asyncio.fixture
+async def postgres_connection(postgres_config, setup_postgres_test_db):
+    connection = await psycopg.AsyncConnection.connect(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        dbname=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+    )
+
+    yield connection
+
+    await connection.close()
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_create_external_job_activity(activity_environment, team, **kwargs):
@@ -110,15 +138,14 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
-    assert len(schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
+    assert len(schemas) == 0
+    count = await sync_to_async(ExternalDataSchema.objects.filter(source_id=new_source.pk).count)()  # type:ignore
+    assert count == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_create_external_job_activity_schemas_exist(activity_environment, team, **kwargs):
-    """
-    Test that the create external job activity creates a new job
-    """
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -147,8 +174,10 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
-    # one less schema because one of the schemas is turned off
-    assert len(schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]) - 1
+    assert len(schemas) == 1
+    # doesn't overlap
+    count = await sync_to_async(ExternalDataSchema.objects.filter(source_id=new_source.pk).count)()  # type:ignore
+    assert count == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -444,6 +473,14 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         external_data_source_id=new_source.pk,
     )
 
+    schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]
+    for schema in schemas:
+        await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
+            name=schema,
+            team_id=team.id,
+            source_id=new_source.pk,
+        )
+
     async def mock_async_func(inputs):
         pass
 
@@ -480,3 +517,70 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     assert await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == len(  # type: ignore
         PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_run_postgres_job(
+    activity_environment, team, minio_client, postgres_connection, postgres_config, **kwargs
+):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.posthog_test (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.posthog_test (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    async def setup_job_1():
+        new_source = await sync_to_async(ExternalDataSource.objects.create)(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
+            team=team,
+            status="running",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+            },
+        )  # type: ignore
+
+        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+            team_id=team.id,
+            pipeline_id=new_source.pk,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+        )
+
+        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
+
+        schemas = ["posthog_test"]
+        inputs = ExternalDataJobInputs(
+            team_id=team.id,
+            run_id=new_job.pk,
+            source_id=new_source.pk,
+            schemas=schemas,
+        )
+
+        return new_job, inputs
+
+    job_1, job_1_inputs = await setup_job_1()
+
+    with override_settings(
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    ):
+        await asyncio.gather(
+            activity_environment.run(run_external_data_job, job_1_inputs),
+        )
+
+        job_1_team_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/posthog_test/"
+        )
+        assert len(job_1_team_objects["Contents"]) == 1
