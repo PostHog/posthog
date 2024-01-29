@@ -11,7 +11,7 @@ describe('mutex', () => {
         const promiseMutex = new PromiseMutex()
         const results: string[] = []
         const run = async (n: number, priority: number, abortController?: AbortController): Promise<number> => {
-            return await promiseMutex.run({
+            return promiseMutex.run({
                 fn: async () => {
                     results.push('enter ' + n)
                     await delay(10)
@@ -93,5 +93,32 @@ describe('mutex', () => {
         })
 
         await expect(promise).rejects.toThrow('test')
+    })
+
+    it('should reject when aborting an in-progress task', async () => {
+        const promiseMutex = new PromiseMutex()
+        const abortController = new AbortController()
+        const promise = promiseMutex.run({
+            fn: async () => {
+                await delay(200)
+            },
+            abortController,
+        })
+        abortController.abort()
+
+        await expect(promise).rejects.toThrow('Aborted')
+    })
+
+    it('should not deadlock when given already-resolved promises', async () => {
+        const promiseMutex = new PromiseMutex()
+        const resolved = Promise.resolve()
+
+        const run = (): Promise<void> => {
+            return promiseMutex.run({
+                fn: async () => resolved,
+                abortController: new AbortController(),
+            })
+        }
+        expect(await Promise.all([run(), run()])).toEqual([undefined, undefined])
     })
 })
