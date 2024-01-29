@@ -47,7 +47,7 @@ export function moveToPostHogCloud(): JSX.Element {
         {
             name: 'Auto-scaling',
             description:
-                'As your product grows, so does your data, and scaling can be tough. On PostHog Cloud we take care of it for you so you never have to worry about spikes or downtime.',
+                'As your product grows, so does your data. PostHog Cloud scales for you, so you never have to worry about spikes or downtime.',
             icon: <IconTrending />,
         },
         {
@@ -70,14 +70,14 @@ export function moveToPostHogCloud(): JSX.Element {
         {
             name: 'Access to all features',
             description:
-                'Group analytics, data pipelines, A/B testing, and all other premium features are all available on PostHog Cloud.',
+                'Group analytics, data pipelines, A/B testing, and other premium features are only available on PostHog Cloud.',
             icon: <IconFeatures />,
             link: 'https://posthog.com/pricing',
         },
         {
             name: 'World-class support',
             description:
-                'We unforunately cannot offer support for self-hosted instances. PostHog Cloud customers get access to our world-class support team.',
+                'PostHog Cloud customers get access to our world-class support team, not just the community forum.',
             icon: <IconSupport />,
             link: 'https://posthog.com/handbook/growth/customer-support',
         },
