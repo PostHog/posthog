@@ -60,6 +60,14 @@ export class PromiseMutex {
     _current: PromiseMutexItem<any> | null = null
     _queue: PromiseMutexItem<any>[] = []
 
+    /**
+     * Run a function with a mutex. If the mutex is already running, the function will be queued and run when the mutex
+     * is available.
+     * @param fn The function to run
+     * @param priority The priority of the function. Lower numbers will be run first. Defaults to Infinity.
+     * @param abortController An AbortController that, if aborted,  will reject the promise and immediately start the next item in the queue.
+     * @param debugTag
+     */
     run = <T>({
         fn,
         priority,
