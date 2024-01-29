@@ -51,7 +51,7 @@ class FunnelBase(ABC):
             return self._format_single_funnel(results[0])
 
     def _format_single_funnel(self, results, with_breakdown=False):
-        # max_steps = self.context.max_steps
+        max_steps = self.context.max_steps
 
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
@@ -60,23 +60,25 @@ class FunnelBase(ABC):
         # breakdown_value = results[-1]
         # cache_invalidation_key = generate_short_id()
 
-        for step in reversed(self.context.query.series):
-            # if results and len(results) > 0:
-            #     total_people += results[step.index]
+        for index, step in enumerate(reversed(self.context.query.series)):
+            step_index = max_steps - 1 - index
+
+            if results and len(results) > 0:
+                total_people += results[step_index]
 
             serialized_result = self._serialize_step(
-                step, total_people, [], self.context.query.samplingFactor
+                step, total_people, step_index, [], self.context.query.samplingFactor
             )  # persons not needed on initial return
 
-            # if cast(int, step.index) > 0:
-            #     serialized_result.update(
-            #         {
-            #             "average_conversion_time": results[cast(int, step.index) + max_steps - 1],
-            #             "median_conversion_time": results[cast(int, step.index) + max_steps * 2 - 2],
-            #         }
-            #     )
-            # else:
-            #     serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
+            if step_index > 0:
+                serialized_result.update(
+                    {
+                        "average_conversion_time": results[step_index + max_steps - 1],
+                        "median_conversion_time": results[step_index + max_steps * 2 - 2],
+                    }
+                )
+            else:
+                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             # # Construct converted and dropped people URLs
             # funnel_step = step.index + 1
@@ -125,23 +127,18 @@ class FunnelBase(ABC):
         self,
         step: ActionsNode | EventsNode,
         count: int,
+        index: int,
         people: Optional[List[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> Dict[str, Any]:
-        if isinstance(step, ActionsNode):
-            # name = step.get_action().name
-            name = "some action"
-        else:
-            name = step.event
-
         return {
-            # "action_id": step.id,
-            "name": name,
+            "action_id": step.event if isinstance(step, EventsNode) else str(step.id),
+            "name": step.event if isinstance(step, EventsNode) else step.name,
             "custom_name": step.custom_name,
-            # "order": step.index,
+            "order": index,
             "people": people if people else [],
             "count": count,  # TODO: correct_result_for_sampling(count, sampling_factor),
-            # "type": step.type,
+            "type": "events" if isinstance(step, EventsNode) else "actions",
         }
 
     @property
