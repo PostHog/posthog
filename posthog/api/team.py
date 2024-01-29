@@ -217,7 +217,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, Dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        if not all(key in ["record_canvas"] for key in value.keys()):
+        if not all(key in ["record_canvas", "ai_summary"] for key in value.keys()):
             raise exceptions.ValidationError("Must provide a dictionary with only 'record_canvas' key.")
 
         return value
