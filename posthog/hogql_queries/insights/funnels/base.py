@@ -288,15 +288,10 @@ class FunnelBase(ABC):
         exprs: List[ast.Expr] = []
 
         for i in range(1, max_steps):
-            exprs.extend(
-                [
-                    parse_expr(
-                        f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, "
-                    ),
-                    parse_expr(
-                        f"dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
-                    ),
-                ]
+            exprs.append(
+                parse_expr(
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
+                ),
             )
 
         return exprs

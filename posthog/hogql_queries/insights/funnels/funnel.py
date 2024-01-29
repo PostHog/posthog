@@ -62,8 +62,8 @@ class Funnel(FunnelBase):
 
         outer_select: List[ast.Expr] = [
             *group_by_columns,
-            *self._get_step_time_avgs(max_steps, inner_query=True),
-            *self._get_step_time_median(max_steps, inner_query=True),
+            # *self._get_step_time_avgs(max_steps, inner_query=True),
+            # *self._get_step_time_median(max_steps, inner_query=True),
             *self._get_matching_event_arrays(max_steps),
             *breakdown_exprs,
             *outer_timestamps,
