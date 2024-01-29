@@ -244,8 +244,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     ast.SelectQuery,
                     prepare_ast_for_printing(hogql_query, context=context, dialect="clickhouse"),
                 )
-            except errors.ResolverException as e:
-                raise serializers.ValidationError(f"Invalid HogQL query: {e}")
+            except errors.ResolverException:
+                raise serializers.ValidationError(f"Invalid HogQL query")
 
             batch_export_schema: BatchExportsSchema = {
                 "fields": [],
