@@ -365,8 +365,7 @@ export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippe
         <CodeSnippet language={Language.Swift} wrap>
             {`if ${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix} {
     // do something
-}
-            `}
+}`}
         </CodeSnippet>
     )
 }
