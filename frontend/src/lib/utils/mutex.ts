@@ -1,6 +1,7 @@
 import { promiseResolveReject } from 'lib/utils'
 
 class PromiseMutexItem<T> {
+    _debugTag?: string
     _queue: PromiseMutex
     _runFn: () => Promise<void>
     _abortController: AbortController
@@ -12,8 +13,10 @@ class PromiseMutexItem<T> {
         queue: PromiseMutex,
         userFn: () => Promise<T>,
         abortController: AbortController,
-        priority: number = Infinity
+        priority: number = Infinity,
+        debugTag: string | undefined
     ) {
+        this._debugTag = debugTag
         this._queue = queue
         this._abortController = abortController
         this._priority = priority
@@ -55,18 +58,20 @@ class PromiseMutexItem<T> {
 
 export class PromiseMutex {
     _current: PromiseMutexItem<any> | null = null
-    private _queue: PromiseMutexItem<any>[] = []
+    _queue: PromiseMutexItem<any>[] = []
 
     run = <T>({
         fn,
         priority,
         abortController,
+        debugTag,
     }: {
         fn: () => Promise<T>
-        priority: number
+        priority?: number
         abortController: AbortController
+        debugTag?: string
     }): Promise<T> => {
-        const item = new PromiseMutexItem(this, fn, abortController, priority)
+        const item = new PromiseMutexItem(this, fn, abortController, priority, debugTag)
 
         this._queue.push(item)
         if (this._current === null) {
@@ -80,9 +85,19 @@ export class PromiseMutex {
         this._queue.sort((a, b) => a._priority - b._priority)
         const next = this._queue.shift()
         if (next) {
-            next._runFn().catch(() => {
-                // ignore
-            })
+            next._runFn()
+                .catch(() => {
+                    // ignore
+                })
+                .finally(() => {
+                    this._tryRunNext()
+                })
+        }
+    }
+
+    _tryRunNext(): void {
+        if (this._current === null) {
+            this._runNext()
         }
     }
 }
