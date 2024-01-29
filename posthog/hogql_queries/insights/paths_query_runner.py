@@ -761,7 +761,6 @@ class PathsQueryRunner(QueryRunner):
                 FROM {paths_per_person_query}
                 WHERE {conditions}
                 GROUP BY person_id
-                ORDER BY actor_id
             """,
             placeholders={
                 "paths_per_person_query": path_per_person_query,

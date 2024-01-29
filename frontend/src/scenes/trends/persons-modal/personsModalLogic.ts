@@ -112,7 +112,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         const response = await performQuery(
                             {
                                 ...values.actorsQuery,
-                                limit: RESULTS_PER_PAGE + 1,
+                                limit: RESULTS_PER_PAGE,
                                 offset: offset || 0,
                             } as ActorsQuery,
                             undefined,
