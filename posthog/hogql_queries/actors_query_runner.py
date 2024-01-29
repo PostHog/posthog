@@ -59,10 +59,9 @@ class ActorsQueryRunner(QueryRunner):
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
-            new_row[recordings_column_index] = None  # This would otherwise leak events
-            if recordings_column_index and recordings_lookup:
-                new_row[recordings_column_index] = self.get_recordings(
-                    result[recordings_column_index], recordings_lookup
+            if recordings_column_index is not None and recordings_lookup is not None:
+                new_row[recordings_column_index] = (
+                    self.get_recordings(result[recordings_column_index], recordings_lookup) or None
                 )
             yield new_row
 
