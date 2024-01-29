@@ -4,59 +4,47 @@ from rest_framework.exceptions import ValidationError
 
 
 class TestExperiments(unittest.TestCase):
-    def test_validate_event_variants(self):
-        expected_message = "No experiment events have been ingested yet"
+    def test_validate_event_variants_no_events(self):
+        expected_code = "no-events"
         with self.assertRaises(ValidationError) as context:
             validate_event_variants([], ["test", "control"])
 
-        self.assertIn(expected_message, str(context.exception))
+        self.assertEqual(expected_code, context.exception.detail[0].code)
 
-    def test_validate_event_variants_2(self):
-        filtered_results = [
+    def test_validate_event_variants_missing_variants(self):
+        funnel_results = [
             [
                 {
-                    "action_id": "step-2",
-                    "name": "step-2",
-                    "custom_name": None,
-                    "order": 1,
-                    "people": [],
-                    "count": 3,
-                    "type": "events",
-                    "average_conversion_time": 0.3333333333333333,
-                    "median_conversion_time": 0.0,
-                    "breakdown": ["control"],
-                    "breakdown_value": ["control"],
-                }
-            ]
-        ]
-
-        expected_message = "No events for the first funnel step have been ingested yet"
-        with self.assertRaises(ValidationError) as context:
-            validate_event_variants(filtered_results, ["test", "control"])
-
-        self.assertIn(expected_message, str(context.exception))
-
-    def test_validate_event_variants_3(self):
-        filtered_results = [
-            [
-                {
-                    "action_id": "step-1",
-                    "name": "step-1",
+                    "action_id": "step-a-1",
+                    "name": "step-a-1",
                     "custom_name": None,
                     "order": 0,
                     "people": [],
-                    "count": 3,
+                    "count": 1,
                     "type": "events",
-                    "average_conversion_time": 0.3333333333333333,
-                    "median_conversion_time": 0.0,
-                    "breakdown": ["control"],
-                    "breakdown_value": ["control"],
-                }
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["test"],
+                    "breakdown_value": ["test"],
+                },
+                {
+                    "action_id": "step-a-2",
+                    "name": "step-a-2",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["test"],
+                    "breakdown_value": ["test"],
+                },
             ]
         ]
 
-        expected_message = "No experiment events have been ingested yet for the following variants: test"
+        expected_code = "missing-flag-variants::control"
         with self.assertRaises(ValidationError) as context:
-            validate_event_variants(filtered_results, ["test", "control"])
+            validate_event_variants(funnel_results, ["test", "control"])
 
-        self.assertIn(expected_message, str(context.exception))
+        self.assertEqual(expected_code, context.exception.detail[0].code)
