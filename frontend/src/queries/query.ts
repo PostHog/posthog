@@ -212,7 +212,7 @@ export async function query<N extends DataNode = DataNode>(
                 },
                 methodOptions
             )
-        } else if (isInsightQueryNode(queryNode) || isActorsQuery(queryNode)) {
+        } else if (isInsightQueryNode(queryNode) || (isActorsQuery(queryNode) && !!legacyUrl)) {
             if (
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
                 (hogQLInsightsPathsFlagEnabled &&
