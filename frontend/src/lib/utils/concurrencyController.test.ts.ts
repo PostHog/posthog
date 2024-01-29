@@ -1,17 +1,17 @@
 import { delay } from 'lib/utils'
 
-import { ParallelismController } from './parallelismController'
+import { ConcurrencyController } from './concurrencyController'
 
-describe('parallelismController', () => {
+describe('concurrencyController', () => {
     const setup = (): {
-        parallelismController: ParallelismController
+        concurrencyController: ConcurrencyController
         results: string[]
         run: (n: number, priority: number, abortController?: AbortController) => Promise<number>
     } => {
-        const parallelismController = new ParallelismController(1)
+        const concurrencyController = new ConcurrencyController(1)
         const results: string[] = []
         const run = async (n: number, priority: number, abortController?: AbortController): Promise<number> => {
-            return parallelismController.run({
+            return concurrencyController.run({
                 fn: async () => {
                     results.push('enter ' + n)
                     await delay(10)
@@ -23,7 +23,7 @@ describe('parallelismController', () => {
             })
         }
 
-        return { parallelismController, results, run }
+        return { concurrencyController, results, run }
     }
 
     it('should execute one function at a time, sorted by priority', async () => {
@@ -50,11 +50,11 @@ describe('parallelismController', () => {
     })
 
     it('should not deadlock if an item is aborted while running', async () => {
-        const parallelismController = new ParallelismController(1)
+        const concurrencyController = new ConcurrencyController(1)
         const results: string[] = []
         const run = async (n: number, priority: number): Promise<void> => {
             const abortController = new AbortController()
-            await parallelismController.run({
+            await concurrencyController.run({
                 fn: async () => {
                     results.push('enter ' + n)
                     await delay(10)
@@ -84,8 +84,8 @@ describe('parallelismController', () => {
     })
 
     it('should reject rather than throw if a run function throws', async () => {
-        const parallelismController = new ParallelismController(1)
-        const promise = parallelismController.run({
+        const concurrencyController = new ConcurrencyController(1)
+        const promise = concurrencyController.run({
             fn: async () => {
                 throw new Error('test')
             },
@@ -96,9 +96,9 @@ describe('parallelismController', () => {
     })
 
     it('should reject when aborting an in-progress task', async () => {
-        const parallelismController = new ParallelismController(1)
+        const concurrencyController = new ConcurrencyController(1)
         const abortController = new AbortController()
-        const promise = parallelismController.run({
+        const promise = concurrencyController.run({
             fn: async () => {
                 await delay(200)
             },
@@ -110,11 +110,11 @@ describe('parallelismController', () => {
     })
 
     it('should not deadlock when given already-resolved promises', async () => {
-        const parallelismController = new ParallelismController(1)
+        const concurrencyController = new ConcurrencyController(1)
         const resolved = Promise.resolve(42)
 
         const run = (): Promise<number> => {
-            return parallelismController.run({
+            return concurrencyController.run({
                 fn: async () => resolved,
                 abortController: new AbortController(),
             })
@@ -131,8 +131,8 @@ describe('parallelismController', () => {
     })
 
     it('can use a parallelismLimit of 2', async () => {
-        const { run, results, parallelismController } = setup()
-        parallelismController.setConcurrencyLimit(2)
+        const { run, results, concurrencyController } = setup()
+        concurrencyController.setConcurrencyLimit(2)
         await Promise.allSettled([run(1, 1), run(1, 1), run(3, 3), run(3, 3), run(2, 2), run(2, 2)])
         expect(results).toEqual([
             'enter 1',

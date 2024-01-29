@@ -20,7 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
-import { ParallelismController } from 'lib/utils/parallelismController'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
 import { teamLogic } from 'scenes/teamLogic'
@@ -61,7 +61,7 @@ export interface DataNodeLogicProps {
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
-const parallelismController = new ParallelismController(Infinity)
+const concurrencyController = new ConcurrencyController(Infinity)
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
@@ -148,7 +148,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        const response = await parallelismController.run({
+                        const response = await concurrencyController.run({
                             debugTag: props.query.kind,
                             abortController,
                             fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
@@ -578,8 +578,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
         featureFlags: (flags) => {
-            if (flags[FEATURE_FLAGS.DATANODE_PARALLELISM]) {
-                parallelismController.setConcurrencyLimit(1)
+            if (flags[FEATURE_FLAGS.DATANODE_CONCURRENCY_LIMIT]) {
+                concurrencyController.setConcurrencyLimit(1)
             }
         },
     })),

@@ -1,12 +1,12 @@
 import { promiseResolveReject } from 'lib/utils'
 
-class ParallelismControllerItem<T> {
+class ConcurrencyControllerItem<T> {
     _debugTag?: string
     _runFn: () => Promise<void>
     _priority: number = Infinity
     _promise: Promise<T>
     constructor(
-        parallelismController: ParallelismController,
+        concurrencyController: ConcurrencyController,
         userFn: () => Promise<T>,
         abortController: AbortController,
         priority: number = Infinity,
@@ -21,11 +21,11 @@ class ParallelismControllerItem<T> {
                 reject(new FakeAbortError(abortController.signal.reason || 'AbortError'))
                 return
             }
-            if (parallelismController._current.length >= parallelismController._concurrencyLimit) {
-                throw new Error('Developer Error: ParallelismControllerItem: _runFn called while already running')
+            if (concurrencyController._current.length >= concurrencyController._concurrencyLimit) {
+                throw new Error('Developer Error: ConcurrencyControllerItem: _runFn called while already running')
             }
             try {
-                parallelismController._current.push(this)
+                concurrencyController._current.push(this)
                 const result = await userFn()
                 resolve(result)
             } catch (error) {
@@ -40,19 +40,19 @@ class ParallelismControllerItem<T> {
                 // ignore
             })
             .finally(() => {
-                if (parallelismController._current.includes(this)) {
-                    parallelismController._current = parallelismController._current.filter((item) => item !== this)
-                    parallelismController._runNext()
+                if (concurrencyController._current.includes(this)) {
+                    concurrencyController._current = concurrencyController._current.filter((item) => item !== this)
+                    concurrencyController._runNext()
                 }
             })
     }
 }
 
-export class ParallelismController {
+export class ConcurrencyController {
     _concurrencyLimit: number
 
-    _current: ParallelismControllerItem<any>[] = []
-    private _queue: ParallelismControllerItem<any>[] = []
+    _current: ConcurrencyControllerItem<any>[] = []
+    private _queue: ConcurrencyControllerItem<any>[] = []
 
     constructor(concurrencyLimit: number) {
         this._concurrencyLimit = concurrencyLimit
@@ -77,7 +77,7 @@ export class ParallelismController {
         abortController: AbortController
         debugTag?: string
     }): Promise<T> => {
-        const item = new ParallelismControllerItem(this, fn, abortController, priority, debugTag)
+        const item = new ConcurrencyControllerItem(this, fn, abortController, priority, debugTag)
 
         this._queue.push(item)
 
