@@ -305,7 +305,6 @@ class ClickHouseClient:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
-        As pyarrow doesn't support async/await buffers, this method is sync and utilizes requests instead of aiohttp.
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = AsyncRecordBatchReader(response.content.iter_any())
