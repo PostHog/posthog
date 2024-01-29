@@ -22,7 +22,7 @@ import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
+    const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
@@ -107,15 +107,6 @@ export function Navbar(): JSX.Element {
                                 title="Settings"
                                 to={urls.settings('project')}
                             />
-
-                            {!systemStatusHealthy ? (
-                                <NavbarButton
-                                    icon={<IconWarning />}
-                                    identifier={Scene.Settings}
-                                    title="System issue!"
-                                    to={urls.instanceStatus()}
-                                />
-                            ) : null}
 
                             <Popover
                                 overlay={<AccountPopoverOverlay />}
