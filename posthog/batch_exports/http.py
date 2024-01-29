@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any, cast, TypedDict
+from typing import Any, TypedDict, cast
 
 import posthoganalytics
 import structlog
@@ -16,10 +16,7 @@ from rest_framework.exceptions import (
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_dataclasses.serializers import DataclassSerializer
-from posthog.hogql.parser import parse_select
-from posthog.hogql import ast, errors
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.batch_exports.models import (
     BATCH_EXPORT_INTERVALS,
@@ -33,12 +30,16 @@ from posthog.batch_exports.service import (
     BatchExportServiceRPCError,
     BatchExportServiceScheduleNotFound,
     backfill_export,
-    cancel_running_batch_export_backfill,
     batch_export_delete_schedule,
+    cancel_running_batch_export_backfill,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
 )
+from posthog.hogql import ast, errors
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import (
     BatchExport,
     BatchExportBackfill,
@@ -161,8 +162,8 @@ class HogQLSelectQueryField(serializers.Field):
         """Parse a HogQL SelectQuery from a string query."""
         try:
             parsed_query = parse_select(data)
-        except Exception as e:
-            raise serializers.ValidationError("Failed to parse query") from e
+        except Exception:
+            raise serializers.ValidationError("Failed to parse query")
 
         return parsed_query
 
@@ -244,7 +245,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     prepare_ast_for_printing(hogql_query, context=context, dialect="clickhouse"),
                 )
             except errors.ResolverException as e:
-                raise serializers.ValidationError(f"Invalid HogQL query: {e}") from e
+                raise serializers.ValidationError(f"Invalid HogQL query: {e}")
 
             batch_export_schema: BatchExportsSchema = {
                 "fields": [],
