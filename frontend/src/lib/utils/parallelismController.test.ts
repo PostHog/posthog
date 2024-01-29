@@ -1,17 +1,17 @@
 import { delay } from 'lib/utils'
 
-import { PromiseMutex } from './mutex'
+import { ParallelismController } from './parallelismController'
 
-describe('mutex', () => {
+describe('parallelismController', () => {
     const setup = (): {
-        promiseMutex: PromiseMutex
+        parallelismController: ParallelismController
         results: string[]
         run: (n: number, priority: number, abortController?: AbortController) => Promise<number>
     } => {
-        const promiseMutex = new PromiseMutex()
+        const parallelismController = new ParallelismController(1)
         const results: string[] = []
         const run = async (n: number, priority: number, abortController?: AbortController): Promise<number> => {
-            return promiseMutex.run({
+            return parallelismController.run({
                 fn: async () => {
                     results.push('enter ' + n)
                     await delay(10)
@@ -23,7 +23,7 @@ describe('mutex', () => {
             })
         }
 
-        return { promiseMutex, results, run }
+        return { parallelismController, results, run }
     }
 
     it('should execute one function at a time, sorted by priority', async () => {
@@ -50,11 +50,11 @@ describe('mutex', () => {
     })
 
     it('should not deadlock if an item is aborted while running', async () => {
-        const promiseMutex = new PromiseMutex()
+        const parallelismController = new ParallelismController(1)
         const results: string[] = []
         const run = async (n: number, priority: number): Promise<void> => {
             const abortController = new AbortController()
-            await promiseMutex.run({
+            await parallelismController.run({
                 fn: async () => {
                     results.push('enter ' + n)
                     await delay(10)
@@ -84,8 +84,8 @@ describe('mutex', () => {
     })
 
     it('should reject rather than throw if a run function throws', async () => {
-        const promiseMutex = new PromiseMutex()
-        const promise = promiseMutex.run({
+        const parallelismController = new ParallelismController(1)
+        const promise = parallelismController.run({
             fn: async () => {
                 throw new Error('test')
             },
@@ -96,9 +96,9 @@ describe('mutex', () => {
     })
 
     it('should reject when aborting an in-progress task', async () => {
-        const promiseMutex = new PromiseMutex()
+        const parallelismController = new ParallelismController(1)
         const abortController = new AbortController()
-        const promise = promiseMutex.run({
+        const promise = parallelismController.run({
             fn: async () => {
                 await delay(200)
             },
@@ -110,11 +110,11 @@ describe('mutex', () => {
     })
 
     it('should not deadlock when given already-resolved promises', async () => {
-        const promiseMutex = new PromiseMutex()
+        const parallelismController = new ParallelismController(1)
         const resolved = Promise.resolve(42)
 
         const run = (): Promise<number> => {
-            return promiseMutex.run({
+            return parallelismController.run({
                 fn: async () => resolved,
                 abortController: new AbortController(),
             })
@@ -128,5 +128,25 @@ describe('mutex', () => {
         abortController.abort()
         const promise = run(1, 1, abortController)
         await expect(promise).rejects.toEqual(expect.objectContaining({ name: 'AbortError' }))
+    })
+
+    it('can use a parallelismLimit of 2', async () => {
+        const { run, results, parallelismController } = setup()
+        parallelismController.setConcurrencyLimit(2)
+        await Promise.allSettled([run(1, 1), run(1, 1), run(3, 3), run(3, 3), run(2, 2), run(2, 2)])
+        expect(results).toEqual([
+            'enter 1',
+            'enter 1',
+            'exit 1',
+            'enter 2',
+            'exit 1',
+            'enter 2',
+            'exit 2',
+            'enter 3',
+            'exit 2',
+            'enter 3',
+            'exit 3',
+            'exit 3',
+        ])
     })
 })

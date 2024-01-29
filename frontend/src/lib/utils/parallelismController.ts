@@ -1,39 +1,31 @@
 import { promiseResolveReject } from 'lib/utils'
 
-class PromiseMutexItem<T> {
+class ParallelismControllerItem<T> {
     _debugTag?: string
-    _queue: PromiseMutex
     _runFn: () => Promise<void>
-    _abortController: AbortController
     _priority: number = Infinity
-    _resolve: (value: T) => void
-    _reject: (reason?: any) => void
     _promise: Promise<T>
     constructor(
-        queue: PromiseMutex,
+        parallelismController: ParallelismController,
         userFn: () => Promise<T>,
         abortController: AbortController,
         priority: number = Infinity,
         debugTag: string | undefined
     ) {
         this._debugTag = debugTag
-        this._queue = queue
-        this._abortController = abortController
         this._priority = priority
         const { promise, resolve, reject } = promiseResolveReject<T>()
         this._promise = promise
-        this._resolve = resolve
-        this._reject = reject
         this._runFn = async () => {
             if (abortController.signal.aborted) {
                 reject(new FakeAbortError(abortController.signal.reason || 'AbortError'))
                 return
             }
-            if (this._queue._current !== null) {
-                throw new Error('Developer Error: PromiseMutexItem: _runFn called while already running')
+            if (parallelismController._current.length >= parallelismController._concurrencyLimit) {
+                throw new Error('Developer Error: ParallelismControllerItem: _runFn called while already running')
             }
             try {
-                this._queue._current = this
+                parallelismController._current.push(this)
                 const result = await userFn()
                 resolve(result)
             } catch (error) {
@@ -48,17 +40,23 @@ class PromiseMutexItem<T> {
                 // ignore
             })
             .finally(() => {
-                if (this._queue._current === this) {
-                    this._queue._current = null
-                    this._queue._runNext()
+                if (parallelismController._current.includes(this)) {
+                    parallelismController._current = parallelismController._current.filter((item) => item !== this)
+                    parallelismController._runNext()
                 }
             })
     }
 }
 
-export class PromiseMutex {
-    _current: PromiseMutexItem<any> | null = null
-    _queue: PromiseMutexItem<any>[] = []
+export class ParallelismController {
+    _concurrencyLimit: number
+
+    _current: ParallelismControllerItem<any>[] = []
+    private _queue: ParallelismControllerItem<any>[] = []
+
+    constructor(concurrencyLimit: number) {
+        this._concurrencyLimit = concurrencyLimit
+    }
 
     /**
      * Run a function with a mutex. If the mutex is already running, the function will be queued and run when the mutex
@@ -79,12 +77,11 @@ export class PromiseMutex {
         abortController: AbortController
         debugTag?: string
     }): Promise<T> => {
-        const item = new PromiseMutexItem(this, fn, abortController, priority, debugTag)
+        const item = new ParallelismControllerItem(this, fn, abortController, priority, debugTag)
 
         this._queue.push(item)
-        if (this._current === null) {
-            this._runNext()
-        }
+
+        this._tryRunNext()
 
         return item._promise
     }
@@ -104,9 +101,13 @@ export class PromiseMutex {
     }
 
     _tryRunNext(): void {
-        if (this._current === null) {
+        if (this._current.length < this._concurrencyLimit) {
             this._runNext()
         }
+    }
+
+    setConcurrencyLimit = (limit: number): void => {
+        this._concurrencyLimit = limit
     }
 }
 
