@@ -25,8 +25,8 @@ class PromiseMutexItem<T> {
         this._resolve = resolve
         this._reject = reject
         this._runFn = async () => {
-            if (this._abortController.signal.aborted) {
-                reject(new Error('Aborted'))
+            if (abortController.signal.aborted) {
+                reject(new FakeAbortError(abortController.signal.reason || 'AbortError'))
                 return
             }
             if (this._queue._current !== null) {
@@ -41,7 +41,7 @@ class PromiseMutexItem<T> {
             }
         }
         abortController.signal.addEventListener('abort', () => {
-            reject(new Error('Aborted'))
+            reject(new FakeAbortError(abortController.signal.reason || 'AbortError'))
         })
         promise
             .catch(() => {
@@ -108,4 +108,9 @@ export class PromiseMutex {
             this._runNext()
         }
     }
+}
+
+// Create a fake AbortError that allows us to use e.name === 'AbortError' to check if an error is an AbortError
+class FakeAbortError extends Error {
+    name = 'AbortError'
 }

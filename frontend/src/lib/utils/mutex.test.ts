@@ -106,19 +106,27 @@ describe('mutex', () => {
         })
         abortController.abort()
 
-        await expect(promise).rejects.toThrow('Aborted')
+        await expect(promise).rejects.toEqual(expect.objectContaining({ name: 'AbortError' }))
     })
 
     it('should not deadlock when given already-resolved promises', async () => {
         const promiseMutex = new PromiseMutex()
-        const resolved = Promise.resolve()
+        const resolved = Promise.resolve(42)
 
-        const run = (): Promise<void> => {
+        const run = (): Promise<number> => {
             return promiseMutex.run({
                 fn: async () => resolved,
                 abortController: new AbortController(),
             })
         }
-        expect(await Promise.all([run(), run()])).toEqual([undefined, undefined])
+        expect(await Promise.all([run(), run()])).toEqual([42, 42])
+    })
+
+    it('should have an error with name AbortError when aborted', async () => {
+        const { run } = setup()
+        const abortController = new AbortController()
+        abortController.abort()
+        const promise = run(1, 1, abortController)
+        await expect(promise).rejects.toEqual(expect.objectContaining({ name: 'AbortError' }))
     })
 })
