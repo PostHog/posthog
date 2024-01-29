@@ -577,6 +577,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }, AUTOLOAD_INTERVAL)
             }
         },
+        featureFlags: (flags) => {
+            if (flags[FEATURE_FLAGS.DATANODE_PARALLELISM]) {
+                parallelismController.setConcurrencyLimit(1)
+            }
+        },
     })),
     afterMount(({ actions, props }) => {
         if (Object.keys(props.query || {}).length > 0) {
