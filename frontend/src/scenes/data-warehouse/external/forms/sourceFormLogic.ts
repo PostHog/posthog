@@ -29,11 +29,22 @@ const getPayloadDefaults = (sourceType: string): Record<string, any> => {
 const getErrorsDefaults = (sourceType: string): ((args: Record<string, any>) => Record<string, any>) => {
     switch (sourceType) {
         case 'Stripe':
-            return ({ payload }) => ({
-                payload: {
-                    account_id: !payload.account_id && 'Please enter an account id.',
-                    client_secret: !payload.client_secret && 'Please enter a client secret.',
-                },
+            return ({ prefix, payload }) => {
+                return {
+                    prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
+                        ? null
+                        : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
+                    payload: {
+                        account_id: !payload.account_id && 'Please enter an account id.',
+                        client_secret: !payload.client_secret && 'Please enter a client secret.',
+                    },
+                }
+            }
+        case 'Hubspot':
+            return ({ prefix }) => ({
+                prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
+                    ? null
+                    : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
             })
         default:
             return () => ({})
@@ -119,7 +130,10 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
                     schema: '',
                 },
             },
-            errors: ({ payload: { host, port, dbname, user, password, schema } }) => ({
+            errors: ({ prefix, payload: { host, port, dbname, user, password, schema } }) => ({
+                prefix: /^[a-zA-Z0-9_-]*$/.test(prefix)
+                    ? null
+                    : "Please enter a valid prefix (only letters, numbers, and '_' or '-').",
                 payload: {
                     host: !host && 'Please enter a host.',
                     port: !port && 'Please enter a port.',
