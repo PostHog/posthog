@@ -63,6 +63,31 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.capture")
+    def test_quota_limit_feature_flag_not_on(self, patch_feature_enabled, patch_capture) -> None:
+        # Confirm that we don't send an event if they weren't going to be limited.
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": 99, "limit": 100},
+                "recordings": {"usage": 1, "limit": 100},
+                "rows_synced": {"usage": 5, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+        time.sleep(1)
+        result = update_all_org_billing_quotas()
+        assert patch_feature_enabled.called_once_with(QUOTA_LIMIT_DATA_RETENTION_FLAG)
+        assert not patch_capture.called
+        assert result["events"] == {}
+        assert result["recordings"] == {}
+        assert result["rows_synced"] == {}
+
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
             self.organization.usage = {}
