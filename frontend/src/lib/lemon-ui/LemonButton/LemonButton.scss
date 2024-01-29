@@ -138,8 +138,12 @@
     &.LemonButton--active,
     &:hover:not([aria-disabled='true']),
     &:not([aria-disabled='true']):active {
-        --lemon-button-icon-opacity: 0.75;
-        --lemon-button-profile-picture-opacity: 1;
+        &,
+        .LemonButtonWithSideAction__side-button > & {
+            // Increase specificity to also target side buttons
+            --lemon-button-icon-opacity: 0.75;
+            --lemon-button-profile-picture-opacity: 1;
+        }
     }
 
     &.LemonButton--full-width {
@@ -379,13 +383,12 @@
             var(--lemon-button-side-action-width) -
                 var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
         );
-        height: 1.25rem;
-        color: var(--muted);
+        height: calc(var(--lemon-button-height) - 1.0625rem);
 
         &--divider {
             padding: 0;
             margin-left: calc(var(--lemon-button-padding-horizontal) / 2);
-            border-left: 1px solid currentColor;
+            border-left: 1px solid var(--muted);
         }
     }
 
