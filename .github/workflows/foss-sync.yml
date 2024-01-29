@@ -27,7 +27,7 @@ jobs:
                   destination_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'refs/tags/*'
             - name: Checkout posthog-foss
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   repository: 'posthog/posthog-foss'
                   ref: master

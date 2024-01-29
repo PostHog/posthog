@@ -23,7 +23,7 @@ jobs:
         outputs:
             storybook-url: ${{ steps.publish.outputs.storybookUrl }}
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
               with:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
@@ -98,7 +98,7 @@ jobs:
             firefox-2-total: ${{ steps.diff.outputs.firefox-2-total }}
             firefox-2-commitHash: ${{ steps.commit-hash.outputs.firefox-2-commitHash }}
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}

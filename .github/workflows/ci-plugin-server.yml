@@ -33,7 +33,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - uses: dorny/paths-filter@v2
               id: filter
@@ -60,7 +60,7 @@ jobs:
                 working-directory: 'plugin-server'
 
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - name: Install pnpm
               uses: pnpm/action-setup@v2
@@ -101,7 +101,7 @@ jobs:
         steps:
             - name: Code check out
               if: needs.changes.outputs.plugin-server == 'true'
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
 
             - name: Stop/Start stack with Docker Compose
               if: needs.changes.outputs.plugin-server == 'true'
@@ -201,7 +201,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
 
             - name: Stop/Start stack with Docker Compose
               run: |

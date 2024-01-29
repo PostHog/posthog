@@ -12,7 +12,7 @@ jobs:
         if: github.repository == 'PostHog/posthog'
         steps:
             - name: Check out PostHog/posthog repo
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   path: posthog
                   fetch-depth: 0
@@ -36,7 +36,7 @@ jobs:
               run: cd posthog && pnpm build-storybook
 
             - name: Check out PostHog/storybook-build repo
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   path: storybook-build
                   repository: PostHog/storybook-build

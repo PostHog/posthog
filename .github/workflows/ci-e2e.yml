@@ -62,7 +62,7 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
 
             - name: Group spec files into chunks of three
               id: chunk
@@ -82,7 +82,7 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
             - name: Build the Docker image with Depot
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               # Build the container image in preparation for the E2E tests
@@ -111,7 +111,7 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'

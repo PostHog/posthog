@@ -24,7 +24,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - uses: dorny/paths-filter@v2
               id: filter
@@ -55,7 +55,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -134,7 +134,7 @@ jobs:
 
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - name: Remove ee
               if: needs.changes.outputs.frontend == 'true' && matrix.segment == 'FOSS'

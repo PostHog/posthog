@@ -17,7 +17,7 @@ jobs:
         name: Run Django tests and save test durations
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - uses: ./.github/actions/run-backend-tests
               with:

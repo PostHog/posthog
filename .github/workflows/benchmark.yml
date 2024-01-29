@@ -34,13 +34,13 @@ jobs:
             BENCHMARK: '1'
 
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
               with:
                   # Checkout repo with full history
                   fetch-depth: 0
 
             - name: Check out PostHog/benchmarks-results repo
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   path: ee/benchmarks/results
                   repository: PostHog/benchmark-results

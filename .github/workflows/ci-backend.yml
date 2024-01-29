@@ -49,7 +49,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - uses: dorny/paths-filter@v2
               id: filter
@@ -100,7 +100,7 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
 
@@ -177,7 +177,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -207,7 +207,7 @@ jobs:
               run: |
                   python -m pip install -r requirements.txt -r requirements-dev.txt
 
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
               with:
                   ref: master
 
@@ -218,7 +218,7 @@ jobs:
                   python -m pip install -r requirements.txt -r requirements-dev.txt
                   python manage.py migrate
 
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - name: Check migrations
               run: |
@@ -254,7 +254,7 @@ jobs:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
             # All the other ones should rely on `needs.changes.outputs.backend` directly or indirectly, so that they're
             # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -321,7 +321,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 1
 

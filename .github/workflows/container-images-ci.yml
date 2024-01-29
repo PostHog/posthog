@@ -32,7 +32,7 @@ jobs:
                   workflow: .github/workflows/ci-backend.yml
 
             - name: Check out
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
 
             - name: Build and cache Docker image in Depot
               uses: ./.github/actions/build-n-cache-image
@@ -51,7 +51,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Check out
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 0
 
