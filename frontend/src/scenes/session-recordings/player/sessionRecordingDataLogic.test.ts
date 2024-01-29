@@ -284,7 +284,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.actions.loadRecordingMeta()
         })
 
-        it('since realtime is in the lists, then we start polling', async () => {
+        it('loads each source, and on success reports recording viewed', async () => {
             expect(logic.cache.realtimePollingInterval).toBeUndefined()
 
             await expectLogic(logic, () => {
