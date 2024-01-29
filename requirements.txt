@@ -32,7 +32,7 @@ annotated-types==0.5.0
     # via pydantic
 antlr4-python3-runtime==4.13.1
     # via -r requirements.in
-asgiref==3.3.2
+asgiref==3.7.2
     # via django
 asn1crypto==1.5.1
     # via
@@ -140,7 +140,7 @@ defusedxml==0.6.0
     #   social-auth-core
 dj-database-url==0.5.0
     # via -r requirements.in
-django==3.2.23
+django==4.1.13
     # via
     #   -r requirements.in
     #   django-axes
@@ -479,7 +479,6 @@ pytz==2023.3
     # via
     #   -r requirements.in
     #   clickhouse-driver
-    #   django
     #   djangorestframework
     #   dlt
     #   infi-clickhouse-orm
@@ -629,6 +628,7 @@ types-setuptools==69.0.0.0
     # via requirements-parser
 typing-extensions==4.7.1
     # via
+    #   asgiref
     #   dlt
     #   psycopg
     #   pydantic
