@@ -142,6 +142,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     },
                 }
                 openPersonsModal({
+                    url: personsUrl,
                     query: pathsActorsQuery,
                     title: pathsTitle({
                         label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
