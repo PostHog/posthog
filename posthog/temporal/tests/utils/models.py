@@ -13,11 +13,13 @@ from posthog.batch_exports.models import (
 from posthog.batch_exports.service import sync_batch_export
 
 
-def create_batch_export(team_id: int, interval: str, name: str, destination_data: dict) -> BatchExport:
+def create_batch_export(
+    team_id: int, interval: str, name: str, destination_data: dict, schema: dict | None = None
+) -> BatchExport:
     """Create a BatchExport and its underlying Schedule."""
 
     destination = BatchExportDestination(**destination_data)
-    batch_export = BatchExport(team_id=team_id, destination=destination, interval=interval, name=name)
+    batch_export = BatchExport(team_id=team_id, destination=destination, interval=interval, name=name, schema=schema)
 
     sync_batch_export(batch_export, created=True)
 
@@ -27,9 +29,11 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
     return batch_export
 
 
-async def acreate_batch_export(team_id: int, interval: str, name: str, destination_data: dict) -> BatchExport:
+async def acreate_batch_export(
+    team_id: int, interval: str, name: str, destination_data: dict, schema: dict | None = None
+) -> BatchExport:
     """Async create a BatchExport and its underlying Schedule."""
-    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)  # type: ignore
+    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data, schema)  # type: ignore
 
 
 async def adelete_batch_export(batch_export: BatchExport, temporal_client: temporalio.client.Client) -> None:

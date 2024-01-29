@@ -32,9 +32,26 @@ from posthog.temporal.common.schedule import (
 )
 
 
+class BatchExportField(typing.TypedDict):
+    """A field to be queried from ClickHouse.
+
+    Attributes:
+        expression: A ClickHouse SQL expression that declares the field required.
+        alias: An alias to apply to the expression (after an 'AS' keyword).
+    """
+
+    expression: str
+    alias: str
+
+
+class BatchExportSchema(typing.TypedDict):
+    fields: list[BatchExportField]
+    values: dict[str, str]
+
+
 class BatchExportsInputsProtocol(typing.Protocol):
     team_id: int
-    batch_export_schema: dict[str, str] | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -67,7 +84,7 @@ class S3BatchExportInputs:
     include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
-    batch_export_schema: dict[str, str] | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -88,7 +105,7 @@ class SnowflakeBatchExportInputs:
     role: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
-    batch_export_schema: dict[str, str] | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -109,7 +126,7 @@ class PostgresBatchExportInputs:
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
-    batch_export_schema: dict[str, str] | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -137,7 +154,7 @@ class BigQueryBatchExportInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     use_json_type: bool = False
-    batch_export_schema: dict[str, str] | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 @dataclass
@@ -148,7 +165,7 @@ class NoOpInputs:
     team_id: int
     interval: str = "hour"
     arg: str = ""
-    batch_export_schema: dict[str, str] | None = None
+    batch_export_schema: BatchExportSchema | None = None
 
 
 DESTINATION_WORKFLOWS = {
