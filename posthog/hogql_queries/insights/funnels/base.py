@@ -1,5 +1,6 @@
 from abc import ABC
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -8,6 +9,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.property.property import PropertyName
+from posthog.schema import ActionsNode, EventsNode
 from posthog.types import EntityNode
 
 
@@ -29,6 +31,118 @@ class FunnelBase(ABC):
         if False:  # self._filter.include_recordings: TODO: implement with actors query
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
+
+    def get_query(self) -> ast.SelectQuery:
+        raise NotImplementedError()
+
+    def get_step_counts_query(self) -> str:
+        raise NotImplementedError()
+
+    def get_step_counts_without_aggregation_query(self) -> str:
+        raise NotImplementedError()
+
+    def _format_results(self, results) -> List[Dict[str, Any]]:
+        if not results or len(results) == 0:
+            return []
+
+        if self.context.breakdownFilter.breakdown:
+            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
+        else:
+            return self._format_single_funnel(results[0])
+
+    def _format_single_funnel(self, results, with_breakdown=False):
+        # max_steps = self.context.max_steps
+
+        # Format of this is [step order, person count (that reached that step), array of person uuids]
+        steps = []
+        total_people = 0
+
+        # breakdown_value = results[-1]
+        # cache_invalidation_key = generate_short_id()
+
+        for step in reversed(self.context.query.series):
+            # if results and len(results) > 0:
+            #     total_people += results[step.index]
+
+            serialized_result = self._serialize_step(
+                step, total_people, [], self.context.query.samplingFactor
+            )  # persons not needed on initial return
+
+            # if cast(int, step.index) > 0:
+            #     serialized_result.update(
+            #         {
+            #             "average_conversion_time": results[cast(int, step.index) + max_steps - 1],
+            #             "median_conversion_time": results[cast(int, step.index) + max_steps * 2 - 2],
+            #         }
+            #     )
+            # else:
+            #     serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
+
+            # # Construct converted and dropped people URLs
+            # funnel_step = step.index + 1
+            # converted_people_filter = self._filter.shallow_clone({"funnel_step": funnel_step})
+            # dropped_people_filter = self._filter.shallow_clone({"funnel_step": -funnel_step})
+
+            # if with_breakdown:
+            #     # breakdown will return a display ready value
+            #     # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
+            #     serialized_result.update(
+            #         {
+            #             "breakdown": get_breakdown_cohort_name(breakdown_value)
+            #             if self._filter.breakdown_type == "cohort"
+            #             else breakdown_value,
+            #             "breakdown_value": breakdown_value,
+            #         }
+            #     )
+            #     # important to not try and modify this value any how - as these
+            #     # are keys for fetching persons
+
+            #     # Add in the breakdown to people urls as well
+            #     converted_people_filter = converted_people_filter.shallow_clone(
+            #         {"funnel_step_breakdown": breakdown_value}
+            #     )
+            #     dropped_people_filter = dropped_people_filter.shallow_clone({"funnel_step_breakdown": breakdown_value})
+
+            # serialized_result.update(
+            #     {
+            #         "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}&cache_invalidation_key={cache_invalidation_key}",
+            #         "dropped_people_url": (
+            #             f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}&cache_invalidation_key={cache_invalidation_key}"
+            #             # NOTE: If we are looking at the first step, there is no drop off,
+            #             # everyone converted, otherwise they would not have been
+            #             # included in the funnel.
+            #             if step.index > 0
+            #             else None
+            #         ),
+            #     }
+            # )
+
+            steps.append(serialized_result)
+
+        return steps[::-1]  # reverse
+
+    def _serialize_step(
+        self,
+        step: ActionsNode | EventsNode,
+        count: int,
+        people: Optional[List[uuid.UUID]] = None,
+        sampling_factor: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if isinstance(step, ActionsNode):
+            # name = step.get_action().name
+            name = "some action"
+        else:
+            name = step.event
+
+        return {
+            # "action_id": step.id,
+            "name": name,
+            "custom_name": step.custom_name,
+            # "order": step.index,
+            "people": people if people else [],
+            "count": count,  # TODO: correct_result_for_sampling(count, sampling_factor),
+            # "type": step.type,
+        }
 
     @property
     def extra_event_fields_and_properties(self):

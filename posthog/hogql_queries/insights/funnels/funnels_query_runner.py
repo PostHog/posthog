@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import List, Optional, Any, Dict, cast
+from typing import Optional, Any, Dict
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -8,15 +8,13 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.caching.utils import is_stale
-from posthog.constants import FunnelOrderType, FunnelVizType
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.funnels.funnel import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -70,29 +68,11 @@ class FunnelsQueryRunner(QueryRunner):
         return refresh_frequency
 
     def to_query(self) -> ast.SelectQuery:
-        funnelVizType, funnelOrderType = (
-            self.context.funnelsFilter.funnelVizType,
-            self.context.funnelsFilter.funnelOrderType,
-        )
-
-        dummy_query = cast(ast.SelectQuery, parse_select("SELECT 1"))  # placeholder for unimplemented funnel queries
-
-        if funnelVizType == FunnelVizType.TRENDS:
-            return dummy_query
-        elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
-            return dummy_query
-        else:
-            if funnelOrderType == FunnelOrderType.ORDERED:
-                return dummy_query
-            elif funnelOrderType == FunnelOrderType.STRICT:
-                return dummy_query
-            else:
-                return Funnel(context=self.context).get_query()
+        return self.funnel_order_class.get_query()
 
     def calculate(self):
         query = self.to_query()
 
-        res: List[Dict[str, Any]] = []
         timings = []
 
         response = execute_hogql_query(
@@ -106,7 +86,11 @@ class FunnelsQueryRunner(QueryRunner):
         if response.timings is not None:
             timings.extend(response.timings)
 
-        return FunnelsQueryResponse(results=res, timings=timings)
+        return FunnelsQueryResponse(results=self.funnel_order_class._format_results(response.results), timings=timings)
+
+    @cached_property
+    def funnel_order_class(self):
+        return get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
 
     @cached_property
     def query_date_range(self):
