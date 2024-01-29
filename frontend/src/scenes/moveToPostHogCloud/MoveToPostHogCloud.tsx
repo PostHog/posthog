@@ -11,8 +11,12 @@ import {
     IconUpload,
 } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: moveToPostHogCloud,
@@ -26,6 +30,10 @@ type CloudFeature = {
 }
 
 export function moveToPostHogCloud(): JSX.Element {
+    const { isCloudOrDev } = useValues(preflightLogic)
+    if (isCloudOrDev) {
+        router.actions.push(urls.default())
+    }
     const cloudFeatures: CloudFeature[] = [
         {
             name: 'Hosted for you',
