@@ -123,12 +123,12 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 path_end_key,
                 path_dropoff_key,
             }
-            const personsUrl = buildPeopleUrl({
-                date_from: '',
-                filters,
-                response: values.insightData,
-            })
             const modalProps: OpenPersonsModalProps = {
+                url: buildPeopleUrl({
+                    date_from: '',
+                    filters,
+                    response: values.insightData,
+                }),
                 title: pathsTitle({
                     label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                     mode: path_dropoff_key ? 'dropOff' : path_start_key ? 'continue' : 'completion',
@@ -151,8 +151,6 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     value_at_data_point: 'event_count',
                     matched_recordings: 'matched_recordings',
                 }
-            } else if (personsUrl) {
-                modalProps['url'] = personsUrl
             }
             openPersonsModal(modalProps)
         },
