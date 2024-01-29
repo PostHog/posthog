@@ -1599,6 +1599,9 @@ const api = {
         ): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
         },
+        async suggestPlaylistTitle(summaries: string[]): Promise<string> {
+            return await new ApiRequest().recordingPlaylists().withAction('suggest').create({ data: { summaries } })
+        },
 
         async listPlaylistRecordings(
             playlistId: SessionRecordingPlaylistType['short_id'],

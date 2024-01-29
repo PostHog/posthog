@@ -245,6 +245,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
+        suggestTitle: true,
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
@@ -268,6 +269,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
                 const response = await api.recordings.summarize(id)
                 return { content: response.content, id: id }
+            },
+        },
+        suggestedTitle: {
+            suggestTitle: async (): Promise<string> => {
+                const recordings = values.otherRecordings.slice(0, 5)
+                const summaryResponses = await Promise.all(recordings.map((r) => api.recordings.summarize(r.id)))
+                const summaries = summaryResponses.map((r) => r.content)
+                const response = await api.recordings.suggestPlaylistTitle(summaries)
+
+                console.log(summaries)
+                console.log(response)
+                return response
             },
         },
         eventsHaveSessionId: [

@@ -504,8 +504,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("session summary is not enabled for this user")
+        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+        #     raise exceptions.ValidationError("session summary is not enabled for this user")
 
         summary = summarize_recording(recording, user, self.team)
         timings = summary.pop("timings", None)

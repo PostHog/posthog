@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import structlog
 from django.db.models import Q, QuerySet
@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -38,6 +38,7 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.session_recordings.ai.suggest_title import suggest_title
 from posthog.session_recordings.session_recording_api import list_recordings_response
 from posthog.utils import relative_date_parse
 from loginas.utils import is_impersonated_session
@@ -278,3 +279,13 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             return response.Response({"success": True})
 
         raise NotImplementedError()
+
+    @action(methods=["POST"], detail=False, url_path="suggest")
+    def suggest(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise NotAuthenticated()
+
+        user = cast(User, request.user)
+        summaries = request.data.get("summaries", [])
+        suggestion = suggest_title(summaries, user)
+        return response.Response(suggestion)
