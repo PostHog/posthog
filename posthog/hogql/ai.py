@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional
 import openai
+from openai.types.chat import ChatCompletionMessageParam
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
@@ -68,7 +69,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         )
     )
     instance_region = get_instance_region() or "HOBBY"
-    messages: list[openai.types.chat.ChatCompletionMessageParam] = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": IDENTITY_MESSAGE},
         {
             "role": "system",
