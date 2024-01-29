@@ -1,4 +1,4 @@
-import { IconGear, IconSearch, IconToolbar, IconWarning } from '@posthog/icons'
+import { IconCodeInsert, IconGear, IconSearch, IconToolbar, IconWarning } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
@@ -17,6 +17,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
 
 import { navigation3000Logic } from '../navigationLogic'
+import { KeyboardShortcut } from './KeyboardShortcut'
 import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
@@ -26,7 +27,7 @@ export function Navbar(): JSX.Element {
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { toggleSearchBar } = useActions(commandBarLogic)
+    const { toggleSearchBar, toggleActionsBar } = useActions(commandBarLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -74,9 +75,25 @@ export function Navbar(): JSX.Element {
                             <NavbarButton
                                 identifier="search-button"
                                 icon={<IconSearch />}
-                                title="Search"
+                                title={
+                                    <span className="inline-flex items-center">
+                                        Search
+                                        <KeyboardShortcut command k muted className="text-xs ml-2" />
+                                    </span>
+                                }
                                 onClick={toggleSearchBar}
-                                keyboardShortcut={{ command: true, k: true }}
+                                sideAction={{
+                                    icon: <IconCodeInsert />,
+                                    identifier: 'command-palette-button',
+                                    tooltip: (
+                                        <span className="inline-flex items-center">
+                                            Command palette
+                                            <KeyboardShortcut command shift k muted className="text-xs ml-2" />
+                                        </span>
+                                    ),
+                                    tooltipPlacement: 'right',
+                                    onClick: toggleActionsBar,
+                                }}
                             />
                             <NavbarButton
                                 icon={<IconToolbar />}
