@@ -13,13 +13,28 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
+
+const BLOB_SOURCE: SessionRecordingSnapshotSource = {
+    source: 'blob',
+    start_timestamp: '2023-08-11T12:03:36.097000Z',
+    end_timestamp: '2023-08-11T12:04:52.268000Z',
+    blob_key: '1691755416097-1691755492268',
+    loaded: false,
+}
+const REALTIME_SOURCE: SessionRecordingSnapshotSource = {
+    source: 'realtime',
+    start_timestamp: '2024-01-28T21:19:49.217000Z',
+    end_timestamp: undefined,
+    blob_key: undefined,
+    loaded: false,
+}
 
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
@@ -32,19 +47,20 @@ describe('sessionRecordingDataLogic', () => {
                     // with no sources, returns sources...
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
+                    } else if (req.url.searchParams.get('source') === 'realtime') {
+                        // ... since this is fake, we'll just return the same data
+                        return res(ctx.text(snapshotsAsJSONLines()))
                     }
+
                     // with no source requested should return sources
+                    const sources = [BLOB_SOURCE]
+                    if (req.params.id === 'has-real-time-too') {
+                        sources.push(REALTIME_SOURCE)
+                    }
                     return [
                         200,
                         {
-                            sources: [
-                                {
-                                    source: 'blob',
-                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
-                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
-                                    blob_key: '1691755416097-1691755492268',
-                                },
-                            ],
+                            sources,
                         },
                     ]
                 },
@@ -256,6 +272,43 @@ describe('sessionRecordingDataLogic', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
 
             expect(prepareRecordingSnapshots(snapshots)).toMatchSnapshot()
+        })
+    })
+
+    describe('blob and realtime loading', () => {
+        beforeEach(async () => {
+            // load a different session
+            logic = sessionRecordingDataLogic({ sessionRecordingId: 'has-real-time-too' })
+            logic.mount()
+            // Most of these tests assume the metadata is being loaded upfront which is the typical case
+            logic.actions.loadRecordingMeta()
+        })
+
+        it('loads each source, and on success reports recording viewed', async () => {
+            expect(logic.cache.realtimePollingInterval).toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
+                // loading the snapshots will trigger a loadRecordingSnapshotsSuccess
+                // that will have the blob source
+                // that triggers loadRecordingSnapshots
+            }).toDispatchActions([
+                // the action we triggered
+                logic.actionCreators.loadRecordingSnapshots(),
+                'loadRecordingSnapshotsSuccess',
+                // the response to that triggers loading of the first item which is the blob source
+                (action) =>
+                    action.type === logic.actionTypes.loadRecordingSnapshots &&
+                    action.payload.source?.source === 'blob',
+                'loadRecordingSnapshotsSuccess',
+                // the response to that triggers loading of the second item which is the realtime source
+                (action) =>
+                    action.type === logic.actionTypes.loadRecordingSnapshots &&
+                    action.payload.source?.source === 'realtime',
+                'loadRecordingSnapshotsSuccess',
+                // and then we report having viewed the recording
+                'reportViewed',
+            ])
         })
     })
 })
