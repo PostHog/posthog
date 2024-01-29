@@ -62,8 +62,8 @@ class Funnel(FunnelBase):
 
         outer_select: List[ast.Expr] = [
             *group_by_columns,
-            # *self._get_step_time_avgs(max_steps, inner_query=True),
-            # *self._get_step_time_median(max_steps, inner_query=True),
+            *self._get_step_time_avgs(max_steps, inner_query=True),
+            *self._get_step_time_median(max_steps, inner_query=True),
             *self._get_matching_event_arrays(max_steps),
             *breakdown_exprs,
             *outer_timestamps,
@@ -80,7 +80,7 @@ class Funnel(FunnelBase):
         inner_select: List[ast.Expr] = [
             *group_by_columns,
             max_steps_expr,
-            # *self._get_step_time_names(max_steps),
+            *self._get_step_time_names(max_steps),
             *self._get_matching_events(max_steps),
             *breakdown_exprs,
             *inner_timestamps,
@@ -100,23 +100,6 @@ class Funnel(FunnelBase):
                 left=ast.Field(chain=["steps"]), right=ast.Field(chain=["max_steps"]), op=ast.CompareOperationOp.Eq
             ),
         )
-
-        # return parse_select(
-        #     """
-        #     SELECT {outer_select} FROM (
-        #         SELECT {inner_select} FROM (
-        #             {step_counts_without_aggregation_query}
-        #         )
-        #     ) GROUP BY {group_by_columns}
-        #     HAVING steps = max_steps
-        #     """,
-        #     placeholders={
-        #         "outer_select": outer_select,
-        #         "inner_select": inner_select,
-        #         "group_by_columns": group_by_columns,
-        #         "step_counts_without_aggregation_query": step_counts_without_aggregation_query,
-        #     },
-        # )
 
     def get_step_counts_without_aggregation_query(self):
         max_steps = self.context.max_steps
