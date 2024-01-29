@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isMobile } from 'lib/utils'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -13,7 +12,6 @@ import { SidebarChangeNoticeContent, useSidebarChangeNotices } from '~/layout/na
 
 import { navigation3000Logic } from '../navigationLogic'
 import { NavbarItem } from '../types'
-import { KeyboardShortcut, KeyboardShortcutProps } from './KeyboardShortcut'
 
 export interface NavbarButtonProps extends Pick<LemonButtonProps, 'onClick' | 'icon' | 'sideIcon' | 'to' | 'active'> {
     identifier: string
@@ -22,7 +20,6 @@ export interface NavbarButtonProps extends Pick<LemonButtonProps, 'onClick' | 'i
     shortTitle?: string
     forceTooltipOnHover?: boolean
     tag?: 'alpha' | 'beta' | 'new'
-    keyboardShortcut?: KeyboardShortcutProps
     sideAction?: NavbarItem['sideAction']
 }
 
@@ -31,18 +28,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     NavbarButtonProps
 >(
     (
-        {
-            identifier,
-            shortTitle,
-            title,
-            forceTooltipOnHover,
-            tag,
-            onClick,
-            keyboardShortcut,
-            sideAction,
-            sideIcon,
-            ...rest
-        },
+        { identifier, shortTitle, title, forceTooltipOnHover, tag, onClick, sideAction, sideIcon, ...rest },
         ref
     ): JSX.Element => {
         const { activeScene } = useValues(sceneLogic)
@@ -60,24 +46,14 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
         if (!isUsingNewNav) {
             buttonProps.active = here
         }
-        if (!isNavCollapsedActually) {
-            if (sideAction) {
-                // @ts-expect-error - in this case we are perfectly okay with assigning a sideAction
-                buttonProps.sideAction = {
-                    ...sideAction,
-                    divider: true,
-                    'data-attr': `menu-item-${sideAction.identifier.toLowerCase()}`,
-                }
-                buttonProps.sideIcon = null
-            } else if (keyboardShortcut && !isMobile()) {
-                // If the user agent says we're on mobile, then it's unlikely - but not impossible -
-                // that there's a physical keyboard. Hence in that case we don't show the keyboard shortcut
-                buttonProps.sideIcon = (
-                    <span className="text-xs">
-                        <KeyboardShortcut {...keyboardShortcut} />
-                    </span>
-                )
+        if (!isNavCollapsedActually && sideAction) {
+            // @ts-expect-error - in this case we are perfectly okay with assigning a sideAction
+            buttonProps.sideAction = {
+                ...sideAction,
+                divider: true,
+                'data-attr': `menu-item-${sideAction.identifier.toLowerCase()}`,
             }
+            buttonProps.sideIcon = null
         }
 
         let content: JSX.Element | string | undefined
