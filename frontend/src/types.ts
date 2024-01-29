@@ -2228,6 +2228,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    loadPriority?: number
+    onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
     setQuery?: (node: InsightVizNode) => void

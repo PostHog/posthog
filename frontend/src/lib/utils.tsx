@@ -1617,6 +1617,20 @@ export class UnexpectedNeverError extends Error {
     }
 }
 
+export function promiseResolveReject<T>(): {
+    resolve: (value: T) => void
+    reject: (reason?: any) => void
+    promise: Promise<T>
+} {
+    let resolve: (value: T) => void
+    let reject: (reason?: any) => void
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+        resolve = innerResolve
+        reject = innerReject
+    })
+    return { resolve: resolve!, reject: reject!, promise }
+}
+
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
     if (timeUnit === TimeUnitType.Year) {
         return timeValue * 365

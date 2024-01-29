@@ -16,6 +16,7 @@ import { WebTabs } from 'scenes/web-analytics/WebTabs'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
+import { InsightLogicProps } from '~/types'
 
 const Filters = (): JSX.Element => {
     const {
@@ -89,7 +90,7 @@ const Tiles = (): JSX.Element => {
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-10">
             {tiles.map((tile, i) => {
                 if ('query' in tile) {
-                    const { query, title, layout } = tile
+                    const { query, title, layout, insightProps } = tile
                     return (
                         <div
                             key={i}
@@ -102,7 +103,7 @@ const Tiles = (): JSX.Element => {
                             )}
                         >
                             {title && <h2 className="m-0 mb-3">{title}</h2>}
-                            <WebQuery query={query} />
+                            <WebQuery query={query} insightProps={insightProps} />
                         </div>
                     )
                 } else if ('tabs' in tile) {
@@ -131,7 +132,14 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
             setActiveTabId={tile.setTabId}
             tabs={tile.tabs.map((tab) => ({
                 id: tab.id,
-                content: <WebQuery key={tab.id} query={tab.query} showIntervalSelect={tab.showIntervalSelect} />,
+                content: (
+                    <WebQuery
+                        key={tab.id}
+                        query={tab.query}
+                        showIntervalSelect={tab.showIntervalSelect}
+                        insightProps={tab.insightProps}
+                    />
+                ),
                 linkText: tab.linkText,
                 title: tab.title,
             }))}
@@ -139,15 +147,23 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     )
 }
 
-const WebQuery = ({ query, showIntervalSelect }: { query: QuerySchema; showIntervalSelect?: boolean }): JSX.Element => {
+const WebQuery = ({
+    query,
+    showIntervalSelect,
+    insightProps,
+}: {
+    query: QuerySchema
+    showIntervalSelect?: boolean
+    insightProps: InsightLogicProps
+}): JSX.Element => {
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
-        return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} />
+        return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} insightProps={insightProps} />
     }
     if (query.kind === NodeKind.InsightVizNode) {
-        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} />
+        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
     }
 
-    return <Query query={query} readOnly={true} context={webAnalyticsDataTableQueryContext} />
+    return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
