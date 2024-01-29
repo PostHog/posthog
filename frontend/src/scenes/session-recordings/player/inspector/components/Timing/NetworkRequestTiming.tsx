@@ -9,6 +9,7 @@ import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/c
 import { PerformanceEvent } from '~/types'
 
 export interface EventPerformanceMeasure {
+    label?: string
     start: number
     end: number
     color: string
@@ -25,6 +26,7 @@ const perfSections = [
     'waiting for first byte',
     'receiving response',
     'document processing',
+    'server_timing',
 ] as const
 
 const perfDescriptions: Record<(typeof perfSections)[number], string> = {
@@ -40,6 +42,8 @@ const perfDescriptions: Record<(typeof perfSections)[number], string> = {
     'receiving response': 'The time taken to receive the response from the server.',
     'document processing':
         'The time taken to process the document after the response from the server has been received.',
+    server_timing:
+        'Servers can optionally report backend timings, these are a name and duration. The spec does not include a start time, so we use the start time of the request associated with the timing.',
 }
 
 function colorForSection(section: (typeof perfSections)[number]): string {
@@ -62,12 +66,18 @@ function colorForSection(section: (typeof perfSections)[number]): string {
             return getSeriesColor(9)
         case 'document processing':
             return getSeriesColor(10)
-        default:
+        case 'server_timing':
             return getSeriesColor(11)
+        default:
+            return getSeriesColor(12)
     }
 }
 
-type PerformanceMeasures = Record<string, EventPerformanceMeasure>
+// most sections are single events, but server timings can be multiple
+type PerformanceMeasures = {
+    networkTimings: Record<string, EventPerformanceMeasure>
+    serverTimings: EventPerformanceMeasure[]
+}
 
 /**
  * There are defined sections to performance measurement. We may have data for some or all of them
@@ -109,10 +119,15 @@ type PerformanceMeasures = Record<string, EventPerformanceMeasure>
  *   - from response_end
  *   - until load_event_end
  *
+ *  8) also server timings
+ *   - these have only duration, no start time
+ *   - and are sometimes reported from backends to the browser
+ *
  * see https://nicj.net/resourcetiming-in-practice/
  */
 export function calculatePerformanceParts(perfEntry: PerformanceEvent): PerformanceMeasures {
     const performanceParts: Record<string, EventPerformanceMeasure> = {}
+    const serverTimings: EventPerformanceMeasure[] = []
 
     if (isPresent(perfEntry.redirect_start) && isPresent(perfEntry.redirect_end)) {
         if (perfEntry.redirect_end - perfEntry.redirect_start > 0) {
@@ -212,7 +227,20 @@ export function calculatePerformanceParts(perfEntry: PerformanceEvent): Performa
         }
     }
 
-    return performanceParts
+    if (perfEntry.server_timings?.length) {
+        perfEntry.server_timings.forEach((timing) => {
+            if (isPresent(timing.duration) && !!timing.name) {
+                serverTimings.push({
+                    label: timing.name,
+                    start: perfEntry.start_time || 0,
+                    end: (perfEntry.start_time || 0) + timing.duration,
+                    color: colorForSection('server_timing'),
+                })
+            }
+        })
+    }
+
+    return { networkTimings: performanceParts, serverTimings }
 }
 
 function percentage(partDuration: number, totalDuration: number, min: number): number {
@@ -239,58 +267,101 @@ function percentagesWithinEventRange({
     return { startPercentage: `${partStartPercentage}%`, widthPercentage: `${partPercentage}%` }
 }
 
+const TimingBar = ({
+    section,
+    matchedSection,
+    rangeStart,
+    rangeEnd,
+}: {
+    section: (typeof perfSections)[number]
+    matchedSection: EventPerformanceMeasure
+    rangeStart: number
+    rangeEnd: number
+}): JSX.Element => {
+    const start = matchedSection.start
+    const end = matchedSection.end
+    const label = matchedSection.label || section
+
+    const partDuration = end - start
+    let formattedDuration: string | undefined
+    let startPercentage = null
+    let widthPercentage = null
+
+    if (isNaN(partDuration) || partDuration === 0) {
+        formattedDuration = ''
+    } else {
+        formattedDuration = humanFriendlyMilliseconds(partDuration)
+        const percentages = percentagesWithinEventRange({
+            rangeStart,
+            rangeEnd,
+            partStart: start,
+            partEnd: end,
+        })
+        startPercentage = percentages.startPercentage
+        widthPercentage = percentages.widthPercentage
+    }
+
+    return (
+        <>
+            <div className="flex flex-row px-2 py-1">
+                <div className="w-2/5">
+                    <Tooltip title={perfDescriptions[section]}>{label}</Tooltip>
+                </div>
+                <div className="flex-1 grow relative">
+                    <div
+                        className="relative h-full"
+                        /* eslint-disable-next-line react/forbid-dom-props */
+                        style={{
+                            backgroundColor: colorForSection(section),
+                            width: widthPercentage ?? '0%',
+                            left: startPercentage ?? '0%',
+                        }}
+                    />
+                </div>
+                <div className="w-1/6 text-right">{formattedDuration || ''}</div>
+            </div>
+        </>
+    )
+}
+
 const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent }): JSX.Element | null => {
     const rangeStart = performanceEvent.start_time
     const rangeEnd = performanceEvent.load_event_end ? performanceEvent.load_event_end : performanceEvent.response_end
     if (typeof rangeStart === 'number' && typeof rangeEnd === 'number') {
-        const timings = calculatePerformanceParts(performanceEvent)
+        const performanceMeasures = calculatePerformanceParts(performanceEvent)
         return (
             <div className="font-semibold text-xs">
-                {perfSections.map((section) => {
-                    const matchedSection = timings[section]
-                    const start = matchedSection?.start
-                    const end = matchedSection?.end
-                    const partDuration = end - start
-                    let formattedDuration: string | undefined
-                    let startPercentage = null
-                    let widthPercentage = null
-
-                    if (isNaN(partDuration) || partDuration === 0) {
-                        formattedDuration = ''
-                    } else {
-                        formattedDuration = humanFriendlyMilliseconds(partDuration)
-                        const percentages = percentagesWithinEventRange({
-                            rangeStart,
-                            rangeEnd,
-                            partStart: start,
-                            partEnd: end,
-                        })
-                        startPercentage = percentages.startPercentage
-                        widthPercentage = percentages.widthPercentage
-                    }
-
-                    return (
-                        <>
-                            <div key={section} className="flex flex-row px-2 py-1">
-                                <div className="w-2/5">
-                                    <Tooltip title={perfDescriptions[section]}>{section}</Tooltip>
-                                </div>
-                                <div className="flex-1 grow relative">
-                                    <div
-                                        className="relative h-full"
-                                        /* eslint-disable-next-line react/forbid-dom-props */
-                                        style={{
-                                            backgroundColor: colorForSection(section),
-                                            width: widthPercentage ?? '0%',
-                                            left: startPercentage ?? '0%',
-                                        }}
-                                    />
-                                </div>
-                                <div className="w-1/6 text-right">{formattedDuration || ''}</div>
-                            </div>
-                        </>
-                    )
-                })}
+                {perfSections
+                    .filter((x) => x != 'server_timing')
+                    .map((section) => {
+                        const matchedSection = performanceMeasures.networkTimings[section]
+                        return matchedSection ? (
+                            <TimingBar
+                                key={section}
+                                section={section}
+                                matchedSection={matchedSection}
+                                rangeStart={rangeStart}
+                                rangeEnd={rangeEnd}
+                            />
+                        ) : null
+                    })}
+                {performanceMeasures['serverTimings'].length > 0 ? (
+                    <>
+                        <LemonDivider dashed={true} />
+                        <h3 className="text-sm text-muted">Server timings</h3>
+                        {performanceMeasures.serverTimings.map((timing) => {
+                            return timing ? (
+                                <TimingBar
+                                    key={timing.label}
+                                    section="server_timing"
+                                    matchedSection={timing}
+                                    rangeStart={rangeStart}
+                                    rangeEnd={rangeEnd}
+                                />
+                            ) : null
+                        })}
+                    </>
+                ) : null}
             </div>
         )
     }
