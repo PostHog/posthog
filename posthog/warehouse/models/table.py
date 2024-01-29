@@ -23,6 +23,7 @@ from posthog.warehouse.models.util import remove_named_tuples
 from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
+from sentry_sdk import capture_exception
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -99,6 +100,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 },
             )
         except Exception as err:
+            capture_exception(err)
             if safe_expose_ch_error:
                 self._safe_expose_ch_error(err)
             else:

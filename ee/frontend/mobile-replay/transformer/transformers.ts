@@ -9,8 +9,8 @@ import {
     mutationData,
     removedNodeMutation,
 } from '@rrweb/types'
-import {captureMessage} from '@sentry/react'
-import {isObject} from 'lib/utils'
+import { captureMessage } from '@sentry/react'
+import { isObject } from 'lib/utils'
 
 import {
     attributes,
@@ -39,8 +39,9 @@ import {
     wireframeSelect,
     wireframeText,
     wireframeToggle,
-} from './mobile.types'
-import {makeStatusBar} from "./status-bar";
+} from '../mobile.types'
+import { makeStatusBar } from './status-bar'
+import { ConversionContext, ConversionResult, StyleOverride } from './types'
 import {
     makeBodyStyles,
     makeColorStyles,
@@ -50,7 +51,6 @@ import {
     makeMinimalStyles,
     makePositionStyles,
     makeStylesString,
-    StyleOverride,
 } from './wireframeStyle'
 
 const BACKGROUND = '#f3f4ef'
@@ -77,8 +77,7 @@ function* ids(): Generator<number> {
     }
 }
 
-// TODO this is shared for the lifetime of the page, so a very, very long-lived session could exhaust the ids
-const idSequence = ids()
+let globalIdSequence = ids()
 
 // there are some fixed ids that we need to use for fixed elements or artificial mutations
 const DOCUMENT_ID = 1
@@ -91,6 +90,10 @@ export const STATUS_BAR_ID = 7
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
+}
+
+export function _isPositiveInteger(id: unknown): id is number {
+    return typeof id === 'number' && id > 0 && id % 1 === 0
 }
 
 export const makeCustomEvent = (
@@ -123,23 +126,28 @@ export const makeCustomEvent = (
                         : '100vw',
                 },
                 [],
-                styleOverride
+                {
+                    timestamp: mobileCustomEvent.timestamp,
+                    idSequence: globalIdSequence,
+                    skippableNodes: new Set(),
+                    styleOverride,
+                }
             )
             if (keyboardPlaceHolder) {
                 adds.push({
                     parentId: BODY_ID,
                     nextId: null,
-                    node: keyboardPlaceHolder,
+                    node: keyboardPlaceHolder.result,
                 })
                 // mutations seem not to want a tree of nodes to add
                 // so even though `keyboardPlaceholder` is a tree with content
                 // we have to add the text content as well
                 adds.push({
-                    parentId: keyboardPlaceHolder.id,
+                    parentId: keyboardPlaceHolder.result.id,
                     nextId: null,
                     node: {
                         type: NodeType.Text,
-                        id: idSequence.next().value,
+                        id: globalIdSequence.next().value,
                         textContent: 'keyboard',
                     },
                 })
@@ -181,25 +189,32 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-export function _isPositiveInteger(id: unknown): id is number {
-    return typeof id === 'number' && id > 0 && id % 1 === 0
-}
-
-function makeDivElement(wireframe: wireframeDiv, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    const _id = _isPositiveInteger(wireframe.id) ? wireframe.id : idSequence.next().value
+function makeDivElement(
+    wireframe: wireframeDiv,
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
+    const _id = _isPositiveInteger(wireframe.id) ? wireframe.id : context.idSequence.next().value
     return {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
-            'data-rrweb-id': _id,
+        result: {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+                'data-rrweb-id': _id,
+            },
+            id: _id,
+            childNodes: children,
         },
-        id: _id,
-        childNodes: children,
+        context,
     }
 }
 
-function makeTextElement(wireframe: wireframeText, children: serializedNodeWithId[]): serializedNodeWithId | null {
+function makeTextElement(
+    wireframe: wireframeText,
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     if (wireframe.type !== 'text') {
         console.error('Passed incorrect wireframe type to makeTextElement')
         return null
@@ -207,92 +222,109 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 
     // because we might have to style the text, we always wrap it in a div
     // and apply styles to that
-    const id = idSequence.next().value
+    const id = context.idSequence.next().value
     return {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
-            'data-rrweb-id': wireframe.id,
-        },
-        id: wireframe.id,
-        childNodes: [
-            {
-                type: NodeType.Text,
-                textContent: wireframe.text,
-                // since the text node is wrapped, we assign it a synthetic id
-                id: id,
+        result: {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+                'data-rrweb-id': wireframe.id,
             },
-            ...children,
-        ],
+            id: wireframe.id,
+            childNodes: [
+                {
+                    type: NodeType.Text,
+                    textContent: wireframe.text,
+                    // since the text node is wrapped, we assign it a synthetic id
+                    id: id,
+                },
+                ...children,
+            ],
+        },
+        context,
     }
 }
 
-function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
+function makeWebViewElement(
+    wireframe: wireframe,
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     const labelledWireframe: wireframePlaceholder = { ...wireframe } as wireframePlaceholder
     if ('url' in wireframe) {
         labelledWireframe.label = wireframe.url
     }
 
-    return makePlaceholderElement(labelledWireframe, children)
+    return makePlaceholderElement(labelledWireframe, children, context)
 }
 
 function makePlaceholderElement(
     wireframe: wireframe,
     children: serializedNodeWithId[],
-    styleOverride?: StyleOverride
-): serializedNodeWithId | null {
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     const txt = 'label' in wireframe && wireframe.label ? wireframe.label : wireframe.type || 'PLACEHOLDER'
     return {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            style: makeStylesString(wireframe, {
-                verticalAlign: 'center',
-                horizontalAlign: 'center',
-                backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
-                color: wireframe.style?.color || FOREGROUND,
-                ...styleOverride,
-            }),
-            'data-rrweb-id': wireframe.id,
-        },
-        id: wireframe.id,
-        childNodes: [
-            {
-                type: NodeType.Text,
-                // since the text node is wrapped, we assign it a synthetic id
-                id: idSequence.next().value,
-                textContent: txt,
+        result: {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeStylesString(wireframe, {
+                    verticalAlign: 'center',
+                    horizontalAlign: 'center',
+                    backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+                    color: wireframe.style?.color || FOREGROUND,
+                    ...context.styleOverride,
+                }),
+                'data-rrweb-id': wireframe.id,
             },
-            ...children,
-        ],
+            id: wireframe.id,
+            childNodes: [
+                {
+                    type: NodeType.Text,
+                    // since the text node is wrapped, we assign it a synthetic id
+                    id: context.idSequence.next().value,
+                    textContent: txt,
+                },
+                ...children,
+            ],
+        },
+        context,
     }
 }
 
-export function dataURIOrPNG(src: string):string {
+export function dataURIOrPNG(src: string): string {
     if (!src.startsWith('data:image/')) {
         return 'data:image/png;base64,' + src
     }
-    return src;
+    return src
 }
 
-function makeImageElement(wireframe: wireframeImage, children: serializedNodeWithId[]): serializedNodeWithId | null {
+function makeImageElement(
+    wireframe: wireframeImage,
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     if (!wireframe.base64) {
-        return makePlaceholderElement(wireframe, children)
+        return makePlaceholderElement(wireframe, children, context)
     }
-    const src = dataURIOrPNG(wireframe.base64);
+    const src = dataURIOrPNG(wireframe.base64)
     return {
-        type: NodeType.Element,
-        tagName: 'img',
-        attributes: {
-            src: src,
-            width: wireframe.width,
-            height: wireframe.height,
-            style: makeStylesString(wireframe),
-            'data-rrweb-id': wireframe.id,
+        result: {
+            type: NodeType.Element,
+            tagName: 'img',
+            attributes: {
+                src: src,
+                width: wireframe.width,
+                height: wireframe.height,
+                style: makeStylesString(wireframe),
+                'data-rrweb-id': wireframe.id,
+            },
+            id: wireframe.id,
+            childNodes: children,
         },
-        id: wireframe.id,
-        childNodes: children,
+        context,
     }
 }
 
@@ -354,7 +386,11 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
     }
 }
 
-function makeButtonElement(wireframe: wireframeButton, children: serializedNodeWithId[]): serializedNodeWithId | null {
+function makeButtonElement(
+    wireframe: wireframeButton,
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     const buttonText: textNode | null = wireframe.value
         ? {
               type: NodeType.Text,
@@ -363,44 +399,68 @@ function makeButtonElement(wireframe: wireframeButton, children: serializedNodeW
         : null
 
     return {
-        type: NodeType.Element,
-        tagName: 'button',
-        attributes: inputAttributes(wireframe),
-        id: wireframe.id,
-        childNodes: buttonText ? [{ ...buttonText, id: idSequence.next().value }, ...children] : children,
-    }
-}
-
-function makeSelectOptionElement(option: string, selected: boolean): serializedNodeWithId {
-    const optionId = idSequence.next().value
-    return {
-        type: NodeType.Element,
-        tagName: 'option',
-        attributes: {
-            ...(selected ? { selected: selected } : {}),
-            'data-rrweb-id': optionId,
+        result: {
+            type: NodeType.Element,
+            tagName: 'button',
+            attributes: inputAttributes(wireframe),
+            id: wireframe.id,
+            childNodes: buttonText ? [{ ...buttonText, id: context.idSequence.next().value }, ...children] : children,
         },
-        id: optionId,
-        childNodes: [
-            {
-                type: NodeType.Text,
-                textContent: option,
-                id: idSequence.next().value,
-            },
-        ],
+        context,
     }
 }
 
-function makeSelectElement(wireframe: wireframeSelect, children: serializedNodeWithId[]): serializedNodeWithId | null {
+function makeSelectOptionElement(
+    option: string,
+    selected: boolean,
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> {
+    const optionId = context.idSequence.next().value
     return {
-        type: NodeType.Element,
-        tagName: 'select',
-        attributes: inputAttributes(wireframe),
-        id: wireframe.id,
-        childNodes: [
-            ...(wireframe.options?.map((option) => makeSelectOptionElement(option, wireframe.value === option)) || []),
-            ...children,
-        ],
+        result: {
+            type: NodeType.Element,
+            tagName: 'option',
+            attributes: {
+                ...(selected ? { selected: selected } : {}),
+                'data-rrweb-id': optionId,
+            },
+            id: optionId,
+            childNodes: [
+                {
+                    type: NodeType.Text,
+                    textContent: option,
+                    id: context.idSequence.next().value,
+                },
+            ],
+        },
+        context,
+    }
+}
+
+function makeSelectElement(
+    wireframe: wireframeSelect,
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
+    const selectOptions: serializedNodeWithId[] = []
+    if (wireframe.options) {
+        let optionContext = context
+        for (let i = 0; i < wireframe.options.length; i++) {
+            const option = wireframe.options[i]
+            const conversion = makeSelectOptionElement(option, wireframe.value === option, optionContext)
+            selectOptions.push(conversion.result)
+            optionContext = conversion.context
+        }
+    }
+    return {
+        result: {
+            type: NodeType.Element,
+            tagName: 'select',
+            attributes: inputAttributes(wireframe),
+            id: wireframe.id,
+            childNodes: [...selectOptions, ...children],
+        },
+        context,
     }
 }
 
@@ -422,25 +482,29 @@ function groupRadioButtons(children: serializedNodeWithId[], radioGroupName: str
 
 function makeRadioGroupElement(
     wireframe: wireframeRadioGroup,
-    children: serializedNodeWithId[]
-): serializedNodeWithId | null {
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     const radioGroupName = 'radio_group_' + wireframe.id
     return {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            style: makeStylesString(wireframe),
-            'data-rrweb-id': wireframe.id,
+        result: {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeStylesString(wireframe),
+                'data-rrweb-id': wireframe.id,
+            },
+            id: wireframe.id,
+            childNodes: groupRadioButtons(children, radioGroupName),
         },
-        id: wireframe.id,
-        childNodes: groupRadioButtons(children, radioGroupName),
+        context,
     }
 }
 
-function makeStar(title: string, path: string): serializedNodeWithId {
-    const svgId = idSequence.next().value
-    const titleId = idSequence.next().value
-    const pathId = idSequence.next().value
+function makeStar(title: string, path: string, context: ConversionContext): serializedNodeWithId {
+    const svgId = context.idSequence.next().value
+    const titleId = context.idSequence.next().value
+    const pathId = context.idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'svg',
@@ -465,7 +529,7 @@ function makeStar(title: string, path: string): serializedNodeWithId {
                     {
                         type: NodeType.Text,
                         textContent: title,
-                        id: idSequence.next().value,
+                        id: context.idSequence.next().value,
                     },
                 ],
             },
@@ -484,33 +548,40 @@ function makeStar(title: string, path: string): serializedNodeWithId {
     }
 }
 
-function filledStar(): serializedNodeWithId {
+function filledStar(context: ConversionContext): serializedNodeWithId {
     return makeStar(
         'filled star',
-        'M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z'
+        'M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z',
+        context
     )
 }
 
-function halfStar(): serializedNodeWithId {
+function halfStar(context: ConversionContext): serializedNodeWithId {
     return makeStar(
         'half-filled star',
-        'M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+        'M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z',
+        context
     )
 }
 
-function emptyStar(): serializedNodeWithId {
+function emptyStar(context: ConversionContext): serializedNodeWithId {
     return makeStar(
         'empty star',
-        'M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+        'M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z',
+        context
     )
 }
 
-function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWithId[]): serializedNodeWithId | null {
+function makeRatingBar(
+    wireframe: wireframeProgress,
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     // max is the number of stars... and value is the number of stars to fill
 
     // deliberate double equals, because we want to allow null and undefined
     if (wireframe.value == null || wireframe.max == null) {
-        return makePlaceholderElement(wireframe, children)
+        return makePlaceholderElement(wireframe, children, context)
     }
 
     const numberOfFilledStars = Math.floor(wireframe.value)
@@ -519,15 +590,15 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
 
     const filledStars = Array(numberOfFilledStars)
         .fill(undefined)
-        .map(() => filledStar())
+        .map(() => filledStar(context))
     const halfStars = Array(numberOfHalfStars)
         .fill(undefined)
-        .map(() => halfStar())
+        .map(() => halfStar(context))
     const emptyStars = Array(numberOfEmptyStars)
         .fill(undefined)
-        .map(() => emptyStar())
+        .map(() => emptyStar(context))
 
-    const ratingBarId = idSequence.next().value
+    const ratingBarId = context.idSequence.next().value
     const ratingBar = {
         type: NodeType.Element,
         tagName: 'div',
@@ -542,21 +613,25 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
     } as serializedNodeWithId
 
     return {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            style: makeStylesString(wireframe),
-            'data-rrweb-id': wireframe.id,
+        result: {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeStylesString(wireframe),
+                'data-rrweb-id': wireframe.id,
+            },
+            id: wireframe.id,
+            childNodes: [ratingBar, ...children],
         },
-        id: wireframe.id,
-        childNodes: [ratingBar, ...children],
+        context,
     }
 }
 
 function makeProgressElement(
     wireframe: wireframeProgress,
-    children: serializedNodeWithId[]
-): serializedNodeWithId | null {
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     if (wireframe.style?.bar === 'circular') {
         // value needs to be expressed as a number between 0 and 100
         const max = wireframe.max || 1
@@ -583,61 +658,67 @@ function makeProgressElement(
                       attributes: {
                           type: 'text/css',
                       },
-                      id: idSequence.next().value,
+                      id: context.idSequence.next().value,
                       childNodes: [
                           {
                               type: NodeType.Text,
                               textContent: `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`,
-                              id: idSequence.next().value,
+                              id: context.idSequence.next().value,
                           },
                       ],
                   },
               ]
 
-        const wrappingDivId = idSequence.next().value
+        const wrappingDivId = context.idSequence.next().value
         return {
-            type: NodeType.Element,
-            tagName: 'div',
-            attributes: {
-                style: makeMinimalStyles(wireframe),
-                'data-rrweb-id': wireframe.id,
-            },
-            id: wireframe.id,
-            childNodes: [
-                {
-                    type: NodeType.Element,
-                    tagName: 'div',
-                    attributes: {
-                        // with no provided value we render a spinner
-                        style: _isPositiveInteger(value)
-                            ? makeDeterminateProgressStyles(wireframe, styleOverride)
-                            : makeIndeterminateProgressStyles(wireframe, styleOverride),
-                        'data-rrweb-id': wrappingDivId,
-                    },
-                    id: wrappingDivId,
-                    childNodes: stylingChildren,
+            result: {
+                type: NodeType.Element,
+                tagName: 'div',
+                attributes: {
+                    style: makeMinimalStyles(wireframe),
+                    'data-rrweb-id': wireframe.id,
                 },
-                ...children,
-            ],
+                id: wireframe.id,
+                childNodes: [
+                    {
+                        type: NodeType.Element,
+                        tagName: 'div',
+                        attributes: {
+                            // with no provided value we render a spinner
+                            style: _isPositiveInteger(value)
+                                ? makeDeterminateProgressStyles(wireframe, styleOverride)
+                                : makeIndeterminateProgressStyles(wireframe, styleOverride),
+                            'data-rrweb-id': wrappingDivId,
+                        },
+                        id: wrappingDivId,
+                        childNodes: stylingChildren,
+                    },
+                    ...children,
+                ],
+            },
+            context,
         }
     } else if (wireframe.style?.bar === 'rating') {
-        return makeRatingBar(wireframe, children)
+        return makeRatingBar(wireframe, children, context)
     } else {
         return {
-            type: NodeType.Element,
-            tagName: 'progress',
-            attributes: inputAttributes(wireframe),
-            id: wireframe.id,
-            childNodes: children,
+            result: {
+                type: NodeType.Element,
+                tagName: 'progress',
+                attributes: inputAttributes(wireframe),
+                id: wireframe.id,
+                childNodes: children,
+            },
+            context,
         }
     }
 }
 
-function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
+function makeToggleParts(wireframe: wireframeToggle, context: ConversionContext): serializedNodeWithId[] {
     const togglePosition = wireframe.checked ? 'right' : 'left'
     const defaultColor = wireframe.checked ? '#1d4aff' : BACKGROUND
-    const sliderPartId = idSequence.next().value
-    const handlePartId = idSequence.next().value
+    const sliderPartId = context.idSequence.next().value
+    const handlePartId = context.idSequence.next().value
     return [
         {
             type: NodeType.Element,
@@ -670,88 +751,106 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
     ]
 }
 
-function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
+function makeToggleElement(
+    wireframe: wireframeToggle,
+    context: ConversionContext
+): ConversionResult<
+    elementNode & {
+        id: number
+    }
+> | null {
     const isLabelled = 'label' in wireframe
-    const wrappingDivId = idSequence.next().value
+    const wrappingDivId = context.idSequence.next().value
     return {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            // if labelled take up available space, otherwise use provided positioning
-            style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
-            'data-rrweb-id': wireframe.id,
-        },
-        id: wireframe.id,
-        childNodes: [
-            {
-                type: NodeType.Element,
-                tagName: 'div',
-                attributes: {
-                    // relative position, fills parent
-                    style: 'position:relative;width:100%;height:100%;',
-                    'data-rrweb-id': wrappingDivId,
-                },
-                id: wrappingDivId,
-                childNodes: makeToggleParts(wireframe),
+        result: {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                // if labelled take up available space, otherwise use provided positioning
+                style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
+                'data-rrweb-id': wireframe.id,
             },
-        ],
+            id: wireframe.id,
+            childNodes: [
+                {
+                    type: NodeType.Element,
+                    tagName: 'div',
+                    attributes: {
+                        // relative position, fills parent
+                        style: 'position:relative;width:100%;height:100%;',
+                        'data-rrweb-id': wrappingDivId,
+                    },
+                    id: wrappingDivId,
+                    childNodes: makeToggleParts(wireframe, context),
+                },
+            ],
+        },
+        context,
     }
 }
 
 function makeLabelledInput(
     wireframe: wireframeCheckBox | wireframeRadio | wireframeToggle,
-    theInputElement: serializedNodeWithId
-): serializedNodeWithId {
+    theInputElement: serializedNodeWithId,
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> {
     const theLabel: serializedNodeWithId = {
         type: NodeType.Text,
         textContent: wireframe.label || '',
-        id: idSequence.next().value,
+        id: context.idSequence.next().value,
     }
 
     const orderedChildren = wireframe.inputType === 'toggle' ? [theLabel, theInputElement] : [theInputElement, theLabel]
 
-    const labelId = idSequence.next().value
+    const labelId = context.idSequence.next().value
     return {
-        type: NodeType.Element,
-        tagName: 'label',
-        attributes: {
-            style: makeStylesString(wireframe),
-            'data-rrweb-id': labelId,
+        result: {
+            type: NodeType.Element,
+            tagName: 'label',
+            attributes: {
+                style: makeStylesString(wireframe),
+                'data-rrweb-id': labelId,
+            },
+            id: labelId,
+            childNodes: orderedChildren,
         },
-        id: labelId,
-        childNodes: orderedChildren,
+        context,
     }
 }
 
 function makeInputElement(
     wireframe: wireframeInputComponent,
-    children: serializedNodeWithId[]
-): serializedNodeWithId | null {
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     if (!wireframe.inputType) {
         return null
     }
 
     if (wireframe.inputType === 'button') {
-        return makeButtonElement(wireframe, children)
+        return makeButtonElement(wireframe, children, context)
     }
 
     if (wireframe.inputType === 'select') {
-        return makeSelectElement(wireframe, children)
+        return makeSelectElement(wireframe, children, context)
     }
 
     if (wireframe.inputType === 'progress') {
-        return makeProgressElement(wireframe, children)
+        return makeProgressElement(wireframe, children, context)
     }
 
-    const theInputElement: serializedNodeWithId | null =
+    const theInputElement: ConversionResult<serializedNodeWithId> | null =
         wireframe.inputType === 'toggle'
-            ? makeToggleElement(wireframe)
+            ? makeToggleElement(wireframe, context)
             : {
-                  type: NodeType.Element,
-                  tagName: 'input',
-                  attributes: inputAttributes(wireframe),
-                  id: wireframe.id,
-                  childNodes: children,
+                  result: {
+                      type: NodeType.Element,
+                      tagName: 'input',
+                      attributes: inputAttributes(wireframe),
+                      id: wireframe.id,
+                      childNodes: children,
+                  },
+                  context,
               }
 
     if (!theInputElement) {
@@ -759,45 +858,48 @@ function makeInputElement(
     }
 
     if ('label' in wireframe) {
-        return makeLabelledInput(wireframe, theInputElement)
+        return makeLabelledInput(wireframe, theInputElement.result, theInputElement.context)
     } else {
-        return {
-            ...theInputElement,
-            attributes: {
-                ...theInputElement.attributes,
-                // when labelled no styles are needed, when un-labelled as here - we add the styling in.
-                style: makeStylesString(wireframe),
-            },
-        }
+        // when labelled no styles are needed, when un-labelled as here - we add the styling in.
+        ;(theInputElement.result as elementNode).attributes.style = makeStylesString(wireframe)
+        return theInputElement
     }
 }
 
 function makeRectangleElement(
     wireframe: wireframeRectangle,
-    children: serializedNodeWithId[]
-): serializedNodeWithId | null {
+    children: serializedNodeWithId[],
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
     return {
-        type: NodeType.Element,
-        tagName: 'div',
-        attributes: {
-            style: makeStylesString(wireframe),
-            'data-rrweb-id': wireframe.id,
+        result: {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeStylesString(wireframe),
+                'data-rrweb-id': wireframe.id,
+            },
+            id: wireframe.id,
+            childNodes: children,
         },
-        id: wireframe.id,
-        childNodes: children,
+        context,
     }
 }
 
 function chooseConverter<T extends wireframe>(
     wireframe: T
-): (wireframe: T, children: serializedNodeWithId[], timestamp?: number, idSequence?: Generator<number>) => serializedNodeWithId | null {
+): (
+    wireframe: T,
+    children: serializedNodeWithId[],
+    context: ConversionContext
+) => ConversionResult<serializedNodeWithId> | null {
     // in theory type is always present
     // but since this is coming over the wire we can't really be sure,
     // and so we default to div
     const converterType: MobileNodeType = wireframe.type || 'div'
     const converterMapping: Record<
         MobileNodeType,
-        (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null
+        (wireframe: T, children: serializedNodeWithId[]) => ConversionResult<serializedNodeWithId> | null
     > = {
         // KLUDGE: TS can't tell that the wireframe type of each function is safe based on the converter type
         text: makeTextElement as any,
@@ -815,24 +917,41 @@ function chooseConverter<T extends wireframe>(
     return converterMapping[converterType]
 }
 
-function convertWireframe(wireframe: wireframe, timestamp?: number, idSequence?: Generator<number>): serializedNodeWithId | null {
-    const children = convertWireframesFor(wireframe.childWireframes, timestamp)
-    const converter = chooseConverter(wireframe)
-    return converter?.(wireframe, children, timestamp, idSequence) || null
-}
-
-function convertWireframesFor(wireframes: wireframe[] | undefined, timestamp?: number): serializedNodeWithId[] {
-    if (!wireframes) {
-        return []
+function convertWireframe(
+    wireframe: wireframe,
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
+    if (context.skippableNodes?.has(wireframe.id)) {
+        return null
     }
 
-    return wireframes.reduce((acc, wireframe) => {
-        const convertedEl = convertWireframe(wireframe, timestamp, idSequence)
-        if (convertedEl !== null) {
-            acc.push(convertedEl)
+    const children = convertWireframesFor(wireframe.childWireframes, context)
+    const converter = chooseConverter(wireframe)
+    // every wireframe comes through this converter,
+    // so to track which ones we want to skip,
+    // we can add them here
+    context.skippableNodes?.add(wireframe.id)
+    const converted = converter?.(wireframe, children.result, children.context)
+    return converted || null
+}
+
+function convertWireframesFor(
+    wireframes: wireframe[] | undefined,
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId[]> {
+    if (!wireframes) {
+        return { result: [], context }
+    }
+
+    const result: serializedNodeWithId[] = []
+    for (const wireframe of wireframes) {
+        const converted = convertWireframe(wireframe, context)
+        if (converted) {
+            result.push(converted.result)
+            context = converted.context
         }
-        return acc
-    }, [] as serializedNodeWithId[])
+    }
+    return { result, context }
 }
 
 function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSnapshotEvent {
@@ -854,8 +973,8 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
     return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
 }
 
-function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation[] | null {
-    const converted = convertWireframe(add.wireframe, undefined, idSequence)
+function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext): addedNodeMutation[] | null {
+    const converted = convertWireframe(add.wireframe, context)
     if (!converted) {
         return null
     }
@@ -863,7 +982,7 @@ function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation[] | null
     const addition: addedNodeMutation = {
         parentId: add.parentId,
         nextId: null,
-        node: converted,
+        node: converted.result,
     }
     const adds: addedNodeMutation[] = []
     if (addition) {
@@ -964,17 +1083,28 @@ export const makeIncrementalEvent = (
         const adds: addedNodeMutation[] = []
         const removes: removedNodeMutation[] = mobileEvent.data.removes || []
         if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
+            const addsContext = {
+                timestamp: mobileEvent.timestamp,
+                idSequence: globalIdSequence,
+                skippableNodes: new Set<number>(),
+            }
+
             mobileEvent.data.adds.forEach((add) => {
-                makeIncrementalAdd(add)?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(add, addsContext)?.forEach((x) => adds.push(x))
             })
         }
         if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
+            const updatesContext = {
+                timestamp: mobileEvent.timestamp,
+                idSequence: globalIdSequence,
+                skippableNodes: new Set<number>(),
+            }
             mobileEvent.data.updates.forEach((update) => {
                 const removal = makeIncrementalRemoveForUpdate(update)
                 if (removal) {
                     removes.push(removal)
                 }
-                makeIncrementalAdd(update)?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(update, updatesContext)?.forEach((x) => adds.push(x))
             })
         }
 
@@ -1000,6 +1130,9 @@ export const makeFullEvent = (
     timestamp: number
     delay?: number
 } => {
+    // we can restart the id sequence on each full snapshot
+    globalIdSequence = ids()
+
     if (!('wireframes' in mobileEvent.data)) {
         return mobileEvent as unknown as fullSnapshotEvent & {
             timestamp: number
@@ -1039,7 +1172,11 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: convertWireframesFor(mobileEvent.data.wireframes, mobileEvent.timestamp) || [],
+                                childNodes:
+                                    convertWireframesFor(mobileEvent.data.wireframes, {
+                                        timestamp: mobileEvent.timestamp,
+                                        idSequence: globalIdSequence,
+                                    }).result || [],
                             },
                         ],
                     },
