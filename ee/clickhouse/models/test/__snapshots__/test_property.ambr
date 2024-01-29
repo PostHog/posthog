@@ -147,7 +147,7 @@
       ))
     ''',
     dict({
-      'global_cohort_id_0': 47,
+      'global_cohort_id_0': 1,
       'global_version_0': None,
     }),
   )
