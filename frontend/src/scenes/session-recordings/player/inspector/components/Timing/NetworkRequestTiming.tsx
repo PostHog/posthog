@@ -348,7 +348,9 @@ const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent
                 {performanceMeasures['serverTimings'].length > 0 ? (
                     <>
                         <LemonDivider dashed={true} />
-                        <h3 className="text-sm text-muted">Server timings</h3>
+                        <Tooltip title={perfDescriptions['server_timing']}>
+                            <h3 className="text-sm text-muted">Server timings</h3>
+                        </Tooltip>
                         {performanceMeasures.serverTimings.map((timing) => {
                             return timing ? (
                                 <TimingBar
