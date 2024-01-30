@@ -54,6 +54,9 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
+from posthog.queries.base import (
+    determine_parsed_date_for_property_matching,
+)
 from posthog.rate_limit import BurstRateThrottle
 from loginas.utils import is_impersonated_session
 
@@ -231,6 +234,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                         raise serializers.ValidationError(
                             detail=f"Cohort with id {prop.value} does not exist",
                             code="cohort_does_not_exist",
+                        )
+
+                if prop.operator in ("is_date_before", "is_date_after"):
+                    parsed_date = determine_parsed_date_for_property_matching(prop.value)
+
+                    if not parsed_date:
+                        raise serializers.ValidationError(
+                            detail=f"Invalid date value: {prop.value}", code="invalid_date"
                         )
 
         payloads = filters.get("payloads", {})
@@ -625,6 +636,7 @@ class FeatureFlagViewSet(
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
+        # TODO: Handle distinct_id and $group_key properties, which are not currently supported
         users_affected, total_users = get_user_blast_radius(self.team, condition, group_type_index)
 
         return Response(

@@ -10,6 +10,7 @@ import { withMockDate } from './decorators/withMockDate'
 import { defaultMocks } from '~/mocks/handlers'
 import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withTheme } from './decorators/withTheme'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -35,7 +36,7 @@ setupMsw()
 const setupPosthogJs = () => {
     // Make sure we don't hit production posthog. We want to control requests to,
     // e.g. `/decide/` for feature flags
-    window.JS_POSTHOG_HOST = window.location.origin
+    window.JS_POSTHOG_HOST = apiHostOrigin()
 
     loadPostHogJS()
 }

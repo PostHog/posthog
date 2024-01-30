@@ -147,7 +147,7 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "color: #ee3ee4;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                      "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12345,
@@ -225,7 +225,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "color: #ee3ee4;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;",
+                      "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;",
                     },
                     "childNodes": [],
                     "id": 12345,
@@ -319,7 +319,7 @@ exports[`replay/transform transform can convert status bar 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 7,
-                      "style": "color: #ee3ee4;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;height: 30px;position: fixed;left: 0px;top: 0px;display:flex;flex-direction:row;align-items:center",
+                      "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;height: 30px;position: fixed;left: 0px;top: 0px;z-index: 9999999;display:flex;flex-direction:row;align-items:center;",
                     },
                     "childNodes": [
                       {
@@ -355,7 +355,7 @@ exports[`replay/transform transform can convert status bar 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 7,
-                      "style": "width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;display:flex;flex-direction:row;align-items:center",
+                      "style": "width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;z-index: 9999999;display:flex;flex-direction:row;align-items:center;",
                     },
                     "childNodes": [
                       {
@@ -538,7 +538,7 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
+                      "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
                     },
                     "childNodes": [
                       {
@@ -622,7 +622,7 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=);background-size: auto;background-repeat: no-repeatheight: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                      "style": "background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=');background-size: auto;background-repeat: no-repeat;height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12345,
@@ -632,7 +632,7 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                   {
                     "attributes": {
                       "data-rrweb-id": 12346,
-                      "style": "background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=);background-size: auto;background-repeat: no-repeatheight: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                      "style": "background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=');background-size: auto;background-repeat: no-repeat;height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12346,
@@ -642,7 +642,7 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                   {
                     "attributes": {
                       "data-rrweb-id": 12346,
-                      "style": "background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=);background-size: cover;background-repeat: no-repeatheight: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                      "style": "background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=');background-size: cover;background-repeat: no-repeat;height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12346,
@@ -765,7 +765,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                           {
                             "attributes": {
                               "data-rrweb-id": 12345,
-                              "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                              "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                             },
                             "childNodes": [
                               {
@@ -781,7 +781,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                           {
                             "attributes": {
                               "data-rrweb-id": 12345,
-                              "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                              "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                             },
                             "childNodes": [
                               {
@@ -802,7 +802,7 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                       {
                         "attributes": {
                           "data-rrweb-id": 12345,
-                          "style": "color: #ffffff;background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                          "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #000ddd;border-style: solid;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                         },
                         "childNodes": [
                           {
@@ -850,7 +850,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 142908405,
-            "style": "background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABDgAAAC5CAYAAADNs4/hAAAAAXNSR0IArs4c6QAAAARzQklUCAgI
+            "style": "background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABDgAAAC5CAYAAADNs4/hAAAAAXNSR0IArs4c6QAAAARzQklUCAgI
 CHwIZIgAAAWeSURBVHic7dyxqh1lGIbR77cIBuzTWKUShDSChVh7ITaWFoH0Emsr78D7sBVCBFOZ
 QMo0XoAEEshvZeeZ8cR9PDywVjsfm7d+mNkzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 AAAAAAAAAAAAAADA7Vn/5mjv/fHMfDszX83MgxtdBAAAADDzbGZ+npkf1lqvzo5PA8fe++uZ+XFm
@@ -877,7 +877,7 @@ AACAPIEDAAAAyBM4AAAAgDyBAwAAAMgTOAAAAIA8gQMAAADIOwscL/6XFQAAAADHDhvFWeD47YJD
 AAAAAN7XYaNYRw/33p/PzC/jUxYAAADg9rydmS/WWk+vOjgMF2utJzPz+NKrAAAAAK7h0VHcmDl5
 g+Nve+8vZ+b7mflkZu5dYBgAAADAkT9m5vnMPFxr/XrbYwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 AAAAAAAAAAAAAAAAAAAAAAAAgCN/AW0xMqHnNQceAAAAAElFTkSuQmCC
-);background-size: auto;background-repeat: no-repeatwidth: 411px;height: 70px;position: fixed;left: 0px;top: 536px;overflow:hidden;white-space:nowrap;",
+');background-size: auto;background-repeat: no-repeat;width: 411px;height: 70px;position: fixed;left: 0px;top: 536px;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 142908405,
@@ -2918,7 +2918,7 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                     {
                       "attributes": {
                         "data-rrweb-id": 12357,
-                        "style": "height:100%;flex:1",
+                        "style": "height:100%;flex:1;",
                       },
                       "childNodes": [
                         {
@@ -2931,7 +2931,7 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                               "attributes": {
                                 "data-rrweb-id": 101,
                                 "data-toggle-part": "slider",
-                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
+                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;opacity: 0.2;border-radius:7.5%;background-color:#1d4aff;",
                               },
                               "childNodes": [],
                               "id": 101,
@@ -2942,7 +2942,7 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                               "attributes": {
                                 "data-rrweb-id": 102,
                                 "data-toggle-part": "handle",
-                                "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
+                                "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;border-radius:50%;background-color:#1d4aff;border:2px solid #1d4aff;",
                               },
                               "childNodes": [],
                               "id": 102,
@@ -3035,7 +3035,7 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                     {
                       "attributes": {
                         "data-rrweb-id": 12357,
-                        "style": "height:100%;flex:1",
+                        "style": "height:100%;flex:1;",
                       },
                       "childNodes": [
                         {
@@ -3048,7 +3048,7 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                               "attributes": {
                                 "data-rrweb-id": 101,
                                 "data-toggle-part": "slider",
-                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#f3f4ef;opacity: 0.2;border-radius:7.5%;",
+                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;opacity: 0.2;border-radius:7.5%;background-color:#f3f4ef;",
                               },
                               "childNodes": [],
                               "id": 101,
@@ -3059,7 +3059,7 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                               "attributes": {
                                 "data-rrweb-id": 102,
                                 "data-toggle-part": "handle",
-                                "style": "position:absolute;top:1.5%;left:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#f3f4ef;border:2px solid #f3f4ef;border-radius:50%;",
+                                "style": "position:absolute;top:1.5%;left:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;border-radius:50%;background-color:#f3f4ef;border:2px solid #f3f4ef;",
                               },
                               "childNodes": [],
                               "id": 102,
@@ -3152,7 +3152,7 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                     {
                       "attributes": {
                         "data-rrweb-id": 12357,
-                        "style": "height:100%;flex:1",
+                        "style": "height:100%;flex:1;",
                       },
                       "childNodes": [
                         {
@@ -3165,7 +3165,7 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                               "attributes": {
                                 "data-rrweb-id": 101,
                                 "data-toggle-part": "slider",
-                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
+                                "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;opacity: 0.2;border-radius:7.5%;background-color:#1d4aff;",
                               },
                               "childNodes": [],
                               "id": 101,
@@ -3176,7 +3176,7 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                               "attributes": {
                                 "data-rrweb-id": 102,
                                 "data-toggle-part": "handle",
-                                "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
+                                "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;border-radius:50%;background-color:#1d4aff;border:2px solid #1d4aff;",
                               },
                               "childNodes": [],
                               "id": 102,
@@ -3271,7 +3271,7 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                           "attributes": {
                             "data-rrweb-id": 101,
                             "data-toggle-part": "slider",
-                            "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
+                            "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;opacity: 0.2;border-radius:7.5%;background-color:#1d4aff;",
                           },
                           "childNodes": [],
                           "id": 101,
@@ -3282,7 +3282,7 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                           "attributes": {
                             "data-rrweb-id": 102,
                             "data-toggle-part": "handle",
-                            "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
+                            "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;border-radius:50%;background-color:#1d4aff;border:2px solid #1d4aff;",
                           },
                           "childNodes": [],
                           "id": 102,
@@ -3411,7 +3411,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 199,
-            "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
           "id": 199,
@@ -3425,7 +3425,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 199,
-            "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
           "id": 199,
@@ -3440,7 +3440,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 151,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3457,7 +3457,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 151,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3541,7 +3541,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 155,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3558,7 +3558,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 155,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3642,7 +3642,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 159,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3659,7 +3659,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 159,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3743,7 +3743,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 163,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3760,7 +3760,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 163,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3844,7 +3844,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 167,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3861,7 +3861,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 167,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3945,7 +3945,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 171,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -3962,7 +3962,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 171,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4046,7 +4046,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 175,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4063,7 +4063,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 175,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4147,7 +4147,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 179,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4164,7 +4164,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 179,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4248,7 +4248,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 183,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4265,7 +4265,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 183,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4349,7 +4349,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 187,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4366,7 +4366,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 187,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4450,7 +4450,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 191,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4467,7 +4467,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 191,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4551,7 +4551,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 195,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4568,7 +4568,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 195,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4696,7 +4696,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 248,
-            "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
           "id": 248,
@@ -4710,7 +4710,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 248,
-            "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
           "id": 248,
@@ -4725,7 +4725,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 200,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4742,7 +4742,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 200,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4826,7 +4826,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 204,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4843,7 +4843,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 204,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4927,7 +4927,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 208,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -4944,7 +4944,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 208,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5028,7 +5028,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 212,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5045,7 +5045,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 212,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5129,7 +5129,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 216,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5146,7 +5146,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 216,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5230,7 +5230,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 220,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5247,7 +5247,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 220,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5331,7 +5331,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 224,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5348,7 +5348,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 224,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5432,7 +5432,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 228,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5449,7 +5449,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 228,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5533,7 +5533,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 232,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5550,7 +5550,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 232,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5634,7 +5634,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 236,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5651,7 +5651,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 236,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5735,7 +5735,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 240,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5752,7 +5752,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 240,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5836,7 +5836,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 244,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5853,7 +5853,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "data-rrweb-id": 244,
             "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
             "viewBox": "0 0 24 24",
           },
           "childNodes": [],
@@ -5956,7 +5956,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 6,
-            "style": "color: #35373e;background-color: #f3f4ef;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
+            "style": "background-color: #f3f4ef;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;z-index: 9999998;align-items: center;justify-content: center;display: flex;",
           },
           "childNodes": [
             {
@@ -6031,7 +6031,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -6110,14 +6110,14 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                     {
                       "attributes": {
                         "data-rrweb-id": 148,
-                        "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+                        "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
                       },
                       "childNodes": [
                         {
                           "attributes": {
                             "data-rrweb-id": 100,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6158,7 +6158,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 104,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6199,7 +6199,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 108,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6240,7 +6240,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 112,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6281,7 +6281,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 116,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6322,7 +6322,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 120,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6363,7 +6363,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 124,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6404,7 +6404,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 128,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6445,7 +6445,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 132,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6486,7 +6486,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 136,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6527,7 +6527,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 140,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6568,7 +6568,7 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                           "attributes": {
                             "data-rrweb-id": 144,
                             "fill": "currentColor",
-                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
                             "viewBox": "0 0 24 24",
                           },
                           "childNodes": [
@@ -6865,7 +6865,7 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -6938,7 +6938,7 @@ exports[`replay/transform transform inputs web_view with URL 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -7096,7 +7096,7 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                      "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                     },
                     "childNodes": [
                       {

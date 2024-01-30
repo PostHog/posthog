@@ -359,7 +359,7 @@
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_person"."team_id" = 2
-         AND "posthog_person"."id" = -1)
+         AND ("posthog_person"."properties" -> 'created_at') > '["2m", "3d"]')
   LIMIT 1
   '''
 # ---
@@ -370,7 +370,7 @@
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_person"."team_id" = 2
-         AND "posthog_person"."id" = -1)
+         AND ("posthog_person"."properties" -> 'created_at') > '"bazinga"')
   LIMIT 1
   '''
 # ---

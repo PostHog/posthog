@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 import openai
+
 from prometheus_client import Histogram
 
 from posthog.api.activity_log import ServerTimingsGathered
@@ -288,57 +289,56 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         )
 
     instance_region = get_instance_region() or "HOBBY"
-    messages = [
-        {
-            "role": "system",
-            "content": """
+
+    with timer("openai_completion"):
+        result = openai.chat.completions.create(
+            # model="gpt-4-1106-preview",  # allows 128k tokens
+            model="gpt-4",  # allows 8k tokens
+            temperature=0.7,
+            messages=[
+                {
+                    "role": "system",
+                    "content": """
             Session Replay is PostHog's tool to record visits to web sites and apps.
             We also gather events that occur like mouse clicks and key presses.
             You write two or three sentence concise and simple summaries of those sessions based on a prompt.
             You are more likely to mention errors or things that look like business success such as checkout events.
             You don't help with other knowledge.""",
-        },
-        {
-            "role": "user",
-            "content": f"""the session metadata I have is {session_metadata_dict}.
+                },
+                {
+                    "role": "user",
+                    "content": f"""the session metadata I have is {session_metadata_dict}.
             it gives an overview of activity and duration""",
-        },
-        {
-            "role": "user",
-            "content": f"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""
             URLs associated with the events can be found in this mapping {prompt_data.url_mapping}.
             """,
-        },
-        {
-            "role": "user",
-            "content": f"""the session events I have are {prompt_data.results}.
+                },
+                {
+                    "role": "user",
+                    "content": f"""the session events I have are {prompt_data.results}.
             with columns {prompt_data.columns}.
             they give an idea of what happened and when,
             if present the elements_chain extracted from the html can aid in understanding
             but should not be directly used in your response""",
-        },
-        {
-            "role": "user",
-            "content": """
+                },
+                {
+                    "role": "user",
+                    "content": """
             generate a two or three sentence summary of the session.
             use as concise and simple language as is possible.
             assume a reading age of around 12 years old.
             generate no text other than the summary.""",
-        },
-    ]
-
-    with timer("openai_completion"):
-        result = openai.ChatCompletion.create(
-            # model="gpt-4-1106-preview",  # allows 128k tokens
-            model="gpt-4",  # allows 8k tokens
-            temperature=0.7,
-            messages=messages,
-            user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
+                },
+            ],
+            user=f"{instance_region}/{user.pk}",  # allows 8k tokens
         )
 
-        usage = result.get("usage", {}).get("prompt_tokens", None)
+        usage = result.usage.prompt_tokens if result.usage else None
         if usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
 
-    content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return {"ai_result": result, "content": content, "prompt": messages, "timings": timer.get_all_timings()}
+    content: str = result.choices[0].message.content or ""
+    return {"content": content, "timings": timer.get_all_timings()}

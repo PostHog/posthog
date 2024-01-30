@@ -70,8 +70,10 @@ docopt==0.6.2
     # via pytest-watch
 email-validator==2.0.0.post2
     # via pydantic
-exceptiongroup==1.1.2
-    # via pytest
+exceptiongroup==1.2.0
+    # via
+    #   -c requirements.txt
+    #   pytest
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis[lua]==2.11.0
@@ -149,7 +151,7 @@ pydantic-core==2.14.6
     #   pydantic
 pyproject-hooks==1.0.0
     # via build
-pytest==7.4.0
+pytest==7.4.4
     # via
     #   -r requirements-dev.in
     #   pytest-asyncio

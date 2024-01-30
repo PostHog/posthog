@@ -29,10 +29,10 @@ export enum OnboardingStepKey {
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlagsSet): string => {
+export const getProductUri = (productKey: ProductKey, featureFlags?: FeatureFlagsSet): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return featureFlags[FEATURE_FLAGS.REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
+            return featureFlags && featureFlags[FEATURE_FLAGS.REDIRECT_WEB_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
                 ? combineUrl(urls.webAnalytics(), { onboarding_completed: true }).url
                 : combineUrl(urls.insights(), { onboarding_completed: true }).url
         case ProductKey.SESSION_REPLAY:
@@ -40,7 +40,7 @@ export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlags
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlags()
         case ProductKey.SURVEYS:
-            return urls.surveys()
+            return urls.surveyTemplates()
         default:
             return urls.default()
     }
@@ -134,8 +134,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowOtherProductsStep: [
-            (s) => [s.suggestedProducts],
-            (suggestedProducts: BillingProductV2Type[]) => suggestedProducts.length > 0,
+            (s) => [s.suggestedProducts, s.isFirstProductOnboarding],
+            (suggestedProducts: BillingProductV2Type[], isFirstProductOnboarding: boolean) =>
+                suggestedProducts.length > 0 && isFirstProductOnboarding,
         ],
         suggestedProducts: [
             (s) => [s.billing, s.product, s.currentTeam],
@@ -154,6 +155,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
         ],
+        isFirstProductOnboarding: [
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                return !Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
+                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
+                )
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadBillingSuccess: () => {
@@ -164,7 +173,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setProduct: ({ product }) => {
             if (!product) {
                 window.location.href = urls.default()
-                return
+            } else {
+                actions.resetStepKey()
             }
         },
         setProductKey: ({ productKey }) => {
@@ -251,10 +261,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
+        '/onboarding/:productKey(/:intro)': ({ productKey, intro }, { success, upgraded, step }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
+            }
+            if (intro === 'intro') {
+                // this prevents us from jumping straight back into onboarding if they are trying to see the intro again
+                actions.setAllOnboardingSteps([])
             }
             if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)

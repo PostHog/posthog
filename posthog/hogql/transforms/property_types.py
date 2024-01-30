@@ -4,7 +4,6 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DateTimeDatabaseField
 from posthog.hogql.escape_sql import escape_hogql_identifier
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
 from posthog.utils import PersonOnEventsMode
@@ -155,7 +154,15 @@ class PropertySwapper(CloningVisitor):
         if field_type == "Float":
             return ast.Call(name="toFloat", args=[node])
         if field_type == "Boolean":
-            return parse_expr("{node} = 'true'", {"node": node})
+            return ast.Call(
+                name="transform",
+                args=[
+                    node,
+                    ast.Constant(value=["true", "false"]),
+                    ast.Constant(value=[True, False]),
+                    ast.Constant(value=None),
+                ],
+            )
         return node
 
     def _add_property_notice(
