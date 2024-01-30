@@ -100,7 +100,7 @@ class PathsQueryRunner(QueryRunner):
         return []
 
     def _should_query_event(self, event: str) -> bool:
-        if not self.query.pathsFilter.includeEventTypes:  # TODO: include_custom_events ?
+        if not self.query.pathsFilter.includeEventTypes:
             return event not in (self.query.pathsFilter.excludeEvents or [])
 
         return event in (self.query.pathsFilter.includeEventTypes or [])
