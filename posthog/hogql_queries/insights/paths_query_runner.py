@@ -376,7 +376,7 @@ class PathsQueryRunner(QueryRunner):
 
     def get_target_clause(self) -> list[ast.Expr]:
         if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
-            clauses = [
+            clauses: list[ast.Expr] = [
                 ast.Alias(
                     alias=f"start_target_index",
                     expr=ast.Call(
@@ -543,7 +543,7 @@ class PathsQueryRunner(QueryRunner):
         table.select.extend(self.get_target_clause())
 
         # Extra path_time_tuple.x
-        table.select_from.table.select.extend(
+        table.select_from.table.select.extend(  # type: ignore[union-attr]
             [
                 ast.Alias(
                     alias=f"{field}_items",
@@ -553,8 +553,7 @@ class PathsQueryRunner(QueryRunner):
             ]
         )
         # Extra groupArray(x)
-        assert table.select_from.table.select_from is not None
-        table.select_from.table.select_from.table.select.extend(
+        table.select_from.table.select_from.table.select.extend(  # type: ignore[union-attr]
             [
                 ast.Alias(alias=f"{field}_list", expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field])]))
                 for field in self.extra_event_fields_and_properties

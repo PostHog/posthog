@@ -17,13 +17,16 @@ class RecordingsHelper:
           WHERE session_id in {session_ids}
           """
 
-        # TODO: Date filters
+        # TODO: Date filters, are they needed?
 
         response = execute_hogql_query(
             query,
             placeholders={"session_ids": ast.Array(exprs=[ast.Constant(value=s) for s in session_ids])},
             team=self.team,
         )
+        if not response.results:
+            return set()
+
         return {str(result[0]) for result in response.results}
 
     def session_ids_deleted(self, session_ids) -> set[str]:
