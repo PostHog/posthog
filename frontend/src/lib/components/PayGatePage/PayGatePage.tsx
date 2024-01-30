@@ -50,7 +50,7 @@ export function PayGatePage({
                                 data-attr={`${featureKey}-upgrade`}
                                 center
                             >
-                                Learn more about PostHog cloud
+                                Learn more about PostHog Cloud
                             </LemonButton>
                         )}
                     </>
