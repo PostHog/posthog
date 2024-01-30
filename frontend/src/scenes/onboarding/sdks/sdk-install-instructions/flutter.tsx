@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 function FlutterInstallSnippet(): JSX.Element {
@@ -8,7 +9,7 @@ function FlutterInstallSnippet(): JSX.Element {
 
 function FlutterAndroidSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const url = window.location.origin
+    const url = apiHostOrigin()
 
     return (
         <CodeSnippet language={Language.XML}>
@@ -23,7 +24,7 @@ function FlutterAndroidSetupSnippet(): JSX.Element {
 
 function FlutterIOSSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const url = window.location.origin
+    const url = apiHostOrigin()
 
     return (
         <CodeSnippet language={Language.XML}>
