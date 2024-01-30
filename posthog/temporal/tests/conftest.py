@@ -71,6 +71,7 @@ def clickhouse_client():
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         database=settings.CLICKHOUSE_DATABASE,
+        output_format_arrow_string_as_string="true",
     )
 
     yield client
