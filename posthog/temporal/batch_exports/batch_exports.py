@@ -140,7 +140,6 @@ def default_fields() -> list[BatchExportField]:
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="nullIf(properties, '')", alias="properties"),
         BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
-        BatchExportField(expression="toString(person_id)", alias="person_id"),
         BatchExportField(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set"),
         BatchExportField(
             expression="nullIf(JSONExtractString(properties, '$set_once'), '')",
