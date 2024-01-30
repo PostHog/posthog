@@ -184,6 +184,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
+    const { mobileLayout } = useValues(navigationLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -225,9 +226,11 @@ export function AccountPopoverOverlay(): JSX.Element {
                 <LemonButton
                     to="https://posthog.com/changelog"
                     onClick={(e) => {
-                        e.preventDefault()
                         closeAccountPopover()
-                        openSidePanel(SidePanelTab.Docs, '/changelog')
+                        if (!mobileLayout) {
+                            e.preventDefault()
+                            openSidePanel(SidePanelTab.Docs, '/changelog')
+                        }
                     }}
                     icon={<IconLive />}
                     fullWidth
