@@ -682,6 +682,9 @@ def get_all_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+    property_value_overrides, group_property_value_overrides = add_local_person_and_group_properties(
+        distinct_id, groups, property_value_overrides, group_property_value_overrides
+    )
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     cache_hit = True
     if all_feature_flags is None:
@@ -954,3 +957,17 @@ def get_all_properties_with_math_operators(
             all_keys_and_fields.append(key_and_field_for_property(prop))
 
     return all_keys_and_fields
+
+
+def add_local_person_and_group_properties(distinct_id, groups, person_properties, group_properties):
+    all_person_properties = {"distinct_id": distinct_id, **(person_properties or {})}
+
+    all_group_properties = {}
+    if groups:
+        for group_name in groups:
+            all_group_properties[group_name] = {
+                "$group_key": groups[group_name],
+                **(group_properties.get(group_name) or {}),
+            }
+
+    return all_person_properties, all_group_properties

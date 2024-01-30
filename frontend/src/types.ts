@@ -754,8 +754,19 @@ export type EncodedRecordingSnapshot = {
     data: eventWithTime[]
 }
 
+// we can duplicate the name SnapshotSourceType for the object and the type
+// since one only exists to be used in the other
+// this way if we want to reference one of the valid string values for SnapshotSourceType
+// we have a strongly typed way to do it
+export const SnapshotSourceType = {
+    blob: 'blob',
+    realtime: 'realtime',
+} as const
+
+export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
+
 export interface SessionRecordingSnapshotSource {
-    source: 'blob' | 'realtime'
+    source: SnapshotSourceType
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
@@ -1272,6 +1283,9 @@ export interface PerformanceEvent {
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
     raw?: Record<string, any>
+
+    //server timings - reported as separate events but added back in here on the front end
+    server_timings?: PerformanceEvent[]
 }
 
 export interface CurrentBillCycleType {
@@ -3705,7 +3719,6 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
-    Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
     Discussion = 'discussion',

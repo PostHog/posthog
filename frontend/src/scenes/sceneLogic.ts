@@ -199,10 +199,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(urls.login())
                 return
             }
-
             if (scene === Scene.Login && preflight?.demo) {
                 // In the demo environment, there's only passwordless "login" via the signup scene
                 router.actions.replace(urls.signup())
+                return
+            }
+            if (scene === Scene.MoveToPostHogCloud && preflight?.cloud) {
+                router.actions.replace(urls.projectHomepage())
                 return
             }
 

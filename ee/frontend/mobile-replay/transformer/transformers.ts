@@ -40,9 +40,11 @@ import {
     wireframeText,
     wireframeToggle,
 } from '../mobile.types'
-import { makeStatusBar } from './status-bar'
-import { ConversionContext, ConversionResult, StyleOverride } from './types'
+import { makeNavigationBar, makeStatusBar } from './screen-chrome'
+import { ConversionContext, ConversionResult } from './types'
 import {
+    asStyleString,
+    KEYBOARD_Z_INDEX,
     makeBodyStyles,
     makeColorStyles,
     makeDeterminateProgressStyles,
@@ -114,7 +116,6 @@ export const makeCustomEvent = (
             const shouldAbsolutelyPosition =
                 _isPositiveInteger(mobileCustomEvent.data.payload.x) ||
                 _isPositiveInteger(mobileCustomEvent.data.payload.y)
-            const styleOverride: StyleOverride | undefined = shouldAbsolutelyPosition ? undefined : { bottom: true }
             const keyboardPlaceHolder = makePlaceholderElement(
                 {
                     id: KEYBOARD_ID,
@@ -130,7 +131,10 @@ export const makeCustomEvent = (
                     timestamp: mobileCustomEvent.timestamp,
                     idSequence: globalIdSequence,
                     skippableNodes: new Set(),
-                    styleOverride,
+                    styleOverride: {
+                        'z-index': KEYBOARD_Z_INDEX,
+                        ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
+                    },
                 }
             )
             if (keyboardPlaceHolder) {
@@ -189,7 +193,7 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-function makeDivElement(
+export function makeDivElement(
     wireframe: wireframeDiv,
     children: serializedNodeWithId[],
     context: ConversionContext
@@ -200,7 +204,7 @@ function makeDivElement(
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
-                style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+                style: asStyleString([makeStylesString(wireframe), 'overflow:hidden', 'white-space:nowrap']),
                 'data-rrweb-id': _id,
             },
             id: _id,
@@ -228,7 +232,7 @@ function makeTextElement(
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
-                style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+                style: asStyleString([makeStylesString(wireframe), 'overflow:hidden', 'white-space:nowrap']),
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
@@ -510,7 +514,7 @@ function makeStar(title: string, path: string, context: ConversionContext): seri
         tagName: 'svg',
         isSVG: true,
         attributes: {
-            style: 'height: 100%;overflow-clip-margin: content-box;overflow:hidden',
+            style: asStyleString(['height: 100%', 'overflow-clip-margin: content-box', 'overflow:hidden']),
             viewBox: '0 0 24 24',
             fill: 'currentColor',
             'data-rrweb-id': svgId,
@@ -604,9 +608,13 @@ function makeRatingBar(
         tagName: 'div',
         id: ratingBarId,
         attributes: {
-            style:
-                makeColorStyles(wireframe) +
-                'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+            style: asStyleString([
+                makeColorStyles(wireframe),
+                'position: relative',
+                'display: flex',
+                'flex-direction: row',
+                'padding: 2px 4px',
+            ]),
             'data-rrweb-id': ratingBarId,
         },
         childNodes: [...filledStars, ...halfStars, ...emptyStars],
@@ -725,9 +733,17 @@ function makeToggleParts(wireframe: wireframeToggle, context: ConversionContext)
             tagName: 'div',
             attributes: {
                 'data-toggle-part': 'slider',
-                style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
-                    wireframe.style?.color || defaultColor
-                };opacity: 0.2;border-radius:7.5%;`,
+                style: asStyleString([
+                    'position:absolute',
+                    'top:33%',
+                    'left:5%',
+                    'display:inline-block',
+                    'width:75%',
+                    'height:33%',
+                    'opacity: 0.2',
+                    'border-radius:7.5%',
+                    `background-color:${wireframe.style?.color || defaultColor}`,
+                ]),
                 'data-rrweb-id': sliderPartId,
             },
             id: sliderPartId,
@@ -738,11 +754,20 @@ function makeToggleParts(wireframe: wireframeToggle, context: ConversionContext)
             tagName: 'div',
             attributes: {
                 'data-toggle-part': 'handle',
-                style: `position:absolute;top:1.5%;${togglePosition}:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:${
-                    wireframe.style?.color || defaultColor
-                };border:2px solid ${
-                    wireframe.style?.borderColor || wireframe.style?.color || defaultColor
-                };border-radius:50%;`,
+                style: asStyleString([
+                    'position:absolute',
+                    'top:1.5%',
+                    `${togglePosition}:5%`,
+                    'display:flex',
+                    'align-items:center',
+                    'justify-content:center',
+                    'width:40%',
+                    'height:75%',
+                    'cursor:inherit',
+                    'border-radius:50%',
+                    `background-color:${wireframe.style?.color || defaultColor}`,
+                    `border:2px solid ${wireframe.style?.borderColor || wireframe.style?.color || defaultColor}`,
+                ]),
                 'data-rrweb-id': handlePartId,
             },
             id: handlePartId,
@@ -767,7 +792,7 @@ function makeToggleElement(
             tagName: 'div',
             attributes: {
                 // if labelled take up available space, otherwise use provided positioning
-                style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
+                style: isLabelled ? asStyleString(['height:100%', 'flex:1']) : makePositionStyles(wireframe),
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
@@ -777,7 +802,7 @@ function makeToggleElement(
                     tagName: 'div',
                     attributes: {
                         // relative position, fills parent
-                        style: 'position:relative;width:100%;height:100%;',
+                        style: asStyleString(['position:relative', 'width:100%', 'height:100%']),
                         'data-rrweb-id': wrappingDivId,
                     },
                     id: wrappingDivId,
@@ -911,8 +936,7 @@ function chooseConverter<T extends wireframe>(
         web_view: makeWebViewElement as any,
         placeholder: makePlaceholderElement as any,
         status_bar: makeStatusBar as any,
-        // we could add in a converter for this, but it's fine without any chrome for now
-        navigation_bar: makeDivElement as any,
+        navigation_bar: makeNavigationBar as any,
     }
     return converterMapping[converterType]
 }
