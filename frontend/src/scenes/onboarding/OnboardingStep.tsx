@@ -8,7 +8,9 @@ import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { urls } from 'scenes/urls'
 
-import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { ProductKey } from '~/types'
+
+import { getProductUri, onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -35,7 +37,7 @@ export const OnboardingStep = ({
     backActionOverride?: () => void
     hedgehog?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, hasPreviousStep } = useValues(onboardingLogic)
+    const { hasNextStep, hasPreviousStep, productKey, isFirstProductOnboarding } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -62,6 +64,8 @@ export const OnboardingStep = ({
                                 ? backActionOverride()
                                 : hasPreviousStep
                                 ? goToPreviousStep()
+                                : !isFirstProductOnboarding
+                                ? router.actions.push(getProductUri(productKey as ProductKey))
                                 : router.actions.push(urls.products())
                         }
                     >

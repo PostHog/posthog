@@ -163,8 +163,8 @@ export const SettingsMap: SettingSection[] = [
                 flag: 'SESSION_RECORDING_SAMPLING',
                 features: [
                     AvailableFeature.SESSION_REPLAY_SAMPLING,
-                    AvailableFeature.FEATURE_FLAG_BASED_RECORDING,
-                    AvailableFeature.RECORDING_DURATION_MINIMUM,
+                    AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
+                    AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
                 ],
             },
         ],
