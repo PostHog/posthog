@@ -153,8 +153,9 @@ class TraversingVisitor(Visitor):
             self.visit(expr)
         for expr in node.aliases.values():
             self.visit(expr)
-        for expr in node.columns.values():
-            self.visit(expr)
+        # FIXME: This causes an exponential explosion when traversing the tree.
+        # for expr in node.columns.values():
+        #     self.visit(expr)
 
     def visit_select_union_query_type(self, node: ast.SelectUnionQueryType):
         for type in node.types:
