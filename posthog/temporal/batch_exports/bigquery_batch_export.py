@@ -45,10 +45,7 @@ async def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, big
     )
 
     load_job = bigquery_client.load_table_from_file(jsonl_file, table, job_config=job_config, rewind=True)
-    try:
-        await asyncio.to_thread(load_job.result)
-    except Exception as e:
-        raise e
+    await asyncio.to_thread(load_job.result)
 
 
 async def create_table_in_bigquery(
