@@ -204,6 +204,7 @@ export interface PluginsServerConfig {
     POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
+    RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
     RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 
