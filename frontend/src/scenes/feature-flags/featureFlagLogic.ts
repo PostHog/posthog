@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -254,7 +254,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 })
                             ),
                         },
-                        groups: values.propertySelectErrors,
+                        groups: values.propertySelectErrors as DeepPartialMap<
+                            FeatureFlagGroupType,
+                            ValidationErrorType
+                        >[],
                     },
                 }
             },
@@ -1002,9 +1005,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                     : undefined,
                         })),
                         rollout_percentage:
-                            rollout_percentage || rollout_percentage === 0
-                                ? undefined
-                                : 'You need to set a rollout % value',
+                            rollout_percentage === null || rollout_percentage === undefined
+                                ? 'You need to set a rollout % value'
+                                : undefined,
                     })
                 )
             },
