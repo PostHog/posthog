@@ -3816,6 +3816,85 @@
                     allow_experimental_object_type=1
   '''
 # ---
+# name: TestClickhousePaths.test_start_dropping_orphaned_edges
+  '''
+  SELECT last_path_key AS source_event,
+         path_key AS target_event,
+         count(*) AS event_count,
+         avg(conversion_time) AS average_conversion_time
+  FROM
+    (SELECT person_id AS person_id,
+            path AS path,
+                    conversion_time AS conversion_time,
+                    event_in_session_index AS event_in_session_index,
+                    concat(ifNull(toString(event_in_session_index), ''), '_', ifNull(toString(path), '')) AS path_key,
+                    if(ifNull(greater(event_in_session_index, 1), 0), concat(ifNull(toString(minus(event_in_session_index, 1)), ''), '_', ifNull(toString(prev_path), '')), NULL) AS last_path_key,
+                    path_dropoff_key AS path_dropoff_key
+     FROM
+       (SELECT person_id AS person_id,
+               joined_path_tuple.1 AS path,
+               joined_path_tuple.2 AS conversion_time,
+               joined_path_tuple.3 AS prev_path,
+               event_in_session_index,
+               session_index AS session_index,
+               arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0,
+               arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
+                                            and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping,
+               arrayFilter((x, y) -> y, time, mapping) AS timings,
+               arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path,
+               indexOf(compact_path, '/2') AS target_index,
+               if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path,
+               arraySlice(filtered_path, 1, 5) AS limited_path,
+               if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings,
+               arraySlice(filtered_timings, 1, 5) AS limited_timings,
+               arrayDifference(limited_timings) AS timings_diff,
+               concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key,
+               arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) AS limited_path_timings
+        FROM
+          (SELECT person_id AS person_id,
+                  path_time_tuple.1 AS path_basic,
+                  path_time_tuple.2 AS time,
+                  session_index,
+                  arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
+                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+           FROM
+             (SELECT person_id AS person_id,
+                     groupArray(timestamp) AS timing_list,
+                     groupArray(path_item) AS path_list
+              FROM
+                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        events__pdi.person_id AS person_id,
+                        ifNull(if(equals(events.event, '$screen'), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$screen_name'), ''), 'null'), '^"|"$', ''), if(equals(events.event, '$pageview'), replaceRegexpAll(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '(.)/$', '\\1'), events.event)), '') AS path_item_ungrouped,
+                        NULL AS groupings,
+                        multiMatchAnyIndex(path_item_ungrouped, NULL) AS group_index,
+                        (if(ifNull(greater(group_index, 0), 0), groupings[group_index], path_item_ungrouped) AS path_item) AS path_item
+                 FROM events
+                 INNER JOIN
+                   (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                           person_distinct_id2.distinct_id AS distinct_id
+                    FROM person_distinct_id2
+                    WHERE equals(person_distinct_id2.team_id, 2)
+                    GROUP BY person_distinct_id2.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                 WHERE and(equals(events.team_id, 2), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2021-05-07 23:59:59', 6, 'UTC')))))
+                 ORDER BY events__pdi.person_id ASC, toTimeZone(events.timestamp, 'UTC') ASC)
+              GROUP BY person_id) ARRAY
+           JOIN session_paths AS path_time_tuple,
+                arrayEnumerate(session_paths) AS session_index) ARRAY
+        JOIN limited_path_timings AS joined_path_tuple,
+             arrayEnumerate(limited_path_timings) AS event_in_session_index
+        WHERE ifNull(greater(target_index, 0), 0)))
+  WHERE isNotNull(source_event)
+  GROUP BY source_event,
+           target_event
+  ORDER BY event_count DESC,
+           source_event ASC,
+           target_event ASC
+  LIMIT 6 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1
+  '''
+# ---
 # name: TestClickhousePaths.test_step_conversion_times
   '''
   SELECT last_path_key AS source_event,

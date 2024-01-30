@@ -3325,7 +3325,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             0, len(self._get_people_at_path(filter, path_start="4_step four"))
         )  # 0 total reach after step 4
 
-    @skip("Clarify need for validation that removes dangling edges")
     @snapshot_clickhouse_queries
     def test_start_dropping_orphaned_edges(self):
         events = []
@@ -4670,7 +4669,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
 
-@skip("Validation")
 class TestClickhousePathsEdgeValidation(TestCase):
     BASIC_PATH = [("1_a", "2_b"), ("2_b", "3_c"), ("3_c", "4_d")]  # a->b->c->d
     BASIC_PATH_2 = [("1_x", "2_y"), ("2_y", "3_z")]  # x->y->z
@@ -4678,21 +4676,21 @@ class TestClickhousePathsEdgeValidation(TestCase):
     def test_basic_forest(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2
 
-        results = Paths(PathFilter(), MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
 
     def test_basic_forest_with_dangling_edges(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_xxx", "3_yyy")]
 
-        results = Paths(PathFilter(), MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
 
     def test_basic_forest_with_dangling_and_cross_edges(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_y", "3_c")]
 
-        results = Paths(PathFilter(), MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2 + [("2_y", "3_c")])
 
@@ -4701,6 +4699,6 @@ class TestClickhousePathsEdgeValidation(TestCase):
         edges.remove(("1_a", "2_b"))  # remove first start point
         edges = list(edges)  # type: ignore
 
-        results = Paths(PathFilter(), MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH_2)

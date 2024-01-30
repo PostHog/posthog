@@ -1,4 +1,5 @@
 import itertools
+from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
@@ -685,6 +686,36 @@ class PathsQueryRunner(QueryRunner):
 
         return refresh_frequency
 
+    def validate_results(self, results):
+        # Query guarantees results list to be:
+        # 1. Directed, Acyclic Tree where each node has only 1 child
+        # 2. All start nodes beginning with 1_
+
+        seen = set()  # source nodes that have been traversed
+        edges = defaultdict(list)
+        validated_results = []
+        starting_nodes_stack = []
+
+        for result in results:
+            edges[result[0]].append(result[1])
+            if result[0].startswith("1_"):
+                # All nodes with 1_ are valid starting nodes
+                starting_nodes_stack.append(result[0])
+
+        while starting_nodes_stack:
+            current_node = starting_nodes_stack.pop()
+            seen.add(current_node)
+
+            for node in edges[current_node]:
+                if node not in seen:
+                    starting_nodes_stack.append(node)
+
+        for result in results:
+            if result[0] in seen:
+                validated_results.append(result)
+
+        return validated_results
+
     def calculate(self) -> PathsQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
@@ -697,7 +728,7 @@ class PathsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-        # TODO: Validate results?
+        response.results = self.validate_results(response.results)
 
         assert response.results is not None
         results = (
