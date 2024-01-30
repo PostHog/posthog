@@ -1,4 +1,4 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
@@ -21,7 +21,7 @@ const meta: Meta = {
 }
 export default meta
 
-export function Empty(): JSX.Element {
+export const Empty: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights/': (_, __, ctx) => [
@@ -37,7 +37,7 @@ export function Empty(): JSX.Element {
     return <App />
 }
 
-export function ServerError(): JSX.Element {
+export const ServerError: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights/': (_, __, ctx) => [
@@ -61,7 +61,7 @@ export function ServerError(): JSX.Element {
     return <App />
 }
 
-export function ValidationError(): JSX.Element {
+export const ValidationError: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights/': (_, __, ctx) => [
@@ -85,7 +85,7 @@ export function ValidationError(): JSX.Element {
     return <App />
 }
 
-export function Timeout(): JSX.Element {
+export const LongLoading: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights/': (_, __, ctx) => [
@@ -107,6 +107,11 @@ export function Timeout(): JSX.Element {
         }, 150)
     }, [])
     return <App />
+}
+LongLoading.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const FunnelSingleStep: Story = createInsightStory(funnelOneStep as any)
