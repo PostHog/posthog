@@ -65,7 +65,7 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
 }
 
 export const createEmptyInsight = (
-    insightId: InsightShortId | `new-${string}` | 'new',
+    insightId: InsightShortId | `new-${string}` | 'new' | `web-analytics.${string}`,
     filterTestAccounts: boolean
 ): Partial<InsightModel> => ({
     short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
