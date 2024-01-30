@@ -1,4 +1,3 @@
-from typing import cast
 import posthoganalytics
 from django.conf import settings
 from posthog.cloud_utils import is_cloud
@@ -17,7 +16,7 @@ def hogql_insights_enabled(user: User | AnonymousUser) -> bool:
 
         return posthoganalytics.feature_enabled(
             "hogql-insights",
-            cast(str, user.distinct_id),
+            user.distinct_id,
             person_properties={"email": user.email},
             only_evaluate_locally=True,
             send_feature_flag_events=False,

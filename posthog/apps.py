@@ -55,7 +55,7 @@ class PostHogConfig(AppConfig):
 
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
-            posthoganalytics.load_feature_flags()
+            posthoganalytics.default_client.load_feature_flags()
 
         from posthog.async_migrations.setup import setup_async_migrations
 
