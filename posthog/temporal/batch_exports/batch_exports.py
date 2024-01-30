@@ -399,9 +399,6 @@ class BatchExportTemporaryFile:
         else:
             jsonl_dump = b"\n".join(map(json_dumps_bytes, records))
 
-        if len(records) == 1:
-            jsonl_dump += b"\n"
-
         result = self.write(jsonl_dump)
 
         self.records_total += len(records)
