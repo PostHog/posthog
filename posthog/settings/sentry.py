@@ -1,7 +1,10 @@
 import logging
 import os
+from datetime import timedelta
+from random import random
 
 import sentry_sdk
+from dateutil import parser
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
@@ -9,10 +12,6 @@ from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.settings import get_from_env
 from posthog.settings.base_variables import TEST
-
-from dateutil import parser
-from random import random
-from datetime import timedelta
 
 
 def before_send(event, hint):
@@ -109,7 +108,10 @@ def traces_sampler(sampling_context: dict) -> float:
         task = sampling_context.get("celery_job", {}).get("task")
         if task == "posthog.celery.redis_heartbeat":
             return 0.0001  # 0.01%
-        if task == "posthog.celery.redis_celery_queue_depth":
+        if (
+            task == "posthog.celery.redis_celery_queue_depth"
+            or task == "posthog.celery.redis_celery_queue_depth_usage_reports"
+        ):
             return 0.0001  # 0.01%
         else:
             # Default sample rate for Celery tasks

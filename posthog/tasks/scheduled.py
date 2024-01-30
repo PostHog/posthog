@@ -36,6 +36,7 @@ from posthog.tasks.tasks import (
     pg_table_cache_hit_rate,
     process_scheduled_changes,
     redis_celery_queue_depth,
+    redis_celery_queue_depth_usage_reports,
     redis_heartbeat,
     schedule_all_subscriptions,
     schedule_cache_updates_task,
@@ -82,6 +83,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     if not settings.DEBUG:
         add_periodic_task_with_expiry(sender, 10, redis_celery_queue_depth.s(), "10 sec queue probe")
+        add_periodic_task_with_expiry(sender, 10, redis_celery_queue_depth_usage_reports.s(), "10 sec queue probe")
 
     # Heartbeat every 10sec to make sure the worker is alive
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
