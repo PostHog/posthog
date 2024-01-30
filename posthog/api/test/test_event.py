@@ -770,7 +770,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="2",
-            timestamp=datetime.strptime("2024-01-01", "%Y-%m-%d"),
+            timestamp=datetime(2024, 1, 1, 1, 0, 0),
             properties={"key": "test_val"},
         )
 
@@ -785,12 +785,14 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 event="sign up",
                 distinct_id="2",
-                timestamp=datetime.strptime("2024-01-01", "%Y-%m-%d"),
+                timestamp=datetime(2024, 1, 1, 1, 0, 0),
                 properties={"key": "test_val"},
             )
             for _ in range(0, 100)
         ]
-        response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?after=2021-01-01&before=2024-01-01T02:02:02Z"
+        ).json()
         self.assertEqual(patch_query_with_columns.call_count, 3)
         self.assertEqual(len(response["results"]), 100)
 
