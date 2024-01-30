@@ -29,7 +29,7 @@ def parse_timestamp(timestamp: str, tzinfo: ZoneInfo) -> datetime:
 
 
 def parse_request_params(
-    conditions: Dict[str, Union[None, str, List[str]]], team: Team, tzinfo: ZoneInfo
+    conditions: Dict[str, Union[None, str, List[str], datetime]], team: Team, tzinfo: ZoneInfo
 ) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
