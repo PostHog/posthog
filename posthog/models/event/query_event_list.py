@@ -92,7 +92,7 @@ def query_events_list(
         condition_params["after"] = datetime.combine(condition_params["before"], time.min)
 
     condition_params["before"] = condition_params["before"].strftime("%Y-%m-%d %H:%M:%S.%f")
-    if condition_params["after"]:
+    if condition_params.get("after"):
         condition_params["after"] = condition_params["after"].strftime("%Y-%m-%d %H:%M:%S.%f")
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
