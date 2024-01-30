@@ -1,23 +1,17 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { QueryTile, TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
-import {
-    webAnalyticsDataTableQueryContext,
-    WebStatsTableTile,
-    WebStatsTrendTile,
-} from 'scenes/web-analytics/WebAnalyticsTile'
+import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
+import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { Query } from '~/queries/Query/Query'
-import { NodeKind, QuerySchema } from '~/queries/schema'
-import { InsightLogicProps } from '~/types'
 
 const Filters = (): JSX.Element => {
     const {
@@ -37,48 +31,11 @@ const Filters = (): JSX.Element => {
             }}
         >
             <div className="flex flex-row flex-wrap gap-2">
-                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                <PropertyFilters
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                    ]}
-                    onChange={(filters) =>
-                        setWebAnalyticsFilters(filters.filter(isEventPropertyOrPersonPropertyFilter))
-                    }
-                    propertyFilters={webAnalyticsFilters}
-                    pageKey="web-analytics"
-                    eventNames={['$pageview', '$pageleave', '$autocapture']}
-                    propertyAllowList={{
-                        [TaxonomicFilterGroupType.EventProperties]: [
-                            '$pathname',
-                            '$host',
-                            '$browser',
-                            '$os',
-                            '$device_type',
-                            '$geoip_country_code',
-                            '$geoip_subdivision_1_code',
-                            '$geoip_city_name',
-                            // re-enable after https://github.com/PostHog/posthog-js/pull/875 is merged
-                            // '$client_session_initial_pathname',
-                            // '$client_session_initial_referring_host',
-                            // '$client_session_initial_utm_source',
-                            // '$client_session_initial_utm_campaign',
-                            // '$client_session_initial_utm_medium',
-                            // '$client_session_initial_utm_content',
-                            // '$client_session_initial_utm_term',
-                        ],
-                        [TaxonomicFilterGroupType.PersonProperties]: [
-                            '$initial_pathname',
-                            '$initial_referring_domain',
-                            '$initial_utm_source',
-                            '$initial_utm_campaign',
-                            '$initial_utm_medium',
-                            '$initial_utm_content',
-                            '$initial_utm_term',
-                        ],
-                    }}
+                <WebPropertyFilters
+                    setWebAnalyticsFilters={setWebAnalyticsFilters}
+                    webAnalyticsFilters={webAnalyticsFilters}
                 />
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             </div>
             <div className="bg-border h-px w-full mt-2" />
         </div>
@@ -92,22 +49,7 @@ const Tiles = (): JSX.Element => {
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-10">
             {tiles.map((tile, i) => {
                 if ('query' in tile) {
-                    const { query, title, layout, insightProps } = tile
-                    return (
-                        <div
-                            key={i}
-                            className={clsx(
-                                'col-span-1 row-span-1 flex flex-col',
-                                layout.colSpanClassName ?? 'md:col-span-6',
-                                layout.rowSpanClassName ?? 'md:row-span-1',
-                                layout.orderWhenLargeClassName ?? 'xxl:order-12',
-                                layout.className
-                            )}
-                        >
-                            {title && <h2 className="m-0 mb-3">{title}</h2>}
-                            <WebQuery query={query} insightProps={insightProps} />
-                        </div>
-                    )
+                    return <QueryTileItem key={i} tile={tile} />
                 } else if ('tabs' in tile) {
                     return <TabsTileItem key={i} tile={tile} />
                 } else {
@@ -118,8 +60,38 @@ const Tiles = (): JSX.Element => {
     )
 }
 
+const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
+    const { query, title, layout, insightProps, tileId } = tile
+
+    const { openModal } = useActions(webAnalyticsLogic)
+
+    return (
+        <div
+            className={clsx(
+                'col-span-1 row-span-1 flex flex-col',
+                layout.colSpanClassName ?? 'md:col-span-6',
+                layout.rowSpanClassName ?? 'md:row-span-1',
+                layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                layout.className
+            )}
+        >
+            {title && <h2 className="m-0 mb-3">{title}</h2>}
+            <Link
+                onClick={() => {
+                    openModal(tileId)
+                }}
+            >
+                <IconUnfoldMore />
+            </Link>
+            <WebQuery query={query} insightProps={insightProps} />
+        </div>
+    )
+}
+
 const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     const { layout } = tile
+
+    const { openModal } = useActions(webAnalyticsLogic)
 
     return (
         <WebTabs
@@ -145,32 +117,16 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 linkText: tab.linkText,
                 title: tab.title,
             }))}
+            tileId={tile.tileId}
+            openModal={openModal}
         />
     )
-}
-
-const WebQuery = ({
-    query,
-    showIntervalSelect,
-    insightProps,
-}: {
-    query: QuerySchema
-    showIntervalSelect?: boolean
-    insightProps: InsightLogicProps
-}): JSX.Element => {
-    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
-        return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} insightProps={insightProps} />
-    }
-    if (query.kind === NodeKind.InsightVizNode) {
-        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
-    }
-
-    return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <>
+            <WebAnalyticsModal />
             <WebAnalyticsNotice />
             <div className="WebAnalyticsDashboard w-full flex flex-col">
                 <Filters />
