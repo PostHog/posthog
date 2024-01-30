@@ -417,7 +417,7 @@ pillow==10.2.0
     # via -r requirements.in
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.3.3
+posthoganalytics==3.3.4
     # via -r requirements.in
 prance==23.6.21.0
     # via -r requirements.in
