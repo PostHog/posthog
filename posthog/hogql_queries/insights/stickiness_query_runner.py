@@ -256,11 +256,11 @@ class StickinessQueryRunner(QueryRunner):
         )
 
         # Series
-        if self.series_event(series) is not None:
+        if isinstance(series, EventsNode):
             filters.append(
                 parse_expr(
                     "event = {event}",
-                    placeholders={"event": ast.Constant(value=self.series_event(series))},
+                    placeholders={"event": ast.Constant(value=series.event)},
                 )
             )
 
