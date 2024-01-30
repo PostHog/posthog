@@ -274,10 +274,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         validationError: [
             (s) => [s.insightDataError],
-            (insightDataError): string => {
+            (insightDataError): string | null => {
                 return insightDataError?.status === 400 && insightDataError.type === 'validation_error'
                     ? insightDataError.detail
-                    : ''
+                    : null
             },
         ],
 
