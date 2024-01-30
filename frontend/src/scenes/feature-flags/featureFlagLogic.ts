@@ -75,7 +75,7 @@ const NEW_FLAG: FeatureFlagType = {
     key: '',
     name: '',
     filters: {
-        groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         multivariate: null,
         payloads: {},
     },
@@ -210,7 +210,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         duplicateConditionSet: (index: number) => ({ index }),
         updateConditionSet: (
             index: number,
-            newRolloutPercentage?: number | null,
+            newRolloutPercentage?: number | undefined,
             newProperties?: AnyPropertyFilter[],
             newVariant?: string | null
         ) => ({
@@ -239,23 +239,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setScheduledChangeOperation: (changeType: string | null) => ({ changeType }),
+        setIsSaveClicked: (isSaveClicked: boolean) => ({ isSaveClicked }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
-            errors: ({ key, filters }) => ({
-                key: validateFeatureFlagKey(key),
-                filters: {
-                    multivariate: {
-                        variants: filters?.multivariate?.variants?.map(
-                            ({ key: variantKey }: MultivariateFlagVariant) => ({
-                                key: validateFeatureFlagKey(variantKey),
-                            })
-                        ),
+            errors: ({ key, filters }) => {
+                return {
+                    key: validateFeatureFlagKey(key),
+                    filters: {
+                        multivariate: {
+                            variants: filters?.multivariate?.variants?.map(
+                                ({ key: variantKey }: MultivariateFlagVariant) => ({
+                                    key: validateFeatureFlagKey(variantKey),
+                                })
+                            ),
+                        },
+                        groups: values.propertySelectErrors,
                     },
-                    groups: values.propertySelectErrors,
-                },
-            }),
+                }
+            },
             submit: (featureFlag) => {
                 actions.saveFeatureFlag(featureFlag)
             },
@@ -288,7 +291,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     const groups = [
                         ...(state?.filters?.groups || []),
-                        { properties: [], rollout_percentage: 0, variant: null },
+                        { properties: [], rollout_percentage: undefined, variant: null },
                     ]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
@@ -502,6 +505,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ScheduledChangeOperationType.AddReleaseCondition as string | null,
             {
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
+            },
+        ],
+        isSaveClicked: [
+            false,
+            {
+                setIsSaveClicked: (_, { isSaveClicked }) => isSaveClicked,
             },
         ],
     }),
@@ -989,16 +998,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         propertySelectErrors: [
             (s) => [s.featureFlag],
             (featureFlag) => {
-                return featureFlag?.filters?.groups?.map(({ properties }: FeatureFlagGroupType) => ({
-                    properties: properties?.map((property: AnyPropertyFilter) => ({
-                        value:
-                            property.value === null ||
-                            property.value === undefined ||
-                            (Array.isArray(property.value) && property.value.length === 0)
-                                ? "Property filters can't be empty"
-                                : undefined,
-                    })),
-                }))
+                return featureFlag?.filters?.groups?.map(
+                    ({ properties, rollout_percentage }: FeatureFlagGroupType) => ({
+                        properties: properties?.map((property: AnyPropertyFilter) => ({
+                            value:
+                                property.value === null ||
+                                property.value === undefined ||
+                                (Array.isArray(property.value) && property.value.length === 0)
+                                    ? "Property filters can't be empty"
+                                    : undefined,
+                        })),
+                        rollout_percentage: rollout_percentage || rollout_percentage === 0 ? undefined : -1,
+                    })
+                )
             },
         ],
         computeBlastRadiusPercentage: [
@@ -1120,6 +1132,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     urlToAction(({ actions, props }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
+            actions.setIsSaveClicked(false)
+
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {

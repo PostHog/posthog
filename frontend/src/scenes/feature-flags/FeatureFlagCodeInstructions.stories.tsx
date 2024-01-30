@@ -14,7 +14,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     key: 'test',
     rollout_percentage: 50,
     filters: {
-        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         multivariate: null,
         payloads: { true: '' },
     },
@@ -38,7 +38,7 @@ const GROUP_FEATURE_FLAG: FeatureFlagType = {
     key: 'group-flag',
     filters: {
         aggregation_group_type_index: 1,
-        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         multivariate: null,
         payloads: { true: '' },
     },
@@ -48,7 +48,7 @@ const MULTIVARIATE_FEATURE_FLAG: FeatureFlagType = {
     ...REGULAR_FEATURE_FLAG,
     key: 'multivariate-flag',
     filters: {
-        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         payloads: {},
         multivariate: {
             variants: [
@@ -64,7 +64,7 @@ const MULTIVARIATE_GROUP_WITH_PAYLOADS_FEATURE_FLAG: FeatureFlagType = {
     key: 'multivariate-group-flag',
     filters: {
         aggregation_group_type_index: 1,
-        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         payloads: { alpha: 'abcd', beta: 'xyz' },
         multivariate: {
             variants: [

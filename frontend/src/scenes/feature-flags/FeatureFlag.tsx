@@ -98,8 +98,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         newCohortLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate, createStaticCohort } =
-        useActions(featureFlagLogic)
+    const {
+        deleteFeatureFlag,
+        editFeatureFlag,
+        loadFeatureFlag,
+        triggerFeatureFlagUpdate,
+        createStaticCohort,
+        setIsSaveClicked,
+    } = useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
@@ -266,6 +272,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         htmlType="submit"
                                         form="feature-flag"
                                         loading={featureFlagLoading}
+                                        onClick={() => setIsSaveClicked(true)}
                                     >
                                         Save
                                     </LemonButton>

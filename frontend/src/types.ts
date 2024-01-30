@@ -2417,7 +2417,7 @@ export enum SurveyQuestionType {
 
 export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
-    rollout_percentage: number | null
+    rollout_percentage: number | undefined
     variant: string | null
     users_affected?: number
 }
