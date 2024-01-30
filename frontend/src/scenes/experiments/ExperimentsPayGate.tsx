@@ -8,10 +8,10 @@ export function ExperimentsPayGate(): JSX.Element {
             featureKey={AvailableFeature.EXPERIMENTATION}
             header={
                 <>
-                    Introducing <span className="highlight">Experimentation</span>!
+                    Test changes with <span className="highlight">statistical significance</span>
                 </>
             }
-            caption="Improve your product by A/B testing new features to discover what works best for your users."
+            caption="A/B tests, multivariate tests, and robust targeting & exclusion rules. Analyze usage with product analytics and session replay."
             docsLink="https://posthog.com/docs/user-guides/experimentation"
         />
     )
