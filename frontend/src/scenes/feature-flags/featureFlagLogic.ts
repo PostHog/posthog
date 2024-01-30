@@ -210,7 +210,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         duplicateConditionSet: (index: number) => ({ index }),
         updateConditionSet: (
             index: number,
-            newRolloutPercentage?: number | undefined,
+            newRolloutPercentage?: number,
             newProperties?: AnyPropertyFilter[],
             newVariant?: string | null
         ) => ({
