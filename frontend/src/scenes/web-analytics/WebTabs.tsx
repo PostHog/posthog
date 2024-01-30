@@ -15,7 +15,7 @@ export const WebTabs = ({
 }: {
     className?: string
     activeTabId: string
-    tabs: { id: string; title: string; linkText: string; content: React.ReactNode }[]
+    tabs: { id: string; title: string; linkText: string; content: React.ReactNode; canOpenModal: boolean }[]
     setActiveTabId: (id: string) => void
     openModal: (tileId: TileId, tabId: string) => void
     tileId: TileId
@@ -26,13 +26,15 @@ export const WebTabs = ({
         <div className={clsx(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
                 <h2 className="flex-1 m-0">{activeTab?.title}</h2>
-                <Link
-                    onClick={() => {
-                        openModal(tileId, activeTabId)
-                    }}
-                >
-                    <IconUnfoldMore />
-                </Link>
+                {activeTab?.canOpenModal ? (
+                    <Link
+                        onClick={() => {
+                            openModal(tileId, activeTabId)
+                        }}
+                    >
+                        <IconUnfoldMore />
+                    </Link>
+                ) : null}
                 {tabs.length > 3 ? (
                     <LemonSelect
                         size="small"

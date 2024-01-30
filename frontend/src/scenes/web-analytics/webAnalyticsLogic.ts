@@ -71,6 +71,7 @@ export interface QueryTile extends BaseTile {
     title?: string
     query: QuerySchema
     insightProps: InsightLogicProps
+    canOpenModal: boolean
 }
 
 export interface TabsTile extends BaseTile {
@@ -83,6 +84,7 @@ export interface TabsTile extends BaseTile {
         query: QuerySchema
         showIntervalSelect?: boolean
         insightProps: InsightLogicProps
+        canOpenModal: boolean
     }[]
 }
 
@@ -406,6 +408,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             sampling,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
+                        canOpenModal: false,
                     },
                     {
                         tileId: TileId.GRAPHS,
@@ -447,6 +450,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 showIntervalSelect: true,
                                 insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.UNIQUE_USERS),
+                                canOpenModal: true,
                             },
                             {
                                 id: GraphsTab.PAGE_VIEWS,
@@ -479,6 +483,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 showIntervalSelect: true,
                                 insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.PAGE_VIEWS),
+                                canOpenModal: true,
                             },
                             {
                                 id: GraphsTab.NUM_SESSION,
@@ -512,6 +517,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 showIntervalSelect: true,
                                 insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.NUM_SESSION),
+                                canOpenModal: true,
                             },
                         ],
                     },
@@ -543,6 +549,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     embedded: false,
                                 },
                                 insightProps: createInsightProps(TileId.PATHS, PathTab.PATH),
+                                canOpenModal: true,
                             },
                             {
                                 id: PathTab.INITIAL_PATH,
@@ -562,6 +569,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     embedded: false,
                                 },
                                 insightProps: createInsightProps(TileId.PATHS, PathTab.INITIAL_PATH),
+                                canOpenModal: true,
                             },
                         ],
                     },
@@ -590,6 +598,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.REFERRING_DOMAIN),
+                                canOpenModal: true,
                             },
                             {
                                 id: SourceTab.CHANNEL,
@@ -607,6 +616,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.CHANNEL),
+                                canOpenModal: true,
                             },
                             {
                                 id: SourceTab.UTM_SOURCE,
@@ -624,6 +634,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_SOURCE),
+                                canOpenModal: true,
                             },
                             {
                                 id: SourceTab.UTM_MEDIUM,
@@ -641,6 +652,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_MEDIUM),
+                                canOpenModal: true,
                             },
                             {
                                 id: SourceTab.UTM_CAMPAIGN,
@@ -658,6 +670,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_CAMPAIGN),
+                                canOpenModal: true,
                             },
                             {
                                 id: SourceTab.UTM_CONTENT,
@@ -675,6 +688,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_CONTENT),
+                                canOpenModal: true,
                             },
                             {
                                 id: SourceTab.UTM_TERM,
@@ -692,6 +706,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_TERM),
+                                canOpenModal: true,
                             },
                         ],
                     },
@@ -738,6 +753,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     embedded: true,
                                 },
                                 insightProps: createInsightProps(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
+                                canOpenModal: true,
                             },
                             {
                                 id: DeviceTab.BROWSER,
@@ -756,6 +772,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     embedded: false,
                                 },
                                 insightProps: createInsightProps(TileId.DEVICES, DeviceTab.BROWSER),
+                                canOpenModal: true,
                             },
                             {
                                 id: DeviceTab.OS,
@@ -774,6 +791,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     embedded: false,
                                 },
                                 insightProps: createInsightProps(TileId.DEVICES, DeviceTab.OS),
+                                canOpenModal: true,
                             },
                         ],
                     },
@@ -817,6 +835,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           embedded: true,
                                       },
                                       insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
+                                      canOpenModal: true,
                                   },
                                   {
                                       id: GeographyTab.COUNTRIES,
@@ -834,6 +853,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           },
                                       },
                                       insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.COUNTRIES),
+                                      canOpenModal: true,
                                   },
                                   {
                                       id: GeographyTab.REGIONS,
@@ -851,6 +871,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           },
                                       },
                                       insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.REGIONS),
+                                      canOpenModal: true,
                                   },
                                   {
                                       id: GeographyTab.CITIES,
@@ -868,6 +889,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           },
                                       },
                                       insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.CITIES),
+                                      canOpenModal: true,
                                   },
                               ],
                           }
@@ -902,6 +924,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             embedded: true,
                         },
                         insightProps: createInsightProps(TileId.RETENTION),
+                        canOpenModal: true,
                     },
                 ]
                 return allTiles.filter(isNotNil)
@@ -918,6 +941,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (!tile) {
                     throw new Error('Developer Error, tile not found')
                 }
+
+                const extendQuery = (query: QuerySchema): QuerySchema => {
+                    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+                        return {
+                            ...query,
+                            source: {
+                                ...query.source,
+                                limit: 50,
+                            },
+                        }
+                    } else {
+                        return query
+                    }
+                }
+
                 if (tabId) {
                     if (!('tabs' in tile)) {
                         throw new Error('Developer Error, tabId provided for non-tab tile')
@@ -935,7 +973,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             dashboardItemId: getDashboardItemId(tileId, tabId, true),
                             loadPriority: 0,
                         },
-                        query: tab.query,
+                        query: extendQuery(tab.query),
                     }
                 } else {
                     if ('tabs' in tile) {
@@ -948,7 +986,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             dashboardItemId: getDashboardItemId(tileId, undefined, true),
                             loadPriority: 0,
                         },
-                        query: tile.query,
+                        query: extendQuery(tile.query),
                     }
                 }
             },

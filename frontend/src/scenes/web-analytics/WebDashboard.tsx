@@ -76,13 +76,15 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && <h2 className="m-0 mb-3">{title}</h2>}
-            <Link
-                onClick={() => {
-                    openModal(tileId)
-                }}
-            >
-                <IconUnfoldMore />
-            </Link>
+            {tile.canOpenModal ? (
+                <Link
+                    onClick={() => {
+                        openModal(tileId)
+                    }}
+                >
+                    <IconUnfoldMore />
+                </Link>
+            ) : null}
             <WebQuery query={query} insightProps={insightProps} />
         </div>
     )
@@ -116,6 +118,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 ),
                 linkText: tab.linkText,
                 title: tab.title,
+                canOpenModal: tab.canOpenModal,
             }))}
             tileId={tile.tileId}
             openModal={openModal}

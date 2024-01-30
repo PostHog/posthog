@@ -9,6 +9,7 @@ from posthog.hogql_queries.web_analytics.ctes import (
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     WebStatsTableQuery,
     WebStatsBreakdown,
@@ -19,6 +20,13 @@ from posthog.schema import (
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
     query_type = WebStatsTableQuery
+
+    def _limit(self):
+        return int(self.query.limit or 10)
+
+    @cached_property
+    def _limit_expr(self):
+        return ast.Constant(value=self._limit() + 1)
 
     def _bounce_rate_subquery(self):
         with self.timings.measure("bounce_rate_query"):
@@ -87,7 +95,7 @@ WHERE
 ORDER BY
     "context.columns.views" DESC,
     "context.columns.breakdown_value" DESC
-LIMIT 10
+LIMIT {limit}
                 """,
                 timings=self.timings,
                 placeholders={
@@ -96,6 +104,7 @@ LIMIT 10
                     "scroll_depth_query": self._scroll_depth_subquery(),
                     "where_breakdown": self.where_breakdown(),
                     "sample_rate": self._sample_ratio,
+                    "limit": self._limit_expr,
                 },
             )
         elif self.query.includeBounceRate:
@@ -118,13 +127,14 @@ LIMIT 10
     ORDER BY
         "context.columns.views" DESC,
         "context.columns.breakdown_value" DESC
-    LIMIT 10
+    LIMIT {limit}
                     """,
                     timings=self.timings,
                     placeholders={
                         "counts_query": self._counts_subquery(),
                         "bounce_rate_query": self._bounce_rate_subquery(),
                         "where_breakdown": self.where_breakdown(),
+                        "limit": self._limit_expr,
                     },
                 )
         else:
@@ -142,12 +152,13 @@ LIMIT 10
     ORDER BY
         "context.columns.views" DESC,
         "context.columns.breakdown_value" DESC
-    LIMIT 10
+    LIMIT {limit}
                     """,
                     timings=self.timings,
                     placeholders={
                         "counts_query": self._counts_subquery(),
                         "where_breakdown": self.where_breakdown(),
+                        "limit": self._limit_expr,
                     },
                 )
 
@@ -173,7 +184,10 @@ LIMIT 10
             else:
                 return col_val
 
-        results = [[to_data(c, i) for (i, c) in enumerate(r)] for r in response.results]
+        results_plus_one = [[to_data(c, i) for (i, c) in enumerate(r)] for r in response.results]
+        limit = self._limit()
+        results = results_plus_one[:limit]
+        has_more = len(results_plus_one) > len(results)
 
         return WebStatsTableQueryResponse(
             columns=response.columns,
@@ -181,6 +195,7 @@ LIMIT 10
             timings=response.timings,
             types=response.types,
             hogql=response.hogql,
+            hasMore=has_more,
         )
 
     def counts_breakdown(self):
@@ -344,7 +359,7 @@ WHERE
 ORDER BY
     "context.columns.views" DESC,
     "context.columns.breakdown_value" DESC
-LIMIT 10
+LIMIT {limit}
                 """,
                 timings=self.timings,
                 backend="cpp",
@@ -352,6 +367,7 @@ LIMIT 10
                     "counts_where": self.events_where(),
                     "where_breakdown": self.where_breakdown(),
                     "sample_rate": self._sample_ratio,
+                    "limit": self._limit_expr,
                 },
             )
 

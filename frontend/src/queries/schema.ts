@@ -930,6 +930,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     response?: WebStatsTableQueryResponse
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    limit?: number
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -937,6 +938,7 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     columns?: unknown[]
     hogql?: string
     samplingRate?: SamplingRate
+    hasMore?: boolean
 }
 
 export type InsightQueryNode =

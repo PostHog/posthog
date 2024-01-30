@@ -110,6 +110,7 @@ export function DataTable({
         responseError,
         queryCancelled,
         canLoadNewData,
+        canLoadNextData,
         nextDataLoading,
         newDataLoading,
         highlightedRows,
@@ -557,7 +558,12 @@ export function DataTable({
                                         result && result[0] && result[0]['event'] === '$exception',
                                 })
                             }
-                            footer={(dataTableRows ?? []).length > 0 ? <LoadNext query={query.source} /> : null}
+                            footer={
+                                (dataTableRows ?? []).length > 0 &&
+                                (!sourceFeatures.has(QueryFeature.hideFooterIfCantLoadMore) || canLoadNextData) ? (
+                                    <LoadNext query={query.source} />
+                                ) : null
+                            }
                             onRow={context?.rowProps}
                         />
                     )}
