@@ -850,7 +850,34 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 142908405,
-            "style": "width: 411px;height: 70px;position: fixed;left: 0px;top: 536px;overflow:hidden;white-space:nowrap;",
+            "style": "background-image: url("data:image/png;base64,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
+");background-size: auto;background-repeat: no-repeat;width: 411px;height: 70px;position: fixed;left: 0px;top: 536px;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 142908405,
@@ -918,7 +945,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
       {
         "nextId": null,
         "node": {
-          "id": 103,
+          "id": 100,
           "textContent": "PostHog/posthog-ios",
           "type": 3,
         },
@@ -955,7 +982,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
       {
         "nextId": null,
         "node": {
-          "id": 104,
+          "id": 101,
           "textContent": "PostHog iOS integration",
           "type": 3,
         },
@@ -992,7 +1019,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
       {
         "nextId": null,
         "node": {
-          "id": 105,
+          "id": 102,
           "textContent": "20",
           "type": 3,
         },

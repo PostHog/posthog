@@ -7,11 +7,11 @@ export const TOP_OF_STACK = 9999999
 export const KEYBOARD_Z_INDEX = 9999998
 
 function ensureTrailingSemicolon(styles: string): string {
-    return styles.length > 0 && styles[styles.length - 1] !== ';' ? styles + ';' : styles
+    return styles.endsWith(';') ? styles : styles + ';'
 }
 
 function stripTrailingSemicolon(styles: string): string {
-    return styles.length > 0 && styles[styles.length - 1] === ';' ? styles.slice(0, -1) : styles
+    return styles.endsWith(';') ? styles.slice(0, -1) : styles
 }
 
 export function asStyleString(styleParts: string[]): string {
@@ -206,7 +206,7 @@ export function makeMinimalStyles(wireframe: wireframe, styleOverride?: StyleOve
 }
 
 export function makeBackgroundStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
-    const styleParts: string[] = []
+    let styleParts: string[] = []
 
     const combinedStyles = {
         ...wireframe.style,
@@ -218,8 +218,8 @@ export function makeBackgroundStyles(wireframe: wireframe, styleOverride?: Style
     }
 
     if (combinedStyles.backgroundImage) {
-        styleParts.concat([
-            `background-image: url(${dataURIOrPNG(combinedStyles.backgroundImage)})`,
+        styleParts = styleParts.concat([
+            `background-image: url("${dataURIOrPNG(combinedStyles.backgroundImage)}")`,
             `background-size: ${combinedStyles.backgroundSize || 'auto'}`,
             'background-repeat: no-repeat',
         ])
