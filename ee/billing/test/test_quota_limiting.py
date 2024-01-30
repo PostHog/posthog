@@ -8,6 +8,7 @@ from freezegun import freeze_time
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMITER_CACHE_KEY,
+    QUOTA_OVERAGE_RETENTION_CACHE_KEY,
     QuotaResource,
     list_limited_team_attributes,
     org_quota_limited_until,
@@ -22,6 +23,8 @@ from posthog.test.base import BaseTest, _create_event
 
 
 class TestQuotaLimiting(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
@@ -47,18 +50,20 @@ class TestQuotaLimiting(BaseTest):
                     team=self.team,
                 )
 
-        result = update_all_org_billing_quotas()
-        assert result["events"] == {}
-        assert result["recordings"] == {}
-        assert result["rows_synced"] == {}
+        quota_limited_orgs, data_retained_orgs = update_all_org_billing_quotas()
+        assert data_retained_orgs["events"] == {}
+        assert data_retained_orgs["recordings"] == {}
+        assert data_retained_orgs["rows_synced"] == {}
+        assert quota_limited_orgs["events"] == {}
+        assert quota_limited_orgs["recordings"] == {}
+        assert quota_limited_orgs["rows_synced"] == {}
 
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
-    @freeze_time("2021-01-25T22:09:14.252Z")
     def test_billing_rate_limit(self) -> None:
-        with self.settings(USE_TZ=False):
+        with self.settings(USE_TZ=False), freeze_time("2021-01-25T22:09:14.252Z"):
             self.organization.usage = {
                 "events": {"usage": 99, "limit": 100},
                 "recordings": {"usage": 1, "limit": 100},
@@ -80,26 +85,110 @@ class TestQuotaLimiting(BaseTest):
                     team=self.team,
                 )
         time.sleep(1)
-        quota_limited_orgs, data_retained_orgs = update_all_org_billing_quotas()
         org_id = str(self.organization.id)
-        assert data_retained_orgs["events"] == {org_id: 1612137599}
-        assert quota_limited_orgs["events"] == {}
-        assert quota_limited_orgs["recordings"] == {}
-        assert quota_limited_orgs["rows_synced"] == {}
 
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
-            self.team.api_token.encode("UTF-8")
-        ]
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+        with freeze_time("2021-01-25T22:09:14.252Z"):
+            # Should be data_retained until Feb 1 2021
+            quota_limited_orgs, data_retained_orgs = update_all_org_billing_quotas()
+            assert data_retained_orgs["events"] == {org_id: 1612137600}
+            assert quota_limited_orgs["events"] == {}
+            assert quota_limited_orgs["recordings"] == {}
+            assert quota_limited_orgs["rows_synced"] == {}
 
-        self.organization.refresh_from_db()
-        assert self.organization.usage == {
-            "events": {"usage": 99, "limit": 100, "todays_usage": 10},
-            "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
-            "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
-            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-        }
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+
+            self.organization.refresh_from_db()
+            assert self.organization.usage == {
+                "events": {"usage": 99, "limit": 100, "todays_usage": 10, "retained_period_end": 1612137600},
+                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+        with freeze_time("2021-01-28T22:09:14.252Z"):
+            self.organization.usage = {
+                "events": {"usage": 109, "limit": 100, "retained_period_end": 1612137600},
+                "recordings": {"usage": 1, "limit": 100},
+                "rows_synced": {"usage": 5, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+            # Fast forward three days and should still be data retained until Feb 1 2021
+            quota_limited_orgs, data_retained_orgs = update_all_org_billing_quotas()
+            assert data_retained_orgs["events"] == {org_id: 1612137600}
+            assert quota_limited_orgs["events"] == {}
+            assert quota_limited_orgs["recordings"] == {}
+            assert quota_limited_orgs["rows_synced"] == {}
+
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+
+            self.organization.refresh_from_db()
+            assert self.organization.usage == {
+                "events": {"usage": 109, "limit": 100, "todays_usage": 0, "retained_period_end": 1612137600},
+                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+        with freeze_time("2021-02-2T22:09:14.252Z"):
+            self.organization.usage = {
+                "events": {"usage": 109, "limit": 100, "retained_period_end": 1612137600},
+                "recordings": {"usage": 1, "limit": 100},
+                "rows_synced": {"usage": 5, "limit": 100},
+                "period": ["2021-01-05T00:00:00Z", "2021-02-05T23:59:59Z"],
+            }
+            self.organization.save()
+            # Fast forward eight days and should no longer be data retained, still in same billing period
+            quota_limited_orgs, data_retained_orgs = update_all_org_billing_quotas()
+            assert data_retained_orgs["events"] == {}
+            assert quota_limited_orgs["events"] == {org_id: 1612569599}
+            assert quota_limited_orgs["recordings"] == {}
+            assert quota_limited_orgs["rows_synced"] == {}
+
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
+                self.team.api_token.encode("UTF-8")
+            ]
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+
+            self.organization.refresh_from_db()
+            assert self.organization.usage == {
+                "events": {"usage": 109, "limit": 100, "todays_usage": 0, "retained_period_end": 1612137600},
+                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
+                "period": ["2021-01-05T00:00:00Z", "2021-02-05T23:59:59Z"],
+            }
+
+        with freeze_time("2021-02-2T22:09:14.252Z"):
+            self.organization.usage = {
+                "events": {"usage": 109, "limit": 100, "retained_period_end": 1612137600},
+                "recordings": {"usage": 1, "limit": 100},
+                "rows_synced": {"usage": 5, "limit": 100},
+                "period": ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"],
+            }
+            self.organization.save()
+            # Fast forward eight days and should still be data retained but with updated retention end because of new biling period
+            quota_limited_orgs, data_retained_orgs = update_all_org_billing_quotas()
+            assert data_retained_orgs["events"] == {org_id: 1612828800}
+            assert quota_limited_orgs["events"] == {}
+            assert quota_limited_orgs["recordings"] == {}
+            assert quota_limited_orgs["rows_synced"] == {}
+
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+
+            self.organization.refresh_from_db()
+            assert self.organization.usage == {
+                "events": {"usage": 109, "limit": 100, "todays_usage": 0, "retained_period_end": 1612828800},
+                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
+                "period": ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"],
+            }
 
     def test_set_org_usage_summary_updates_correctly(self):
         self.organization.usage = {
@@ -177,9 +266,11 @@ class TestQuotaLimiting(BaseTest):
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
 
+    @freeze_time("2021-01-25T22:09:14.252Z")
     def test_org_quota_limited_until(self):
         self.organization.usage = None
-        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+        today = timezone.now()
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS, today) is None
 
         self.organization.usage = {
             "events": {"usage": 99, "limit": 100},
@@ -188,32 +279,46 @@ class TestQuotaLimiting(BaseTest):
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
 
-        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS, today) is None
 
         self.organization.usage["events"]["usage"] = 120
-        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) == 1612137599
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS, today) == (1612137599, 1612217354, True)
 
         self.organization.usage["events"]["usage"] = 90
         self.organization.usage["events"]["todays_usage"] = 10
-        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) == 1612137599
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS, today) == (
+            1612137599,
+            1612217354,
+            False,
+        )
 
         self.organization.usage["events"]["limit"] = None
-        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS, today) is None
 
         self.organization.usage["recordings"]["usage"] = 1099  # Under limit + buffer
-        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS, today) is None
 
         self.organization.usage["recordings"]["usage"] = 1100  # Over limit + buffer
-        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) == 1612137599
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS, today) == (
+            1612137599,
+            1612217354,
+            True,
+        )
 
-        assert org_quota_limited_until(self.organization, QuotaResource.ROWS_SYNCED) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.ROWS_SYNCED, today) is None
 
         self.organization.usage["rows_synced"]["usage"] = 101
-        assert org_quota_limited_until(self.organization, QuotaResource.ROWS_SYNCED) == 1612137599
+        assert org_quota_limited_until(self.organization, QuotaResource.ROWS_SYNCED, today) == (
+            1612137599,
+            1612217354,
+            True,
+        )
 
+    @freeze_time("2021-01-25T22:09:14.252Z")
     def test_over_quota_but_not_dropped_org(self):
         self.organization.usage = None
-        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+        today = timezone.now().timestamp()
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS, today) is None
 
         self.organization.usage = {
             "events": {"usage": 100, "limit": 90},
@@ -223,9 +328,9 @@ class TestQuotaLimiting(BaseTest):
         }
         self.organization.never_drop_data = True
 
-        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
-        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
-        assert org_quota_limited_until(self.organization, QuotaResource.ROWS_SYNCED) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS, today) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS, today) is None
+        assert org_quota_limited_until(self.organization, QuotaResource.ROWS_SYNCED, today) is None
 
         # reset for subsequent tests
         self.organization.never_drop_data = False
@@ -252,17 +357,38 @@ class TestQuotaLimiting(BaseTest):
             self.organization.usage["events"]["usage"] = 120
             self.organization.usage["rows_synced"]["usage"] = 120
             sync_org_quota_limits(self.organization)
-            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS)) == sorted(
-                ["1234", self.team.api_token, other_team.api_token]
-            )
+            # Org will be data retained.
+            assert self.organization.usage == {
+                "events": {"usage": 120, "limit": 100, "retained_period_end": 1610064000},
+                "recordings": {"usage": 1, "limit": 100},
+                "rows_synced": {"limit": 100, "retained_period_end": 1610064000, "usage": 120},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            assert sorted(
+                list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
+            ) == sorted([self.team.api_token, other_team.api_token])
+            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS)) == sorted(["1234"])
 
             # rows_synced uses teams, not tokens
-            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED)) == sorted(
-                ["1337", str(self.team.pk), str(other_team.pk)]
-            )
+            assert sorted(
+                list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
+            ) == sorted([str(self.team.pk), str(other_team.pk)])
+            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED)) == sorted(["1337"])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
             sync_org_quota_limits(self.organization)
+            assert self.organization.usage == {
+                "events": {"usage": 80, "limit": 100},
+                "recordings": {"usage": 1, "limit": 100},
+                "rows_synced": {"limit": 100, "usage": 36},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
             assert sorted(list_limited_team_attributes(QuotaResource.EVENTS)) == sorted(["1234"])
+            assert sorted(
+                list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
+            ) == sorted([])
             assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED)) == sorted(["1337"])
+            assert sorted(
+                list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
+            ) == sorted([])

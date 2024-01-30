@@ -101,13 +101,22 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource,
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
 
     if not is_quota_limited:
+        # Reset data retention
+        if data_retained_until:
+            data_retained_until = None
+            del summary["retained_period_end"]
+            needs_save = True
+            return None, None, True
         return None
 
     if organization.never_drop_data:
         return None
 
     # Either wasn't set or was set in the previous biling period
-    if not data_retained_until or data_retained_until - timedelta(days=7) < billing_period_start:
+    if (
+        not data_retained_until
+        or round((datetime.fromtimestamp(data_retained_until) - timedelta(days=7)).timestamp()) < billing_period_start
+    ):
         data_retained_until = round((today + timedelta(days=7)).timestamp())
         summary["retained_period_end"] = data_retained_until
         needs_save = True
@@ -122,14 +131,25 @@ def sync_org_quota_limits(organization: Organization):
     if not organization.usage:
         return None
 
+    today_start, _ = get_current_day()
     for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS, QuotaResource.ROWS_SYNCED]:
         team_attributes = get_team_attribute_by_quota_resource(organization, resource)
-        quota_limited_until = org_quota_limited_until(organization, resource)
+        result = org_quota_limited_until(organization, resource, today_start)
+        if result:
+            quota_limited_until, data_retained_until, needs_save = result
 
-        if quota_limited_until:
-            add_limited_team_tokens(resource, {x: quota_limited_until for x in team_attributes})
-        else:
-            remove_limited_team_tokens(resource, team_attributes)
+            if needs_save:
+                organization.save()
+            if quota_limited_until and data_retained_until < today_start.timestamp():
+                add_limited_team_tokens(resource, {x: quota_limited_until for x in team_attributes})
+                continue
+            elif data_retained_until and data_retained_until >= today_start.timestamp():
+                add_limited_team_tokens(
+                    resource, {x: quota_limited_until for x in team_attributes}, QUOTA_OVERAGE_RETENTION_CACHE_KEY
+                )
+                continue
+        remove_limited_team_tokens(resource, team_attributes)
+        remove_limited_team_tokens(resource, team_attributes, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
 
 
 def get_team_attribute_by_quota_resource(organization: Organization, resource: QuotaResource):
@@ -248,17 +268,16 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
 
             for field in ["events", "recordings", "rows_synced"]:
                 result = org_quota_limited_until(org, QuotaResource(field), period_start)
-
                 if result:
                     quota_limited_until, data_retained_until, needs_save = result
 
-                if needs_save:
-                    org.save(update_fields=["usage"])
+                    if needs_save:
+                        org.save(update_fields=["usage"])
 
-                if data_retained_until and data_retained_until >= period_start.timestamp():
-                    data_retained_orgs[field][org_id] = data_retained_until
-                elif quota_limited_until:
-                    quota_limited_orgs[field][org_id] = quota_limited_until
+                    if data_retained_until and data_retained_until >= period_start.timestamp():
+                        data_retained_orgs[field][org_id] = data_retained_until
+                    elif quota_limited_until:
+                        quota_limited_orgs[field][org_id] = quota_limited_until
 
     # Get the current quota limits so we can track to posthog if it changes
     orgs_with_changes = set()
