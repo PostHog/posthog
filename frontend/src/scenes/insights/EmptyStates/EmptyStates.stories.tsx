@@ -13,15 +13,15 @@ import funnelOneStep from './funnelOneStep.json'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
-    title: 'Scenes-App/Insights/Error states',
-    tags: ['test-skip'],
+    title: 'Scenes-App/Insights/Error & Empty States',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
     },
 }
 export default meta
-export function EmptyState(): JSX.Element {
+
+export function Empty(): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights/': (_, __, ctx) => [
@@ -37,7 +37,7 @@ export function EmptyState(): JSX.Element {
     return <App />
 }
 
-export function ErrorState(): JSX.Element {
+export function ServerError(): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights/': (_, __, ctx) => [
@@ -48,7 +48,10 @@ export function ErrorState(): JSX.Element {
             '/api/projects/:team_id/insights/:id': (_, __, ctx) => [
                 ctx.delay(100),
                 ctx.status(500),
-                ctx.json({ detail: 'a fake error' }),
+                ctx.json({
+                    type: 'server_error',
+                    detail: 'There is nothing you can do to stop the impending catastrophe.',
+                }),
             ],
         },
     })
@@ -58,7 +61,31 @@ export function ErrorState(): JSX.Element {
     return <App />
 }
 
-export function TimeoutState(): JSX.Element {
+export function ValidationError(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/insights/': (_, __, ctx) => [
+                ctx.delay(100),
+                ctx.status(200),
+                ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
+            ],
+            '/api/projects/:team_id/insights/:id': (_, __, ctx) => [
+                ctx.delay(100),
+                ctx.status(400),
+                ctx.json({
+                    type: 'validation_error',
+                    detail: 'You forgot to hug the person next to you. Please do that now.',
+                }),
+            ],
+        },
+    })
+    useEffect(() => {
+        router.actions.push(`/insights/${insight.short_id}`)
+    }, [])
+    return <App />
+}
+
+export function Timeout(): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights/': (_, __, ctx) => [
