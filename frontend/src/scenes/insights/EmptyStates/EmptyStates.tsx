@@ -156,6 +156,8 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                     <IconErrorOutline />
                 </div>
                 <h2 className="text-xl">{title || 'There was a problem completing this query'}</h2>
+                {/* Note that this default phrasing above signals the issue is intermittent, */}
+                {/* and that perhaps the query will complete on retry */}
                 {!excludeDetail && (
                     <div className="mt-4">
                         We apologize for this unexpected situation. There are a couple of things you can do:
@@ -245,7 +247,11 @@ export function FunnelValidationError({ detail }: { detail: string }): JSX.Eleme
                 <div className="illustration-main">
                     <IconWarning />
                 </div>
-                <h2 className="text-xl">There is a problem with this query</h2>
+                <h2 className="text-xl">
+                    There is a problem with this query
+                    {/* Note that this phrasing above signals the issue is not intermittent, */}
+                    {/* but rather that it's something with the definition of the query itself */}
+                </h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
                 {detail.includes('Exclusion') && (
                     <div className="mt-4">
