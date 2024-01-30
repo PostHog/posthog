@@ -154,10 +154,6 @@ module.exports = {
                         message: 'use <LemonInput> instead',
                     },
                     {
-                        element: 'Skeleton',
-                        message: 'use <LemonSkeleton> instead',
-                    },
-                    {
                         element: 'Modal',
                         message: 'use <LemonModal> or `<LemonDialog> instead',
                     },
@@ -245,6 +241,10 @@ module.exports = {
                     {
                         element: 'ReactJson',
                         message: 'use <JSONViewer> for dark mode support instead',
+                    },
+                    {
+                        element: 'Skeleton',
+                        message: 'use <LemonSkeleton> instead',
                     },
                 ],
             },

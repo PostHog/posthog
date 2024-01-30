@@ -90,7 +90,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const {
         props,
         featureFlag,
-        // featureFlagLoading,
+        featureFlagLoading,
         featureFlagMissing,
         isEditingFlag,
         recordingFilterForFlag,
@@ -118,14 +118,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
-    const featureFlagLoading = true
-
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
     }
     if (featureFlagLoading) {
         return (
-            <div className="absolute inset-0 p-4 space-y-2">
+            <div className="space-y-2">
                 <LemonSkeleton active className="h-4 w-2/5" />
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-full" />
