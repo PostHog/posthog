@@ -105,10 +105,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         propsQuery: [
             () => [(_, props) => props],
             // overwrite query from props for standalone InsightVizNode queries
-            (props: InsightLogicProps) =>
-                props.dashboardItemId?.startsWith('new-AdHoc.') || props.dashboardItemId?.startsWith('web-analytics.')
-                    ? props.query
-                    : null,
+            (props: InsightLogicProps) => (props.dashboardItemId?.startsWith('new-AdHoc.') ? props.query : null),
         ],
 
         isQueryBasedInsight: [
