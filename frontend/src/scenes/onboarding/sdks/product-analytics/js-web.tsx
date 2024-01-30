@@ -14,8 +14,8 @@ export function JSWebInstructions(): JSX.Element {
         <>
             <SDKInstallJSWebInstructions />
             <LemonDivider thick dashed className="my-4" />
-            <h4>Optional: Send your first event</h4>
-            <p>Our package will autocapture events for you, but you can manually capture events, too!</p>
+            <h4>Optional: Send a manual event</h4>
+            <p>Our package will autocapture events for you, but you can manually define events, too!</p>
             <JSEventSnippet />
         </>
     )
