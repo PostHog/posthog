@@ -123,7 +123,8 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
-    def test_billing_rate_limit(self) -> None:
+    @patch("posthoganalytics.capture")
+    def test_billing_rate_limit(self, patch_capture) -> None:
         with self.settings(USE_TZ=False):
             self.organization.usage = {
                 "events": {"usage": 99, "limit": 100},
@@ -151,6 +152,17 @@ class TestQuotaLimiting(BaseTest):
         assert result["events"] == {org_id: 1612137599}
         assert result["recordings"] == {}
         assert result["rows_synced"] == {}
+
+        patch_capture.assert_called_once_with(
+            org_id,
+            "organization quota limits changed",
+            properties={
+                "quota_limited_events": 1612137599,
+                "quota_limited_recordings": 1612137599,
+                "quota_limited_rows_synced": None,
+            },
+            groups={"instance": "http://localhost:8000", "organization": org_id},
+        )
 
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
             self.team.api_token.encode("UTF-8")
