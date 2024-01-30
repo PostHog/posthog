@@ -10,7 +10,7 @@ function stripTrailingSemicolon(styles: string): string {
     return styles.length > 0 && styles[styles.length - 1] === ';' ? styles.slice(0, -1) : styles
 }
 
-function asStyleString(styleParts: string[]): string {
+export function asStyleString(styleParts: string[]): string {
     if (styleParts.length === 0) {
         return ''
     }
