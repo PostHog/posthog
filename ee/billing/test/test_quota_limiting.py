@@ -56,7 +56,12 @@ class TestQuotaLimiting(BaseTest):
                 )
         time.sleep(1)
         result = update_all_org_billing_quotas()
-        patch_feature_enabled.assert_called_with(QUOTA_LIMIT_DATA_RETENTION_FLAG, self.organization.id)
+        patch_feature_enabled.assert_called_with(
+            QUOTA_LIMIT_DATA_RETENTION_FLAG,
+            self.organization.id,
+            groups={"organization": str(self.organization.id)},
+            group_properties={"organization": str(self.organization.id)},
+        )
         patch_capture.assert_called_once_with(
             str(self.organization.id),
             "quota limiting suspended",
