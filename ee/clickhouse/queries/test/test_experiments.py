@@ -120,3 +120,33 @@ class TestTrendExperiments(unittest.TestCase):
             validate_trend_event_variants(insight_results, ["test", "control"])
 
         self.assertEqual(expected_code, context.exception.detail[0].code)
+
+    def test_validate_event_variants_ignore_old_variant(self):
+        insight_results = [
+            {
+                "action": {
+                    "id": "step-b-0",
+                    "type": "events",
+                    "order": 0,
+                    "name": "step-b-0",
+                },
+                "label": "test",
+                "breakdown_value": "test",
+            },
+            {
+                "action": {
+                    "id": "step-b-0",
+                    "type": "events",
+                    "order": 0,
+                    "name": "step-b-0",
+                },
+                "label": "test",
+                "breakdown_value": "old-variant",
+            },
+        ]
+
+        expected_code = "missing-flag-variants::control"
+        with self.assertRaises(ValidationError) as context:
+            validate_trend_event_variants(insight_results, ["test", "control"])
+
+        self.assertEqual(expected_code, context.exception.detail[0].code)
