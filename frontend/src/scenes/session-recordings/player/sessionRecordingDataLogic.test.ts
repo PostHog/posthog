@@ -16,6 +16,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { waitForExpect } from '~/test/waitForExpect'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
@@ -386,7 +387,10 @@ describe('sessionRecordingDataLogic', () => {
                     // this isn't called again
                     'pollRecordingSnapshots',
                 ])
-            expect(logic.cache.realTimePollingTimeoutID).toBeNull()
+
+            await waitForExpect(() => {
+                expect(logic.cache.realTimePollingTimeoutID).toBeNull()
+            })
         })
     })
 })

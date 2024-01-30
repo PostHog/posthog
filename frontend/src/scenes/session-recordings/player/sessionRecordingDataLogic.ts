@@ -42,6 +42,7 @@ import {
     SessionRecordingSnapshotSource,
     SessionRecordingType,
     SessionRecordingUsageType,
+    SnapshotSourceType,
 } from '~/types'
 
 import { PostHogEE } from '../../../../@posthog/ee/types'
@@ -50,6 +51,11 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
+const DEFAULT_REALTIME_POLLING_MILLIS = 3000
+const REALTIME_POLLING_PARAMS = toParams({
+    source: SnapshotSourceType.realtime,
+    version: '2',
+})
 
 let postHogEEModule: PostHogEE
 
@@ -293,7 +299,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             if (values.unnecessaryPollingCount <= 10) {
                 cache.realTimePollingTimeoutID = setTimeout(() => {
                     actions.pollRecordingSnapshots()
-                }, props.realTimePollingIntervalMilliseconds || 3000)
+                }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
             }
         },
         startRealTimePolling: () => {
@@ -303,7 +309,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             cache.realTimePollingTimeoutID = setTimeout(() => {
                 actions.pollRecordingSnapshots()
-            }, props.realTimePollingIntervalMilliseconds || 3000)
+            }, props.realTimePollingIntervalMilliseconds || DEFAULT_REALTIME_POLLING_MILLIS)
         },
         maybeLoadRecordingMeta: () => {
             if (!values.sessionPlayerMetaDataLoading) {
@@ -338,7 +344,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             } else {
                 actions.reportViewed()
                 // If we have a realtime source, start polling it
-                const realTimeSource = sources?.find((s) => s.source === 'realtime')
+                const realTimeSource = sources?.find((s) => s.source === SnapshotSourceType.realtime)
                 if (realTimeSource) {
                     actions.startRealTimePolling()
                 }
@@ -423,13 +429,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionPlayerSnapshotData | null,
             {
                 pollRecordingSnapshots: async (_, breakpoint: BreakPointFunction) => {
-                    const params = toParams({
-                        source: 'realtime',
-                        version: '2',
-                    })
+                    await breakpoint(1) // debounce
+                    const response = await api.recordings.listSnapshots(
+                        props.sessionRecordingId,
+                        REALTIME_POLLING_PARAMS
+                    )
+                    breakpoint() // handle out of order
 
-                    await breakpoint(1)
-                    const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                     if (response.snapshots) {
                         const { transformed, untransformed } = await processEncodedResponse(
                             response.snapshots,
@@ -463,7 +469,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     await breakpoint(1)
 
-                    if (source?.source === 'blob') {
+                    if (source?.source === SnapshotSourceType.blob) {
                         if (!source.blob_key) {
                             throw new Error('Missing key')
                         }
