@@ -2,7 +2,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from pandas import DataFrame
 import numpy as np
-from openai import OpenAI, ChatCompletion
+from openai import OpenAI
 
 from types import Int, List, Any
 
@@ -18,6 +18,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 def perform(team_id: Int, cluster_count: Int = 15, scale_features: bool = False):
     team = Team.objects.get(team_id)
 
+    # TODO: add event occurrance count, url count, element chain to captured data
     recording_data = generate_recording_data(team=team)
     data_frame = cluster(
         columns=recording_data[0], data=recording_data[1], with_scaling=scale_features, cluster_count=cluster_count
@@ -26,6 +27,7 @@ def perform(team_id: Int, cluster_count: Int = 15, scale_features: bool = False)
 
 
 def generate_recording_data(team: Team):
+    # TODO: add min duration filter
     q = """
         SELECT
             any(distinct_id),
@@ -96,24 +98,27 @@ def summarize_clusters(df: DataFrame, cluster_count: Int, sample_size: Int):
                 "role": "system",
                 "content": """
             Session Replay is PostHog's tool to record visits to web sites and apps.
-            We also gather events that occur like mouse clicks and key presses.
-            You write two or three sentence concise and simple summaries of those sessions based on a prompt.
-            You are more likely to mention errors or things that look like business success such as checkout events.
+            We also gather events that occur like console logs, errors, mouse clicks and key presses.
+            You write descriptive and simple playlist titles based on prewritten summaries of those sessions based on a prompt.
+            You are more likely to mention user experiences or things that look like business success such as checkout events.
             You don't help with other knowledge.""",
             },
             {
                 "role": "user",
-                "content": f"""I have a list of metadata for separate recordings on a separate line: {recording_metadata}.
-            The comma separated values represent the columns: {df.columns}.
-            they give an idea of what happened and when,
-            if present the elements_chain extracted from the html can aid in understanding
-            but should not be directly used in your response""",
+                "content": f"""the names of the parameters I tracked about recordings are: {df.columns}.
+                They give an idea of what happened in the session and how often.""",
+            },
+            {
+                "role": "user",
+                "content": f"""I have comma separated the values relating to each parameter and put each recording on a new line:
+                {recording_metadata}""",
             },
             {
                 "role": "user",
                 "content": """
-            generate a two or three sentence summary of the session.
-            use as concise and simple language as is possible.
+            generate a title that best groups the recordings.
+            focus on what parameters the recordings all have in common.
+            use as specific and simple language as is possible.
             assume a reading age of around 12 years old.
             generate no text other than the summary.""",
             },
