@@ -1,10 +1,16 @@
 from openai import OpenAI
 
 from posthog.api.activity_log import ServerTimingsGathered
-from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.utils import get_instance_region
 from posthog.models import User, Team
+
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.ai.utils import (
+    SessionSummaryPromptData,
+    reduce_elements_chain,
+    collapse_sequence_of_events,
+)
 
 
 def generate_team_embeddings(team: Team):
@@ -33,17 +39,8 @@ def update_embedding(recording: SessionRecording, user: User):
             raise ValueError(f"no events found for session_id {recording.session_id}")
 
     with timer("generate_input"):
-        input = deduplicate_urls(
-            collapse_sequence_of_events(
-                format_dates(
-                    reduce_elements_chain(
-                        simplify_window_id(
-                            SessionSummaryPromptData(columns=session_events[0], results=session_events[1])
-                        )
-                    ),
-                    start=start_time,
-                )
-            )
+        input = collapse_sequence_of_events(
+            reduce_elements_chain(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
         )
 
     with timer("openai_completion"):
