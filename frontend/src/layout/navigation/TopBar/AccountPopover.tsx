@@ -1,6 +1,14 @@
 import './AccountPopover.scss'
 
-import { IconCheckCircle, IconFeatures, IconGear, IconLive, IconPlusSmall, IconServer } from '@posthog/icons'
+import {
+    IconCheckCircle,
+    IconConfetti,
+    IconFeatures,
+    IconGear,
+    IconLive,
+    IconPlusSmall,
+    IconServer,
+} from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -10,7 +18,6 @@ import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
@@ -183,11 +190,10 @@ function SignOutButton(): JSX.Element {
 export function AccountPopoverOverlay(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { preflight } = useValues(preflightLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { closeAccountPopover } = useActions(navigationLogic)
-    const { billing } = useValues(billingLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
 
     return (
         <>
@@ -196,7 +202,7 @@ export function AccountPopoverOverlay(): JSX.Element {
             </AccountPopoverSection>
             <AccountPopoverSection title="Current organization">
                 {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                {preflight?.cloud || !!billing ? (
+                {isCloudOrDev ? (
                     <LemonButton
                         onClick={closeAccountPopover}
                         to={urls.organizationBilling()}
@@ -242,6 +248,19 @@ export function AccountPopoverOverlay(): JSX.Element {
                 <FeaturePreviewsButton />
                 {user?.is_staff && <InstanceSettings />}
             </AccountPopoverSection>
+            {!isCloudOrDev && (
+                <AccountPopoverSection>
+                    <LemonButton
+                        onClick={closeAccountPopover}
+                        to={urls.moveToPostHogCloud()}
+                        icon={<IconConfetti />}
+                        fullWidth
+                        data-attr="top-menu-item-upgrade-to-cloud"
+                    >
+                        Try PostHog Cloud
+                    </LemonButton>
+                </AccountPopoverSection>
+            )}
             <AccountPopoverSection>
                 <SignOutButton />
             </AccountPopoverSection>
