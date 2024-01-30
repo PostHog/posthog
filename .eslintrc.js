@@ -119,7 +119,7 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress'],
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress', 'Radio'],
                         message: 'please use the Lemon equivalent instead',
                     },
                 ],
@@ -239,12 +239,18 @@ module.exports = {
                     {
                         element: 'Tag',
                         message: 'use <LemonTag> instead',
+                    },
+                    {
                         element: 'Alert',
                         message: 'use <LemonBanner> instead',
                     },
                     {
                         element: 'ReactJson',
                         message: 'use <JSONViewer> for dark mode support instead',
+                    },
+                    {
+                        element: 'Radio',
+                        message: 'use <LemonRadio> instead',
                     },
                 ],
             },
