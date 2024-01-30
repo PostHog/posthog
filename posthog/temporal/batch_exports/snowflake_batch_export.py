@@ -22,15 +22,15 @@ from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
     get_rows_count,
+    iter_records,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
     HeartbeatParseError,
@@ -367,7 +367,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         with snowflake_connection(inputs) as connection:
             await create_table_in_snowflake(connection, inputs.table_name)
 
-            results_iterator = get_results_iterator(
+            results_iterator = iter_records(
                 client=client,
                 team_id=inputs.team_id,
                 interval_start=inputs.data_interval_start,
