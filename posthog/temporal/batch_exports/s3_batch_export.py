@@ -420,7 +420,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         )
 
         result = None
-        last_uploaded_part_timestamp = None
+        last_uploaded_part_timestamp: str | None = None
 
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
@@ -433,7 +433,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 # Just start from the beginning again.
                 return
 
-            activity.heartbeat(str(last_uploaded_part_timestamp), s3_upload.to_state())
+            activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
         asyncio.create_task(worker_shutdown_handler())
 
