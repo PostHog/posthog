@@ -187,6 +187,13 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("properties.unknown_prop = true"),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": "false"},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = false"),
+        )
 
     def test_property_to_expr_event_list(self):
         # positive

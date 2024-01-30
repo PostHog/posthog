@@ -3,7 +3,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
 function FlutterInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.YAML}>posthog_flutter: # insert version number</CodeSnippet>
+    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^3.0.0</CodeSnippet>
 }
 
 function FlutterAndroidSetupSnippet(): JSX.Element {

@@ -173,6 +173,7 @@ export const urls = {
     products: (): string => '/products',
     onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
+    onboardingProductIntroduction: (productKey: string): string => '/onboarding/' + productKey + '/intro',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only
