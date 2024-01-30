@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 function IOSInstallCocoaPodsSnippet(): JSX.Element {
@@ -28,7 +29,7 @@ import UIKit
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let POSTHOG_API_KEY = "${currentTeam?.api_token}"
-        let POSTHOG_HOST = "${window.location.origin}"
+        let POSTHOG_HOST = "${apiHostOrigin()}"
 
         let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
         PostHogSDK.shared.setup(config)
