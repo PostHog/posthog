@@ -20,6 +20,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
     get_rows_count,
@@ -364,17 +365,29 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             rows_exported.add(file.records_since_last_reset)
             bytes_exported.add(file.bytes_since_last_reset)
 
+        fields = default_fields()
+        fields.append(
+            {
+                "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+                "alias": "ip",
+            }
+        )
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
+        fields.append({"expression": "''", "alias": "site_url"})
+
+        results_iterator = iter_records(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            fields=fields,
+        )
+
         with snowflake_connection(inputs) as connection:
             await create_table_in_snowflake(connection, inputs.table_name)
-
-            results_iterator = iter_records(
-                client=client,
-                team_id=inputs.team_id,
-                interval_start=inputs.data_interval_start,
-                interval_end=inputs.data_interval_end,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
-            )
 
             result = None
 
@@ -388,7 +401,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     # Just start from the beginning again.
                     return
 
-                activity.heartbeat(last_inserted_at, file_no)
+                activity.heartbeat(str(last_inserted_at), file_no)
 
             asyncio.create_task(worker_shutdown_handler())
 
@@ -397,10 +410,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     record = {
                         "uuid": result["uuid"],
                         "event": result["event"],
-                        "properties": result["properties"],
+                        "properties": json.loads(result["properties"]) if result["properties"] is not None else None,
                         "elements": result["elements"],
-                        "people_set": result["set"],
-                        "people_set_once": result["set_once"],
+                        # For now, we are not passing in any custom fields, we update the alias for backwards compatibility.
+                        "people_set": json.loads(result["set"]) if result["set"] is not None else None,
+                        "people_set_once": json.loads(result["set_once"]) if result["set_once"] is not None else None,
                         "distinct_id": result["distinct_id"],
                         "team_id": result["team_id"],
                         "ip": result["ip"],
@@ -412,20 +426,20 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     if local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES:
                         await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no)
 
-                        last_inserted_at = result["inserted_at"]
+                        last_inserted_at = result["_inserted_at"]
                         file_no += 1
 
-                        activity.heartbeat(last_inserted_at, file_no)
+                        activity.heartbeat(str(last_inserted_at), file_no)
 
                         local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
                     await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no, last=True)
 
-                    last_inserted_at = result["inserted_at"]
+                    last_inserted_at = result["_inserted_at"]
                     file_no += 1
 
-                    activity.heartbeat(last_inserted_at, file_no)
+                    activity.heartbeat(str(last_inserted_at), file_no)
 
             await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
 
