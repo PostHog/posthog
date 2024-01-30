@@ -116,7 +116,7 @@ class ValidateSchemaInputs:
 
 @activity.defn
 async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
-    await sync_to_async(validate_schema_and_update_table)(  # type: ignore
+    await validate_schema_and_update_table(
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         schemas=inputs.schemas,
