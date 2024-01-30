@@ -239,7 +239,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setScheduledChangeOperation: (changeType: string | null) => ({ changeType }),
-        setIsSaveClicked: (isSaveClicked: boolean) => ({ isSaveClicked }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -505,12 +504,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ScheduledChangeOperationType.AddReleaseCondition as string | null,
             {
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
-            },
-        ],
-        isSaveClicked: [
-            false,
-            {
-                setIsSaveClicked: (_, { isSaveClicked }) => isSaveClicked,
             },
         ],
     }),
@@ -1008,7 +1001,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                     ? "Property filters can't be empty"
                                     : undefined,
                         })),
-                        rollout_percentage: rollout_percentage || rollout_percentage === 0 ? undefined : -1,
+                        rollout_percentage:
+                            rollout_percentage || rollout_percentage === 0
+                                ? undefined
+                                : 'You need to set a rollout % value',
                     })
                 )
             },
@@ -1132,8 +1128,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     urlToAction(({ actions, props }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
-            actions.setIsSaveClicked(false)
-
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {

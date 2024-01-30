@@ -38,7 +38,7 @@ const GROUP_FEATURE_FLAG: FeatureFlagType = {
     key: 'group-flag',
     filters: {
         aggregation_group_type_index: 1,
-        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
+        groups: [{ properties: [], rollout_percentage: null, variant: null }],
         multivariate: null,
         payloads: { true: '' },
     },

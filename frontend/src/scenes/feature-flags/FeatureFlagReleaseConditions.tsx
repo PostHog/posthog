@@ -2,12 +2,12 @@ import './FeatureFlag.scss'
 
 import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Field, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { Field } from 'lib/forms/Field'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
@@ -54,7 +54,6 @@ export function FeatureFlagReleaseConditions({
         totalUsers,
         featureFlagTaxonomicOptions,
         enabledFeatures,
-        isSaveClicked,
     } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
@@ -269,7 +268,11 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex items-center gap-1">
                                 Roll out to{' '}
                                 <LemonSlider
-                                    value={group.rollout_percentage}
+                                    value={
+                                        group.rollout_percentage
+                                            ? Math.max(Math.min(group.rollout_percentage, 100), 0)
+                                            : undefined
+                                    }
                                     onChange={(value) => {
                                         updateConditionSet(index, value)
                                     }}
@@ -278,34 +281,25 @@ export function FeatureFlagReleaseConditions({
                                     step={1}
                                     className="ml-1.5 w-20"
                                 />
-                                <Field name="rollout_percentage_0">
-                                    <LemonInput
-                                        status={
-                                            propertySelectErrors[index].rollout_percentage && isSaveClicked
-                                                ? 'danger'
-                                                : 'default'
-                                        }
-                                        data-attr="rollout-percentage"
-                                        type="number"
-                                        className="ml-2 mr-1.5 max-w-30"
-                                        onChange={(value): void => {
-                                            updateConditionSet(index, value === undefined ? 0 : value)
-                                        }}
-                                        value={group.rollout_percentage}
-                                        min={0}
-                                        max={100}
-                                        step="any"
-                                        suffix={<span>%</span>}
-                                    />
-                                </Field>{' '}
+                                <Group name={['filters', 'groups', index]}>
+                                    <Field name="rollout_percentage">
+                                        <LemonInput
+                                            data-attr="rollout-percentage"
+                                            type="number"
+                                            className="ml-2 mr-1.5 max-w-30"
+                                            onChange={(value): void => {
+                                                updateConditionSet(index, value === undefined ? 0 : value)
+                                            }}
+                                            value={group.rollout_percentage === null ? 100 : group.rollout_percentage}
+                                            min={0}
+                                            max={100}
+                                            step="any"
+                                            suffix={<span>%</span>}
+                                        />
+                                    </Field>
+                                </Group>{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
                             </div>
-                            {propertySelectErrors[index].rollout_percentage && isSaveClicked && (
-                                <div className="text-danger w-full flex items-center gap-1 text-sm">
-                                    <IconErrorOutline className="text-xl" />
-                                    You need to set a rollout condition
-                                </div>
-                            )}
                             <div>
                                 Will match approximately{' '}
                                 {affectedUsers[index] !== undefined ? (
