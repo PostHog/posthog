@@ -163,7 +163,7 @@ export interface FilterBasedCardContentProps
     extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
-    validationError: string | null
+    validationError?: string | null
     empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     /** pass in information from queries, e.g. what text to use for empty states*/
