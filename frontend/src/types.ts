@@ -3719,7 +3719,6 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
-    Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
     Discussion = 'discussion',
