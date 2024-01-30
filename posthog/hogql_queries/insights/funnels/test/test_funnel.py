@@ -1,5 +1,3 @@
-
-
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -187,7 +185,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
             self._movie_event(distinct_id="wrong_order")
 
-            result = funnel.calculate()
+            result = funnel.calculate().results
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
 
