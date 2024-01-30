@@ -296,6 +296,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             clearTimeout(cache.realTimePollingTimeoutID)
             cache.realTimePollingTimeoutID = null
 
+            // ten is an arbitrary limit to try to avoid sending requests to our backend unnecessarily
+            // we could change this or add to it e.g. only poll if browser is visible to user
             if (values.unnecessaryPollingCount <= 10) {
                 cache.realTimePollingTimeoutID = setTimeout(() => {
                     actions.pollRecordingSnapshots()
