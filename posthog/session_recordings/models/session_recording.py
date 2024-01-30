@@ -48,6 +48,8 @@ class SessionRecording(UUIDModel):
     console_warn_count: models.IntegerField = models.IntegerField(blank=True, null=True)
     console_error_count: models.IntegerField = models.IntegerField(blank=True, null=True)
 
+    text_embeddings: models.JSONField = models.JSONField(null=True, blank=True)
+
     start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
 
     # we can't store storage version in the stored content
