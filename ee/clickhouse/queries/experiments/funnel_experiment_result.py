@@ -59,7 +59,6 @@ class ClickhouseFunnelExperimentResult:
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
-        self.filter = filter
 
         # our filters assume that the given time ranges are in the project timezone.
         # while start and end date are in UTC.
