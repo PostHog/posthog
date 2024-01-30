@@ -1272,6 +1272,9 @@ export interface PerformanceEvent {
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
     raw?: Record<string, any>
+
+    //server timings - reported as separate events but added back in here on the front end
+    server_timings?: PerformanceEvent[]
 }
 
 export interface CurrentBillCycleType {
