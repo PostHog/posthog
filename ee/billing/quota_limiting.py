@@ -95,7 +95,9 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
     if is_quota_limited and posthoganalytics.feature_enabled(QUOTA_LIMIT_DATA_RETENTION_FLAG, organization.id):
         # Don't drop data for this org but record that they __would have__ been
         # limited.
-        report_organization_action(organization, "quota_limiting_suspended", properties={"current_usage": todays_usage})
+        report_organization_action(
+            organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
+        )
         return None
 
     if is_quota_limited and billing_period_end:
