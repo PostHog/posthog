@@ -3669,6 +3669,7 @@ export enum SDKKey {
     WORDPRESS = 'wordpress',
     SENTRY = 'sentry',
     RETOOL = 'retool',
+    HTML_SNIPPET = 'html',
 }
 
 export enum SDKTag {
