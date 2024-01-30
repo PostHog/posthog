@@ -8,6 +8,7 @@ from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEven
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
+from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
 from posthog.schema import ActionsNode, EventsNode
 from posthog.types import EntityNode
@@ -131,9 +132,15 @@ class FunnelBase(ABC):
         people: Optional[List[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> Dict[str, Any]:
+        if isinstance(step, EventsNode):
+            name = step.event
+        else:
+            action = Action.objects.get(pk=step.id)
+            name = action.name
+
         return {
             "action_id": step.event if isinstance(step, EventsNode) else str(step.id),
-            "name": step.event if isinstance(step, EventsNode) else step.name,
+            "name": name,
             "custom_name": step.custom_name,
             "order": index,
             "people": people if people else [],
