@@ -50,7 +50,7 @@ exports[`replay/transform transform can convert images 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": ";;color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                      "style": "color: #ffffff;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [
                       {
@@ -68,7 +68,7 @@ exports[`replay/transform transform can convert images 1`] = `
                       "data-rrweb-id": 12345,
                       "height": 30,
                       "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAApgAAAKYB3X3/OAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVEiJtZZPbBtFFMZ/M7ubXdtdb1xSFyeilBapySVU8h8OoFaooFSqiihIVIpQBKci6KEg9Q6H9kovIHoCIVQJJCKE1ENFjnAgcaSGC6rEnxBwA04Tx43t2FnvDAfjkNibxgHxnWb2e/u992bee7tCa00YFsffekFY+nUzFtjW0LrvjRXrCDIAaPLlW0nHL0SsZtVoaF98mLrx3pdhOqLtYPHChahZcYYO7KvPFxvRl5XPp1sN3adWiD1ZAqD6XYK1b/dvE5IWryTt2udLFedwc1+9kLp+vbbpoDh+6TklxBeAi9TL0taeWpdmZzQDry0AcO+jQ12RyohqqoYoo8RDwJrU+qXkjWtfi8Xxt58BdQuwQs9qC/afLwCw8tnQbqYAPsgxE1S6F3EAIXux2oQFKm0ihMsOF71dHYx+f3NND68ghCu1YIoePPQN1pGRABkJ6Bus96CutRZMydTl+TvuiRW1m3n0eDl0vRPcEysqdXn+jsQPsrHMquGeXEaY4Yk4wxWcY5V/9scqOMOVUFthatyTy8QyqwZ+kDURKoMWxNKr2EeqVKcTNOajqKoBgOE28U4tdQl5p5bwCw7BWquaZSzAPlwjlithJtp3pTImSqQRrb2Z8PHGigD4RZuNX6JYj6wj7O4TFLbCO/Mn/m8R+h6rYSUb3ekokRY6f/YukArN979jcW+V/S8g0eT/N3VN3kTqWbQ428m9/8k0P/1aIhF36PccEl6EhOcAUCrXKZXXWS3XKd2vc/TRBG9O5ELC17MmWubD2nKhUKZa26Ba2+D3P+4/MNCFwg59oWVeYhkzgN/JDR8deKBoD7Y+ljEjGZ0sosXVTvbc6RHirr2reNy1OXd6pJsQ+gqjk8VWFYmHrwBzW/n+uMPFiRwHB2I7ih8ciHFxIkd/3Omk5tCDV1t+2nNu5sxxpDFNx+huNhVT3/zMDz8usXC3ddaHBj1GHj/As08fwTS7Kt1HBTmyN29vdwAw+/wbwLVOJ3uAD1wi/dUH7Qei66PfyuRj4Ik9is+hglfbkbfR3cnZm7chlUWLdwmprtCohX4HUtlOcQjLYCu+fzGJH2QRKvP3UNz8bWk1qMxjGTOMThZ3kvgLI5AzFfo379UAAAAASUVORK5CYII=",
-                      "style": ";width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;",
+                      "style": "width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;",
                       "width": 100,
                     },
                     "childNodes": [],
@@ -147,7 +147,7 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": ";border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                      "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12345,
@@ -225,7 +225,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": ";border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;",
+                      "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;",
                     },
                     "childNodes": [],
                     "id": 12345,
@@ -235,7 +235,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": ";width: 100px;height: 30px;position: fixed;left: 13px;top: 17px;overflow:hidden;white-space:nowrap;",
+                      "style": "width: 100px;height: 30px;position: fixed;left: 13px;top: 17px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [
                       {
@@ -355,7 +355,7 @@ exports[`replay/transform transform can convert status bar 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 7,
-                      "style": ";width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;z-index: 9999999;display:flex;flex-direction:row;align-items:center;",
+                      "style": "width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;z-index: 9999999;display:flex;flex-direction:row;align-items:center;",
                     },
                     "childNodes": [
                       {
@@ -538,7 +538,7 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "background-color: #f3f4ef;;color: #35373e;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
+                      "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
                     },
                     "childNodes": [
                       {
@@ -622,7 +622,7 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": ";height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                      "style": "height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12345,
@@ -632,7 +632,7 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                   {
                     "attributes": {
                       "data-rrweb-id": 12346,
-                      "style": ";height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                      "style": "height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12346,
@@ -642,7 +642,7 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                   {
                     "attributes": {
                       "data-rrweb-id": 12346,
-                      "style": ";height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                      "style": "height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12346,
@@ -652,7 +652,7 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                   {
                     "attributes": {
                       "data-rrweb-id": 12346,
-                      "style": ";height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                      "style": "height: 30px;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [],
                     "id": 12346,
@@ -753,13 +753,13 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                   {
                     "attributes": {
                       "data-rrweb-id": 123456789,
-                      "style": ";;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                      "style": "position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                     },
                     "childNodes": [
                       {
                         "attributes": {
                           "data-rrweb-id": 98765,
-                          "style": ";;position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
+                          "style": "position: fixed;left: 0px;top: 0px;overflow:hidden;white-space:nowrap;",
                         },
                         "childNodes": [
                           {
@@ -850,7 +850,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 142908405,
-            "style": ";width: 411px;height: 70px;position: fixed;left: 0px;top: 536px;overflow:hidden;white-space:nowrap;",
+            "style": "width: 411px;height: 70px;position: fixed;left: 0px;top: 536px;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 142908405,
@@ -864,7 +864,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 209272202,
-            "style": ";width: 406px;height: 62px;position: fixed;left: 2px;top: 540px;overflow:hidden;white-space:nowrap;",
+            "style": "width: 406px;height: 62px;position: fixed;left: 2px;top: 540px;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 209272202,
@@ -878,7 +878,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 209272202,
-            "style": ";width: 406px;height: 62px;position: fixed;left: 2px;top: 540px;overflow:hidden;white-space:nowrap;",
+            "style": "width: 406px;height: 62px;position: fixed;left: 2px;top: 540px;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 209272202,
@@ -892,7 +892,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 52129787,
-            "style": ";;color: #000000;width: 368px;height: 19px;position: fixed;left: 66px;top: 556px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 368px;height: 19px;position: fixed;left: 66px;top: 556px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 52129787,
@@ -906,7 +906,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 52129787,
-            "style": ";;color: #000000;width: 368px;height: 19px;position: fixed;left: 66px;top: 556px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 368px;height: 19px;position: fixed;left: 66px;top: 556px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 52129787,
@@ -929,7 +929,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 99571736,
-            "style": ";;color: #000000;width: 150px;height: 19px;position: fixed;left: 10px;top: 584px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 150px;height: 19px;position: fixed;left: 10px;top: 584px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 99571736,
@@ -943,7 +943,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 99571736,
-            "style": ";;color: #000000;width: 150px;height: 19px;position: fixed;left: 10px;top: 584px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 150px;height: 19px;position: fixed;left: 10px;top: 584px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 99571736,
@@ -966,7 +966,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 240124529,
-            "style": ";;color: #000000;width: 48px;height: 32px;position: fixed;left: 10px;top: 548px;align-items: center;justify-content: center;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 48px;height: 32px;position: fixed;left: 10px;top: 548px;align-items: center;justify-content: center;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 240124529,
@@ -980,7 +980,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 240124529,
-            "style": ";;color: #000000;width: 48px;height: 32px;position: fixed;left: 10px;top: 548px;align-items: center;justify-content: center;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
+            "style": "color: #000000;width: 48px;height: 32px;position: fixed;left: 10px;top: 548px;align-items: center;justify-content: center;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 240124529,
@@ -1295,7 +1295,7 @@ exports[`replay/transform transform inputs buttons with nested elements 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12359,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "button",
                   },
                   "childNodes": [],
@@ -1306,7 +1306,7 @@ exports[`replay/transform transform inputs buttons with nested elements 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12361,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "button",
                   },
                   "childNodes": [
@@ -1455,7 +1455,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12358,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "button",
                   },
                   "childNodes": [
@@ -1529,7 +1529,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 101,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -1614,7 +1614,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 101,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -1698,7 +1698,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 101,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -1785,7 +1785,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
                   "attributes": {
                     "checked": true,
                     "data-rrweb-id": 12357,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "checkbox",
                   },
                   "childNodes": [],
@@ -1853,7 +1853,7 @@ exports[`replay/transform transform inputs input - email - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12349,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "email",
                     "value": "",
                   },
@@ -1922,7 +1922,7 @@ exports[`replay/transform transform inputs input - number - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12350,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "number",
                     "value": "",
                   },
@@ -1991,7 +1991,7 @@ exports[`replay/transform transform inputs input - password - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12348,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "password",
                     "value": "",
                   },
@@ -2060,7 +2060,7 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -2155,7 +2155,7 @@ exports[`replay/transform transform inputs input - progress - $value 2`] = `
                   "attributes": {
                     "data-rrweb-id": 12365,
                     "max": null,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": null,
                     "value": null,
                   },
@@ -2225,7 +2225,7 @@ exports[`replay/transform transform inputs input - progress - 0.75 1`] = `
                   "attributes": {
                     "data-rrweb-id": 12365,
                     "max": null,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": null,
                     "value": 0.75,
                   },
@@ -2295,7 +2295,7 @@ exports[`replay/transform transform inputs input - progress - 0.75 2`] = `
                   "attributes": {
                     "data-rrweb-id": 12365,
                     "max": 2.5,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": null,
                     "value": 0.75,
                   },
@@ -2364,7 +2364,7 @@ exports[`replay/transform transform inputs input - search - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12351,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "search",
                     "value": "",
                   },
@@ -2433,7 +2433,7 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "select",
                     "value": "hello",
                   },
@@ -2535,7 +2535,7 @@ exports[`replay/transform transform inputs input - tel - $value 1`] = `
                   "attributes": {
                     "data-rrweb-id": 12352,
                     "disabled": true,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "tel",
                     "value": "",
                   },
@@ -2604,7 +2604,7 @@ exports[`replay/transform transform inputs input - text - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12347,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "text",
                     "value": "",
                   },
@@ -2673,7 +2673,7 @@ exports[`replay/transform transform inputs input - text - hello 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12346,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "text",
                     "value": "hello",
                   },
@@ -2742,7 +2742,7 @@ exports[`replay/transform transform inputs input - textArea - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12364,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "textArea",
                     "value": "",
                   },
@@ -2811,7 +2811,7 @@ exports[`replay/transform transform inputs input - textArea - hello 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12363,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "textArea",
                     "value": "hello",
                   },
@@ -2880,7 +2880,7 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 104,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -2997,7 +2997,7 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 104,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -3114,7 +3114,7 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 104,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -3231,7 +3231,7 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12357,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -3332,7 +3332,7 @@ exports[`replay/transform transform inputs input - url - https://example.io 1`] 
                 {
                   "attributes": {
                     "data-rrweb-id": 12352,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                     "type": "url",
                     "value": "https://example.io",
                   },
@@ -3370,7 +3370,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 12365,
-            "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
           },
           "childNodes": [],
           "id": 12365,
@@ -3384,7 +3384,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 199,
-            "style": ";position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
+            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
           "id": 199,
@@ -3398,7 +3398,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 199,
-            "style": ";position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
+            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
           "id": 199,
@@ -4655,7 +4655,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 12365,
-            "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
           },
           "childNodes": [],
           "id": 12365,
@@ -4669,7 +4669,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 248,
-            "style": ";position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
+            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
           "id": 248,
@@ -4683,7 +4683,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 248,
-            "style": ";position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
+            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
           },
           "childNodes": [],
           "id": 248,
@@ -5929,7 +5929,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
         "node": {
           "attributes": {
             "data-rrweb-id": 6,
-            "style": "background-color: #f3f4ef;;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;z-index: 9999998;align-items: center;justify-content: center;display: flex;",
+            "style": "background-color: #f3f4ef;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;z-index: 9999998;align-items: center;justify-content: center;display: flex;",
           },
           "childNodes": [
             {
@@ -6004,7 +6004,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "background-color: #f3f4ef;;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -6077,13 +6077,13 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
                       "attributes": {
                         "data-rrweb-id": 148,
-                        "style": ";position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
+                        "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
                       },
                       "childNodes": [
                         {
@@ -6704,7 +6704,7 @@ exports[`replay/transform transform inputs radio_group - $inputType - $value 1`]
                 {
                   "attributes": {
                     "data-rrweb-id": 123123,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [],
                   "id": 123123,
@@ -6771,7 +6771,7 @@ exports[`replay/transform transform inputs radio_group 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 54321,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [],
                   "id": 54321,
@@ -6838,7 +6838,7 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "background-color: #f3f4ef;;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -6911,7 +6911,7 @@ exports[`replay/transform transform inputs web_view with URL 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 12365,
-                    "style": "background-color: #f3f4ef;;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                    "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                   },
                   "childNodes": [
                     {
@@ -6984,7 +6984,7 @@ exports[`replay/transform transform inputs wrapping with labels 1`] = `
                 {
                   "attributes": {
                     "data-rrweb-id": 101,
-                    "style": ";width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                    "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                   },
                   "childNodes": [
                     {
@@ -7069,7 +7069,7 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                   {
                     "attributes": {
                       "data-rrweb-id": 12345,
-                      "style": "background-color: #f3f4ef;;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                      "style": "background-color: #f3f4ef;color: #35373e;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                     },
                     "childNodes": [
                       {

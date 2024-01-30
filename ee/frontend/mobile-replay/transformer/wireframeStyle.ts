@@ -18,7 +18,12 @@ export function asStyleString(styleParts: string[]): string {
     if (styleParts.length === 0) {
         return ''
     }
-    return ensureTrailingSemicolon(styleParts.map(stripTrailingSemicolon).join(';'))
+    return ensureTrailingSemicolon(
+        styleParts
+            .map(stripTrailingSemicolon)
+            .filter((x) => !!x)
+            .join(';')
+    )
 }
 
 function isNumber(candidate: unknown): candidate is number {
