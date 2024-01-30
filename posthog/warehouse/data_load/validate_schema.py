@@ -106,6 +106,7 @@ async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: l
         if not table_created:
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
 
+        # TODO: this should be async too
         table_created.columns = await sync_to_async(table_created.get_columns)()
         await asave_datawarehousetable(table_created)
 
