@@ -133,6 +133,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POE_WRITES_EXCLUDE_TEAMS: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
+        RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
