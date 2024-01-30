@@ -305,6 +305,8 @@ function makePlaceholderElement(
 }
 
 export function dataURIOrPNG(src: string): string {
+    // replace all new lines in src
+    src = src.replace(/\r?\n|\r/g, '')
     if (!src.startsWith('data:image/')) {
         return 'data:image/png;base64,' + src
     }
