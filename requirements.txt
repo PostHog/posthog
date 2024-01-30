@@ -9,7 +9,6 @@ aioboto3==12.0.0
 aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
-    #   aiobotocore
     #   s3fs
 aiohttp==3.9.0
     # via
@@ -253,7 +252,6 @@ giturlparse==0.12.0
     # via dlt
 google-api-core[grpc]==2.11.1
     # via
-    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -419,7 +417,7 @@ pillow==10.2.0
     # via -r requirements.in
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.0.1
+posthoganalytics==3.3.3
     # via -r requirements.in
 prance==23.6.21.0
     # via -r requirements.in
@@ -683,7 +681,6 @@ urllib3[secure,socks]==1.26.18
     #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
-    #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
 vine==5.0.0
