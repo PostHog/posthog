@@ -1,7 +1,7 @@
-import { NodeType, serializedNodeWithId, wireframeDiv, wireframeStatusBar } from '../mobile.types'
-import { makeDivElement, STATUS_BAR_ID } from './transformers'
+import { NodeType, serializedNodeWithId, wireframeNavigationBar, wireframeStatusBar } from '../mobile.types'
+import { NAVIGATION_BAR_ID, STATUS_BAR_ID } from './transformers'
 import { ConversionContext, ConversionResult } from './types'
-import { asStyleString, makeStylesString, TOP_OF_STACK } from './wireframeStyle'
+import { asStyleString, makeStylesString } from './wireframeStyle'
 
 function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
     const spacerId = idSequence.next().value
@@ -18,14 +18,24 @@ function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
 }
 
 export function makeNavigationBar(
-    wireframe: wireframeDiv,
+    wireframe: wireframeNavigationBar,
     _children: serializedNodeWithId[],
     context: ConversionContext
 ): ConversionResult<serializedNodeWithId> | null {
-    return makeDivElement(wireframe, _children, {
-        ...context,
-        styleOverride: { ...context.styleOverride, 'z-index': TOP_OF_STACK },
-    })
+    const _id = wireframe.id || NAVIGATION_BAR_ID
+    return {
+        result: {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: asStyleString([makeStylesString(wireframe)]),
+                'data-rrweb-id': _id,
+            },
+            id: _id,
+            childNodes: [],
+        },
+        context,
+    }
 }
 
 /**
@@ -63,7 +73,7 @@ export function makeStatusBar(
             tagName: 'div',
             attributes: {
                 style: asStyleString([
-                    makeStylesString(wireframe, { 'z-index': TOP_OF_STACK }),
+                    makeStylesString(wireframe),
                     'display:flex',
                     'flex-direction:row',
                     'align-items:center',
