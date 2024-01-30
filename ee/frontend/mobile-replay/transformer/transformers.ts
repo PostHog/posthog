@@ -40,10 +40,11 @@ import {
     wireframeText,
     wireframeToggle,
 } from '../mobile.types'
-import { makeStatusBar } from './status-bar'
-import { ConversionContext, ConversionResult, StyleOverride } from './types'
+import { makeNavigationBar, makeStatusBar } from './screen-chrome'
+import { ConversionContext, ConversionResult } from './types'
 import {
     asStyleString,
+    KEYBOARD_Z_INDEX,
     makeBodyStyles,
     makeColorStyles,
     makeDeterminateProgressStyles,
@@ -115,7 +116,6 @@ export const makeCustomEvent = (
             const shouldAbsolutelyPosition =
                 _isPositiveInteger(mobileCustomEvent.data.payload.x) ||
                 _isPositiveInteger(mobileCustomEvent.data.payload.y)
-            const styleOverride: StyleOverride | undefined = shouldAbsolutelyPosition ? undefined : { bottom: true }
             const keyboardPlaceHolder = makePlaceholderElement(
                 {
                     id: KEYBOARD_ID,
@@ -131,7 +131,10 @@ export const makeCustomEvent = (
                     timestamp: mobileCustomEvent.timestamp,
                     idSequence: globalIdSequence,
                     skippableNodes: new Set(),
-                    styleOverride,
+                    styleOverride: {
+                        'z-index': KEYBOARD_Z_INDEX,
+                        ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
+                    },
                 }
             )
             if (keyboardPlaceHolder) {
@@ -190,7 +193,7 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-function makeDivElement(
+export function makeDivElement(
     wireframe: wireframeDiv,
     children: serializedNodeWithId[],
     context: ConversionContext
@@ -933,8 +936,7 @@ function chooseConverter<T extends wireframe>(
         web_view: makeWebViewElement as any,
         placeholder: makePlaceholderElement as any,
         status_bar: makeStatusBar as any,
-        // we could add in a converter for this, but it's fine without any chrome for now
-        navigation_bar: makeDivElement as any,
+        navigation_bar: makeNavigationBar as any,
     }
     return converterMapping[converterType]
 }

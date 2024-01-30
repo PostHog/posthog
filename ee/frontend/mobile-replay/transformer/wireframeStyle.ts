@@ -2,6 +2,10 @@ import { wireframe, wireframeProgress } from '../mobile.types'
 import { dataURIOrPNG } from './transformers'
 import { StyleOverride } from './types'
 
+/** all other z-indexes must be set less than this */
+export const TOP_OF_STACK = 9999999
+export const KEYBOARD_Z_INDEX = 9999998
+
 function ensureTrailingSemicolon(styles: string): string {
     return styles.length > 0 && styles[styles.length - 1] !== ';' ? styles + ';' : styles
 }
@@ -96,6 +100,10 @@ export function makePositionStyles(wireframe: wireframe, styleOverride?: StyleOv
                 styleParts.push(`top: ${ensureUnit(posY)}`)
             }
         }
+    }
+
+    if (styleOverride?.['z-index']) {
+        styleParts.push(`z-index: ${styleOverride['z-index']}`)
     }
 
     return asStyleString(styleParts)
