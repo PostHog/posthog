@@ -31,3 +31,4 @@ class CeleryQueue:
     ANALYTICS_QUERIES = "analytics_queries"
     EXPORTS = "exports"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
+    USAGE_REPORTS = "usage_reports"
