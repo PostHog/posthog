@@ -1,9 +1,9 @@
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
-import { Radio, RadioChangeEvent } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -72,28 +72,16 @@ export function DashboardReloadAction(): JSX.Element {
                                     <LemonDivider />
                                     <div className="flex flex-col">
                                         <div role="heading" className="text-muted mb-2">
-                                            Refresh interval
+                                            Refresh intervals
                                         </div>
-                                        <Radio.Group
-                                            onChange={(e: RadioChangeEvent) => {
-                                                setAutoRefresh(true, parseInt(e.target.value))
-                                            }}
+                                        <LemonRadio
                                             value={autoRefresh.interval}
-                                            style={{ width: '100%' }}
-                                        >
-                                            <div className="flex flex-col gap-2">
-                                                {intervalOptions.map(({ label, value }) => (
-                                                    <Radio
-                                                        key={value}
-                                                        value={value}
-                                                        style={{ width: '100%' }}
-                                                        disabled={!autoRefresh.enabled}
-                                                    >
-                                                        {label}
-                                                    </Radio>
-                                                ))}
-                                            </div>
-                                        </Radio.Group>
+                                            options={intervalOptions}
+                                            disabled={!autoRefresh.enabled}
+                                            onChange={(value: number) => {
+                                                setAutoRefresh(true, value)
+                                            }}
+                                        />
                                     </div>
                                 </div>
                             </>
