@@ -1,5 +1,6 @@
 import collections.abc
 import contextlib
+import csv
 import datetime as dt
 import json
 import typing
@@ -18,6 +19,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
     get_rows_count,
@@ -81,14 +83,19 @@ async def copy_tsv_to_postgres(
     async with postgres_connection.cursor() as cursor:
         if schema:
             await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
-            async with cursor.copy(
-                sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH DELIMITER AS '\t'").format(
-                    table_name=sql.Identifier(table_name),
-                    fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
-                )
-            ) as copy:
-                while data := tsv_file.read():
-                    await copy.write(data)
+
+        async with cursor.copy(
+            # TODO: Switch to binary encoding as CSV has a million edge cases.
+            # For historical reasons, ip and site_url are empty strings.
+            sql.SQL(
+                "COPY {table_name} ({fields}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t', FORCE_NOT_NULL (ip, site_url))"
+            ).format(
+                table_name=sql.Identifier(table_name),
+                fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
+            )
+        ) as copy:
+            while data := tsv_file.read():
+                await copy.write(data)
 
 
 Field = tuple[str, str]
@@ -187,6 +194,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
+        fields = default_fields()
+        fields.append({"expression": "JSONExtractString(properties, '$ip')", "alias": "ip"})
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
+        fields.append({"expression": "''", "alias": "site_url"})
+
         results_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
@@ -194,6 +207,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            fields=fields,
         )
         async with postgres_connection(inputs) as connection:
             await create_table_in_postgres(
@@ -228,18 +242,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             "site_url",
             "timestamp",
         ]
-        json_columns = ("properties", "elements", "set", "set_once")
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
 
         with BatchExportTemporaryFile() as pg_file:
             async with postgres_connection(inputs) as connection:
-                for result in results_iterator:
-                    row = {
-                        key: json.dumps(result[key]) if key in json_columns else result[key] for key in schema_columns
-                    }
-                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
 
                 async def flush_to_postgres():
                     logger.debug(
@@ -258,11 +266,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     bytes_exported.add(pg_file.bytes_since_last_reset)
 
                 for result in results_iterator:
-                    row = {
-                        key: json.dumps(result[key]) if key in json_columns and result[key] is not None else result[key]
-                        for key in schema_columns
-                    }
-                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
+                    row = result
+                    # TODO: Get rid of elements.
+                    row["elements"] = json.dumps(row["elements"])
+                    pg_file.write_records_to_tsv(
+                        [row], fieldnames=schema_columns, quoting=csv.QUOTE_MINIMAL, escapechar=None
+                    )
 
                     if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
                         await flush_to_postgres()
