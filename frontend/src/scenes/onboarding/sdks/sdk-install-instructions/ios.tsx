@@ -2,30 +2,40 @@ import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
-function IOSInstallSnippet(): JSX.Element {
+function IOSInstallCocoaPodsSnippet(): JSX.Element {
+    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.0.0"'}</CodeSnippet>
+}
+
+function IOSInstallSPMSnippet(): JSX.Element {
     return (
-        <CodeSnippet language={Language.Ruby}>
-            {'pod "PostHog", "~> 2.0.0" # Cocoapods \n# OR \ngithub "posthog/posthog-ios" # Carthage'}
+        <CodeSnippet language={Language.Swift}>
+            {`dependencies: [
+  .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0")
+]`}
         </CodeSnippet>
     )
 }
 
-function IOS_OBJ_C_SetupSnippet(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    return (
-        <CodeSnippet language={Language.ObjectiveC}>
-            {`#import <PostHog/PHGPostHog.h>\n#import <PostHog/PHGPostHogConfiguration.h>\n\nPHGPostHogConfiguration *configuration = [PHGPostHogConfiguration configurationWithApiKey:@"${currentTeam?.api_token}" host:@"${window.location.origin}"];\n\nconfiguration.captureApplicationLifecycleEvents = YES; // Record certain application events automatically!\nconfiguration.recordScreenViews = YES; // Record screen views automatically!\n\n[PHGPostHog setupWithConfiguration:configuration];`}
-        </CodeSnippet>
-    )
-}
-
-function IOS_SWIFT_SetupSnippet(): JSX.Element {
+function IOSSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
         <CodeSnippet language={Language.Swift}>
-            {`import PostHog\n\nlet configuration = PHGPostHogConfiguration(apiKey: "${currentTeam?.api_token}", host: "${window.location.origin}")\n\nconfiguration.captureApplicationLifecycleEvents = true; // Record certain application events automatically!\nconfiguration.recordScreenViews = true; // Record screen views automatically!\n\nPHGPostHog.setup(with: configuration)\nlet posthog = PHGPostHog.shared()`}
+            {`import Foundation
+import PostHog
+import UIKit
+
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        let POSTHOG_API_KEY = "${currentTeam?.api_token}"
+        let POSTHOG_HOST = "${window.location.origin}"
+
+        let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+        PostHogSDK.shared.setup(config)
+
+        return true
+    }
+}`}
         </CodeSnippet>
     )
 }
@@ -33,12 +43,12 @@ function IOS_SWIFT_SetupSnippet(): JSX.Element {
 export function SDKInstallIOSInstructions(): JSX.Element {
     return (
         <>
-            <h3>Install</h3>
-            <IOSInstallSnippet />
-            <h3>Configure Swift</h3>
-            <IOS_SWIFT_SetupSnippet />
-            <h3>Or configure Objective-C</h3>
-            <IOS_OBJ_C_SetupSnippet />
+            <h3>Install via CocoaPods</h3>
+            <IOSInstallCocoaPodsSnippet />
+            <h3>Or Install via SPM</h3>
+            <IOSInstallSPMSnippet />
+            <h3>Configure</h3>
+            <IOSSetupSnippet />
         </>
     )
 }

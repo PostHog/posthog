@@ -506,7 +506,6 @@ body {
         --primary: var(--primary-3000);
         --primary-highlight: var(--primary-3000-highlight);
 
-        overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
         background: var(--bg-3000);
 
         .non-3000 {

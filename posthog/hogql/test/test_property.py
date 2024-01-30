@@ -82,12 +82,16 @@ class TestProperty(BaseTest):
                 {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
             ),
         )
+        self.assertEqual(
+            self._property_to_expr(Property(type="group", group_type_index=0, key="a", value=["b", "c"])),
+            self._parse_expr("group_0.properties.a = 'b' OR group_0.properties.a = 'c'"),
+        )
 
         with self.assertRaises(Exception) as e:
             self._property_to_expr({"type": "group", "key": "a", "value": "b"})
         self.assertEqual(
             str(e.exception),
-            "Missing required key group_type_index for property type group with name a",
+            "Missing required attr group_type_index for property type group with key a",
         )
 
     def test_property_to_expr_event(self):
@@ -182,6 +186,13 @@ class TestProperty(BaseTest):
                 team=self.team,
             ),
             self._parse_expr("properties.unknown_prop = true"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": "false"},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = false"),
         )
 
     def test_property_to_expr_event_list(self):
