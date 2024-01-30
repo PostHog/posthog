@@ -37,24 +37,21 @@ export function PayGatePage({
             <div className="pay-caption">{caption}</div>
             <div className="pay-buttons space-y-4">
                 {!isCloudOrDev && <p>This feature is available on PostHog Cloud.</p>}
-                {!hideUpgradeButton && (
-                    <>
-                        {isCloudOrDev ? (
-                            <LemonButton to={upgradeLink} type="primary" data-attr={`${featureKey}-upgrade`} center>
-                                Upgrade now to get {featureName}
-                            </LemonButton>
-                        ) : (
-                            <LemonButton
-                                to={urls.moveToPostHogCloud()}
-                                type="primary"
-                                data-attr={`${featureKey}-upgrade`}
-                                center
-                            >
-                                Learn more about PostHog Cloud
-                            </LemonButton>
-                        )}
-                    </>
-                )}
+                {!hideUpgradeButton &&
+                    (isCloudOrDev ? (
+                        <LemonButton to={upgradeLink} type="primary" data-attr={`${featureKey}-upgrade`} center>
+                            Upgrade now to get {featureName}
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            to={urls.moveToPostHogCloud()}
+                            type="primary"
+                            data-attr={`${featureKey}-upgrade`}
+                            center
+                        >
+                            Learn more about PostHog Cloud
+                        </LemonButton>
+                    ))}
                 {docsLink && isCloudOrDev && (
                     <LemonButton
                         type={hideUpgradeButton ? 'primary' : 'secondary'}
