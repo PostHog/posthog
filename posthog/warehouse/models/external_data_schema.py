@@ -3,6 +3,8 @@ from django.db import models
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
+import psycopg
+from django.conf import settings
 
 
 class ExternalDataSchema(CreatedMetaFields, UUIDModel):
@@ -43,4 +45,26 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
     schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas]
 
     for schema in schemas_to_create:
-        ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id)
+        ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
+
+
+def get_postgres_schemas(host: str, port: str, database: str, user: str, password: str, schema: str):
+    connection = psycopg.Connection.connect(
+        host=host,
+        port=int(port),
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
+    )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = %(schema)s", {"schema": schema}
+        )
+        result = cursor.fetchall()
+        result = [row[0] for row in result]
+
+    connection.close()
+
+    return result

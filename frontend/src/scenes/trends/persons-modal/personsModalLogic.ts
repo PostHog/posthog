@@ -23,6 +23,7 @@ import {
     ActorType,
     BreakdownType,
     ChartDisplayType,
+    CommonActorType,
     IntervalType,
     PersonActorType,
     PropertiesTimelineFilterType,
@@ -35,6 +36,7 @@ const RESULTS_PER_PAGE = 100
 export interface PersonModalLogicProps {
     query?: InsightActorsQuery | null
     url?: string | null
+    additionalFields?: Partial<Record<keyof CommonActorType, string>>
 }
 
 export interface ListActorsResponse {
@@ -61,16 +63,19 @@ export const personsModalLogic = kea<personsModalLogicType>([
             query,
             clear,
             offset,
+            additionalFields,
         }: {
             url?: string | null
             query?: InsightActorsQuery | null
             clear?: boolean
             offset?: number
+            additionalFields?: PersonModalLogicProps['additionalFields']
         }) => ({
             url,
             query,
             clear,
             offset,
+            additionalFields,
         }),
         loadNextActors: true,
         updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
@@ -85,14 +90,15 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, query, clear, offset }, breakpoint) => {
+                loadActors: async ({ url, query, clear, offset, additionalFields }, breakpoint) => {
                     if (url) {
                         url += '&include_recordings=true'
 
                         if (values.searchTerm) {
                             url += `&search=${values.searchTerm}`
                         }
-
+                    }
+                    if (url && !query) {
                         const res = await api.get(url)
                         breakpoint()
 
@@ -100,30 +106,50 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             actions.resetActors()
                         }
                         return res
-                    } else if (query) {
-                        const response = await performQuery({
-                            ...values.ActorsQuery,
-                            limit: RESULTS_PER_PAGE + 1,
-                            offset: offset || 0,
-                        } as ActorsQuery)
+                    }
+                    if (query) {
+                        const response = await performQuery(
+                            {
+                                ...values.actorsQuery,
+                                limit: RESULTS_PER_PAGE + 1,
+                                offset: offset || 0,
+                            } as ActorsQuery,
+                            undefined,
+                            undefined,
+                            undefined,
+                            url ?? undefined
+                        )
                         breakpoint()
+
+                        const assembledSelectFields = values.selectFields
+                        const additionalFieldIndices = Object.values(additionalFields || {}).map((field) =>
+                            assembledSelectFields.indexOf(field)
+                        )
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
                                     count: response.results.length,
-                                    people: response.results.slice(0, RESULTS_PER_PAGE).map(
-                                        (result): PersonActorType => ({
-                                            type: 'person',
-                                            id: result[0].id,
-                                            uuid: result[0].id,
-                                            distinct_ids: result[0].distinct_ids,
-                                            is_identified: result[0].is_identified,
-                                            properties: result[0].properties,
-                                            created_at: result[0].created_at,
-                                            matched_recordings: [],
-                                            value_at_data_point: null,
-                                        })
-                                    ),
+                                    people: response.results
+                                        .slice(0, RESULTS_PER_PAGE)
+                                        .map((result): PersonActorType => {
+                                            const person: PersonActorType = {
+                                                type: 'person',
+                                                id: result[0].id,
+                                                uuid: result[0].id,
+                                                distinct_ids: result[0].distinct_ids,
+                                                is_identified: result[0].is_identified,
+                                                properties: result[0].properties,
+                                                created_at: result[0].created_at,
+                                                matched_recordings: [],
+                                                value_at_data_point: null,
+                                            }
+
+                                            Object.keys(additionalFields || {}).forEach((field, index) => {
+                                                person[field] = result[additionalFieldIndices[index]]
+                                            })
+
+                                            return person
+                                        }),
                                 },
                             ],
                         }
@@ -213,8 +239,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            if (values.ActorsQuery) {
-                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.ActorsQuery })
+            if (values.actorsQuery) {
+                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
                 cohortsModel.actions.cohortCreated(cohort)
                 lemonToast.success('Cohort saved', {
                     toastId: `cohort-saved-${cohort.id}`,
@@ -299,28 +325,35 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return cleanFilters(filter)
             },
         ],
-        ActorsQuery: [
-            (s) => [s.query, s.searchTerm],
-            (query, searchTerm): ActorsQuery | null => {
+        selectFields: [
+            () => [(_, p) => p.additionalFields],
+            (additionalFields: PersonModalLogicProps['additionalFields']): string[] => {
+                const extra = Object.values(additionalFields || {})
+                return ['person', 'created_at', ...extra]
+            },
+        ],
+        actorsQuery: [
+            (s) => [(_, p) => p.query, s.searchTerm, s.selectFields],
+            (query, searchTerm, selectFields): ActorsQuery | null => {
                 if (!query) {
                     return null
                 }
                 return {
                     kind: NodeKind.ActorsQuery,
                     source: query,
-                    select: ['person', 'created_at'],
+                    select: selectFields,
                     orderBy: ['created_at DESC'],
                     search: searchTerm,
                 }
             },
         ],
         exploreUrl: [
-            (s) => [s.ActorsQuery],
-            (ActorsQuery): string | null => {
-                if (!ActorsQuery) {
+            (s) => [s.actorsQuery],
+            (actorsQuery): string | null => {
+                if (!actorsQuery) {
                     return null
                 }
-                const { select: _select, ...source } = ActorsQuery
+                const { select: _select, ...source } = actorsQuery
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     source,
@@ -332,7 +365,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
-        actions.loadActors({ query: props.query, url: props.url })
+        actions.loadActors({ query: props.query, url: props.url, additionalFields: props.additionalFields })
 
         actions.reportPersonsModalViewed({
             url: props.url,

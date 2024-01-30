@@ -136,7 +136,7 @@ class StickinessQueryRunner(QueryRunner):
 
             interval_addition = ast.Call(
                 name=f"toInterval{date_range.interval_name.capitalize()}",
-                args=[ast.Constant(value=2)],
+                args=[ast.Constant(value=1)],
             )
 
             select_query = parse_select(
@@ -313,7 +313,7 @@ class StickinessQueryRunner(QueryRunner):
 
     def intervals_num(self):
         delta = self.query_date_range.date_to() - self.query_date_range.date_from()
-        return delta.days + 2
+        return delta.days + 1
 
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [

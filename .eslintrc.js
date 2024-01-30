@@ -119,7 +119,7 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip'],
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress'],
                         message: 'please use the Lemon equivalent instead',
                     },
                 ],
@@ -169,6 +169,10 @@ module.exports = {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
                     },
+                    {
+                        element: 'Progress',
+                        message: 'use <LemonProgress> instead',
+                    },
                 ],
             },
         ],
@@ -203,6 +207,10 @@ module.exports = {
                     {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'Slider',
+                        message: 'use <LemonSlider> instead',
                     },
                     {
                         element: 'Checkbox',
@@ -245,6 +253,7 @@ module.exports = {
         'no-constant-condition': 'off',
         'no-prototype-builtins': 'off',
         'no-irregular-whitespace': 'off',
+        'no-useless-rename': 'error',
         'import/no-restricted-paths': [
             'error',
             {

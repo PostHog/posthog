@@ -172,27 +172,20 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         else:
             return compare(str(override_value), str(value), operator)
 
-    if operator in ["is_date_before", "is_date_after", "is_relative_date_before", "is_relative_date_after"]:
-        try:
-            if operator in ["is_relative_date_before", "is_relative_date_after"]:
-                parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
-            else:
-                parsed_date = parser.parse(str(value))
-                parsed_date = convert_to_datetime_aware(parsed_date)
-        except Exception:
-            return False
+    if operator in ["is_date_before", "is_date_after"]:
+        parsed_date = determine_parsed_date_for_property_matching(value)
 
         if not parsed_date:
             return False
 
         if isinstance(override_value, datetime.datetime):
             override_date = convert_to_datetime_aware(override_value)
-            if operator in ("is_date_before", "is_relative_date_before"):
+            if operator == "is_date_before":
                 return override_date < parsed_date
             else:
                 return override_date > parsed_date
         elif isinstance(override_value, datetime.date):
-            if operator in ("is_date_before", "is_relative_date_before"):
+            if operator == "is_date_before":
                 return override_value < parsed_date.date()
             else:
                 return override_value > parsed_date.date()
@@ -200,7 +193,7 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
             try:
                 override_date = parser.parse(override_value)
                 override_date = convert_to_datetime_aware(override_date)
-                if operator in ("is_date_before", "is_relative_date_before"):
+                if operator == "is_date_before":
                     return override_date < parsed_date
                 else:
                     return override_date > parsed_date
@@ -208,6 +201,20 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
                 return False
 
     return False
+
+
+def determine_parsed_date_for_property_matching(value: ValueT):
+    parsed_date = None
+    try:
+        parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
+
+        if not parsed_date:
+            parsed_date = parser.parse(str(value))
+            parsed_date = convert_to_datetime_aware(parsed_date)
+    except Exception:
+        return None
+
+    return parsed_date
 
 
 def empty_or_null_with_value_q(
@@ -349,16 +356,13 @@ def property_to_Q(
             negated=True,
         )
 
-    if property.operator in ("is_date_after", "is_date_before", "is_relative_date_before", "is_relative_date_after"):
-        effective_operator = "gt" if property.operator in ("is_date_after", "is_relative_date_after") else "lt"
+    if property.operator in ("is_date_after", "is_date_before"):
+        effective_operator = "gt" if property.operator == "is_date_after" else "lt"
         effective_value = value
-        if property.operator in ("is_relative_date_before", "is_relative_date_after"):
-            relative_date = relative_date_parse_for_feature_flag_matching(str(value))
-            if relative_date:
-                effective_value = relative_date.isoformat()
-            else:
-                # Return no data for invalid relative dates
-                return Q(pk=-1)
+
+        relative_date = relative_date_parse_for_feature_flag_matching(str(value))
+        if relative_date:
+            effective_value = relative_date.isoformat()
 
         return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 
@@ -444,7 +448,7 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
 
 
 def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
-    regex = r"^(?P<number>[0-9]+)(?P<interval>[a-z])$"
+    regex = r"^-?(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)
     parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
     if match:

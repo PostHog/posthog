@@ -6,6 +6,7 @@ export enum DateFilterView {
     QuickList = 'QuickList',
     DateToNow = 'DateToNow',
     FixedRange = 'FixedRange',
+    FixedDate = 'FixedDate',
 }
 
 export type DateFilterLogicProps = {
@@ -15,6 +16,7 @@ export type DateFilterLogicProps = {
     dateTo?: Dayjs | string | null
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
+    isFixedDateMode?: boolean
 }
 
 export const CUSTOM_OPTION_KEY = 'Custom'

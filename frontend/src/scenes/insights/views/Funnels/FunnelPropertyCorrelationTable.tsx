@@ -5,8 +5,9 @@ import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 import { ConfigProvider, Empty, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { IconSelectProperties, IconTrendingDown, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -148,7 +149,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                 onClickOutside={() => setIsPropertiesOpen(false)}
                                 overlay={
                                     <div className="p-4">
-                                        <PersonPropertySelect
+                                        <PropertySelect
+                                            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
                                             onChange={setPropertyNames}
                                             selectedProperties={
                                                 propertyNames.length === 1 && propertyNames[0] === '$all'

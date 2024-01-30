@@ -67,10 +67,14 @@ export const urls = {
     batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insights: (): string => '/insights',
-    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
+    insightNew: (
+        filters?: AnyPartialFilterType,
+        dashboardId?: DashboardType['id'] | null,
+        query?: string | Record<string, any>
+    ): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
-            ...(query ? { q: query } : {}),
+            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: (query: string): string =>
         urls.insightNew(
@@ -169,6 +173,7 @@ export const urls = {
     products: (): string => '/products',
     onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
+    onboardingProductIntroduction: (productKey: string): string => '/onboarding/' + productKey + '/intro',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only
@@ -205,4 +210,5 @@ export const urls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    moveToPostHogCloud: (): string => '/move-to-cloud',
 }

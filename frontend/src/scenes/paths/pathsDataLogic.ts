@@ -1,6 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
@@ -50,6 +52,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'pathsFilter',
                 'dateRange',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter']],
     })),
@@ -105,6 +109,10 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 return taxonomicGroupTypes
             },
         ],
+        hogQLInsightsPathsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS],
+        ],
     }),
 
     listeners(({ values }) => ({
@@ -120,7 +128,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 filters,
                 response: values.insightData,
             })
-            if (values.vizQuerySource?.kind === NodeKind.PathsQuery) {
+            if (values.hogQLInsightsPathsFlagEnabled && values.vizQuerySource?.kind === NodeKind.PathsQuery) {
                 const pathsActorsQuery: InsightActorsQuery<PathsQuery> = {
                     kind: NodeKind.InsightActorsQuery,
                     source: {
@@ -134,11 +142,15 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     },
                 }
                 openPersonsModal({
+                    url: personsUrl,
                     query: pathsActorsQuery,
                     title: pathsTitle({
                         label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                         isDropOff: Boolean(path_dropoff_key),
                     }),
+                    additionalFields: {
+                        value_at_data_point: 'event_count',
+                    },
                 })
             } else if (personsUrl) {
                 openPersonsModal({

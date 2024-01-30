@@ -1,7 +1,11 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 
-import { SDK, SDKInstructionsMap } from '~/types'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
+import { ProductKey, SDK, SDKInstructionsMap } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
@@ -28,6 +32,11 @@ const getSourceOptions = (availableSDKInstructionsMap: SDKInstructionsMap): Lemo
     return selectOptions
 }
 
+/*
+Products that will often be installed in multiple places, eg. web and mobile
+*/
+export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FEATURE_FLAGS]
+
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
     connect({
@@ -43,6 +52,7 @@ export const sdksLogic = kea<sdksLogicType>([
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
         setShowSideBySide: (showSideBySide: boolean) => ({ showSideBySide }),
         setPanel: (panel: 'instructions' | 'options') => ({ panel }),
+        setHasSnippetEvents: (hasSnippetEvents: boolean) => ({ hasSnippetEvents }),
     }),
     reducers({
         sourceFilter: [
@@ -87,6 +97,9 @@ export const sdksLogic = kea<sdksLogicType>([
                 setPanel: (_, { panel }) => panel,
             },
         ],
+        hasSnippetEvents: {
+            setHasSnippetEvents: (_, { hasSnippetEvents }) => hasSnippetEvents,
+        },
     }),
     selectors({
         showSourceOptionsSelect: [
@@ -95,6 +108,29 @@ export const sdksLogic = kea<sdksLogicType>([
                 // more than two source options since one will almost always be "recommended"
                 // more than 5 sdks since with fewer you don't really need to filter
                 return Object.keys(availableSDKInstructionsMap).length > 5 && sourceOptions.length > 2
+            },
+        ],
+    }),
+    loaders({
+        hasSnippetEvents: [
+            null as boolean | null,
+            {
+                loadSnippetEvents: async () => {
+                    const query: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: hogql`SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
+                                FROM events
+                                WHERE timestamp >= now() - INTERVAL 3 DAY 
+                                AND timestamp <= now()
+                                AND properties.$lib = 'web'
+                                GROUP BY lib_version
+                                ORDER BY latest_timestamp DESC
+                                limit 10`,
+                    }
+
+                    const res = await api.query(query)
+                    return !!(res.results?.length ?? 0 > 0)
+                },
             },
         ],
     }),
@@ -149,4 +185,7 @@ export const sdksLogic = kea<sdksLogicType>([
             actions.filterSDKs()
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadSnippetEvents()
+    }),
 ])
