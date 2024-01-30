@@ -17,6 +17,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
     get_rows_count,
@@ -232,6 +233,11 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
+        fields = default_fields()
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
+        fields.append({"expression": "''", "alias": "site_url"})
+
         results_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
@@ -239,8 +245,13 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            fields=fields,
         )
-        properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
+
+        if inputs.properties_data_type != "varchar":
+            properties_type = "SUPER"
+        else:
+            properties_type = "VARCHAR(65535)"
 
         async with redshift_connection(inputs) as connection:
             await create_table_in_postgres(
@@ -262,30 +273,26 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
                 ],
             )
 
-        schema_columns = [
-            "uuid",
-            "event",
-            "properties",
-            "elements",
-            "set",
-            "set_once",
-            "distinct_id",
-            "team_id",
-            "ip",
-            "site_url",
-            "timestamp",
-        ]
-        json_columns = ("properties", "set", "set_once")
-
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
             record = {
-                key: json.dumps(remove_escaped_whitespace_recursive(row[key]), ensure_ascii=False)
-                if key in json_columns and row[key] is not None
-                else row[key]
-                for key in schema_columns
+                "distinct_id": row["distinct_id"],
+                "elements": "",
+                "event": row["event"],
+                "ip": row["ip"],
+                "properties": json.loads(row["properties"]) if row["properties"] is not None else None,
+                "set": json.loads(row["set"]) if row["set"] is not None else None,
+                "set_once": json.loads(row["set_once"]) if row["set_once"] is not None else None,
+                "site_url": row["site_url"],
+                "team_id": row["team_id"],
+                "timestamp": row["timestamp"],
+                "uuid": row["uuid"],
             }
-            record["elements"] = ""
+
+            for column in ("properties", "set", "set_once"):
+                if record.get(column, None) is not None:
+                    record[column] = json.dumps(remove_escaped_whitespace_recursive(record[column]), ensure_ascii=False)
+
             return record
 
         async with postgres_connection(inputs) as connection:
