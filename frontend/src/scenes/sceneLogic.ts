@@ -284,8 +284,8 @@ export const sceneLogic = kea<sceneLogicType>([
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
                                 router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
+                                return
                             }
-                            return
                         }
                     }
                 }
