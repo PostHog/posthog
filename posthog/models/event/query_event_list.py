@@ -34,16 +34,12 @@ def parse_request_params(
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
     for k, v in conditions.items():
-        if not isinstance(v, str):
-            continue
         if k == "after":
-            timestamp = parse_timestamp(v, tzinfo)
             result += "AND timestamp > %(after)s "
-            params.update({"after": timestamp})
+            params.update({"after": v.strftime("%Y-%m-%d %H:%M:%S.%f")})
         elif k == "before":
-            timestamp = parse_timestamp(v, tzinfo)
             result += "AND timestamp < %(before)s "
-            params.update({"before": timestamp})
+            params.update({"before": v.strftime("%Y-%m-%d %H:%M:%S.%f")})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s) """
             person = get_pk_or_uuid(Person.objects.filter(team=team), v).first()
@@ -78,22 +74,24 @@ def query_events_list(
         limit_sql += " OFFSET %(offset)s"
 
     order = "DESC" if len(order_by) == 1 and order_by[0] == "-timestamp" else "ASC"
+
+    if request_get_query_dict.get("before"):
+        request_get_query_dict["before"] = parse_timestamp(request_get_query_dict["before"], team.timezone_info)
+    else:
+        request_get_query_dict["before"] = now() + timedelta(seconds=5)
+
+    if request_get_query_dict.get("after"):
+        request_get_query_dict["after"] = parse_timestamp(request_get_query_dict["after"], team.timezone_info)
+
+    if not unbounded_date_from and order == "DESC":
+        # If this is the first try, only load the current day, regardless of whether "after" is specified to reduce the amount of data we load
+        request_get_query_dict["after"] = datetime.combine(request_get_query_dict["before"], time.min)
+
     conditions, condition_params = parse_request_params(
         request_get_query_dict,
         team,
         tzinfo=team.timezone_info,
     )
-
-    if "before" not in condition_params:
-        condition_params["before"] = now() + timedelta(seconds=5)
-
-    if not unbounded_date_from and order == "DESC":
-        # If this is the first try, only load the current day
-        condition_params["after"] = datetime.combine(condition_params["before"], time.min)
-
-    condition_params["before"] = condition_params["before"].strftime("%Y-%m-%d %H:%M:%S.%f")
-    if condition_params.get("after"):
-        condition_params["after"] = condition_params["after"].strftime("%Y-%m-%d %H:%M:%S.%f")
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk,
