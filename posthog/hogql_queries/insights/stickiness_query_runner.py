@@ -256,7 +256,7 @@ class StickinessQueryRunner(QueryRunner):
         )
 
         # Series
-        if isinstance(series, EventsNode):
+        if isinstance(series, EventsNode) and series.event is not None:
             filters.append(
                 parse_expr(
                     "event = {event}",
