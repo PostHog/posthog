@@ -197,7 +197,7 @@ def _series(filter: Dict):
         "series": [
             entity_to_node(entity, include_properties, include_math)
             for entity in _entities(filter)
-            if entity.id is not None
+            if not (entity.type == "actions" and entity.id is None)
         ]
     }
 
