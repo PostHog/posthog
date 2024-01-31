@@ -216,7 +216,7 @@ def property_to_expr(
                         name="not",
                         args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
                     ),
-                    ast.Constant(value=False),
+                    ast.Constant(value=True),
                 ],
             )
         elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
