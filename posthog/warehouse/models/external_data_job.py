@@ -49,6 +49,7 @@ def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob
         ExternalDataJob.objects.filter(
             team_id=team_id, pipeline_id=pipeline_id, status=ExternalDataJob.Status.COMPLETED
         )
+        .prefetch_related("pipeline")
         .order_by("-created_at")
         .first()
     )

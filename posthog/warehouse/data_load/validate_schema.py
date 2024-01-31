@@ -10,6 +10,7 @@ from posthog.warehouse.models import (
     get_external_data_job,
     asave_datawarehousetable,
     acreate_datawarehousetable,
+    asave_external_data_schema,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -41,7 +42,6 @@ async def validate_schema(
     }
 
 
-# TODO: make async
 async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[str]) -> None:
     """
 
@@ -118,7 +118,7 @@ async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: l
         if schema_model:
             schema_model.table = table_created
             schema_model.last_synced_at = job.created_at
-            schema_model.save()
+            await asave_external_data_schema(schema_model)
 
     if last_successful_job:
         try:
