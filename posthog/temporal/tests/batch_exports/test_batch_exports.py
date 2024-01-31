@@ -425,7 +425,9 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
     all_record = sorted(records, key=operator.itemgetter(field["alias"]))
 
     for expected, record in zip(all_expected, all_record):
-        assert len(record) == 1
+        assert len(record) == 2
+        # Always set for progress tracking
+        assert record.get("_inserted_at", None) is not None
 
         result = record[field["alias"]]
         expected_value = expected[field["expression"]]
