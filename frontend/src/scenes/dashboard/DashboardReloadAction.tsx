@@ -31,6 +31,13 @@ export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh } = useValues(dashboardLogic)
     const { refreshAllDashboardItemsManual, setAutoRefresh } = useActions(dashboardLogic)
 
+    const options = intervalOptions.map((option) => {
+        return {
+            ...option,
+            disabledReason: !autoRefresh.enabled && '',
+        }
+    })
+
     return (
         <>
             <LemonButton
@@ -76,7 +83,7 @@ export function DashboardReloadAction(): JSX.Element {
                                         </div>
                                         <LemonRadio
                                             value={autoRefresh.interval}
-                                            options={intervalOptions}
+                                            options={options}
                                             disabled={!autoRefresh.enabled}
                                             onChange={(value: number) => {
                                                 setAutoRefresh(true, value)
