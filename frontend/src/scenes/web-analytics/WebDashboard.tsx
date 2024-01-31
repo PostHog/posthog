@@ -2,7 +2,7 @@ import { IconExpand45 } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { QueryTile, TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
@@ -76,16 +76,21 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && <h2 className="m-0 mb-3">{title}</h2>}
-            {tile.canOpenModal ? (
-                <Link
-                    onClick={() => {
-                        openModal(tileId)
-                    }}
-                >
-                    <IconExpand45 />
-                </Link>
-            ) : null}
             <WebQuery query={query} insightProps={insightProps} />
+            {tile.canOpenModal ? (
+                <div className="flex justify-end my-2">
+                    <LemonButton
+                        icon={<IconExpand45 />}
+                        onClick={() => {
+                            openModal(tileId)
+                        }}
+                        type="secondary"
+                        size="small"
+                    >
+                        Expand
+                    </LemonButton>
+                </div>
+            ) : null}
         </div>
     )
 }

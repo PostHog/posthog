@@ -1,5 +1,5 @@
 import { IconExpand45 } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import React from 'react'
 
@@ -26,15 +26,7 @@ export const WebTabs = ({
         <div className={clsx(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
                 <h2 className="flex-1 m-0">{activeTab?.title}</h2>
-                {activeTab?.canOpenModal ? (
-                    <Link
-                        onClick={() => {
-                            openModal(tileId, activeTabId)
-                        }}
-                    >
-                        <IconExpand45 />
-                    </Link>
-                ) : null}
+
                 {tabs.length > 3 ? (
                     <LemonSelect
                         size="small"
@@ -54,6 +46,20 @@ export const WebTabs = ({
                 )}
             </div>
             <div className="flex-1 flex flex-col">{activeTab?.content}</div>
+            {activeTab?.canOpenModal ? (
+                <div className="flex justify-end my-2">
+                    <LemonButton
+                        icon={<IconExpand45 />}
+                        onClick={() => {
+                            openModal(tileId, activeTabId)
+                        }}
+                        type="secondary"
+                        size="small"
+                    >
+                        Expand
+                    </LemonButton>
+                </div>
+            ) : null}
         </div>
     )
 }
