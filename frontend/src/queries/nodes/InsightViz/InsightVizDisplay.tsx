@@ -9,8 +9,8 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
-    FunnelInvalidExclusionState,
     FunnelSingleStepState,
+    FunnelValidationError,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
@@ -59,7 +59,7 @@ export function InsightVizDisplay({
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
-    const { isFunnelWithEnoughSteps, areExclusionFiltersValid } = useValues(insightVizDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightProps))
     const {
         isTrends,
         isFunnels,
@@ -90,13 +90,14 @@ export function InsightVizDisplay({
             )
         }
 
+        if (validationError) {
+            return <FunnelValidationError detail={validationError} />
+        }
+
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
-            }
-            if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionState />
             }
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
