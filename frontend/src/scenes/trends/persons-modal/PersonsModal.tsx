@@ -63,7 +63,8 @@ export function PersonsModal({
     title,
     onAfterClose,
     inline,
-    additionalFields,
+    additionalSelect,
+    orderBy,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
@@ -71,7 +72,8 @@ export function PersonsModal({
     const logic = personsModalLogic({
         url: originalUrl,
         query: _query,
-        additionalFields,
+        additionalSelect,
+        orderBy,
     })
 
     const {

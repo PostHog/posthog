@@ -5,7 +5,6 @@ import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -59,7 +58,7 @@ export function Experiments(): JSX.Element {
 
     const columns: LemonTableColumns<Experiment> = [
         {
-            title: normalizeColumnTitle('Name'),
+            title: 'Name',
             dataIndex: 'name',
             className: 'ph-no-capture',
             sticky: true,
