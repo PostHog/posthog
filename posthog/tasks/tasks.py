@@ -27,7 +27,7 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES)
+@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value)
 def process_query_task(
     team_id: str, query_id: str, query_json: Any, limit_context: Any = None, refresh_requested: bool = False
 ) -> None:
@@ -450,7 +450,7 @@ def clear_clickhouse_deleted_person() -> None:
     remove_deleted_person_data()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.STATS)
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
 def redis_celery_queue_depth() -> None:
     try:
         with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:
@@ -460,8 +460,10 @@ def redis_celery_queue_depth() -> None:
                 registry=registry,
             )
 
-            llen = get_client().llen("celery")
-            celery_task_queue_depth_gauge.set(llen)
+            for queue in CeleryQueue:
+                llen = get_client().llen(queue.value)
+                celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
+
     except:
         # if we can't generate the metric don't complain about it.
         return
