@@ -3373,13 +3373,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[1]["count"], 1)
             self.assertEqual(results[2]["count"], 1)
 
-            # # person.properties.common_prop - not supported!
-            # result = self._basic_funnel(
-            #     filters={**basic_filters, "funnel_aggregate_by_hogql": "person.properties.common_prop"}
-            # ).calculate().results
-            # self.assertEqual(result[0]["count"], 1)
-            # self.assertEqual(result[1]["count"], 1)
-            # self.assertEqual(result[2]["count"], 1)
+            result = (
+                self._basic_funnel(
+                    filters={**basic_filters, "funnel_aggregate_by_hogql": "person.properties.common_prop"}
+                )
+                .calculate()
+                .results
+            )
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 1)
 
         def test_funnel_all_events_with_properties(self):
             person_factory(distinct_ids=["user"], team_id=self.team.pk)
