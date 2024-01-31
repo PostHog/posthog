@@ -454,11 +454,11 @@ class PathsFilter(BaseModel):
     localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
     maxEdgeWeight: Optional[int] = None
     minEdgeWeight: Optional[int] = None
-    pathDropoffKey: Optional[str] = None
-    pathEndKey: Optional[str] = None
+    pathDropoffKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
+    pathEndKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
     pathGroupings: Optional[List[str]] = None
     pathReplacements: Optional[bool] = None
-    pathStartKey: Optional[str] = None
+    pathStartKey: Optional[str] = Field(default=None, description="Relevant only within actors query")
     pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[int] = None

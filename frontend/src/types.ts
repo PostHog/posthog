@@ -44,37 +44,52 @@ export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K 
 
 // Keep this in sync with backend constants/features/{product_name}.yml
 export enum AvailableFeature {
-    EVENTS = 'events',
-    TRACKED_USERS = 'tracked_users',
-    DATA_RETENTION = 'data_retention',
-    SUBSCRIPTIONS = 'subscriptions',
-    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
-    DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
-    INGESTION_TAXONOMY = 'ingestion_taxonomy',
-    PATHS_ADVANCED = 'paths_advanced',
-    CORRELATION_ANALYSIS = 'correlation_analysis',
-    GROUP_ANALYTICS = 'group_analytics',
-    TAGGING = 'tagging',
-    BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
-    SESSION_RECORDINGS = 'session_recordings',
-    RECORDINGS_PLAYLISTS = 'recordings_playlists',
-    RECORDINGS_PERFORMANCE = 'recordings_performance',
-    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
-    BOOLEAN_FLAGS = 'boolean_flags',
-    MULTIVARIATE_FLAGS = 'multivariate_flags',
-    EXPERIMENTATION = 'experimentation',
     APPS = 'apps',
     SLACK_INTEGRATION = 'slack_integration',
     MICROSOFT_TEAMS_INTEGRATION = 'microsoft_teams_integration',
     DISCORD_INTEGRATION = 'discord_integration',
     ZAPIER = 'zapier',
     APP_METRICS = 'app_metrics',
+    DATA_PIPELINES = 'data_pipelines',
+    RECORDINGS_PLAYLISTS = 'recordings_playlists',
+    SESSION_REPLAY_DATA_RETENTION = 'session_replay_data_retention',
+    CONSOLE_LOGS = 'console_logs',
+    RECORDINGS_PERFORMANCE = 'recordings_performance',
+    SESSION_REPLAY_NETWORK_PAYLOADS = 'session_replay_network_payloads',
+    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
+    SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
+    REPLAY_RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
+    REPLAY_FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
+    REPLAY_MASK_SENSITIVE_DATA = 'replay_mask_sensitive_data',
+    REPLAY_SHARING_EMBEDDING = 'replay_sharing_embedding',
+    REPLAY_PRODUCT_ANALYTICS_INTEGRATION = 'replay_product_analytics_integration',
+    REPLAY_FILTER_PERSON_PROPERTIES = 'replay_filter_person_properties',
+    REPLAY_FILTER_EVENTS = 'replay_filter_events',
+    REPLAY_DOM_EXPLORER = 'replay_dom_explorer',
+    WORKS_WITH_POSTHOG_JS = 'works_with_posthog_js',
+    REPLAY_AUTOMATIC_PLAYLISTS = 'replay_automatic_playlists',
+    GROUP_ANALYTICS = 'group_analytics',
+    SURVEYS_UNLIMITED_SURVEYS = 'surveys_unlimited_surveys',
+    SURVEYS_ALL_QUESTION_TYPES = 'surveys_all_question_types',
+    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
+    SURVEYS_USER_TARGETING = 'surveys_user_targeting',
+    SURVEYS_USER_SAMPLING = 'surveys_user_sampling',
+    SURVEYS_STYLING = 'surveys_styling',
+    SURVEYS_TEXT_HTML = 'surveys_text_html',
+    SURVEYS_API_MODE = 'surveys_api_mode',
+    SURVEYS_RESULTS_ANALYSIS = 'surveys_results_analysis',
+    SURVEYS_TEMPLATES = 'surveys_templates',
+    SURVEYS_DATA_RETENTION = 'surveys_data_retention',
+    SURVEYS_LINK_QUESTION_TYPE = 'surveys_link_question_type',
+    SURVEYS_SLACK_NOTIFICATIONS = 'surveys_slack_notifications',
+    SURVEYS_WAIT_PERIODS = 'surveys_wait_periods',
+    TRACKED_USERS = 'tracked_users',
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
-    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
+    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
@@ -89,14 +104,46 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
-    SURVEYS_STYLING = 'surveys_styling',
-    SURVEYS_TEXT_HTML = 'surveys_text_html',
-    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
-    DATA_PIPELINES = 'data_pipelines',
-    SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
-    RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
-    FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
+    BOOLEAN_FLAGS = 'boolean_flags',
+    FEATURE_FLAGS_DATA_RETENTION = 'feature_flags_data_retention',
+    MULTIVARIATE_FLAGS = 'multivariate_flags',
+    PERSIST_FLAGS_CROSS_AUTHENTICATION = 'persist_flags_cross_authentication',
+    FEATURE_FLAG_PAYLOADS = 'feature_flag_payloads',
+    MULTIPLE_RELEASE_CONDITIONS = 'multiple_release_conditions',
+    RELEASE_CONDITION_OVERRIDES = 'release_condition_overrides',
+    TARGETING_BY_GROUP = 'targeting_by_group',
+    LOCAL_EVALUATION_AND_BOOTSTRAPPING = 'local_evaluation_and_bootstrapping',
+    FLAG_USAGE_STATS = 'flag_usage_stats',
+    MULTIPLE_ENVIRONMENTS = 'multiple_environments',
+    USER_OPT_IN = 'user_opt_in',
+    INSTANT_ROLLBACKS = 'instant_rollbacks',
+    EXPERIMENTATION = 'experimentation',
+    GROUP_EXPERIMENTS = 'group_experiments',
+    FUNNEL_EXPERIMENTS = 'funnel_experiments',
+    SECONDARY_METRICS = 'secondary_metrics',
+    STATISTICAL_ANALYSIS = 'statistical_analysis',
+    PRODUCT_ANALYTICS_DATA_RETENTION = 'product_analytics_data_retention',
+    DASHBOARDS = 'dashboards',
+    FUNNELS = 'funnels',
+    GRAPHS_TRENDS = 'graphs_trends',
+    PATHS = 'paths',
+    INSIGHTS = 'insights',
+    SUBSCRIPTIONS = 'subscriptions',
+    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
+    INGESTION_TAXONOMY = 'ingestion_taxonomy',
+    PATHS_ADVANCED = 'paths_advanced',
+    CORRELATION_ANALYSIS = 'correlation_analysis',
+    TAGGING = 'tagging',
+    BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
+    PRODUCT_ANALYTICS_RETENTION = 'product_analytics_retention',
+    PRODUCT_ANALYTICS_STICKINESS = 'product_analytics_stickiness',
+    AUTOCAPTURE = 'autocapture',
+    DATA_VISUALIZATION = 'data_visualization',
+    PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
 }
+
+type AvailableFeatureUnion = `${AvailableFeature}`
 
 export enum ProductKey {
     COHORTS = 'cohorts',
@@ -115,11 +162,19 @@ export enum ProductKey {
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
+    DATA_PIPELINES = 'data_pipelines',
+    GROUP_ANALYTICS = 'group_analytics',
+    INTEGRATIONS = 'integrations',
+    PLATFORM_AND_SUPPORT = 'platform_and_support',
 }
+
+type ProductKeyUnion = `${ProductKey}`
 
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
+    Dev = 'dev',
+    Cloud = 'cloud',
 }
 
 export enum Realm {
@@ -233,7 +288,7 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
-    available_features: AvailableFeature[]
+    available_features: AvailableFeatureUnion[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -699,8 +754,19 @@ export type EncodedRecordingSnapshot = {
     data: eventWithTime[]
 }
 
+// we can duplicate the name SnapshotSourceType for the object and the type
+// since one only exists to be used in the other
+// this way if we want to reference one of the valid string values for SnapshotSourceType
+// we have a strongly typed way to do it
+export const SnapshotSourceType = {
+    blob: 'blob',
+    realtime: 'realtime',
+} as const
+
+export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
+
 export interface SessionRecordingSnapshotSource {
-    source: 'blob' | 'realtime'
+    source: SnapshotSourceType
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
@@ -1217,6 +1283,9 @@ export interface PerformanceEvent {
     //rrweb/network@1 - i.e. not in ClickHouse table
     is_initial?: boolean
     raw?: Record<string, any>
+
+    //server timings - reported as separate events but added back in here on the front end
+    server_timings?: PerformanceEvent[]
 }
 
 export interface CurrentBillCycleType {
@@ -1225,12 +1294,18 @@ export interface CurrentBillCycleType {
 }
 
 export type BillingV2FeatureType = {
-    key: AvailableFeature
+    key: AvailableFeatureUnion
     name: string
     description?: string | null
     limit?: number | null
     note?: string | null
     unit?: string | null
+    images?: {
+        light: string
+        dark: string
+    } | null
+    icon_key?: string | null
+    type?: 'primary' | 'secondary' | null
 }
 
 export interface BillingV2TierType {
@@ -1247,11 +1322,13 @@ export interface BillingProductV2Type {
     type: string
     usage_key: string | null
     name: string
+    headline: string | null
     description: string
     price_description?: string | null
     icon_key?: string | null
     image_url?: string | null
-    docs_url: string | null
+    screenshot_url: string | null
+    docs_url: string
     free_allocation?: number | null
     subscribed: boolean | null
     tiers?: BillingV2TierType[] | null
@@ -1269,8 +1346,8 @@ export interface BillingProductV2Type {
     plans: BillingV2PlanType[]
     contact_support: boolean
     inclusion_only: any
+    features: BillingV2FeatureType[]
     addons: BillingProductV2AddonType[]
-
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
 }
@@ -1296,7 +1373,7 @@ export interface BillingProductV2AddonType {
     projected_usage: number | null
     projected_amount_usd: string | null
     plans: BillingV2PlanType[]
-    usage_key: string
+    usage_key?: string
     free_allocation?: number | null
     percentage_usage?: number
 }
@@ -1334,6 +1411,11 @@ export interface BillingV2PlanType {
     description: string
     is_free?: boolean
     plan_key?: string
+    image_url: string | null
+    docs_url: string | null
+    note: string | null
+    unit: string | null
+    product_key: ProductKeyUnion
     current_plan?: any
     tiers?: BillingV2TierType[] | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
@@ -2228,6 +2310,8 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
+    loadPriority?: number
+    onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
@@ -2344,7 +2428,7 @@ export enum SurveyQuestionType {
 
 export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
-    rollout_percentage: number | null
+    rollout_percentage?: number | null
     variant: string | null
     users_affected?: number
 }
@@ -3599,6 +3683,7 @@ export enum SDKKey {
     WORDPRESS = 'wordpress',
     SENTRY = 'sentry',
     RETOOL = 'retool',
+    HTML_SNIPPET = 'html',
 }
 
 export enum SDKTag {
@@ -3635,7 +3720,6 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
-    Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
     Discussion = 'discussion',

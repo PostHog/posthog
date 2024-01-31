@@ -254,6 +254,9 @@ export async function query<N extends DataNode = DataNode>(
                     } else if (res2.length > 0 && res2[0].people) {
                         res2 = res2[0]?.people.map((n: any) => n.id)
                         res1 = res1.map((n: any) => n[0].id)
+                        // Sort, since the order of the results is not guaranteed
+                        res1.sort()
+                        res2.sort()
                     }
 
                     const getTimingDiff = (): undefined | { diff: number; legacy: number; hogql: number } => {
