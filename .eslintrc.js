@@ -119,7 +119,7 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress', 'Radio'],
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress', 'Radio', 'Divider'],
                         message: 'please use the Lemon equivalent instead',
                     },
                 ],
@@ -141,10 +141,6 @@ module.exports = {
             'warn',
             {
                 forbid: [
-                    {
-                        element: 'Divider',
-                        message: 'use <LemonDivider> instead',
-                    },
                     {
                         element: 'Button',
                         message: 'use <LemonButton> instead',
@@ -251,6 +247,10 @@ module.exports = {
                     {
                         element: 'Radio',
                         message: 'use <LemonRadio> instead',
+                    },
+                    {
+                        element: 'Divider',
+                        message: 'use <LemonDivider> instead',
                     },
                 ],
             },

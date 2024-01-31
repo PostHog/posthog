@@ -76,6 +76,34 @@ exports[`replay/transform transform can convert images 1`] = `
                     "tagName": "img",
                     "type": 2,
                   },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
+                    "tagName": "div",
+                    "type": 2,
+                  },
                 ],
                 "id": 5,
                 "tagName": "body",
@@ -146,11 +174,80 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                 "childNodes": [
                   {
                     "attributes": {
-                      "data-rrweb-id": 12345,
-                      "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;overflow:hidden;white-space:nowrap;",
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
                     },
                     "childNodes": [],
-                    "id": 12345,
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [
+                      {
+                        "attributes": {
+                          "data-rrweb-id": 12345,
+                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;display:flex;flex-direction:row;align-items:center;justify-content:space-around;color:white;",
+                        },
+                        "childNodes": [
+                          {
+                            "attributes": {},
+                            "childNodes": [
+                              {
+                                "id": 101,
+                                "textContent": "◀",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 100,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                          {
+                            "attributes": {},
+                            "childNodes": [
+                              {
+                                "id": 103,
+                                "textContent": "⚪",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 102,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                          {
+                            "attributes": {},
+                            "childNodes": [
+                              {
+                                "id": 105,
+                                "textContent": "⬜️",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 104,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                        ],
+                        "id": 12345,
+                        "tagName": "div",
+                        "type": 2,
+                      },
+                    ],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -248,6 +345,34 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                     "tagName": "div",
                     "type": 2,
                   },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
+                    "tagName": "div",
+                    "type": 2,
+                  },
                 ],
                 "id": 5,
                 "tagName": "body",
@@ -318,73 +443,66 @@ exports[`replay/transform transform can convert status bar 1`] = `
                 "childNodes": [
                   {
                     "attributes": {
-                      "data-rrweb-id": 7,
-                      "style": "background-color: #000000;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;height: 30px;position: fixed;left: 0px;top: 0px;z-index: 9999999;display:flex;flex-direction:row;align-items:center;",
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
                     },
-                    "childNodes": [
-                      {
-                        "attributes": {
-                          "data-rrweb-id": 102,
-                          "style": "width: 5px;",
-                        },
-                        "childNodes": [],
-                        "id": 102,
-                        "tagName": "div",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "data-rrweb-id": 100,
-                        },
-                        "childNodes": [
-                          {
-                            "id": 101,
-                            "textContent": "12:00 AM",
-                            "type": 3,
-                          },
-                        ],
-                        "id": 100,
-                        "tagName": "div",
-                        "type": 2,
-                      },
-                    ],
-                    "id": 7,
+                    "childNodes": [],
+                    "id": 9,
                     "tagName": "div",
                     "type": 2,
                   },
                   {
                     "attributes": {
                       "data-rrweb-id": 7,
-                      "style": "width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;z-index: 9999999;display:flex;flex-direction:row;align-items:center;",
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
                     },
                     "childNodes": [
                       {
                         "attributes": {
-                          "data-rrweb-id": 105,
-                          "style": "width: 5px;",
-                        },
-                        "childNodes": [],
-                        "id": 105,
-                        "tagName": "div",
-                        "type": 2,
-                      },
-                      {
-                        "attributes": {
-                          "data-rrweb-id": 103,
+                          "data-rrweb-id": 12,
+                          "style": "color: black;width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;display:flex;flex-direction:row;align-items:center;",
                         },
                         "childNodes": [
                           {
-                            "id": 104,
-                            "textContent": "12:00 AM",
-                            "type": 3,
+                            "attributes": {
+                              "data-rrweb-id": 102,
+                              "style": "width: 5px;",
+                            },
+                            "childNodes": [],
+                            "id": 102,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                          {
+                            "attributes": {
+                              "data-rrweb-id": 100,
+                            },
+                            "childNodes": [
+                              {
+                                "id": 101,
+                                "textContent": "12:00 AM",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 100,
+                            "tagName": "div",
+                            "type": 2,
                           },
                         ],
-                        "id": 103,
+                        "id": 12,
                         "tagName": "div",
                         "type": 2,
                       },
                     ],
-                    "id": 7,
+                    "id": 11,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -455,7 +573,36 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
                   "data-rrweb-id": 5,
                   "style": "height: 100vh; width: 100vw;",
                 },
-                "childNodes": [],
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
                 "id": 5,
                 "tagName": "body",
                 "type": 2,
@@ -548,6 +695,34 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                       },
                     ],
                     "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -656,6 +831,34 @@ exports[`replay/transform transform can set background image to base64 png 1`] =
                     },
                     "childNodes": [],
                     "id": 12346,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -820,6 +1023,34 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
                     "tagName": "div",
                     "type": 2,
                   },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
+                    "tagName": "div",
+                    "type": 2,
+                  },
                 ],
                 "id": 5,
                 "tagName": "body",
@@ -850,34 +1081,7 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "node": {
           "attributes": {
             "data-rrweb-id": 142908405,
-            "style": "background-image: url('data:image/png;base64,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
-');background-size: auto;background-repeat: no-repeat;width: 411px;height: 70px;position: fixed;left: 0px;top: 536px;overflow:hidden;white-space:nowrap;",
+            "style": "background-image: url('data:image/png;base64,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');background-size: auto;background-repeat: no-repeat;width: 411px;height: 70px;position: fixed;left: 0px;top: 536px;overflow:hidden;white-space:nowrap;",
           },
           "childNodes": [],
           "id": 142908405,
@@ -1347,6 +1551,34 @@ exports[`replay/transform transform inputs buttons with nested elements 1`] = `
                   "tagName": "button",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -1374,7 +1606,7 @@ exports[`replay/transform transform inputs closed keyboard custom event 1`] = `
     "attributes": [],
     "removes": [
       {
-        "id": 6,
+        "id": 10,
         "parentId": 5,
       },
     ],
@@ -1422,7 +1654,36 @@ exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
                 "data-rrweb-id": 5,
                 "style": "height: 100vh; width: 100vw;",
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
               "id": 5,
               "tagName": "body",
               "type": 2,
@@ -1494,6 +1755,34 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                   ],
                   "id": 12358,
                   "tagName": "button",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -1581,6 +1870,34 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
                   "tagName": "label",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -1663,6 +1980,34 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
                   ],
                   "id": 101,
                   "tagName": "label",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -1751,6 +2096,34 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
                   "tagName": "label",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -1818,6 +2191,34 @@ exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
                   "childNodes": [],
                   "id": 12357,
                   "tagName": "input",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -1889,6 +2290,34 @@ exports[`replay/transform transform inputs input - email - $value 1`] = `
                   "tagName": "input",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -1958,6 +2387,34 @@ exports[`replay/transform transform inputs input - number - $value 1`] = `
                   "tagName": "input",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -2025,6 +2482,34 @@ exports[`replay/transform transform inputs input - password - $value 1`] = `
                   "childNodes": [],
                   "id": 12348,
                   "tagName": "input",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -2121,6 +2606,34 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                   "tagName": "div",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -2189,6 +2702,34 @@ exports[`replay/transform transform inputs input - progress - $value 2`] = `
                   "childNodes": [],
                   "id": 12365,
                   "tagName": "progress",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -2261,6 +2802,34 @@ exports[`replay/transform transform inputs input - progress - 0.75 1`] = `
                   "tagName": "progress",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -2331,6 +2900,34 @@ exports[`replay/transform transform inputs input - progress - 0.75 2`] = `
                   "tagName": "progress",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -2398,6 +2995,34 @@ exports[`replay/transform transform inputs input - search - $value 1`] = `
                   "childNodes": [],
                   "id": 12351,
                   "tagName": "input",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -2501,6 +3126,34 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                   "tagName": "select",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -2569,6 +3222,34 @@ exports[`replay/transform transform inputs input - tel - $value 1`] = `
                   "childNodes": [],
                   "id": 12352,
                   "tagName": "input",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -2640,6 +3321,34 @@ exports[`replay/transform transform inputs input - text - $value 1`] = `
                   "tagName": "input",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -2707,6 +3416,34 @@ exports[`replay/transform transform inputs input - text - hello 1`] = `
                   "childNodes": [],
                   "id": 12346,
                   "tagName": "input",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -2778,6 +3515,34 @@ exports[`replay/transform transform inputs input - textArea - $value 1`] = `
                   "tagName": "input",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -2845,6 +3610,34 @@ exports[`replay/transform transform inputs input - textArea - hello 1`] = `
                   "childNodes": [],
                   "id": 12363,
                   "tagName": "input",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -2964,6 +3757,34 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                   "tagName": "label",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -3079,6 +3900,34 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                   ],
                   "id": 104,
                   "tagName": "label",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -3198,6 +4047,34 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                   "tagName": "label",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -3299,6 +4176,34 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                   "tagName": "div",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -3366,6 +4271,34 @@ exports[`replay/transform transform inputs input - url - https://example.io 1`] 
                   "childNodes": [],
                   "id": 12352,
                   "tagName": "input",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
                   "type": 2,
                 },
               ],
@@ -5955,8 +6888,8 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 6,
-            "style": "background-color: #f3f4ef;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;z-index: 9999998;align-items: center;justify-content: center;display: flex;",
+            "data-rrweb-id": 10,
+            "style": "background-color: #f3f4ef;color: #35373e;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
           },
           "childNodes": [
             {
@@ -5965,11 +6898,11 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
               "type": 3,
             },
           ],
-          "id": 6,
+          "id": 10,
           "tagName": "div",
           "type": 2,
         },
-        "parentId": 5,
+        "parentId": 9,
       },
       {
         "nextId": null,
@@ -5978,7 +6911,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
           "textContent": "keyboard",
           "type": 3,
         },
-        "parentId": 6,
+        "parentId": 10,
       },
     ],
     "attributes": [],
@@ -6041,6 +6974,34 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                     },
                   ],
                   "id": 12365,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -6615,6 +7576,34 @@ exports[`replay/transform transform inputs progress rating 1`] = `
                   "tagName": "div",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -6671,7 +7660,36 @@ exports[`replay/transform transform inputs radio group - $inputType - $value 1`]
                 "data-rrweb-id": 5,
                 "style": "height: 100vh; width: 100vw;",
               },
-              "childNodes": [],
+              "childNodes": [
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
               "id": 5,
               "tagName": "body",
               "type": 2,
@@ -6735,6 +7753,34 @@ exports[`replay/transform transform inputs radio_group - $inputType - $value 1`]
                   },
                   "childNodes": [],
                   "id": 123123,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -6802,6 +7848,34 @@ exports[`replay/transform transform inputs radio_group 1`] = `
                   },
                   "childNodes": [],
                   "id": 54321,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -6878,6 +7952,34 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
                   "tagName": "div",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -6948,6 +8050,34 @@ exports[`replay/transform transform inputs web_view with URL 1`] = `
                     },
                   ],
                   "id": 12365,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -7035,6 +8165,34 @@ exports[`replay/transform transform inputs wrapping with labels 1`] = `
                   "tagName": "label",
                   "type": 2,
                 },
+                {
+                  "attributes": {
+                    "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                    "data-rrweb-id": 9,
+                  },
+                  "childNodes": [],
+                  "id": 9,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 7,
+                  },
+                  "childNodes": [],
+                  "id": 7,
+                  "tagName": "div",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "data-rrweb-id": 11,
+                  },
+                  "childNodes": [],
+                  "id": 11,
+                  "tagName": "div",
+                  "type": 2,
+                },
               ],
               "id": 5,
               "tagName": "body",
@@ -7106,6 +8264,34 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                       },
                     ],
                     "id": 12345,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
                     "tagName": "div",
                     "type": 2,
                   },
