@@ -483,7 +483,7 @@ def get_dependent_cohorts(
                     pk=cohort_id, team_id=cohort.team_id, deleted=False
                 )
                 seen_cohorts_cache[cohort_id] = current_cohort
-            if cohort.id not in seen_cohort_ids:
+            if current_cohort.id not in seen_cohort_ids:
                 cohorts.append(current_cohort)
                 seen_cohort_ids.add(current_cohort.id)
 

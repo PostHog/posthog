@@ -206,7 +206,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             )
 
                     if prop.type == "cohort":
-                        nested_cohort = Cohort.objects.get(pk=prop.value)
+                        nested_cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
                         dependent_cohorts = get_dependent_cohorts(nested_cohort)
                         for dependent_cohort in [nested_cohort, *dependent_cohorts]:
                             if (
@@ -597,7 +597,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     if not feature_flag.active or feature_flag.deleted or feature_flag.aggregation_group_type_index is not None:
         return []
 
-    cohort = Cohort.objects.get(pk=cohort_id)
+    cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
     matcher_cache = FlagsMatcherCache(team_id)
     uuids_to_add_to_cohort = []
     cohorts_cache: Dict[int, CohortOrEmpty] = {}
