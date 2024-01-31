@@ -72,6 +72,7 @@ export interface QueryTile extends BaseTile {
     query: QuerySchema
     insightProps: InsightLogicProps
     canOpenModal: boolean
+    canOpenInsight?: boolean
 }
 
 export interface TabsTile extends BaseTile {
@@ -84,7 +85,8 @@ export interface TabsTile extends BaseTile {
         query: QuerySchema
         showIntervalSelect?: boolean
         insightProps: InsightLogicProps
-        canOpenModal: boolean
+        canOpenModal?: boolean
+        canOpenInsight?: boolean
     }[]
 }
 
@@ -97,6 +99,7 @@ export interface WebDashboardModalQuery {
     query: QuerySchema
     insightProps: InsightLogicProps
     showIntervalSelect?: boolean
+    canOpenInsight?: boolean
 }
 
 export enum GraphsTab {
@@ -451,6 +454,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 showIntervalSelect: true,
                                 insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.UNIQUE_USERS),
                                 canOpenModal: true,
+                                canOpenInsight: true,
                             },
                             {
                                 id: GraphsTab.PAGE_VIEWS,
@@ -484,6 +488,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 showIntervalSelect: true,
                                 insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.PAGE_VIEWS),
                                 canOpenModal: true,
+                                canOpenInsight: true,
                             },
                             {
                                 id: GraphsTab.NUM_SESSION,
@@ -518,6 +523,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 showIntervalSelect: true,
                                 insightProps: createInsightProps(TileId.GRAPHS, GraphsTab.NUM_SESSION),
                                 canOpenModal: true,
+                                canOpenInsight: true,
                             },
                         ],
                     },
@@ -754,6 +760,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 insightProps: createInsightProps(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
                                 canOpenModal: true,
+                                canOpenInsight: true,
                             },
                             {
                                 id: DeviceTab.BROWSER,
@@ -836,6 +843,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       },
                                       insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
                                       canOpenModal: true,
+                                      canOpenInsight: true,
                                   },
                                   {
                                       id: GeographyTab.COUNTRIES,
@@ -974,6 +982,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             loadPriority: 0,
                         },
                         query: extendQuery(tab.query),
+                        canOpenInsight: tab.canOpenInsight,
                     }
                 } else {
                     if ('tabs' in tile) {

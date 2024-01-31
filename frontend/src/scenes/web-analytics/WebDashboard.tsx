@@ -2,16 +2,21 @@ import { IconExpand45 } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import React from 'react'
+import { urls } from 'scenes/urls'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import { QueryTile, TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { QueryTile, TabsTile, TileId, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
 import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
-import { WebTabs } from 'scenes/web-analytics/WebTabs'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { QuerySchema } from '~/queries/schema'
 
 const Filters = (): JSX.Element => {
     const {
@@ -64,6 +69,10 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, tileId } = tile
 
     const { openModal } = useActions(webAnalyticsLogic)
+    const {
+        webAnalyticsFilters,
+        dateFilter: { dateTo, dateFrom },
+    } = useValues(webAnalyticsLogic)
 
     return (
         <div
@@ -77,18 +86,34 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
         >
             {title && <h2 className="m-0 mb-3">{title}</h2>}
             <WebQuery query={query} insightProps={insightProps} />
-            {tile.canOpenModal ? (
-                <div className="flex justify-end my-2">
-                    <LemonButton
-                        icon={<IconExpand45 />}
-                        onClick={() => {
-                            openModal(tileId)
-                        }}
-                        type="secondary"
-                        size="small"
-                    >
-                        Expand
-                    </LemonButton>
+            {tile.canOpenInsight || tile.canOpenModal ? (
+                <div className="flex justify-end my-2 space-x-2">
+                    {tile.canOpenInsight ? (
+                        <LemonButton
+                            to={urls.insightNew(
+                                { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
+                                null,
+                                tile.query
+                            )}
+                            icon={<IconOpenInNew />}
+                            size="small"
+                            type="secondary"
+                        >
+                            Open as new Insight
+                        </LemonButton>
+                    ) : null}
+                    {tile.canOpenModal ? (
+                        <LemonButton
+                            icon={<IconExpand45 />}
+                            onClick={() => {
+                                openModal(tileId)
+                            }}
+                            type="secondary"
+                            size="small"
+                        >
+                            Expand
+                        </LemonButton>
+                    ) : null}
                 </div>
             ) : null}
         </div>
@@ -123,11 +148,99 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 ),
                 linkText: tab.linkText,
                 title: tab.title,
-                canOpenModal: tab.canOpenModal,
+                canOpenModal: !!tab.canOpenModal,
+                canOpenInsight: !!tab.canOpenInsight,
+                query: tab.query,
             }))}
             tileId={tile.tileId}
             openModal={openModal}
         />
+    )
+}
+
+export const WebTabs = ({
+    className,
+    activeTabId,
+    tabs,
+    setActiveTabId,
+    openModal,
+    tileId,
+}: {
+    className?: string
+    activeTabId: string
+    tabs: {
+        id: string
+        title: string
+        linkText: string
+        content: React.ReactNode
+        canOpenModal: boolean
+        canOpenInsight: boolean
+        query: QuerySchema
+    }[]
+    setActiveTabId: (id: string) => void
+    openModal: (tileId: TileId, tabId: string) => void
+    tileId: TileId
+}): JSX.Element => {
+    const activeTab = tabs.find((t) => t.id === activeTabId)
+    const {
+        dateFilter: { dateFrom, dateTo },
+        webAnalyticsFilters,
+    } = useValues(webAnalyticsLogic)
+    return (
+        <div className={clsx(className, 'flex flex-col')}>
+            <div className="flex flex-row items-center self-stretch mb-3">
+                <h2 className="flex-1 m-0">{activeTab?.title}</h2>
+
+                {tabs.length > 3 ? (
+                    <LemonSelect
+                        size="small"
+                        disabled={false}
+                        value={activeTabId}
+                        dropdownMatchSelectWidth={false}
+                        onChange={setActiveTabId}
+                        options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
+                    />
+                ) : (
+                    <LemonSegmentedButton
+                        size="small"
+                        options={tabs.map(({ id, linkText }) => ({ label: linkText, value: id }))}
+                        onChange={(value) => setActiveTabId(value)}
+                        value={activeTabId}
+                    />
+                )}
+            </div>
+            <div className="flex-1 flex flex-col">{activeTab?.content}</div>
+            {activeTab?.canOpenInsight || activeTab?.canOpenModal ? (
+                <div className="flex justify-end my-2 space-x-2">
+                    {activeTab?.canOpenInsight ? (
+                        <LemonButton
+                            to={urls.insightNew(
+                                { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
+                                null,
+                                activeTab.query
+                            )}
+                            icon={<IconOpenInNew />}
+                            size="small"
+                            type="secondary"
+                        >
+                            Open as new Insight
+                        </LemonButton>
+                    ) : null}
+                    {activeTab?.canOpenModal ? (
+                        <LemonButton
+                            icon={<IconExpand45 />}
+                            onClick={() => {
+                                openModal(tileId, activeTabId)
+                            }}
+                            type="secondary"
+                            size="small"
+                        >
+                            Expand
+                        </LemonButton>
+                    ) : null}
+                </div>
+            ) : null}
+        </div>
     )
 }
 
