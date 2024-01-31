@@ -119,7 +119,7 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress'],
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress', 'Divider'],
                         message: 'please use the Lemon equivalent instead',
                     },
                 ],
@@ -141,10 +141,6 @@ module.exports = {
             'warn',
             {
                 forbid: [
-                    {
-                        element: 'Divider',
-                        message: 'use <LemonDivider> instead',
-                    },
                     {
                         element: 'Button',
                         message: 'use <LemonButton> instead',
@@ -245,6 +241,10 @@ module.exports = {
                     {
                         element: 'ReactJson',
                         message: 'use <JSONViewer> for dark mode support instead',
+                    },
+                    {
+                        element: 'Divider',
+                        message: 'use <LemonDivider> instead',
                     },
                 ],
             },
