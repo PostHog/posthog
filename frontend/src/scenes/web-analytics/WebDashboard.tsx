@@ -1,3 +1,4 @@
+import { IconExpand45 } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -9,7 +10,6 @@ import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
 import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
-import { IconExpand45 } from '@posthog/icons'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
