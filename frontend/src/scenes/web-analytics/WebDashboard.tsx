@@ -14,10 +14,10 @@ import {
 } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 const Filters = (): JSX.Element => {
     const {
