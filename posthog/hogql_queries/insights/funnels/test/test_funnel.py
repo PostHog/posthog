@@ -13,6 +13,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.filter import Filter
+from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal
 from posthog.schema import EventsNode, FunnelsQuery
@@ -3383,6 +3384,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             person_factory(distinct_ids=["user"], team_id=self.team.pk)
             self._signup_event(distinct_id="user")
             self._add_to_cart_event(distinct_id="user", properties={"is_saved": True})
+            PropertyDefinition.objects.get_or_create(
+                team=self.team,
+                type=PropertyDefinition.Type.EVENT,
+                name="is_saved",
+                defaults={"property_type": "Boolean"},
+            )
 
             filters = {
                 "events": [
