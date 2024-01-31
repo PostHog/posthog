@@ -36,7 +36,6 @@ from posthog.tasks.tasks import (
     pg_table_cache_hit_rate,
     process_scheduled_changes,
     redis_celery_queue_depth,
-    redis_celery_queue_depth_usage_reports,
     redis_heartbeat,
     schedule_all_subscriptions,
     schedule_cache_updates_task,

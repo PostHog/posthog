@@ -109,7 +109,6 @@ def traces_sampler(sampling_context: dict) -> float:
         low_sample_tasks = (
             "posthog.celery.redis_heartbeat",
             "posthog.celery.redis_celery_queue_depth",
-            "posthog.celery.redis_celery_queue_depth_usage_reports",
         )
 
         if task in low_sample_tasks:
