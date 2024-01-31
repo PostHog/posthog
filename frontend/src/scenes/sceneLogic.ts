@@ -18,6 +18,7 @@ import { handleLoginRedirect } from './authentication/loginLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
+import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -37,7 +38,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -249,10 +250,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
                         !removeProjectIdIfPresent(location.pathname).startsWith(urls.settings())
                     ) {
-                        if (
-                            !teamLogic.values.currentTeam.completed_snippet_onboarding &&
-                            !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
-                        ) {
+                        if (!teamLogic.values.hasOnboardedAnyProduct) {
                             console.warn('No onboarding completed, redirecting to /products')
                             router.actions.replace(urls.products())
                             return

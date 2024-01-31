@@ -265,11 +265,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Products]: {
         projectBased: true,
-        layout: 'plain',
+        hideProjectNotice: true,
     },
     [Scene.Onboarding]: {
         projectBased: true,
-        layout: 'plain',
+        hideProjectNotice: true,
     },
     [Scene.OnboardingProductIntroduction]: {
         projectBased: true,
