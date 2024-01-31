@@ -90,7 +90,7 @@ async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: l
             continue
 
         # create or update
-        table_created: DataWarehouseTable | None = None
+        table_created = None
         if last_successful_job:
             old_url_pattern = last_successful_job.url_pattern_by_schema(_schema_name)
             try:

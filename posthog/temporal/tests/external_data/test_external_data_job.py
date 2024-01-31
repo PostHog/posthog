@@ -393,7 +393,7 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
         access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     )
 
-    url_pattern = await sync_to_async(old_job.url_pattern_by_schema)("test-1")
+    url_pattern = await sync_to_async(old_job.url_pattern_by_schema)("test-1")  # type: ignore
 
     await sync_to_async(DataWarehouseTable.objects.create)(  # type: ignore
         credential=old_credential,
