@@ -458,6 +458,7 @@ def redis_celery_queue_depth() -> None:
                 "posthog_celery_queue_depth",
                 "We use this to monitor the depth of the celery queue.",
                 registry=registry,
+                labelnames=["queue_name"],
             )
 
             for queue in CeleryQueue:
@@ -641,7 +642,7 @@ def clickhouse_mark_all_materialized() -> None:
             mark_all_materialized()
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
 def send_org_usage_reports() -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
