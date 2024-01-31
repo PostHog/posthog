@@ -17,6 +17,7 @@ import { onboardingLogic } from './onboardingLogic'
 export const scene: SceneExport = {
     component: OnboardingProductIntroduction,
     logic: onboardingLogic,
+    paramsToProps: ({ params: { productKey } }) => ({ productKey }),
 }
 
 export const Feature = ({ name, description, images }: BillingV2FeatureType): JSX.Element => {
@@ -146,7 +147,6 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
                 <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
                     <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                         <div className="">
-                            <h2 className="text-2xl font-bold">{product.name}</h2>
                             <h3 className="text-4xl font-bold">{product.headline}</h3>
                             <p>{product.description}</p>
                             <GetStartedButton product={product} />

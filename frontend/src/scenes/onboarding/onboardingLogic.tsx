@@ -4,6 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -24,6 +25,13 @@ export enum OnboardingStepKey {
     VERIFY = 'verify',
     PRODUCT_CONFIGURATION = 'configure',
     INVITE_TEAMMATES = 'invite_teammates',
+}
+
+const productKeyToProductName = {
+    [ProductKey.PRODUCT_ANALYTICS]: 'Product Analytics',
+    [ProductKey.SESSION_REPLAY]: 'Session Replay',
+    [ProductKey.FEATURE_FLAGS]: 'Feature Flags',
+    [ProductKey.SURVEYS]: 'Surveys',
 }
 
 // These types have to be set like this, so that kea typegen is happy
@@ -107,6 +115,16 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
     })),
     selectors({
+        breadcrumbs: [
+            (s) => [s.productKey],
+            (productKey) => [
+                {
+                    key: Scene.OnboardingProductIntroduction,
+                    name: productKeyToProductName[productKey],
+                    path: urls.onboardingProductIntroduction(productKey),
+                },
+            ],
+        ],
         onCompleteOnboardingRedirectUrl: [
             (s) => [s.featureFlags, s.productKey],
             (featureFlags: FeatureFlagsSet, productKey: string | null) => {
