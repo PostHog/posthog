@@ -2207,9 +2207,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(7):
-            # multiple queries to get the same cohort, because it doesn't exist
-            # TODO: Find a better way to optimise this in cache
+        with self.assertNumQueries(6):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
