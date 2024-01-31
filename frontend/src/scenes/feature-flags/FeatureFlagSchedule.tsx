@@ -10,6 +10,7 @@ import {
     LemonTagType,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { DatePicker } from 'lib/components/DatePicker'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -183,34 +184,44 @@ export default function FeatureFlagSchedule(): JSX.Element {
             </div>
 
             <div className="space-y-4">
-                {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
-                    <>
-                        <div className="border rounded p-4">
-                            <LemonCheckbox
-                                id="flag-enabled-checkbox"
-                                label="Enable feature flag"
-                                onChange={(value) => {
-                                    featureFlag.active = value
-                                    setFeatureFlag(featureFlag)
-                                }}
-                                checked={featureFlag.active}
-                            />
-                        </div>
-                    </>
-                )}
-                {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
-                    <FeatureFlagReleaseConditions usageContext="schedule" />
-                )}
-                <div className="flex items-center justify-end">
-                    <LemonButton
-                        disabledReason={!scheduleDateMarker ? 'Select the scheduled date and time' : null}
-                        type="primary"
-                        onClick={() => createScheduledChange()}
-                    >
-                        Schedule
-                    </LemonButton>
-                </div>
-                <LemonDivider className="" />
+                <Form
+                    id="feature-flag"
+                    logic={featureFlagLogic}
+                    formKey="featureFlag"
+                    enableFormOnSubmit
+                    className="space-y-4"
+                >
+                    {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
+                        <>
+                            <div className="border rounded p-4">
+                                <LemonCheckbox
+                                    id="flag-enabled-checkbox"
+                                    label="Enable feature flag"
+                                    onChange={(value) => {
+                                        featureFlag.active = value
+                                        setFeatureFlag(featureFlag)
+                                    }}
+                                    checked={featureFlag.active}
+                                />
+                            </div>
+                        </>
+                    )}
+                    {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
+                        <FeatureFlagReleaseConditions usageContext="schedule" />
+                    )}
+                    <div className="flex items-center justify-end">
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            form="feature-flag"
+                            disabledReason={!scheduleDateMarker ? 'Select the scheduled date and time' : null}
+                            onClick={() => createScheduledChange()}
+                        >
+                            Schedule
+                        </LemonButton>
+                    </div>
+                    <LemonDivider className="" />
+                </Form>
             </div>
             <LemonTable
                 rowClassName={(record) => (record.executed_at ? 'opacity-75' : '')}
