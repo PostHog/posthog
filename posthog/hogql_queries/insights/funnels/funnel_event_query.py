@@ -106,7 +106,8 @@ class FunnelEventQuery:
 
         return ast.CompareOperation(
             left=ast.Field(chain=["event"]),
-            right=ast.Tuple(exprs=[ast.Constant(value=event) for event in events]),
+            # Sorting for consistent snapshots in tests
+            right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(events)]),
             op=ast.CompareOperationOp.In,
         )
 

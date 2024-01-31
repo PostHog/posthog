@@ -648,47 +648,45 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(result[0]["count"], 1)
 
-        # @also_test_with_materialized_columns(person_properties=["email"])
-        # def test_funnel_with_entity_person_property_filters(self):
-        #     person_factory(
-        #         distinct_ids=["person1"],
-        #         team_id=self.team.pk,
-        #         properties={"email": "test@posthog.com"},
-        #     )
-        #     person_factory(
-        #         distinct_ids=["person2"],
-        #         team_id=self.team.pk,
-        #         properties={"email": "another@example.com"},
-        #     )
-        #     person_factory(distinct_ids=["person3"], team_id=self.team.pk)
-        #     event_factory(distinct_id="person1", event="event1", team=self.team)
-        #     event_factory(distinct_id="person2", event="event1", team=self.team)
-        #     event_factory(distinct_id="person3", event="event1", team=self.team)
+        @also_test_with_materialized_columns(person_properties=["email"])
+        def test_funnel_with_entity_person_property_filters(self):
+            person_factory(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"email": "test@posthog.com"},
+            )
+            person_factory(
+                distinct_ids=["person2"],
+                team_id=self.team.pk,
+                properties={"email": "another@example.com"},
+            )
+            person_factory(distinct_ids=["person3"], team_id=self.team.pk)
+            event_factory(distinct_id="person1", event="event1", team=self.team)
+            event_factory(distinct_id="person2", event="event1", team=self.team)
+            event_factory(distinct_id="person3", event="event1", team=self.team)
 
-        #     result = Funnel(
-        #         filter=Filter(
-        #             data={
-        #                 "events": [
-        #                     {
-        #                         "id": "event1",
-        #                         "order": 0,
-        #                         "properties": [
-        #                             {
-        #                                 "key": "email",
-        #                                 "value": "is_set",
-        #                                 "operator": "is_set",
-        #                                 "type": "person",
-        #                             }
-        #                         ],
-        #                     }
-        #                 ],
-        #                 "insight": INSIGHT_FUNNELS,
-        #                 "funnel_window_days": 14,
-        #             }
-        #         ),
-        #         team=self.team,
-        #     ).run()
-        #     self.assertEqual(result[0]["count"], 2)
+            filter = {
+                "events": [
+                    {
+                        "id": "event1",
+                        "order": 0,
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "is_set",
+                                "operator": "is_set",
+                                "type": "person",
+                            }
+                        ],
+                    },
+                    {"id": None, "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
+            }
+            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
+
+            self.assertEqual(result[0]["count"], 2)
 
         # @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
         # def test_funnel_filter_by_action_with_person_properties(self):
@@ -3599,28 +3597,30 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         "funnel_window_days": 14,
         #     }
 
-        #     result = self._basic_funnel(filters=filters).run()
+        #     result = self._basic_funnel(filters=filters).calculate().results
+
         #     self.assertEqual(result[0]["count"], 1)
         #     self.assertEqual(result[1]["count"], 1)
 
-        # def test_funnel_all_events_via_action(self):
-        #     person_factory(distinct_ids=["user"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="user")
-        #     self._add_to_cart_event(distinct_id="user", properties={"is_saved": True})
+        def test_funnel_all_events_via_action(self):
+            person_factory(distinct_ids=["user"], team_id=self.team.pk)
+            self._signup_event(distinct_id="user")
+            self._add_to_cart_event(distinct_id="user", properties={"is_saved": True})
 
-        #     action_checkout_all = Action.objects.create(team=self.team, name="user signed up")
-        #     ActionStep.objects.create(action=action_checkout_all, event="checked out")  # not perormed
-        #     ActionStep.objects.create(action=action_checkout_all, event=None)  # matches all
+            action_checkout_all = Action.objects.create(team=self.team, name="user signed up")
+            ActionStep.objects.create(action=action_checkout_all, event="checked out")  # not perormed
+            ActionStep.objects.create(action=action_checkout_all, event=None)  # matches all
 
-        #     filters = {
-        #         "events": [{"id": "user signed up", "type": "events", "order": 0}],
-        #         "actions": [{"id": action_checkout_all.pk, "type": "actions", "order": 1}],
-        #         "funnel_window_days": 14,
-        #     }
+            filters = {
+                "events": [{"id": "user signed up", "type": "events", "order": 0}],
+                "actions": [{"id": action_checkout_all.pk, "type": "actions", "order": 1}],
+                "funnel_window_days": 14,
+            }
 
-        #     result = self._basic_funnel(filters=filters).run()
-        #     self.assertEqual(result[0]["count"], 1)
-        #     self.assertEqual(result[1]["count"], 1)
+            result = self._basic_funnel(filters=filters).calculate().results
+
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
 
     return TestGetFunnel
 
