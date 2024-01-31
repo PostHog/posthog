@@ -6,6 +6,7 @@ import typing
 from random import randint
 from uuid import uuid4
 
+import pyarrow as pa
 import pytest
 import pytest_asyncio
 from django.conf import settings
@@ -25,6 +26,7 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportInputs,
     BigQueryBatchExportWorkflow,
     BigQueryInsertInputs,
+    get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -58,18 +60,6 @@ def assert_events_in_bigquery(
         inserted_event = {k: json.loads(v) if k in json_columns and v is not None else v for k, v in row.items()}
         inserted_events.append(inserted_event)
 
-    # Reconstruct bq_ingested_timestamp in case we are faking dates.
-    bq_ingested_timestamp = dt.datetime(
-        bq_ingested_timestamp.year,
-        bq_ingested_timestamp.month,
-        bq_ingested_timestamp.day,
-        bq_ingested_timestamp.hour,
-        bq_ingested_timestamp.minute,
-        bq_ingested_timestamp.second,
-        bq_ingested_timestamp.microsecond,
-        bq_ingested_timestamp.tzinfo,
-    )
-
     expected_events = []
     for event in events:
         event_name = event.get("event")
@@ -80,9 +70,8 @@ def assert_events_in_bigquery(
         properties = event.get("properties", None)
         elements_chain = event.get("elements_chain", None)
         expected_event = {
-            "bq_ingested_timestamp": bq_ingested_timestamp,
             "distinct_id": event.get("distinct_id"),
-            "elements": json.dumps(elements_chain),
+            "elements": json.dumps(elements_chain) if elements_chain is not None else json.dumps(""),
             "event": event_name,
             "ip": properties.get("$ip", None) if properties else None,
             "properties": event.get("properties"),
@@ -94,10 +83,14 @@ def assert_events_in_bigquery(
             "team_id": event.get("team_id"),
             "uuid": event.get("uuid"),
         }
+        if "bq_ingested_timestamp" in inserted_events[0]:
+            expected_event["bq_ingested_timestamp"] = inserted_events[0]["bq_ingested_timestamp"]
+
         expected_events.append(expected_event)
 
     expected_events.sort(key=lambda x: (x["event"], x["timestamp"]))
 
+    assert len(inserted_events) == len(expected_events)
     # First check one event, the first one, so that we can get a nice diff if
     # the included data is different.
     assert inserted_events[0] == expected_events[0]
@@ -479,3 +472,44 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
     run = runs[0]
     assert run.status == "Cancelled"
     assert run.latest_error == "Cancelled"
+
+
+@pytest.mark.parametrize(
+    "pyrecords,expected_schema",
+    [
+        ([{"test": 1}], [bigquery.SchemaField("test", "INT64")]),
+        ([{"test": "a string"}], [bigquery.SchemaField("test", "STRING")]),
+        ([{"test": b"a bytes"}], [bigquery.SchemaField("test", "BYTES")]),
+        ([{"test": 6.0}], [bigquery.SchemaField("test", "FLOAT64")]),
+        ([{"test": True}], [bigquery.SchemaField("test", "BOOL")]),
+        ([{"test": dt.datetime.now()}], [bigquery.SchemaField("test", "TIMESTAMP")]),
+        ([{"test": dt.datetime.now(tz=dt.timezone.utc)}], [bigquery.SchemaField("test", "TIMESTAMP")]),
+        (
+            [
+                {
+                    "test_int": 1,
+                    "test_str": "a string",
+                    "test_bytes": b"a bytes",
+                    "test_float": 6.0,
+                    "test_bool": False,
+                    "test_timestamp": dt.datetime.now(),
+                    "test_timestamptz": dt.datetime.now(tz=dt.timezone.utc),
+                }
+            ],
+            [
+                bigquery.SchemaField("test_int", "INT64"),
+                bigquery.SchemaField("test_str", "STRING"),
+                bigquery.SchemaField("test_bytes", "BYTES"),
+                bigquery.SchemaField("test_float", "FLOAT64"),
+                bigquery.SchemaField("test_bool", "BOOL"),
+                bigquery.SchemaField("test_timestamp", "TIMESTAMP"),
+                bigquery.SchemaField("test_timestamptz", "TIMESTAMP"),
+            ],
+        ),
+    ],
+)
+def test_get_bigquery_fields_from_record_schema(pyrecords, expected_schema):
+    record_batch = pa.RecordBatch.from_pylist(pyrecords)
+    schema = get_bigquery_fields_from_record_schema(record_batch.schema, known_json_columns=[])
+
+    assert schema == expected_schema
