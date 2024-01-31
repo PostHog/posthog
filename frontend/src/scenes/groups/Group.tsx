@@ -140,7 +140,7 @@ export function Group(): JSX.Element {
                                 {!groupData.group_properties?.id ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are not available for this group because it does not have
+                                            Cannot view recordings in this tab for this group because it does not have
                                             an <code>id</code> property.
                                         </LemonBanner>
                                     </div>
