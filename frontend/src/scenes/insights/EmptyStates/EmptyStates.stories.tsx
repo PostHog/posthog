@@ -85,6 +85,34 @@ export const ValidationError: StoryFn = () => {
     return <App />
 }
 
+export const EstimatedQueryExecutionTimeTooLong: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/insights/': (_, __, ctx) => [
+                ctx.status(200),
+                ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
+            ],
+            '/api/projects/:team_id/insights/trend/': (_, __, ctx) => [
+                ctx.delay(100),
+                ctx.status(512),
+                ctx.json({
+                    type: 'server_error',
+                    detail: 'Estimated query execution time is too long.',
+                }),
+            ],
+        },
+    })
+    useEffect(() => {
+        router.actions.push(`/insights/${insight.short_id}`)
+    }, [])
+    return <App />
+}
+EstimatedQueryExecutionTimeTooLong.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
 export const LongLoading: StoryFn = () => {
     useStorybookMocks({
         get: {
@@ -101,10 +129,11 @@ export const LongLoading: StoryFn = () => {
     })
     useEffect(() => {
         router.actions.push(`/insights/${insight.short_id}`)
-        window.setTimeout(() => {
+        const timeout = window.setTimeout(() => {
             const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
             logic?.actions.setTimedOutQueryId('a-uuid-query-id')
         }, 150)
+        return () => window.clearTimeout(timeout)
     }, [])
     return <App />
 }
