@@ -136,14 +136,6 @@ export function Group(): JSX.Element {
                                             and enable it.
                                         </LemonBanner>
                                     </div>
-                                ) : null}
-                                {!groupData.group_properties?.id ? (
-                                    <div className="mb-4">
-                                        <LemonBanner type="info">
-                                            Cannot view recordings in this tab for this group because it does not have
-                                            an <code>id</code> property.
-                                        </LemonBanner>
-                                    </div>
                                 ) : (
                                     <div className="SessionRecordingPlaylistHeightWrapper">
                                         <SessionRecordingsPlaylist
@@ -157,11 +149,8 @@ export function Group(): JSX.Element {
                                                         name: 'All events',
                                                         properties: [
                                                             {
-                                                                key: 'id',
-                                                                value: [groupData.group_properties?.id],
-                                                                operator: 'exact',
-                                                                type: 'group',
-                                                                group_type_index: groupData.group_type_index,
+                                                                key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                type: 'hogql',
                                                             },
                                                         ],
                                                     },
@@ -171,15 +160,12 @@ export function Group(): JSX.Element {
                                                 const stillHasGroupFilter = filters.events?.some((event) => {
                                                     return event.properties.some(
                                                         (prop: Record<string, any>) =>
-                                                            prop.type === 'group' &&
-                                                            prop.group_type_index === groupData.group_type_index &&
-                                                            prop.key === 'id'
+                                                            prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
                                                     )
                                                 })
                                                 if (!stillHasGroupFilter) {
                                                     lemonToast.warning(
-                                                        'Group filter removed. Please add it back to see recordings for this group.',
-                                                        { autoClose: 10000 }
+                                                        'Group filter removed. Please add it back to see recordings for this group.'
                                                     )
                                                 }
                                             }}
