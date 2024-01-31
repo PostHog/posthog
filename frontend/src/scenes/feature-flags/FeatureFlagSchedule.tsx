@@ -36,7 +36,6 @@ export default function FeatureFlagSchedule(): JSX.Element {
         setFeatureFlag,
         setAggregationGroupTypeIndex,
         loadScheduledChanges,
-        createScheduledChange,
         deleteScheduledChange,
         setScheduleDateMarker,
         setScheduledChangeOperation,
@@ -186,7 +185,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
             <div className="space-y-4">
                 <Form
                     id="feature-flag"
-                    logic={featureFlagLogic}
+                    logic={featureFlagScheduleLogic as any}
                     formKey="featureFlag"
                     enableFormOnSubmit
                     className="space-y-4"
@@ -215,7 +214,6 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             htmlType="submit"
                             form="feature-flag"
                             disabledReason={!scheduleDateMarker ? 'Select the scheduled date and time' : null}
-                            onClick={() => createScheduledChange()}
                         >
                             Schedule
                         </LemonButton>

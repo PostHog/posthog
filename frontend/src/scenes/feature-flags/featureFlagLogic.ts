@@ -240,7 +240,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setScheduledChangeOperation: (changeType: string | null) => ({ changeType }),
     }),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, props }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
             errors: ({ key, filters }) => {
@@ -262,7 +262,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
-                actions.saveFeatureFlag(featureFlag)
+                if (props.id === 'schedule') {
+                    actions.createScheduledChange()
+                } else {
+                    actions.saveFeatureFlag(featureFlag)
+                }
             },
         },
     })),
