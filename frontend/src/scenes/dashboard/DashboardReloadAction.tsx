@@ -34,7 +34,7 @@ export function DashboardReloadAction(): JSX.Element {
     const options = intervalOptions.map((option) => {
         return {
             ...option,
-            disabledReason: !autoRefresh.enabled ? 'Enable auto refresh before setting the interval' : undefined,
+            disabledReason: !autoRefresh.enabled ? 'Enable auto refresh to set the interval' : undefined,
         }
     })
 

@@ -23,13 +23,8 @@ export function LemonRadio<T extends React.Key>({
 }: LemonRadioProps<T>): JSX.Element {
     return (
         <div className={clsx('flex flex-col gap-2', fullWidth && 'w-full')}>
-            {options.map((option) => (
-                <Tooltip
-                    trigger="hover"
-                    key={option.value}
-                    title={option.disabledReason}
-                    visible={!!option.disabledReason}
-                >
+            {options.map((option) => {
+                const content = (
                     <label
                         className={clsx(
                             'flex items-center space-x-1',
@@ -49,8 +44,16 @@ export function LemonRadio<T extends React.Key>({
                         />
                         <span>{option.label}</span>
                     </label>
-                </Tooltip>
-            ))}
+                )
+
+                return option.disabledReason ? (
+                    <Tooltip trigger="hover" key={option.value} title={option.disabledReason}>
+                        {content}
+                    </Tooltip>
+                ) : (
+                    content
+                )
+            })}
         </div>
     )
 }
