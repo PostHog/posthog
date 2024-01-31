@@ -97,7 +97,7 @@ export const EstimatedQueryExecutionTimeTooLong: StoryFn = () => {
                 ctx.status(512),
                 ctx.json({
                     type: 'server_error',
-                    detail: 'Estimated query execution time is too long.',
+                    detail: 'Estimated query execution time is too long. Try reducing its scope by changing the time range.',
                 }),
             ],
         },
