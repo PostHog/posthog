@@ -206,6 +206,9 @@ def iter_records(
     if fields is None:
         query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in default_fields()))
     else:
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            fields.append(BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at"))
+
         query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in fields))
 
     query = SELECT_QUERY_TEMPLATE.substitute(
