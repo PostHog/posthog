@@ -12,50 +12,45 @@ from posthog.utils import PersonOnEventsMode
 def resolve_property_types(node: ast.Expr, context: HogQLContext = None) -> ast.Expr:
     from posthog.models import PropertyDefinition
 
-    with context.timings.measure("find_properties"):
-        # find all properties
-        property_finder = PropertyFinder()
-        property_finder.visit(node)
+    # find all properties
+    property_finder = PropertyFinder()
+    property_finder.visit(node)
 
-    with context.timings.measure("fetch_properties"):
-        with context.timings.measure("event_properties"):
-            # fetch them
-            event_property_values = (
-                PropertyDefinition.objects.filter(
-                    name__in=property_finder.event_properties,
-                    team_id=context.team_id,
-                    type__in=[None, PropertyDefinition.Type.EVENT],
-                ).values_list("name", "property_type")
-                if property_finder.event_properties
-                else []
-            )
-            event_properties = {name: property_type for name, property_type in event_property_values if property_type}
+    # fetch them
+    event_property_values = (
+        PropertyDefinition.objects.filter(
+            name__in=property_finder.event_properties,
+            team_id=context.team_id,
+            type__in=[None, PropertyDefinition.Type.EVENT],
+        ).values_list("name", "property_type")
+        if property_finder.event_properties
+        else []
+    )
+    event_properties = {name: property_type for name, property_type in event_property_values if property_type}
 
-        with context.timings.measure("person_properties"):
-            person_property_values = (
-                PropertyDefinition.objects.filter(
-                    name__in=property_finder.person_properties,
-                    team_id=context.team_id,
-                    type=PropertyDefinition.Type.PERSON,
-                ).values_list("name", "property_type")
-                if property_finder.person_properties
-                else []
-            )
-            person_properties = {name: property_type for name, property_type in person_property_values if property_type}
+    person_property_values = (
+        PropertyDefinition.objects.filter(
+            name__in=property_finder.person_properties,
+            team_id=context.team_id,
+            type=PropertyDefinition.Type.PERSON,
+        ).values_list("name", "property_type")
+        if property_finder.person_properties
+        else []
+    )
+    person_properties = {name: property_type for name, property_type in person_property_values if property_type}
 
-    with context.timings.measure("swap_properties"):
-        # swap them out
-        if len(event_properties) == 0 and len(person_properties) == 0 and not property_finder.found_timestamps:
-            return node
+    # swap them out
+    if len(event_properties) == 0 and len(person_properties) == 0 and not property_finder.found_timestamps:
+        return node
 
-        timezone = context.database.get_timezone() if context and context.database else "UTC"
-        property_swapper = PropertySwapper(
-            timezone=timezone,
-            event_properties=event_properties,
-            person_properties=person_properties,
-            context=context,
-        )
-        return property_swapper.visit(node)
+    timezone = context.database.get_timezone() if context and context.database else "UTC"
+    property_swapper = PropertySwapper(
+        timezone=timezone,
+        event_properties=event_properties,
+        person_properties=person_properties,
+        context=context,
+    )
+    return property_swapper.visit(node)
 
 
 class PropertyFinder(TraversingVisitor):

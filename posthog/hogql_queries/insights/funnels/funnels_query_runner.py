@@ -47,7 +47,6 @@ class FunnelsQueryRunner(QueryRunner):
         )
 
     def _is_stale(self, cached_result_package):
-        return True
         date_to = self.query_date_range.date_to()
         interval = self.query_date_range.interval_name
         return is_stale(self.team, date_to, interval, cached_result_package)
