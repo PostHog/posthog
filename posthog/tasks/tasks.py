@@ -469,23 +469,6 @@ def redis_celery_queue_depth() -> None:
         return
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.STATS)
-def redis_celery_queue_depth_usage_reports() -> None:
-    try:
-        with pushed_metrics_registry("redis_celery_queue_depth_usage_reports_registry") as registry:
-            celery_task_queue_depth_gauge = Gauge(
-                "posthog_celery_queue_depth_usage_reports",
-                "We use this to monitor the depth of the usage_reports celery queue.",
-                registry=registry,
-            )
-
-            llen = get_client().llen("usage_reports")
-            celery_task_queue_depth_gauge.set(llen)
-    except:
-        # if we can't generate the metric don't complain about it.
-        return
-
-
 @shared_task(ignore_result=True)
 def update_event_partitions() -> None:
     with connection.cursor() as cursor:
