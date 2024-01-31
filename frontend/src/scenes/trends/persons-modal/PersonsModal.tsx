@@ -1,8 +1,16 @@
 import './PersonsModal.scss'
 
-import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    Link,
+} from '@posthog/lemon-ui'
 import { LemonModalProps } from '@posthog/lemon-ui'
-import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
@@ -197,7 +205,10 @@ export function PersonsModal({
                                 ))}
                             </>
                         ) : actorsResponseLoading ? (
-                            <Skeleton title={false} />
+                            <div className="space-y-3">
+                                <LemonSkeleton active={false} className="h-4 w-full" />
+                                <LemonSkeleton active={false} className="h-4 w-3/5" />
+                            </div>
                         ) : (
                             <div className="text-center p-5">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
