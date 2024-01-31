@@ -468,6 +468,36 @@ class FunnelBase(ABC):
         breakdown, breakdown_type = self.context.breakdownFilter.breakdown, self.context.breakdownFilter.breakdown_type
         return not isinstance(breakdown, str) and breakdown_type != "cohort"
 
+    def _get_exclusion_condition(self) -> List[ast.Expr]:
+        funnelsFilter = self.context.funnelsFilter
+        windowInterval = self.context.funnelWindowInterval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
+
+        if not funnelsFilter.exclusions:
+            return []
+
+        conditions: List[ast.Expr] = []
+
+        for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
+            from_time = f"latest_{exclusion.funnelFromStep}"
+            to_time = f"latest_{exclusion.funnelToStep}"
+            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+            condition = parse_expr(
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), {from_time} + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
+            )
+            conditions.append(condition)
+
+        if conditions:
+            return [
+                ast.Alias(
+                    alias="exclusion",
+                    expr=ast.Call(name="arraySum", args=[ast.Array(exprs=conditions)]),
+                )
+            ]
+
+        else:
+            return []
+
     def _get_sorting_condition(self, curr_index: int, max_steps: int) -> ast.Expr:
         series = self.context.query.series
         windowInterval = self.context.funnelWindowInterval

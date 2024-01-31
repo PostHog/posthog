@@ -896,7 +896,9 @@ export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
 }
 
 export interface FunnelExclusion extends Partial<EntityFilter> {
+    /** @asType integer */
     funnelFromStep?: number
+    /** @asType integer */
     funnelToStep?: number
 }
 

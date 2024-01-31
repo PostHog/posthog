@@ -109,39 +109,27 @@ class Funnel(FunnelBase):
         formatted_query = self._build_step_subquery(2, max_steps)
         breakdown_exprs = self._get_breakdown_prop()
 
-        # exclusion_clause = self._get_exclusion_condition()
-
         select: List[ast.Expr] = [
             ast.Field(chain=["*"]),
             ast.Alias(alias="steps", expr=self._get_sorting_condition(max_steps, max_steps)),
-            # {exclusion_clause}
+            *self._get_exclusion_condition(),
             *self._get_step_times(max_steps),
             *self._get_matching_events(max_steps),
             *breakdown_exprs,
             *self._get_person_and_group_properties(),
         ]
 
-        # return f"""
-        # SELECT
-        #     *,
-        #     {self._get_sorting_condition(max_steps, max_steps)} AS steps
-        #     {exclusion_clause}
-        #     {self._get_step_times(max_steps)}{self._get_matching_events(max_steps)}
-        #     {breakdown_query}
-        #     {self._get_person_and_group_properties()}
-        # FROM (
-        #     {formatted_query}
-        # ) WHERE step_0 = 1
-        # {'AND exclusion = 0' if exclusion_clause else ''}
-        # """
-
-        where: ast.Expr = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    left=ast.Field(chain=["step_0"]), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
-                )
-            ]
-        )
+        where_exprs = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["step_0"]), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["exclusion"]), right=ast.Constant(value=0), op=ast.CompareOperationOp.Eq
+            )
+            if self._get_exclusion_condition() != []
+            else None,
+        ]
+        where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=formatted_query), where=where)
 

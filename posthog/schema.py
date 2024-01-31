@@ -223,8 +223,8 @@ class FunnelExclusion(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
-    funnelFromStep: Optional[float] = None
-    funnelToStep: Optional[float] = None
+    funnelFromStep: Optional[int] = None
+    funnelToStep: Optional[int] = None
     id: Optional[Union[str, float]] = None
     index: Optional[float] = None
     name: Optional[str] = None
@@ -1062,15 +1062,15 @@ class FunnelsFilter(BaseModel):
     )
     binCount: Optional[Union[float, str]] = None
     breakdownAttributionType: Optional[BreakdownAttributionType] = None
-    breakdownAttributionValue: Optional[float] = None
+    breakdownAttributionValue: Optional[int] = None
     exclusions: Optional[List[FunnelExclusion]] = None
     funnelAggregateByHogQL: Optional[str] = None
-    funnelFromStep: Optional[float] = None
+    funnelFromStep: Optional[int] = None
     funnelOrderType: Optional[StepOrderValue] = None
     funnelStepReference: Optional[FunnelStepReference] = None
-    funnelToStep: Optional[float] = None
+    funnelToStep: Optional[int] = None
     funnelVizType: Optional[FunnelVizType] = None
-    funnelWindowInterval: Optional[float] = None
+    funnelWindowInterval: Optional[int] = None
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
     hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None

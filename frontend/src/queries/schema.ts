@@ -576,12 +576,16 @@ export type FunnelsFilter = {
     layout?: FunnelsFilterLegacy['layout']
     binCount?: FunnelsFilterLegacy['bin_count']
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    /** @asType integer */
     breakdownAttributionValue?: FunnelsFilterLegacy['breakdown_attribution_value']
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    /** @asType integer */
     funnelToStep?: FunnelsFilterLegacy['funnel_to_step']
+    /** @asType integer */
     funnelFromStep?: FunnelsFilterLegacy['funnel_from_step']
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    /** @asType integer */
     funnelWindowInterval?: FunnelsFilterLegacy['funnel_window_interval']
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
     hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']

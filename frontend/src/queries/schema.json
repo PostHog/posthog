@@ -1329,10 +1329,10 @@
                     "type": ["string", "null"]
                 },
                 "funnelFromStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelToStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "id": {
                     "type": ["string", "number", "null"]
@@ -1408,7 +1408,7 @@
                     "$ref": "#/definitions/BreakdownAttributionType"
                 },
                 "breakdownAttributionValue": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "exclusions": {
                     "items": {
@@ -1420,7 +1420,7 @@
                     "type": "string"
                 },
                 "funnelFromStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelOrderType": {
                     "$ref": "#/definitions/StepOrderValue"
@@ -1429,13 +1429,13 @@
                     "$ref": "#/definitions/FunnelStepReference"
                 },
                 "funnelToStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelVizType": {
                     "$ref": "#/definitions/FunnelVizType"
                 },
                 "funnelWindowInterval": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelWindowIntervalUnit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
