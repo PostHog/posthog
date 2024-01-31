@@ -165,29 +165,53 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             ) : null}
                                         </>
                                     )}
+                                    <LemonDivider />
+                                    <LemonSwitch
+                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
+                                        className="px-2 py-1"
+                                        checked={showQueryEditor}
+                                        onChange={() => {
+                                            // for an existing insight in view mode
+                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                // enter edit mode
+                                                setInsightMode(ItemMode.Edit, null)
+
+                                                // exit early if query editor doesn't need to be toggled
+                                                if (showQueryEditor) {
+                                                    return
+                                                }
+                                            }
+                                            toggleQueryEditorPanel()
+                                        }}
+                                        fullWidth
+                                        label="View Source"
+                                    />
                                     {hogQL && (
-                                        <LemonButton
-                                            data-attr="edit-insight-sql"
-                                            onClick={() => {
-                                                router.actions.push(
-                                                    urls.insightNew(
-                                                        undefined,
-                                                        undefined,
-                                                        JSON.stringify({
-                                                            kind: NodeKind.DataTableNode,
-                                                            source: {
-                                                                kind: NodeKind.HogQLQuery,
-                                                                query: hogQL,
-                                                            },
-                                                            full: true,
-                                                        } as DataTableNode)
+                                        <>
+                                            <LemonDivider />
+                                            <LemonButton
+                                                data-attr="edit-insight-sql"
+                                                onClick={() => {
+                                                    router.actions.push(
+                                                        urls.insightNew(
+                                                            undefined,
+                                                            undefined,
+                                                            JSON.stringify({
+                                                                kind: NodeKind.DataTableNode,
+                                                                source: {
+                                                                    kind: NodeKind.HogQLQuery,
+                                                                    query: hogQL,
+                                                                },
+                                                                full: true,
+                                                            } as DataTableNode)
+                                                        )
                                                     )
-                                                )
-                                            }}
-                                            fullWidth
-                                        >
-                                            Edit SQL directly
-                                        </LemonButton>
+                                                }}
+                                                fullWidth
+                                            >
+                                                Edit SQL directly
+                                            </LemonButton>
+                                        </>
                                     )}
                                     {hasDashboardItemId && (
                                         <>
@@ -210,27 +234,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             </LemonButton>
                                         </>
                                     )}
-                                    <LemonDivider />
-                                    <LemonSwitch
-                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
-                                        className="p-2"
-                                        checked={showQueryEditor}
-                                        onChange={() => {
-                                            // for an existing insight in view mode
-                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                                // enter edit mode
-                                                setInsightMode(ItemMode.Edit, null)
-
-                                                // exit early if query editor doesn't need to be toggled
-                                                if (showQueryEditor) {
-                                                    return
-                                                }
-                                            }
-                                            toggleQueryEditorPanel()
-                                        }}
-                                        fullWidth
-                                        label="View Source"
-                                    />
                                 </>
                             }
                         />
