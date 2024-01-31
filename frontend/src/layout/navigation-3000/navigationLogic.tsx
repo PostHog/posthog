@@ -59,6 +59,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     props({} as { inputElement?: HTMLInputElement | null }),
     connect(() => ({
         values: [sceneLogic, ['sceneConfig'], navigationLogic, ['mobileLayout'], teamLogic, ['currentTeam']],
+        actions: [navigationLogic, ['closeAccountPopover']],
     })),
     actions({
         hideSidebar: true,
@@ -133,6 +134,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             {
                 showNavOnMobile: () => true,
                 hideNavOnMobile: () => false,
+                closeAccountPopover: () => false,
             },
         ],
         isSidebarKeyboardShortcutAcknowledged: [

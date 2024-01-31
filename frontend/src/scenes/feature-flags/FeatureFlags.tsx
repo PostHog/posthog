@@ -8,7 +8,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -71,7 +70,7 @@ export function OverViewTab({
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
-            title: normalizeColumnTitle('Key'),
+            title: 'Key',
             dataIndex: 'key',
             className: 'ph-no-capture',
             sticky: true,

@@ -107,6 +107,7 @@ export function PluginSource({
                         </p>
 
                         {pluginSourceLoading ? (
+                            // eslint-disable-next-line react/forbid-elements
                             <Skeleton />
                         ) : (
                             <>

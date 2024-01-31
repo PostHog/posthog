@@ -55,7 +55,8 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
         setDragging(false)
     })
 
-    const proportion = Math.round(((value - min) / (max - min)) * 100) / 100
+    const constrainedValue = Math.max(min, Math.min(value, max))
+    const proportion = isNaN(value) ? 0 : Math.round(((constrainedValue - min) / (max - min)) * 100) / 100
 
     return (
         <div className={clsx('flex items-center relative my-2.5 min-w-16 select-none', className)}>
@@ -91,11 +92,11 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                     left: `calc(${proportion * 100}% - ${proportion}rem)`,
                 }}
                 onMouseDown={(e) => {
-                    movementStartValueWithX.current = [value, e.clientX]
+                    movementStartValueWithX.current = [constrainedValue, e.clientX]
                     setDragging(true)
                 }}
                 onTouchStart={(e) => {
-                    movementStartValueWithX.current = [value, e.touches[0].clientX]
+                    movementStartValueWithX.current = [constrainedValue, e.touches[0].clientX]
                     setDragging(true)
                 }}
             />
