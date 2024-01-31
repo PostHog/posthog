@@ -1,5 +1,7 @@
 from openai import OpenAI
 
+from typing import Dict
+
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.utils import get_instance_region
 from posthog.models import User, Team
@@ -14,7 +16,7 @@ from posthog.session_recordings.ai.utils import (
 
 
 def generate_team_embeddings(team: Team):
-    recordings = []  # TODO: figure out how to find unembedded recordings
+    recordings = []  # TODO: Query for unembedded recordings
 
     for recording in recordings:
         update_embedding(recording=recording)
@@ -30,7 +32,7 @@ def update_embedding(recording: SessionRecording, user: User):
         session_events = SessionReplayEvents().get_events(
             session_id=str(recording.session_id),
             team=recording.team,
-            metadata={"start_time": "TODO: one week ago", "end_time": "TODO: time.now"},
+            metadata={"start_time": "now() - interval 7 days", "end_time": "now()"},
             events_to_ignore=[
                 "$feature_flag_called",
             ],
@@ -39,12 +41,22 @@ def update_embedding(recording: SessionRecording, user: User):
             raise ValueError(f"no events found for session_id {recording.session_id}")
 
     with timer("generate_input"):
-        input = collapse_sequence_of_events(
+        processed_sessions = collapse_sequence_of_events(
             reduce_elements_chain(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
         )
 
+    with timer("prepare_input"):
+        input = "\n".join(
+            compact_result(
+                event_name=result[processed_sessions.column_index("event")],
+                event_count=result[processed_sessions.column_index("event_repetition_count")],
+                elements_chain=result[processed_sessions.column_index("elements_chain")],
+            )
+            for result in processed_sessions.results
+        )
+
     with timer("openai_completion"):
-        embeddings = (
+        _ = (
             client.embeddings.create(
                 input=input,
                 model="text-embedding-3-small",
@@ -54,5 +66,8 @@ def update_embedding(recording: SessionRecording, user: User):
             .embedding
         )
 
-    recording.text_embeddings = embeddings
-    recording.save()
+    # TODO: push embeddings to Kafka topic / ClickHouse
+
+
+def compact_result(event_name: str, event_count: int, elements_chain: Dict[str, str]):
+    return event_name + " " + event_count + " " + ",".join(elements_chain.values)
