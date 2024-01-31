@@ -288,7 +288,7 @@ class FunnelBase(ABC):
         exprs: List[ast.Expr] = []
 
         for i in range(max_steps):
-            exprs.append(parse_expr(f"countIf(steps = {i + 1}) step_{i + 1}", timings=self.context.timings))
+            exprs.append(parse_expr(f"countIf(steps = {i + 1}) step_{i + 1}"))
 
         return exprs
 
@@ -296,7 +296,7 @@ class FunnelBase(ABC):
         exprs: List[ast.Expr] = []
 
         for i in range(1, max_steps):
-            exprs.append(parse_expr(f"step_{i}_conversion_time", timings=self.context.timings))
+            exprs.append(parse_expr(f"step_{i}_conversion_time"))
 
         return exprs
 
@@ -341,15 +341,9 @@ class FunnelBase(ABC):
 
         for i in range(1, max_steps):
             exprs.append(
-                parse_expr(
-                    f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time_inner",
-                    timings=self.context.timings,
-                )
+                parse_expr(f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time_inner")
                 if inner_query
-                else parse_expr(
-                    f"avg(step_{i}_average_conversion_time_inner) step_{i}_average_conversion_time",
-                    timings=self.context.timings,
-                )
+                else parse_expr(f"avg(step_{i}_average_conversion_time_inner) step_{i}_average_conversion_time")
             )
 
         return exprs
@@ -359,15 +353,9 @@ class FunnelBase(ABC):
 
         for i in range(1, max_steps):
             exprs.append(
-                parse_expr(
-                    f"median(step_{i}_conversion_time) step_{i}_median_conversion_time_inner",
-                    timings=self.context.timings,
-                )
+                parse_expr(f"median(step_{i}_conversion_time) step_{i}_median_conversion_time_inner")
                 if inner_query
-                else parse_expr(
-                    f"median(step_{i}_median_conversion_time_inner) step_{i}_median_conversion_time",
-                    timings=self.context.timings,
-                )
+                else parse_expr(f"median(step_{i}_median_conversion_time_inner) step_{i}_median_conversion_time")
             )
 
         return exprs
@@ -420,8 +408,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time",
-                    timings=self.context.timings,
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
                 ),
             )
 
@@ -459,8 +446,7 @@ class FunnelBase(ABC):
                     #     f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                     # )
                     parse_expr(
-                        f"min(latest_{i}) over (PARTITION by aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}",
-                        timings=self.context.timings,
+                        f"min(latest_{i}) over (PARTITION by aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                     )
                 )
 
@@ -511,18 +497,8 @@ class FunnelBase(ABC):
         for i in range(1, curr_index):
             duplicate_event = is_equal(series[i], series[i - 1]) or is_superset(series[i], series[i - 1])
 
-            conditions.append(
-                parse_expr(
-                    f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}",
-                    timings=self.context.timings,
-                )
-            )
-            conditions.append(
-                parse_expr(
-                    f"latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}",
-                    timings=self.context.timings,
-                ),
-            )
+            conditions.append(parse_expr(f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}"))
+            conditions.append(parse_expr(f"latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}"))
 
         return ast.Call(
             name="if",

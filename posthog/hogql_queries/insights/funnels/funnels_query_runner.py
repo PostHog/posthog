@@ -11,7 +11,6 @@ from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
@@ -73,7 +72,8 @@ class FunnelsQueryRunner(QueryRunner):
 
     def calculate(self):
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+
+        timings = []
 
         response = execute_hogql_query(
             query_type="FunnelsQuery",
@@ -83,9 +83,10 @@ class FunnelsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-        results = self.funnel_order_class._format_results(response.results)
+        if response.timings is not None:
+            timings.extend(response.timings)
 
-        return FunnelsQueryResponse(results=results, timings=response.timings, hogql=hogql)
+        return FunnelsQueryResponse(results=self.funnel_order_class._format_results(response.results), timings=timings)
 
     @cached_property
     def funnel_order_class(self):
