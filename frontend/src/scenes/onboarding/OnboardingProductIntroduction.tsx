@@ -2,7 +2,6 @@ import { IconCheck, IconMap, IconMessage, IconStack } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
@@ -45,7 +44,6 @@ export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType
 }
 
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
     const cta: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'Start recording my website',
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
@@ -61,9 +59,6 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                 data-attr={`${product.type}-onboarding`}
                 center
                 className="max-w-max"
-                onClick={() => {
-                    reportOnboardingProductSelected(product.type, false)
-                }}
             >
                 {cta[product.type] || 'Get started'}
             </LemonButton>
