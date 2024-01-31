@@ -68,7 +68,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
                 {
                     variant: null,
                     properties: [],
-                    rollout_percentage: null,
+                    rollout_percentage: undefined,
                 },
             ],
             payloads: {},

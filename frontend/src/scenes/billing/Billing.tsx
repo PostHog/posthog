@@ -4,6 +4,7 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { router } from 'kea-router'
 import { SurprisedHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -14,10 +15,10 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
@@ -45,9 +46,12 @@ export function Billing(): JSX.Element {
         isAnnualPlan,
     } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
-    const { preflight } = useValues(preflightLogic)
-    const cloudOrDev = preflight?.cloud || preflight?.is_debug
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    if (preflight && !isCloudOrDev) {
+        router.actions.push(urls.default())
+    }
 
     useEffect(() => {
         if (billing) {
@@ -155,7 +159,7 @@ export function Billing(): JSX.Element {
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </LemonBanner>
             ) : null}
-            {!billing?.has_active_subscription && cloudOrDev && (
+            {!billing?.has_active_subscription && (
                 <>
                     <div className="my-8">
                         <BillingHero />
@@ -236,35 +240,6 @@ export function Billing(): JSX.Element {
                                         )}
                                     </div>
                                 </div>
-                            </div>
-                        )}
-
-                        {!cloudOrDev && (billing?.license?.plan || !billing?.has_active_subscription) && (
-                            <div
-                                className={clsx('space-y-2', {
-                                    'p-4': size === 'medium',
-                                })}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ width: size === 'medium' ? '20rem' : undefined }}
-                            >
-                                {!cloudOrDev && billing?.license?.plan ? (
-                                    <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
-                                        <div className="text-center font-bold">
-                                            {capitalizeFirstLetter(billing.license.plan)} license
-                                        </div>
-                                        <span>
-                                            Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link>{' '}
-                                            if you would like to make any changes to your license.
-                                        </span>
-                                    </div>
-                                ) : null}
-
-                                {!cloudOrDev && !billing?.has_active_subscription ? (
-                                    <p>
-                                        Self-hosted licenses are no longer available for purchase. Please contact{' '}
-                                        <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to discuss options.
-                                    </p>
-                                ) : null}
                             </div>
                         )}
                     </div>

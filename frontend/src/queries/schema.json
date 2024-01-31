@@ -2513,9 +2513,11 @@
                     "type": "integer"
                 },
                 "pathDropoffKey": {
+                    "description": "Relevant only within actors query",
                     "type": "string"
                 },
                 "pathEndKey": {
+                    "description": "Relevant only within actors query",
                     "type": "string"
                 },
                 "pathGroupings": {
@@ -2528,6 +2530,7 @@
                     "type": "boolean"
                 },
                 "pathStartKey": {
+                    "description": "Relevant only within actors query",
                     "type": "string"
                 },
                 "pathsHogQLExpression": {

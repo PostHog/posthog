@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
-import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import { billingJson } from '~/mocks/fixtures/_billing_v2'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingProductV2Type, ProductKey } from '~/types'
 
@@ -15,7 +15,6 @@ import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',
-    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -46,7 +45,7 @@ export const _OnboardingSDKs = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        const product: BillingProductV2Type = billingJson.products[1] as BillingProductV2Type
+        const product: BillingProductV2Type = billingJson.products[1] as unknown as BillingProductV2Type
         setProduct(product)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY) + '?step=sdks')
     }, [])
@@ -65,7 +64,7 @@ export const _OnboardingBilling = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        setProduct(billingJson.products[1] as BillingProductV2Type)
+        setProduct(billingJson.products[1] as unknown as BillingProductV2Type)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.BILLING))
     }, [])
     return <App />
@@ -83,8 +82,27 @@ export const _OnboardingOtherProducts = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        setProduct(billingJson.products[1] as BillingProductV2Type)
+        setProduct(billingJson.products[1] as unknown as BillingProductV2Type)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.OTHER_PRODUCTS))
+    }, [])
+    return <App />
+}
+_OnboardingOtherProducts.tags = ['test-skip'] // FIXME: For some reason this is captured correctly the first time, but then is written over a second time with SDKs view
+
+export const _OnboardingProductIntroduction = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing-v2/': {
+                ...billingJson,
+            },
+        },
+    })
+
+    const { setProduct } = useActions(onboardingLogic)
+
+    useEffect(() => {
+        setProduct(billingJson.products[0])
+        router.actions.push(urls.onboardingProductIntroduction(ProductKey.PRODUCT_ANALYTICS))
     }, [])
     return <App />
 }

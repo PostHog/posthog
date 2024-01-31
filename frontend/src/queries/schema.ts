@@ -663,9 +663,11 @@ export type PathsFilter = {
     funnelPaths?: PathsFilterLegacy['funnel_paths']
     funnelFilter?: PathsFilterLegacy['funnel_filter']
 
-    // persons only
+    /** Relevant only within actors query */
     pathStartKey?: string
+    /** Relevant only within actors query */
     pathEndKey?: string
+    /** Relevant only within actors query */
     pathDropoffKey?: string
 }
 

@@ -15,6 +15,8 @@ export const LemonProgress = ({
     children,
     className,
 }: LemonProgressProps): JSX.Element => {
+    const width = isNaN(percent) ? 0 : Math.max(Math.min(percent, 100), 0)
+
     return (
         <div
             className={clsx(
@@ -26,10 +28,10 @@ export const LemonProgress = ({
             <span
                 className={clsx(
                     'LemonProgress__track block h-full rounded-full transition-all',
-                    percent > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null
+                    width > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ width: `${percent}%`, backgroundColor: strokeColor }}
+                style={{ width: `${width}%`, backgroundColor: strokeColor }}
             >
                 {children}
             </span>

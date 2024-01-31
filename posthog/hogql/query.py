@@ -162,7 +162,7 @@ def execute_hogql_query(
         except Exception as e:
             if explain:
                 results, types = None, None
-                if isinstance(e, ExposedCHQueryError) or isinstance(e, HogQLException):
+                if isinstance(e, (ExposedCHQueryError, HogQLException)):
                     error = str(e)
                 else:
                     error = "Unknown error"
