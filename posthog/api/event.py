@@ -199,7 +199,7 @@ class EventViewSet(
             )
 
             # Retry the query without the 1 day optimization
-            if len(query_result) < limit and not request.GET.get("after"):
+            if len(query_result) < limit:
                 query_result = query_events_list(
                     unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,

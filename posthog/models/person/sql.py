@@ -292,10 +292,12 @@ SELECT_PERSON_DISTINCT_ID2S_OF_TEAM = """SELECT * FROM {table_name} WHERE team_i
 # Other queries
 #
 
+# `relevant_events_filter`` in the form of "AND event IN (...)" allows us to cut down memory usage by a lot at scale
 GET_TEAM_PERSON_DISTINCT_IDS = """
 SELECT distinct_id, argMax(person_id, version) as person_id
 FROM person_distinct_id2
 WHERE team_id = %(team_id)s
+{relevant_events_filter}
 GROUP BY distinct_id
 HAVING argMax(is_deleted, version) = 0
 """

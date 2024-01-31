@@ -186,7 +186,7 @@ class ClickhouseFunnelBase(ABC):
 
             for entity in self._filter.entities[exclusion.funnel_from_step : exclusion.funnel_to_step + 1]:
                 if entity.equals(exclusion) or exclusion.is_superset(entity):
-                    raise ValidationError("Exclusion event can't be the same as funnel step")
+                    raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
 
         self._filter = self._filter.shallow_clone(data)
 

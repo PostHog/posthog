@@ -206,9 +206,15 @@ export function ItemPerformanceEvent({
         }
 
         if (
-            ['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status', 'raw'].includes(
-                key
-            )
+            [
+                'response_headers',
+                'request_headers',
+                'request_body',
+                'response_body',
+                'response_status',
+                'raw',
+                'server_timings',
+            ].includes(key)
         ) {
             return acc
         }

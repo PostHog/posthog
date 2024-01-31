@@ -442,7 +442,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_actions(self):
         self._create_test_events()
 
-        action = Action.objects.create(name="$pageview", team=self.team)
+        action = Action.objects.create(name="My Action", team=self.team)
         ActionStep.objects.create(
             action=action,
             event="$pageview",

@@ -18,6 +18,8 @@ export const Variations: StoryFn<typeof LemonProgress> = () => {
             <LemonProgress percent={30} />
             <LemonProgress percent={75} strokeColor="var(--warning)" />
             <LemonProgress percent={50} size="large" strokeColor="purple" />
+            <LemonProgress percent={NaN} />
+            <LemonProgress percent={500} />
         </div>
     )
 }

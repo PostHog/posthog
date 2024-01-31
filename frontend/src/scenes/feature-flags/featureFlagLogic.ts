@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -75,7 +75,7 @@ const NEW_FLAG: FeatureFlagType = {
     key: '',
     name: '',
     filters: {
-        groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         multivariate: null,
         payloads: {},
     },
@@ -210,7 +210,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         duplicateConditionSet: (index: number) => ({ index }),
         updateConditionSet: (
             index: number,
-            newRolloutPercentage?: number | null,
+            newRolloutPercentage?: number,
             newProperties?: AnyPropertyFilter[],
             newVariant?: string | null
         ) => ({
@@ -243,19 +243,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     forms(({ actions, values }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
-            errors: ({ key, filters }) => ({
-                key: validateFeatureFlagKey(key),
-                filters: {
-                    multivariate: {
-                        variants: filters?.multivariate?.variants?.map(
-                            ({ key: variantKey }: MultivariateFlagVariant) => ({
-                                key: validateFeatureFlagKey(variantKey),
-                            })
-                        ),
+            errors: ({ key, filters }) => {
+                return {
+                    key: validateFeatureFlagKey(key),
+                    filters: {
+                        multivariate: {
+                            variants: filters?.multivariate?.variants?.map(
+                                ({ key: variantKey }: MultivariateFlagVariant) => ({
+                                    key: validateFeatureFlagKey(variantKey),
+                                })
+                            ),
+                        },
+                        groups: values.propertySelectErrors as DeepPartialMap<
+                            FeatureFlagGroupType,
+                            ValidationErrorType
+                        >[],
                     },
-                    groups: values.propertySelectErrors,
-                },
-            }),
+                }
+            },
             submit: (featureFlag) => {
                 actions.saveFeatureFlag(featureFlag)
             },
@@ -288,7 +293,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     const groups = [
                         ...(state?.filters?.groups || []),
-                        { properties: [], rollout_percentage: 0, variant: null },
+                        { properties: [], rollout_percentage: undefined, variant: null },
                     ]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
@@ -879,7 +884,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
-            if (scheduledChange && scheduledChange) {
+            if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.loadScheduledChanges()
                 actions.setFeatureFlag({
@@ -989,16 +994,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         propertySelectErrors: [
             (s) => [s.featureFlag],
             (featureFlag) => {
-                return featureFlag?.filters?.groups?.map(({ properties }: FeatureFlagGroupType) => ({
-                    properties: properties?.map((property: AnyPropertyFilter) => ({
-                        value:
-                            property.value === null ||
-                            property.value === undefined ||
-                            (Array.isArray(property.value) && property.value.length === 0)
-                                ? "Property filters can't be empty"
+                return featureFlag?.filters?.groups?.map(
+                    ({ properties, rollout_percentage }: FeatureFlagGroupType) => ({
+                        properties: properties?.map((property: AnyPropertyFilter) => ({
+                            value:
+                                property.value === null ||
+                                property.value === undefined ||
+                                (Array.isArray(property.value) && property.value.length === 0)
+                                    ? "Property filters can't be empty"
+                                    : undefined,
+                        })),
+                        rollout_percentage:
+                            rollout_percentage === null || rollout_percentage === undefined
+                                ? 'You need to set a rollout % value'
                                 : undefined,
-                    })),
-                }))
+                    })
+                )
             },
         ],
         computeBlastRadiusPercentage: [

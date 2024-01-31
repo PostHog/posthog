@@ -126,7 +126,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         },
     ]
 
-    if (hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)) {
+    if (hasAvailableFeature(AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM)) {
         configOptions.push({
             type: 'select',
             title: 'Minimum session duration (seconds)',

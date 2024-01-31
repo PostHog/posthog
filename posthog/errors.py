@@ -321,7 +321,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     240: ErrorCodeMeta("CANNOT_MREMAP"),
     241: ErrorCodeMeta(
         "MEMORY_LIMIT_EXCEEDED",
-        user_safe="Query exceeds memory limits. Tip: Specifying a narrower time range helps most of the time.",
+        user_safe="Query exceeds memory limits. Try reducing its scope by changing the time range.",
     ),
     242: ErrorCodeMeta("TABLE_IS_READ_ONLY"),
     243: ErrorCodeMeta("NOT_ENOUGH_SPACE"),
