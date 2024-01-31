@@ -1,3 +1,4 @@
+import copy
 import json
 from typing import List, Dict
 from posthog.models.entity.entity import Entity as BackendEntity
@@ -421,6 +422,8 @@ def _insight_type(filter: Dict) -> str:
 
 
 def filter_to_query(filter: Dict) -> InsightQueryNode:
+    filter = copy.deepcopy(filter)  # duplicate to prevent accidental filter alterations
+
     Query = insight_to_query_type[_insight_type(filter)]
 
     data = {
