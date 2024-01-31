@@ -148,6 +148,8 @@ class BreakdownValues:
                 values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
                 values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
 
+            breakdown_limit += 1  # Add one to the limit to account for the "other" value
+
         return values[:breakdown_limit]
 
     def _to_bucketing_expression(self) -> ast.Expr:
