@@ -77,9 +77,9 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
 
             PUBLISHED_REALTIME_SUBSCRIPTIONS_COUNTER.labels(attempt_count=attempt_count).inc()
 
-            # this means we'll sleep 0.1, 0.1, 0,1, 0.2, 0.2, 0.2
-            # for a total of 0.9 seconds
-            sleep(ATTEMPT_TIMEOUT_SECONDS if attempt_count < 4 else ATTEMPT_TIMEOUT_SECONDS * 2)
+            # this means we'll sleep 0.2, 0.2, 0,2, 0.4, 0.4, 0.4
+            # for a total of 1.8 seconds
+            sleep(ATTEMPT_TIMEOUT_SECONDS * 2 if attempt_count < 4 else ATTEMPT_TIMEOUT_SECONDS * 4)
             return get_realtime_snapshots(team_id, session_id, attempt_count + 1)
 
         if encoded_snapshots:
