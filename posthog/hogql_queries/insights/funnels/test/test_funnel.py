@@ -1,6 +1,8 @@
+from typing import cast
 import uuid
 from django.test import override_settings
 from freezegun import freeze_time
+from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql.query import execute_hogql_query
@@ -10,6 +12,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models import Action, ActionStep, Element
 from posthog.models.filters.filter import Filter
 from posthog.queries.funnels import ClickhouseFunnelActors
+from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal
 from posthog.schema import EventsNode, FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -23,6 +26,7 @@ from posthog.test.base import (
 )
 
 from posthog.hogql_queries.insights.funnels import Funnel
+from posthog.test.test_journeys import journeys_for
 
 
 def _create_action(**kwargs):
@@ -137,7 +141,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             filters["insight"] = INSIGHT_FUNNELS
 
-            query = filter_to_query(filters)
+            query = cast(FunnelsQuery, filter_to_query(filters))
             return FunnelsQueryRunner(query=query, team=self.team)
 
         # def test_funnel_default(self):
@@ -614,7 +618,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 properties=[{"key": "test_propX", "value": "c"}],
             )
 
-            filter = {
+            filters = {
                 "events": [{"id": "event1", "order": 0}],
                 "actions": [
                     {"id": action1.pk, "order": 1},
@@ -623,7 +627,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "insight": INSIGHT_FUNNELS,
                 "funnel_window_days": 14,
             }
-            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
@@ -640,13 +645,14 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             event_factory(distinct_id="person1", event="event1", team=self.team)
             event_factory(distinct_id="person2", event="event1", team=self.team)
 
-            filter = {
+            filters = {
                 "events": [{"id": "event1", "order": 0}, {"id": "event1", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
                 "filter_test_accounts": True,
                 "funnel_window_days": 14,
             }
-            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(result[0]["count"], 1)
 
@@ -667,7 +673,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             event_factory(distinct_id="person2", event="event1", team=self.team)
             event_factory(distinct_id="person3", event="event1", team=self.team)
 
-            filter = {
+            filters = {
                 "events": [
                     {
                         "id": "event1",
@@ -686,7 +692,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "insight": INSIGHT_FUNNELS,
                 "funnel_window_days": 14,
             }
-            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(result[0]["count"], 2)
 
@@ -721,7 +728,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 ],
             )
 
-            filter = {
+            filters = {
                 "actions": [
                     {"id": action.pk, "type": "actions", "order": 0},
                     {"id": action.pk, "type": "actions", "order": 1},
@@ -729,12 +736,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 "insight": INSIGHT_FUNNELS,
                 "funnel_window_days": 14,
             }
-            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(result[0]["count"], 2)
 
         def test_basic_funnel_default_funnel_days(self):
-            filter = {
+            filters = {
                 "events": [
                     {"id": "user signed up", "type": "events", "order": 0},
                     {"id": "paid", "type": "events", "order": 1},
@@ -759,7 +767,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 timestamp="2020-01-10T14:00:00Z",
             )
 
-            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 1)
@@ -768,7 +777,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
         def test_basic_funnel_with_repeat_steps(self):
-            filter = {
+            filters = {
                 "events": [
                     {"id": "user signed up", "type": "events", "order": 0},
                     {"id": "user signed up", "type": "events", "order": 1},
@@ -799,7 +808,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 distinct_id="stopped_after_signup2",
             )
 
-            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 2)
@@ -807,7 +817,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1),
+                self._get_actor_ids_at_step(filters, 1),
                 [
                     person1_stopped_after_two_signups.uuid,
                     person2_stopped_after_signup.uuid,
@@ -815,148 +825,144 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2),
+                self._get_actor_ids_at_step(filters, 2),
                 [person1_stopped_after_two_signups.uuid],
             )
 
-        # @also_test_with_materialized_columns(["key"])
-        # def test_basic_funnel_with_derivative_steps(self):
-        #     filters = {
-        #         "events": [
-        #             {
-        #                 "id": "user signed up",
-        #                 "type": "events",
-        #                 "order": 0,
-        #                 "properties": {"key": "val"},
-        #             },
-        #             {"id": "user signed up", "type": "events", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_days": 14,
-        #     }
+        @also_test_with_materialized_columns(["key"])
+        def test_basic_funnel_with_derivative_steps(self):
+            filters = {
+                "events": [
+                    {
+                        "id": "user signed up",
+                        "type": "events",
+                        "order": 0,
+                        "properties": {"key": "val"},
+                    },
+                    {"id": "user signed up", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
+            }
 
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
+            # event
+            person1_stopped_after_two_signups = _create_person(
+                distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
+            )
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
+            )
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+            )
 
-        #     # event
-        #     person1_stopped_after_two_signups = _create_person(
-        #         distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_signup1",
-        #     )
+            person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup2",
+                properties={"key": "val"},
+            )
 
-        #     person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_signup2",
-        #         properties={"key": "val"},
-        #     )
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     result = funnel.calculate().results
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 2)
 
-        #     self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
 
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             person1_stopped_after_two_signups.uuid,
-        #             person2_stopped_after_signup.uuid,
-        #         ],
-        #     )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1),
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
+            )
 
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [person1_stopped_after_two_signups.uuid],
-        #     )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
 
-        # def test_basic_funnel_with_repeat_step_updated_param(self):
-        #     people = journeys_for(
-        #         {
-        #             "stopped_after_signup1": [
-        #                 {"event": "user signed up"},
-        #                 {"event": "user signed up"},
-        #             ],
-        #             "stopped_after_signup2": [{"event": "user signed up"}],
-        #         },
-        #         self.team,
-        #     )
+        def test_basic_funnel_with_repeat_step_updated_param(self):
+            people = journeys_for(
+                {
+                    "stopped_after_signup1": [
+                        {"event": "user signed up"},
+                        {"event": "user signed up"},
+                    ],
+                    "stopped_after_signup2": [{"event": "user signed up"}],
+                },
+                self.team,
+            )
 
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "user signed up", "type": "events", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_interval": 14,
-        #         "funnel_window_interval_unit": "day",
-        #     }
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "user signed up", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_interval": 14,
+                "funnel_window_interval_unit": "day",
+            }
 
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-        #     result = funnel.calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 2)
 
-        #     self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
 
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             people["stopped_after_signup1"].uuid,
-        #             people["stopped_after_signup2"].uuid,
-        #         ],
-        #     )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1),
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                ],
+            )
 
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [people["stopped_after_signup1"].uuid],
-        #     )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2),
+                [people["stopped_after_signup1"].uuid],
+            )
 
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "user signed up", "type": "events", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_interval": 2,
-        #         "funnel_window_interval_unit": "week",
-        #     }
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "user signed up", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_interval": 2,
+                "funnel_window_interval_unit": "week",
+            }
 
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-        #     result2 = funnel.run()
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result2 = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     assert_funnel_results_equal(result, result2)
+            assert_funnel_results_equal(result, result2)
 
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "user signed up", "type": "events", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_days": 14,
-        #         "funnel_window_interval": 1,
-        #         "funnel_window_interval_unit": "hour",
-        #     }
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "user signed up", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
+                "funnel_window_interval": 1,
+                "funnel_window_interval_unit": "hour",
+            }
 
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-        #     result3 = funnel.run()
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result3 = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     assert_funnel_results_equal(result, result3)
+            assert_funnel_results_equal(result, result3)
 
         # def test_funnel_exclusions_full_window(self):
         #     filters = {
@@ -1039,8 +1045,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self.assertEqual(result[1]["name"], "paid")
         #     self.assertEqual(result[1]["count"], 2)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person3.uuid])
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid, person3.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person3.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid, person3.uuid])
 
         # def test_advanced_funnel_exclusions_between_steps(self):
         #     filters = {
@@ -1219,7 +1225,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 2)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person2.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person2.uuid])
 
         #     filter = filter.shallow_clone(
         #         {
@@ -1242,7 +1248,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 2)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person2.uuid, person3.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person2.uuid, person3.uuid])
 
         #     filter = filter.shallow_clone(
         #         {
@@ -1265,7 +1271,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 1)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person3.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person3.uuid])
 
         #     filter = filter.shallow_clone(
         #         {
@@ -1288,7 +1294,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 0)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [])
 
         #     #  bigger step window
         #     filter = filter.shallow_clone(
@@ -1312,919 +1318,720 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 1)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person3.uuid])
-
-        # def test_advanced_funnel_with_repeat_steps(self):
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "$pageview", "type": "events", "order": 1},
-        #             {"id": "$pageview", "type": "events", "order": 2},
-        #             {"id": "$pageview", "type": "events", "order": 3},
-        #             {"id": "$pageview", "type": "events", "order": 4},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #     }
-
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-
-        #     people = journeys_for(
-        #         {
-        #             "stopped_after_signup1": [{"event": "user signed up"}],
-        #             "stopped_after_pageview1": [
-        #                 {"event": "user signed up"},
-        #                 {"event": "$pageview"},
-        #             ],
-        #             "stopped_after_pageview2": [
-        #                 {"event": "user signed up"},
-        #                 {"event": "$pageview"},
-        #                 {"event": "blaah blaa"},
-        #                 {"event": "$pageview"},
-        #             ],
-        #             "stopped_after_pageview3": [
-        #                 {"event": "user signed up"},
-        #                 {"event": "$pageview"},
-        #                 {"event": "blaah blaa"},
-        #                 {"event": "$pageview"},
-        #                 {"event": "$pageview"},
-        #                 {"event": "blaah blaa"},
-        #             ],
-        #             "stopped_after_pageview4": [
-        #                 {"event": "user signed up"},
-        #                 {"event": "$pageview"},
-        #                 {"event": "$pageview"},
-        #                 {"event": "$pageview"},
-        #                 {"event": "$pageview"},
-        #             ],
-        #         },
-        #         self.team,
-        #     )
-
-        #     result = funnel.calculate().results
-
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[1]["name"], "$pageview")
-        #     self.assertEqual(result[4]["name"], "$pageview")
-        #     self.assertEqual(result[0]["count"], 5)
-
-        #     self.assertEqual(result[1]["count"], 4)
-
-        #     self.assertEqual(result[2]["count"], 3)
-
-        #     self.assertEqual(result[3]["count"], 2)
-
-        #     self.assertEqual(result[4]["count"], 1)
-
-        #     # check ordering of people in every step
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             people["stopped_after_signup1"].uuid,
-        #             people["stopped_after_pageview1"].uuid,
-        #             people["stopped_after_pageview2"].uuid,
-        #             people["stopped_after_pageview3"].uuid,
-        #             people["stopped_after_pageview4"].uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [
-        #             people["stopped_after_pageview1"].uuid,
-        #             people["stopped_after_pageview2"].uuid,
-        #             people["stopped_after_pageview3"].uuid,
-        #             people["stopped_after_pageview4"].uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 3),
-        #         [
-        #             people["stopped_after_pageview2"].uuid,
-        #             people["stopped_after_pageview3"].uuid,
-        #             people["stopped_after_pageview4"].uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 4),
-        #         [
-        #             people["stopped_after_pageview3"].uuid,
-        #             people["stopped_after_pageview4"].uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 5),
-        #         [people["stopped_after_pageview4"].uuid],
-        #     )
-
-        # def test_advanced_funnel_with_repeat_steps_out_of_order_events(self):
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "$pageview", "type": "events", "order": 1},
-        #             {"id": "$pageview", "type": "events", "order": 2},
-        #             {"id": "$pageview", "type": "events", "order": 3},
-        #             {"id": "$pageview", "type": "events", "order": 4},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_days": 14,
-        #     }
-
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-
-        #     # event
-        #     person1_stopped_after_signup = _create_person(
-        #         distinct_ids=["random", "stopped_after_signup1"], team_id=self.team.pk
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="random")
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_signup1",
-        #     )
-
-        #     person2_stopped_after_one_pageview = _create_person(
-        #         distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_pageview1",
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview1")
-
-        #     person3_stopped_after_two_pageview = _create_person(
-        #         distinct_ids=["stopped_after_pageview2"], team_id=self.team.pk
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview2")
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_pageview2",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="blaah blaa",
-        #         distinct_id="stopped_after_pageview2",
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview2")
-
-        #     person4_stopped_after_three_pageview = _create_person(
-        #         distinct_ids=["stopped_after_pageview3"], team_id=self.team.pk
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="blaah blaa",
-        #         distinct_id="stopped_after_pageview3",
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
-        #     _create_event(
-        #         team=self.team,
-        #         event="blaah blaa",
-        #         distinct_id="stopped_after_pageview3",
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_pageview3",
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
-
-        #     person5_stopped_after_many_pageview = _create_person(
-        #         distinct_ids=["stopped_after_pageview4"], team_id=self.team.pk
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_pageview4",
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
-        #     _create_event(
-        #         team=self.team,
-        #         event="blaah blaa",
-        #         distinct_id="stopped_after_pageview4",
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
-
-        #     _create_person(distinct_ids=["stopped_after_pageview5"], team_id=self.team.pk)
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
-        #     _create_event(
-        #         team=self.team,
-        #         event="blaah blaa",
-        #         distinct_id="stopped_after_pageview5",
-        #     )
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
-        #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
-
-        #     result = funnel.calculate().results
-
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[1]["name"], "$pageview")
-        #     self.assertEqual(result[4]["name"], "$pageview")
-        #     self.assertEqual(result[0]["count"], 5)
-
-        #     self.assertEqual(result[1]["count"], 4)
-
-        #     self.assertEqual(result[2]["count"], 1)
-
-        #     self.assertEqual(result[3]["count"], 1)
-
-        #     self.assertEqual(result[4]["count"], 1)
-
-        #     # check ordering of people in every step
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             person1_stopped_after_signup.uuid,
-        #             person2_stopped_after_one_pageview.uuid,
-        #             person3_stopped_after_two_pageview.uuid,
-        #             person4_stopped_after_three_pageview.uuid,
-        #             person5_stopped_after_many_pageview.uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [
-        #             person2_stopped_after_one_pageview.uuid,
-        #             person3_stopped_after_two_pageview.uuid,
-        #             person4_stopped_after_three_pageview.uuid,
-        #             person5_stopped_after_many_pageview.uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 3),
-        #         [person5_stopped_after_many_pageview.uuid],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 4),
-        #         [person5_stopped_after_many_pageview.uuid],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 5),
-        #         [person5_stopped_after_many_pageview.uuid],
-        #     )
-
-        # @also_test_with_materialized_columns(["key"])
-        # def test_funnel_with_actions(self):
-        #     sign_up_action = _create_action(
-        #         name="sign up",
-        #         team=self.team,
-        #         properties=[
-        #             {
-        #                 "key": "key",
-        #                 "type": "event",
-        #                 "value": ["val"],
-        #                 "operator": "exact",
-        #             }
-        #         ],
-        #     )
-
-        #     filters = {
-        #         "actions": [
-        #             {"id": sign_up_action.id, "math": "dau", "order": 0},
-        #             {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #     }
-
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-
-        #     # event
-        #     person1_stopped_after_two_signups = _create_person(
-        #         distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #     )
-
-        #     person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup2",
-        #         properties={"key": "val"},
-        #     )
-
-        #     result = funnel.calculate().results
-
-        #     self.assertEqual(result[0]["name"], "sign up")
-        #     self.assertEqual(result[0]["count"], 2)
-
-        #     self.assertEqual(result[1]["count"], 1)
-
-        #     # check ordering of people in first step
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             person1_stopped_after_two_signups.uuid,
-        #             person2_stopped_after_signup.uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [person1_stopped_after_two_signups.uuid],
-        #     )
-
-        # def test_funnel_with_different_actions_at_same_time_count_as_converted(self):
-        #     sign_up_action = _create_action(
-        #         name="sign up",
-        #         team=self.team,
-        #         properties=[
-        #             {
-        #                 "key": "key",
-        #                 "type": "event",
-        #                 "value": ["val"],
-        #                 "operator": "exact",
-        #             }
-        #         ],
-        #     )
-
-        #     filters = {
-        #         "actions": [{"id": sign_up_action.id, "order": 0}],
-        #         "events": [{"id": "$pageview", "order": 1}],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "date_from": "2020-01-01",
-        #         "date_to": "2020-01-07",
-        #     }
-
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-
-        #     with freeze_time("2020-01-03"):
-        #         # event
-        #         person1_stopped_after_two_signups = _create_person(
-        #             distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
-        #         )
-        #         _create_event(
-        #             team=self.team,
-        #             event="sign up",
-        #             distinct_id="stopped_after_signup1",
-        #             properties={"key": "val"},
-        #         )
-        #         _create_event(
-        #             team=self.team,
-        #             event="$pageview",
-        #             distinct_id="stopped_after_signup1",
-        #             properties={"key": "val"},
-        #         )
-
-        #         person2_stopped_after_signup = _create_person(
-        #             distinct_ids=["stopped_after_signup2"], team_id=self.team.pk
-        #         )
-        #         _create_event(
-        #             team=self.team,
-        #             event="sign up",
-        #             distinct_id="stopped_after_signup2",
-        #             properties={"key": "val"},
-        #         )
-
-        #         result = funnel.calculate().results
-
-        #         self.assertEqual(result[0]["name"], "sign up")
-        #         self.assertEqual(result[0]["count"], 2)
-
-        #         self.assertEqual(result[1]["count"], 1)
-
-        #         # check ordering of people in first step
-        #         self.assertCountEqual(
-        #             self._get_actor_ids_at_step(filter, 1),
-        #             [
-        #                 person1_stopped_after_two_signups.uuid,
-        #                 person2_stopped_after_signup.uuid,
-        #             ],
-        #         )
-
-        #         self.assertCountEqual(
-        #             self._get_actor_ids_at_step(filter, 2),
-        #             [person1_stopped_after_two_signups.uuid],
-        #         )
-
-        # def test_funnel_with_actions_and_props(self):
-        #     sign_up_action = _create_action(
-        #         name="sign up",
-        #         team=self.team,
-        #         properties=[
-        #             {
-        #                 "key": "email",
-        #                 "operator": "icontains",
-        #                 "value": ".com",
-        #                 "type": "person",
-        #             }
-        #         ],
-        #     )
-
-        #     filters = {
-        #         "actions": [
-        #             {"id": sign_up_action.id, "math": "dau", "order": 0},
-        #             {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #     }
-
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-
-        #     # event
-        #     person1_stopped_after_two_signups = _create_person(
-        #         distinct_ids=["stopped_after_signup1"],
-        #         team_id=self.team.pk,
-        #         properties={"email": "fake@test.com"},
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #     )
-
-        #     person2_stopped_after_signup = _create_person(
-        #         distinct_ids=["stopped_after_signup2"],
-        #         team_id=self.team.pk,
-        #         properties={"email": "fake@test.com"},
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup2",
-        #         properties={"key": "val"},
-        #     )
-
-        #     result = funnel.calculate().results
-
-        #     self.assertEqual(result[0]["name"], "sign up")
-        #     self.assertEqual(result[0]["count"], 2)
-
-        #     self.assertEqual(result[1]["count"], 1)
-
-        #     # check ordering of people in first step
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             person1_stopped_after_two_signups.uuid,
-        #             person2_stopped_after_signup.uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [person1_stopped_after_two_signups.uuid],
-        #     )
-
-        # def test_funnel_with_actions_and_props_with_zero_person_ids(self):
-        #     # only a person-on-event test
-        #     if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
-        #         return True
-
-        #     sign_up_action = _create_action(
-        #         name="sign up",
-        #         team=self.team,
-        #         properties=[
-        #             {
-        #                 "key": "email",
-        #                 "operator": "icontains",
-        #                 "value": ".com",
-        #                 "type": "person",
-        #             }
-        #         ],
-        #     )
-
-        #     filters = {
-        #         "actions": [
-        #             {"id": sign_up_action.id, "math": "dau", "order": 0},
-        #             {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #     }
-
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-
-        #     # event
-        #     person1_stopped_after_two_signups = _create_person(
-        #         distinct_ids=["stopped_after_signup1"],
-        #         team_id=self.team.pk,
-        #         properties={"email": "fake@test.com"},
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #     )
-
-        #     person2_stopped_after_signup = _create_person(
-        #         distinct_ids=["stopped_after_signup2"],
-        #         team_id=self.team.pk,
-        #         properties={"email": "fake@test.com"},
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup2",
-        #         properties={"key": "val"},
-        #     )
-
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="zero_person_id",
-        #         properties={"key": "val"},
-        #         person_id="00000000-0000-0000-0000-000000000000",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="zero_person_id",
-        #         properties={"key": "val"},
-        #         person_id="00000000-0000-0000-0000-000000000000",
-        #     )
-
-        #     result = funnel.calculate().results
-
-        #     self.assertEqual(result[0]["name"], "sign up")
-        #     self.assertEqual(result[0]["count"], 2)
-
-        #     self.assertEqual(result[1]["count"], 1)
-
-        #     # check ordering of people in first step
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             person1_stopped_after_two_signups.uuid,
-        #             person2_stopped_after_signup.uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [person1_stopped_after_two_signups.uuid],
-        #     )
-
-        # @also_test_with_materialized_columns(["key"])
-        # @skip("Flaky funnel test")
-        # def test_funnel_with_actions_and_events(self):
-        #     sign_up_action = _create_action(
-        #         name="sign up",
-        #         team=self.team,
-        #         properties=[
-        #             {
-        #                 "key": "key",
-        #                 "type": "event",
-        #                 "value": ["val"],
-        #                 "operator": "exact",
-        #             }
-        #         ],
-        #     )
-
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "user signed up", "type": "events", "order": 1},
-        #         ],
-        #         "actions": [
-        #             {"id": sign_up_action.id, "math": "dau", "order": 2},
-        #             {"id": sign_up_action.id, "math": "weekly_active", "order": 3},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_days": 14,
-        #     }
-
-        #     filter = Filter(data=filters, team=self.team)
-
-        #     # event
-        #     person1_stopped_after_two_signups = _create_person(
-        #         distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_signup1",
-        #         timestamp="2021-05-01 00:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_signup1",
-        #         timestamp="2021-05-01 00:00:01",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #         timestamp="2021-05-01 00:00:02",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup1",
-        #         properties={"key": "val"},
-        #         timestamp="2021-05-01 00:00:03",
-        #     )
-
-        #     person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_signup2",
-        #         timestamp="2021-05-01 00:00:04",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="stopped_after_signup2",
-        #         timestamp="2021-05-01 00:00:05",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="stopped_after_signup2",
-        #         properties={"key": "val"},
-        #         timestamp="2021-05-01 00:00:06",
-        #     )
-
-        #     person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 00:00:07",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person3",
-        #         properties={"key": "val"},
-        #         timestamp="2021-05-01 00:00:08",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 00:00:09",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person3",
-        #         properties={"key": "val"},
-        #         timestamp="2021-05-01 00:00:10",
-        #     )
-
-        #     person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-01 00:00:11",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person4",
-        #         properties={"key": "val"},
-        #         timestamp="2021-05-01 00:00:12",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-01 00:00:13",
-        #     )
-
-        #     _create_person(distinct_ids=["person5"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="sign up",
-        #         distinct_id="person5",
-        #         properties={"key": "val"},
-        #         timestamp="2021-05-01 00:00:14",
-        #     )
-
-        #     with freeze_time("2021-05-02"):
-        #         result = Funnel(filter, self.team).run()
-
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 4)
-        #     self.assertEqual(result[1]["count"], 4)
-        #     self.assertEqual(result[2]["count"], 3)
-        #     self.assertEqual(result[3]["count"], 1)
-
-        #     # check ordering of people in steps
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             person1_stopped_after_two_signups.uuid,
-        #             person2_stopped_after_signup.uuid,
-        #             person3.uuid,
-        #             person4.uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [
-        #             person1_stopped_after_two_signups.uuid,
-        #             person2_stopped_after_signup.uuid,
-        #             person3.uuid,
-        #             person4.uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 3),
-        #         [
-        #             person1_stopped_after_two_signups.uuid,
-        #             person2_stopped_after_signup.uuid,
-        #             person3.uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 4),
-        #         [person1_stopped_after_two_signups.uuid],
-        #     )
-
-        # @also_test_with_materialized_columns(["$current_url"])
-        # def test_funnel_with_matching_properties(self):
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "order": 0},
-        #             {
-        #                 "id": "$pageview",
-        #                 "order": 1,
-        #                 "properties": {"$current_url": "aloha.com"},
-        #             },
-        #             {
-        #                 "id": "$pageview",
-        #                 "order": 2,
-        #                 "properties": {"$current_url": "aloha2.com"},
-        #             },  # different event to above
-        #             {
-        #                 "id": "$pageview",
-        #                 "order": 3,
-        #                 "properties": {"$current_url": "aloha2.com"},
-        #             },
-        #             {"id": "$pageview", "order": 4},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_days": 14,
-        #     }
-
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
-
-        #     # event
-        #     people = journeys_for(
-        #         {
-        #             "stopped_after_signup1": [{"event": "user signed up"}],
-        #             "stopped_after_pageview1": [
-        #                 {"event": "user signed up"},
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha.com"},
-        #                 },
-        #             ],
-        #             "stopped_after_pageview2": [
-        #                 {"event": "user signed up"},
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha.com"},
-        #                 },
-        #                 {
-        #                     "event": "blaah blaa",
-        #                     "properties": {"$current_url": "aloha.com"},
-        #                 },
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha2.com"},
-        #                 },
-        #             ],
-        #             "stopped_after_pageview3": [
-        #                 {"event": "user signed up"},
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha.com"},
-        #                 },
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha2.com"},
-        #                 },
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha2.com"},
-        #                 },
-        #                 {"event": "blaah blaa"},
-        #             ],
-        #             "stopped_after_pageview4": [
-        #                 {"event": "user signed up"},
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha.com"},
-        #                 },
-        #                 {"event": "blaah blaa"},
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha2.com"},
-        #                 },
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha.com"},
-        #                 },
-        #                 {
-        #                     "event": "$pageview",
-        #                     "properties": {"$current_url": "aloha2.com"},
-        #                 },
-        #             ],
-        #         },
-        #         self.team,
-        #     )
-
-        #     result = funnel.calculate().results
-
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[1]["name"], "$pageview")
-        #     self.assertEqual(result[4]["name"], "$pageview")
-        #     self.assertEqual(result[0]["count"], 5)
-        #     self.assertEqual(result[1]["count"], 4)
-        #     self.assertEqual(result[2]["count"], 3)
-        #     self.assertEqual(result[3]["count"], 2)
-        #     self.assertEqual(result[4]["count"], 0)
-        #     # check ordering of people in every step
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
-        #         [
-        #             people["stopped_after_signup1"].uuid,
-        #             people["stopped_after_pageview1"].uuid,
-        #             people["stopped_after_pageview2"].uuid,
-        #             people["stopped_after_pageview3"].uuid,
-        #             people["stopped_after_pageview4"].uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
-        #         [
-        #             people["stopped_after_pageview1"].uuid,
-        #             people["stopped_after_pageview2"].uuid,
-        #             people["stopped_after_pageview3"].uuid,
-        #             people["stopped_after_pageview4"].uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 3),
-        #         [
-        #             people["stopped_after_pageview2"].uuid,
-        #             people["stopped_after_pageview3"].uuid,
-        #             people["stopped_after_pageview4"].uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 4),
-        #         [
-        #             people["stopped_after_pageview3"].uuid,
-        #             people["stopped_after_pageview4"].uuid,
-        #         ],
-        #     )
-
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 5), [])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person3.uuid])
+
+        def test_advanced_funnel_with_repeat_steps(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "$pageview", "type": "events", "order": 1},
+                    {"id": "$pageview", "type": "events", "order": 2},
+                    {"id": "$pageview", "type": "events", "order": 3},
+                    {"id": "$pageview", "type": "events", "order": 4},
+                ],
+                "insight": INSIGHT_FUNNELS,
+            }
+
+            people = journeys_for(
+                {
+                    "stopped_after_signup1": [{"event": "user signed up"}],
+                    "stopped_after_pageview1": [
+                        {"event": "user signed up"},
+                        {"event": "$pageview"},
+                    ],
+                    "stopped_after_pageview2": [
+                        {"event": "user signed up"},
+                        {"event": "$pageview"},
+                        {"event": "blaah blaa"},
+                        {"event": "$pageview"},
+                    ],
+                    "stopped_after_pageview3": [
+                        {"event": "user signed up"},
+                        {"event": "$pageview"},
+                        {"event": "blaah blaa"},
+                        {"event": "$pageview"},
+                        {"event": "$pageview"},
+                        {"event": "blaah blaa"},
+                    ],
+                    "stopped_after_pageview4": [
+                        {"event": "user signed up"},
+                        {"event": "$pageview"},
+                        {"event": "$pageview"},
+                        {"event": "$pageview"},
+                        {"event": "$pageview"},
+                    ],
+                },
+                self.team,
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[1]["name"], "$pageview")
+            self.assertEqual(result[4]["name"], "$pageview")
+            self.assertEqual(result[0]["count"], 5)
+
+            self.assertEqual(result[1]["count"], 4)
+
+            self.assertEqual(result[2]["count"], 3)
+
+            self.assertEqual(result[3]["count"], 2)
+
+            self.assertEqual(result[4]["count"], 1)
+
+            # check ordering of people in every step
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1),
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2),
+                [
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 3),
+                [
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 4),
+                [
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 5),
+                [people["stopped_after_pageview4"].uuid],
+            )
+
+        def test_advanced_funnel_with_repeat_steps_out_of_order_events(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "$pageview", "type": "events", "order": 1},
+                    {"id": "$pageview", "type": "events", "order": 2},
+                    {"id": "$pageview", "type": "events", "order": 3},
+                    {"id": "$pageview", "type": "events", "order": 4},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
+            }
+
+            # event
+            person1_stopped_after_signup = _create_person(
+                distinct_ids=["random", "stopped_after_signup1"], team_id=self.team.pk
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="random")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+            )
+
+            person2_stopped_after_one_pageview = _create_person(
+                distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
+            )
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_pageview1",
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview1")
+
+            person3_stopped_after_two_pageview = _create_person(
+                distinct_ids=["stopped_after_pageview2"], team_id=self.team.pk
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview2")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_pageview2",
+            )
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview2",
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview2")
+
+            person4_stopped_after_three_pageview = _create_person(
+                distinct_ids=["stopped_after_pageview3"], team_id=self.team.pk
+            )
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview3",
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview3",
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_pageview3",
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview3")
+
+            person5_stopped_after_many_pageview = _create_person(
+                distinct_ids=["stopped_after_pageview4"], team_id=self.team.pk
+            )
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_pageview4",
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview4",
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview4")
+
+            _create_person(distinct_ids=["stopped_after_pageview5"], team_id=self.team.pk)
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
+            _create_event(
+                team=self.team,
+                event="blaah blaa",
+                distinct_id="stopped_after_pageview5",
+            )
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
+            _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[1]["name"], "$pageview")
+            self.assertEqual(result[4]["name"], "$pageview")
+            self.assertEqual(result[0]["count"], 5)
+
+            self.assertEqual(result[1]["count"], 4)
+
+            self.assertEqual(result[2]["count"], 1)
+
+            self.assertEqual(result[3]["count"], 1)
+
+            self.assertEqual(result[4]["count"], 1)
+
+            # check ordering of people in every step
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1),
+                [
+                    person1_stopped_after_signup.uuid,
+                    person2_stopped_after_one_pageview.uuid,
+                    person3_stopped_after_two_pageview.uuid,
+                    person4_stopped_after_three_pageview.uuid,
+                    person5_stopped_after_many_pageview.uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2),
+                [
+                    person2_stopped_after_one_pageview.uuid,
+                    person3_stopped_after_two_pageview.uuid,
+                    person4_stopped_after_three_pageview.uuid,
+                    person5_stopped_after_many_pageview.uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 3),
+                [person5_stopped_after_many_pageview.uuid],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 4),
+                [person5_stopped_after_many_pageview.uuid],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 5),
+                [person5_stopped_after_many_pageview.uuid],
+            )
+
+        @also_test_with_materialized_columns(["key"])
+        def test_funnel_with_actions(self):
+            sign_up_action = _create_action(
+                name="sign up",
+                team=self.team,
+                properties=[
+                    {
+                        "key": "key",
+                        "type": "event",
+                        "value": ["val"],
+                        "operator": "exact",
+                    }
+                ],
+            )
+
+            filters = {
+                "actions": [
+                    {"id": sign_up_action.id, "math": "dau", "order": 0},
+                    {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+            }
+
+            # event
+            person1_stopped_after_two_signups = _create_person(
+                distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
+            )
+
+            person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup2",
+                properties={"key": "val"},
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(result[0]["name"], "sign up")
+            self.assertEqual(result[0]["count"], 2)
+
+            self.assertEqual(result[1]["count"], 1)
+
+            # check ordering of people in first step
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1),
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
+
+        def test_funnel_with_different_actions_at_same_time_count_as_converted(self):
+            sign_up_action = _create_action(
+                name="sign up",
+                team=self.team,
+                properties=[
+                    {
+                        "key": "key",
+                        "type": "event",
+                        "value": ["val"],
+                        "operator": "exact",
+                    }
+                ],
+            )
+
+            filters = {
+                "actions": [{"id": sign_up_action.id, "order": 0}],
+                "events": [{"id": "$pageview", "order": 1}],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-07",
+            }
+
+            with freeze_time("2020-01-03"):
+                # event
+                person1_stopped_after_two_signups = _create_person(
+                    distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="stopped_after_signup1",
+                    properties={"key": "val"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="stopped_after_signup1",
+                    properties={"key": "val"},
+                )
+
+                person2_stopped_after_signup = _create_person(
+                    distinct_ids=["stopped_after_signup2"], team_id=self.team.pk
+                )
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="stopped_after_signup2",
+                    properties={"key": "val"},
+                )
+
+                query = cast(FunnelsQuery, filter_to_query(filters))
+                result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+                self.assertEqual(result[0]["name"], "sign up")
+                self.assertEqual(result[0]["count"], 2)
+
+                self.assertEqual(result[1]["count"], 1)
+
+                # check ordering of people in first step
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(filters, 1),
+                    [
+                        person1_stopped_after_two_signups.uuid,
+                        person2_stopped_after_signup.uuid,
+                    ],
+                )
+
+                self.assertCountEqual(
+                    self._get_actor_ids_at_step(filters, 2),
+                    [person1_stopped_after_two_signups.uuid],
+                )
+
+        def test_funnel_with_actions_and_props(self):
+            sign_up_action = _create_action(
+                name="sign up",
+                team=self.team,
+                properties=[
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
+            )
+
+            filters = {
+                "actions": [
+                    {"id": sign_up_action.id, "math": "dau", "order": 0},
+                    {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+            }
+
+            # event
+            person1_stopped_after_two_signups = _create_person(
+                distinct_ids=["stopped_after_signup1"],
+                team_id=self.team.pk,
+                properties={"email": "fake@test.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
+            )
+
+            person2_stopped_after_signup = _create_person(
+                distinct_ids=["stopped_after_signup2"],
+                team_id=self.team.pk,
+                properties={"email": "fake@test.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup2",
+                properties={"key": "val"},
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(result[0]["name"], "sign up")
+            self.assertEqual(result[0]["count"], 2)
+
+            self.assertEqual(result[1]["count"], 1)
+
+            # check ordering of people in first step
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1),
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
+
+        def test_funnel_with_actions_and_props_with_zero_person_ids(self):
+            # only a person-on-event test
+            if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+                return True
+
+            sign_up_action = _create_action(
+                name="sign up",
+                team=self.team,
+                properties=[
+                    {
+                        "key": "email",
+                        "operator": "icontains",
+                        "value": ".com",
+                        "type": "person",
+                    }
+                ],
+            )
+
+            filters = {
+                "actions": [
+                    {"id": sign_up_action.id, "math": "dau", "order": 0},
+                    {"id": sign_up_action.id, "math": "weekly_active", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+            }
+
+            # event
+            person1_stopped_after_two_signups = _create_person(
+                distinct_ids=["stopped_after_signup1"],
+                team_id=self.team.pk,
+                properties={"email": "fake@test.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup1",
+                properties={"key": "val"},
+            )
+
+            person2_stopped_after_signup = _create_person(
+                distinct_ids=["stopped_after_signup2"],
+                team_id=self.team.pk,
+                properties={"email": "fake@test.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="stopped_after_signup2",
+                properties={"key": "val"},
+            )
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="zero_person_id",
+                properties={"key": "val"},
+                person_id="00000000-0000-0000-0000-000000000000",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="zero_person_id",
+                properties={"key": "val"},
+                person_id="00000000-0000-0000-0000-000000000000",
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(result[0]["name"], "sign up")
+            self.assertEqual(result[0]["count"], 2)
+
+            self.assertEqual(result[1]["count"], 1)
+
+            # check ordering of people in first step
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1),
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2),
+                [person1_stopped_after_two_signups.uuid],
+            )
+
+        @also_test_with_materialized_columns(["$current_url"])
+        def test_funnel_with_matching_properties(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "order": 0},
+                    {
+                        "id": "$pageview",
+                        "order": 1,
+                        "properties": {"$current_url": "aloha.com"},
+                    },
+                    {
+                        "id": "$pageview",
+                        "order": 2,
+                        "properties": {"$current_url": "aloha2.com"},
+                    },  # different event to above
+                    {
+                        "id": "$pageview",
+                        "order": 3,
+                        "properties": {"$current_url": "aloha2.com"},
+                    },
+                    {"id": "$pageview", "order": 4},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
+            }
+
+            # event
+            people = journeys_for(
+                {
+                    "stopped_after_signup1": [{"event": "user signed up"}],
+                    "stopped_after_pageview1": [
+                        {"event": "user signed up"},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                    ],
+                    "stopped_after_pageview2": [
+                        {"event": "user signed up"},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {
+                            "event": "blaah blaa",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
+                    ],
+                    "stopped_after_pageview3": [
+                        {"event": "user signed up"},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
+                        {"event": "blaah blaa"},
+                    ],
+                    "stopped_after_pageview4": [
+                        {"event": "user signed up"},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {"event": "blaah blaa"},
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha.com"},
+                        },
+                        {
+                            "event": "$pageview",
+                            "properties": {"$current_url": "aloha2.com"},
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[1]["name"], "$pageview")
+            self.assertEqual(result[4]["name"], "$pageview")
+            self.assertEqual(result[0]["count"], 5)
+            self.assertEqual(result[1]["count"], 4)
+            self.assertEqual(result[2]["count"], 3)
+            self.assertEqual(result[3]["count"], 2)
+            self.assertEqual(result[4]["count"], 0)
+            # check ordering of people in every step
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1),
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2),
+                [
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 3),
+                [
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 4),
+                [
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ],
+            )
+
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 5), [])
 
         # def test_funnel_conversion_window(self):
         #     ids_to_compare = []
@@ -2259,7 +2066,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #             timestamp="2021-05-10 00:00:00",
         #         )
 
-        #     data = {
+        #     filters = {
         #         "insight": INSIGHT_FUNNELS,
         #         "interval": "day",
         #         "date_from": "2021-05-01 00:00:00",
@@ -2272,15 +2079,15 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         ],
         #     }
 
-        #     filter = Filter(data={**data})
-        #     results = Funnel(filter, self.team).run()
+        #     query = cast(FunnelsQuery, filter_to_query(filters))
+        #     result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     self.assertEqual(results[0]["count"], 25)
-        #     self.assertEqual(results[1]["count"], 10)
-        #     self.assertEqual(results[2]["count"], 0)
+        #     self.assertEqual(result[0]["count"], 25)
+        #     self.assertEqual(result[1]["count"], 10)
+        #     self.assertEqual(result[2]["count"], 0)
 
         #     self.assertCountEqual(
-        #         [str(id) for id in self._get_actor_ids_at_step(filter, 2)],
+        #         [str(id) for id in self._get_actor_ids_at_step(filters, 2)],
         #         ids_to_compare,
         #     )
 
@@ -2339,7 +2146,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self.assertEqual(results[2]["count"], 0)
 
         #     self.assertCountEqual(
-        #         [str(id) for id in self._get_actor_ids_at_step(filter, 2)],
+        #         [str(id) for id in self._get_actor_ids_at_step(filters, 2)],
         #         ids_to_compare,
         #     )
 
@@ -2504,8 +2311,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self.assertEqual(result[1]["name"], "paid")
         #     self.assertEqual(result[1]["count"], 1)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person4.uuid])
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person4.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid])
 
         # @also_test_with_materialized_columns(["key"])
         # def test_funnel_exclusions_with_actions(self):
@@ -2603,8 +2410,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self.assertEqual(result[1]["name"], "paid")
         #     self.assertEqual(result[1]["count"], 2)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person3.uuid])
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid, person3.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person3.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid, person3.uuid])
 
         # @also_test_with_materialized_columns(["test_prop"])
         # def test_funnel_with_denormalised_properties(self):
@@ -2856,7 +2663,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 1)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
 
         #     filter = filter.shallow_clone(
         #         {
@@ -2885,7 +2692,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 1)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
 
         #     filter = filter.shallow_clone(
         #         {
@@ -2914,7 +2721,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 1)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
 
         #     filter = filter.shallow_clone(
         #         {
@@ -2943,7 +2750,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     self.assertEqual(result[4]["count"], 1)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
+        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
 
         # def test_funnel_with_elements_chain(self):
         #     person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
@@ -2991,8 +2798,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         self.assertEqual(result[1]["name"], "$autocapture")
         #         self.assertEqual(result[1]["count"], 1)
 
-        #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person2.uuid])
-        #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid])
+        #         self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person2.uuid])
+        #         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid])
 
         # def test_breakdown_values_is_set_on_the_query_with_fewer_than_two_entities(self):
         #     """
@@ -3391,7 +3198,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self.assertEqual(result[2]["count"], 1)
         #     # check ordering of people in every step
         #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 1),
+        #         self._get_actor_ids_at_step(filters, 1),
         #         [
         #             people["stopped_after_pageview1"].uuid,
         #             people["stopped_after_pageview2"].uuid,
@@ -3400,7 +3207,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
 
         #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 2),
+        #         self._get_actor_ids_at_step(filters, 2),
         #         [
         #             people["stopped_after_pageview2"].uuid,
         #             people["stopped_after_pageview3"].uuid,
@@ -3408,7 +3215,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
 
         #     self.assertCountEqual(
-        #         self._get_actor_ids_at_step(filter, 3),
+        #         self._get_actor_ids_at_step(filters, 3),
         #         [people["stopped_after_pageview3"].uuid],
         #     )
 
