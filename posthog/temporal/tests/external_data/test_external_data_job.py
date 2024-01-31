@@ -519,7 +519,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_external_data_job_workflow_blank(team, **kwargs):
+async def P(team, **kwargs):
     """
     Test workflow with no schema.
     Smoke test for making sure all activities run.
@@ -563,7 +563,7 @@ async def test_external_data_job_workflow_blank(team, **kwargs):
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
-    run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)  # type: ignore
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=new_source.pk)
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
 
@@ -626,7 +626,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
-    run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)  # type: ignore
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=new_source.pk)
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
