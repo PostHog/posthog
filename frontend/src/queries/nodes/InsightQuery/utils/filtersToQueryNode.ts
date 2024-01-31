@@ -18,9 +18,11 @@ import {
     InsightNodeKind,
     InsightQueryNode,
     InsightsQueryBase,
+    LifecycleFilter,
     NodeKind,
     PathsFilter,
     RetentionFilter,
+    StickinessFilter,
     TrendsFilter,
 } from '~/queries/schema'
 import {
@@ -290,21 +292,12 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // stickiness filter
     if (isStickinessFilter(filters) && isStickinessQuery(query)) {
-        query.stickinessFilter = objectCleanWithEmpty({
-            display: filters.display,
-            compare: filters.compare,
-            showLegend: filters.show_legend,
-            hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-            showValuesOnSeries: filters.show_values_on_series,
-        })
+        query.stickinessFilter = stickinessFilterToQuery(filters)
     }
 
     // lifecycle filter
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
-        query.lifecycleFilter = objectCleanWithEmpty({
-            toggledLifecycles: filters.toggledLifecycles,
-            showValuesOnSeries: filters.show_values_on_series,
-        })
+        query.lifecycleFilter = lifecycleFilterToQuery(filters)
     }
 
     // remove undefined and empty array/objects and return
@@ -383,6 +376,23 @@ export const pathsFilterToQuery = (filters: Partial<PathsFilterType>): PathsFilt
         edgeLimit: filters.edge_limit,
         minEdgeWeight: filters.min_edge_weight,
         maxEdgeWeight: filters.max_edge_weight,
+    })
+}
+
+export const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {
+    return objectCleanWithEmpty({
+        display: filters.display,
+        compare: filters.compare,
+        showLegend: filters.show_legend,
+        hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
+        showValuesOnSeries: filters.show_values_on_series,
+    })
+}
+
+export const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleFilter => {
+    return objectCleanWithEmpty({
+        toggledLifecycles: filters.toggledLifecycles,
+        showValuesOnSeries: filters.show_values_on_series,
     })
 }
 

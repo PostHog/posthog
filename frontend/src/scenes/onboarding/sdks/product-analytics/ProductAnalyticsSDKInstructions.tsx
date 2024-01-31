@@ -1,6 +1,7 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
 import {
+    HTMLSnippetInstructions,
     JSWebInstructions,
     ProductAnalyticsAndroidInstructions,
     ProductAnalyticsAPIInstructions,
@@ -17,6 +18,7 @@ import {
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
+    [SDKKey.HTML_SNIPPET]: HTMLSnippetInstructions,
     // add next, getsby, and others here
     [SDKKey.IOS]: ProductAnalyticsIOSInstructions,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructions,

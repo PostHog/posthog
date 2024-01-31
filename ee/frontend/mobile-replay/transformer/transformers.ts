@@ -31,18 +31,21 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframeNavigationBar,
     wireframePlaceholder,
     wireframeProgress,
     wireframeRadio,
     wireframeRadioGroup,
     wireframeRectangle,
     wireframeSelect,
+    wireframeStatusBar,
     wireframeText,
     wireframeToggle,
 } from '../mobile.types'
-import { makeStatusBar } from './status-bar'
-import { ConversionContext, ConversionResult, StyleOverride } from './types'
+import { makeNavigationBar, makeStatusBar } from './screen-chrome'
+import { ConversionContext, ConversionResult } from './types'
 import {
+    asStyleString,
     makeBodyStyles,
     makeColorStyles,
     makeDeterminateProgressStyles,
@@ -85,8 +88,14 @@ const HTML_DOC_TYPE_ID = 2
 const HTML_ELEMENT_ID = 3
 const HEAD_ID = 4
 const BODY_ID = 5
-const KEYBOARD_ID = 6
-export const STATUS_BAR_ID = 7
+// the nav bar should always be the last item in the body so that it is at the top of the stack
+const NAVIGATION_BAR_PARENT_ID = 7
+export const NAVIGATION_BAR_ID = 8
+// the keyboard so that it is still before the nav bar
+const KEYBOARD_PARENT_ID = 9
+const KEYBOARD_ID = 10
+export const STATUS_BAR_PARENT_ID = 11
+export const STATUS_BAR_ID = 12
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
@@ -114,7 +123,6 @@ export const makeCustomEvent = (
             const shouldAbsolutelyPosition =
                 _isPositiveInteger(mobileCustomEvent.data.payload.x) ||
                 _isPositiveInteger(mobileCustomEvent.data.payload.y)
-            const styleOverride: StyleOverride | undefined = shouldAbsolutelyPosition ? undefined : { bottom: true }
             const keyboardPlaceHolder = makePlaceholderElement(
                 {
                     id: KEYBOARD_ID,
@@ -130,12 +138,14 @@ export const makeCustomEvent = (
                     timestamp: mobileCustomEvent.timestamp,
                     idSequence: globalIdSequence,
                     skippableNodes: new Set(),
-                    styleOverride,
+                    styleOverride: {
+                        ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
+                    },
                 }
             )
             if (keyboardPlaceHolder) {
                 adds.push({
-                    parentId: BODY_ID,
+                    parentId: KEYBOARD_PARENT_ID,
                     nextId: null,
                     node: keyboardPlaceHolder.result,
                 })
@@ -189,7 +199,7 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-function makeDivElement(
+export function makeDivElement(
     wireframe: wireframeDiv,
     children: serializedNodeWithId[],
     context: ConversionContext
@@ -200,7 +210,7 @@ function makeDivElement(
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
-                style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+                style: asStyleString([makeStylesString(wireframe), 'overflow:hidden', 'white-space:nowrap']),
                 'data-rrweb-id': _id,
             },
             id: _id,
@@ -228,7 +238,7 @@ function makeTextElement(
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
-                style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+                style: asStyleString([makeStylesString(wireframe), 'overflow:hidden', 'white-space:nowrap']),
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
@@ -295,6 +305,8 @@ function makePlaceholderElement(
 }
 
 export function dataURIOrPNG(src: string): string {
+    // replace all new lines in src
+    src = src.replace(/\r?\n|\r/g, '')
     if (!src.startsWith('data:image/')) {
         return 'data:image/png;base64,' + src
     }
@@ -510,7 +522,7 @@ function makeStar(title: string, path: string, context: ConversionContext): seri
         tagName: 'svg',
         isSVG: true,
         attributes: {
-            style: 'height: 100%;overflow-clip-margin: content-box;overflow:hidden',
+            style: asStyleString(['height: 100%', 'overflow-clip-margin: content-box', 'overflow:hidden']),
             viewBox: '0 0 24 24',
             fill: 'currentColor',
             'data-rrweb-id': svgId,
@@ -604,9 +616,13 @@ function makeRatingBar(
         tagName: 'div',
         id: ratingBarId,
         attributes: {
-            style:
-                makeColorStyles(wireframe) +
-                'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+            style: asStyleString([
+                makeColorStyles(wireframe),
+                'position: relative',
+                'display: flex',
+                'flex-direction: row',
+                'padding: 2px 4px',
+            ]),
             'data-rrweb-id': ratingBarId,
         },
         childNodes: [...filledStars, ...halfStars, ...emptyStars],
@@ -725,9 +741,17 @@ function makeToggleParts(wireframe: wireframeToggle, context: ConversionContext)
             tagName: 'div',
             attributes: {
                 'data-toggle-part': 'slider',
-                style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
-                    wireframe.style?.color || defaultColor
-                };opacity: 0.2;border-radius:7.5%;`,
+                style: asStyleString([
+                    'position:absolute',
+                    'top:33%',
+                    'left:5%',
+                    'display:inline-block',
+                    'width:75%',
+                    'height:33%',
+                    'opacity: 0.2',
+                    'border-radius:7.5%',
+                    `background-color:${wireframe.style?.color || defaultColor}`,
+                ]),
                 'data-rrweb-id': sliderPartId,
             },
             id: sliderPartId,
@@ -738,11 +762,20 @@ function makeToggleParts(wireframe: wireframeToggle, context: ConversionContext)
             tagName: 'div',
             attributes: {
                 'data-toggle-part': 'handle',
-                style: `position:absolute;top:1.5%;${togglePosition}:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:${
-                    wireframe.style?.color || defaultColor
-                };border:2px solid ${
-                    wireframe.style?.borderColor || wireframe.style?.color || defaultColor
-                };border-radius:50%;`,
+                style: asStyleString([
+                    'position:absolute',
+                    'top:1.5%',
+                    `${togglePosition}:5%`,
+                    'display:flex',
+                    'align-items:center',
+                    'justify-content:center',
+                    'width:40%',
+                    'height:75%',
+                    'cursor:inherit',
+                    'border-radius:50%',
+                    `background-color:${wireframe.style?.color || defaultColor}`,
+                    `border:2px solid ${wireframe.style?.borderColor || wireframe.style?.color || defaultColor}`,
+                ]),
                 'data-rrweb-id': handlePartId,
             },
             id: handlePartId,
@@ -767,7 +800,7 @@ function makeToggleElement(
             tagName: 'div',
             attributes: {
                 // if labelled take up available space, otherwise use provided positioning
-                style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
+                style: isLabelled ? asStyleString(['height:100%', 'flex:1']) : makePositionStyles(wireframe),
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
@@ -777,7 +810,7 @@ function makeToggleElement(
                     tagName: 'div',
                     attributes: {
                         // relative position, fills parent
-                        style: 'position:relative;width:100%;height:100%;',
+                        style: asStyleString(['position:relative', 'width:100%', 'height:100%']),
                         'data-rrweb-id': wrappingDivId,
                     },
                     id: wrappingDivId,
@@ -911,8 +944,7 @@ function chooseConverter<T extends wireframe>(
         web_view: makeWebViewElement as any,
         placeholder: makePlaceholderElement as any,
         status_bar: makeStatusBar as any,
-        // we could add in a converter for this, but it's fine without any chrome for now
-        navigation_bar: makeDivElement as any,
+        navigation_bar: makeNavigationBar as any,
     }
     return converterMapping[converterType]
 }
@@ -1121,6 +1153,109 @@ export const makeIncrementalEvent = (
     return converted
 }
 
+function makeKeyboardParent(): serializedNodeWithId {
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-render-reason': 'a fixed placeholder to contain the keyboard in the correct stacking position',
+            'data-rrweb-id': KEYBOARD_PARENT_ID,
+        },
+        id: KEYBOARD_PARENT_ID,
+        childNodes: [],
+    }
+}
+
+function makeStatusBarNode(
+    statusBar: wireframeStatusBar | undefined,
+    context: ConversionContext
+): serializedNodeWithId {
+    const childNodes = statusBar ? convertWireframesFor([statusBar], context).result : []
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-rrweb-id': STATUS_BAR_PARENT_ID,
+        },
+        id: STATUS_BAR_PARENT_ID,
+        childNodes,
+    }
+}
+
+function makeNavBarNode(
+    navigationBar: wireframeNavigationBar | undefined,
+    context: ConversionContext
+): serializedNodeWithId {
+    const childNodes = navigationBar ? convertWireframesFor([navigationBar], context).result : []
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-rrweb-id': NAVIGATION_BAR_PARENT_ID,
+        },
+        id: NAVIGATION_BAR_PARENT_ID,
+        childNodes,
+    }
+}
+
+function stripBarsFromWireframe(wireframe: wireframe): {
+    wireframe: wireframe | undefined
+    statusBar: wireframeStatusBar | undefined
+    navBar: wireframeNavigationBar | undefined
+} {
+    if (wireframe.type === 'status_bar') {
+        return { wireframe: undefined, statusBar: wireframe, navBar: undefined }
+    } else if (wireframe.type === 'navigation_bar') {
+        return { wireframe: undefined, statusBar: undefined, navBar: wireframe }
+    } else {
+        let statusBar: wireframeStatusBar | undefined
+        let navBar: wireframeNavigationBar | undefined
+        const wireframeToReturn: wireframe | undefined = { ...wireframe }
+        wireframeToReturn.childWireframes = []
+        for (const child of wireframe.childWireframes || []) {
+            const {
+                wireframe: childWireframe,
+                statusBar: childStatusBar,
+                navBar: childNavBar,
+            } = stripBarsFromWireframe(child)
+            statusBar = statusBar || childStatusBar
+            navBar = navBar || childNavBar
+            if (childWireframe) {
+                wireframeToReturn.childWireframes.push(childWireframe)
+            }
+        }
+        return { wireframe: wireframeToReturn, statusBar, navBar }
+    }
+}
+
+/**
+ * We want to be able to place the status bar and navigation bar in the correct stacking order.
+ * So, we lift them out of the tree, and return them separately.
+ */
+export function stripBarsFromWireframes(wireframes: wireframe[]): {
+    statusBar: wireframeStatusBar | undefined
+    navigationBar: wireframeNavigationBar | undefined
+    appNodes: wireframe[]
+} {
+    let statusBar: wireframeStatusBar | undefined
+    let navigationBar: wireframeNavigationBar | undefined
+    const copiedNodes: wireframe[] = []
+
+    wireframes.forEach((w) => {
+        const matches = stripBarsFromWireframe(w)
+        if (matches.statusBar) {
+            statusBar = matches.statusBar
+        }
+        if (matches.navBar) {
+            navigationBar = matches.navBar
+        }
+        if (matches.wireframe) {
+            copiedNodes.push(matches.wireframe)
+        }
+    })
+    return { statusBar, navigationBar, appNodes: copiedNodes }
+}
+
 export const makeFullEvent = (
     mobileEvent: MobileFullSnapshotEvent & {
         timestamp: number
@@ -1138,6 +1273,19 @@ export const makeFullEvent = (
             timestamp: number
             delay?: number
         }
+    }
+
+    const conversionContext = {
+        timestamp: mobileEvent.timestamp,
+        idSequence: globalIdSequence,
+    }
+
+    const { statusBar, navigationBar, appNodes } = stripBarsFromWireframes(mobileEvent.data.wireframes)
+
+    const nodeGroups = {
+        appNodes: convertWireframesFor(appNodes, conversionContext).result || [],
+        statusBarNode: makeStatusBarNode(statusBar, conversionContext),
+        navBarNode: makeNavBarNode(navigationBar, conversionContext),
     }
 
     return {
@@ -1172,11 +1320,14 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes:
-                                    convertWireframesFor(mobileEvent.data.wireframes, {
-                                        timestamp: mobileEvent.timestamp,
-                                        idSequence: globalIdSequence,
-                                    }).result || [],
+                                childNodes: [
+                                    // in the order they should stack if they ever clash
+                                    // lower is higher in the stacking context
+                                    ...nodeGroups.appNodes,
+                                    makeKeyboardParent(),
+                                    nodeGroups.navBarNode,
+                                    nodeGroups.statusBarNode,
+                                ],
                             },
                         ],
                     },

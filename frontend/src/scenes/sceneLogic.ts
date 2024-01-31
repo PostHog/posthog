@@ -199,10 +199,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(urls.login())
                 return
             }
-
             if (scene === Scene.Login && preflight?.demo) {
                 // In the demo environment, there's only passwordless "login" via the signup scene
                 router.actions.replace(urls.signup())
+                return
+            }
+            if (scene === Scene.MoveToPostHogCloud && preflight?.cloud) {
+                router.actions.replace(urls.projectHomepage())
                 return
             }
 
@@ -265,17 +268,24 @@ export const sceneLogic = kea<sceneLogicType>([
                         )
 
                         if (
-                            values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test' &&
                             productKeyFromUrl &&
                             teamLogic.values.currentTeam &&
                             !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
-                            // TODO: should this only happen when in cloud mode? What is the experience for self-hosted?
+                            // TODO: when removing ff PRODUCT_INTRO_PAGES - should this only happen when in
+                            // cloud mode? What is the experience for self-hosted?
                         ) {
-                            console.warn(
-                                `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
-                            )
-                            router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
-                            return
+                            // TODO: remove after PRODUCT_INTRO_PAGES experiment is complete
+                            posthog.capture('should view onboarding product intro', {
+                                did_view_intro: values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test',
+                                product_key: productKeyFromUrl,
+                            })
+                            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test') {
+                                console.warn(
+                                    `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
+                                )
+                                router.actions.replace(urls.onboardingProductIntroduction(productKeyFromUrl))
+                                return
+                            }
                         }
                     }
                 }

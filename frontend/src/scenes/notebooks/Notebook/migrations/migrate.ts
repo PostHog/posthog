@@ -3,14 +3,18 @@ import { JSONContent } from '@tiptap/core'
 import {
     breakdownFilterToQuery,
     funnelsFilterToQuery,
+    lifecycleFilterToQuery,
     pathsFilterToQuery,
     retentionFilterToQuery,
+    stickinessFilterToQuery,
     trendsFilterToQuery,
 } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     isLegacyFunnelsFilter,
+    isLegacyLifecycleFilter,
     isLegacyPathsFilter,
     isLegacyRetentionFilter,
+    isLegacyStickinessFilter,
     isLegacyTrendsFilter,
 } from '~/queries/nodes/InsightQuery/utils/legacy'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
@@ -109,6 +113,14 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
         if (query.kind === NodeKind.PathsQuery && isLegacyPathsFilter(query.pathsFilter as any)) {
             query.pathsFilter = pathsFilterToQuery(query.pathsFilter as any)
+        }
+
+        if (query.kind === NodeKind.StickinessQuery && isLegacyStickinessFilter(query.stickinessFilter as any)) {
+            query.stickinessFilter = stickinessFilterToQuery(query.stickinessFilter as any)
+        }
+
+        if (query.kind === NodeKind.LifecycleQuery && isLegacyLifecycleFilter(query.lifecycleFilter as any)) {
+            query.lifecycleFilter = lifecycleFilterToQuery(query.lifecycleFilter as any)
         }
 
         /*

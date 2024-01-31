@@ -18,6 +18,7 @@ export const staffUsersLogic = kea<staffUsersLogicType>([
     actions({
         setStaffUsersToBeAdded: (userUuids: string[]) => ({ userUuids }),
         addStaffUsers: true,
+        setStaffUserToBeDeleted: (user: UserType | null) => ({ user }),
         deleteStaffUser: (userUuid: string) => ({ userUuid }),
     }),
     loaders(({ actions, values }) => ({
@@ -65,6 +66,12 @@ export const staffUsersLogic = kea<staffUsersLogicType>([
             [] as string[],
             {
                 setStaffUsersToBeAdded: (_, { userUuids }) => userUuids,
+            },
+        ],
+        staffUserToBeDeleted: [
+            null as UserType | null,
+            {
+                setStaffUserToBeDeleted: (_, { user }) => user,
             },
         ],
     }),

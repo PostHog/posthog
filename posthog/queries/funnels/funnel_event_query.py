@@ -102,15 +102,16 @@ class FunnelEventQuery(EventQuery):
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
 
+        all_fields = f"{', '.join(_fields)} {{extra_select_fields}}"
+
         # KLUDGE: Ideally we wouldn't mix string variables with f-string interpolation
         # but due to ordering requirements in functions building this query we do
         # things like this for now but should do a larger refactor to get rid of it
         query = f"""
-            SELECT {', '.join(_fields)}
-            {{extra_select_fields}}
+            SELECT {all_fields}
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query()}
+            {self._get_person_ids_query(relevant_events_conditions=entity_query + date_query)}
             {person_query}
             {groups_query}
             {{extra_join}}
