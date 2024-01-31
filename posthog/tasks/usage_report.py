@@ -68,7 +68,6 @@ USAGE_REPORT_TASK_KWARGS = dict(
     queue=CeleryQueue.USAGE_REPORTS.value,
     ignore_result=True,
     autoretry_for=(Exception,),
-    max_retries=3,
     retry_backoff=True,
 )
 
@@ -283,7 +282,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
-@shared_task(**USAGE_REPORT_TASK_KWARGS)
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
@@ -961,7 +960,7 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> Dict[str
     return dataclasses.asdict(full_report)
 
 
-@shared_task(**USAGE_REPORT_TASK_KWARGS)
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
