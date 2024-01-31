@@ -129,11 +129,8 @@ export const LongLoading: StoryFn = () => {
     })
     useEffect(() => {
         router.actions.push(`/insights/${insight.short_id}`)
-        const timeout = window.setTimeout(() => {
-            const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
-            logic?.actions.setTimedOutQueryId('a-uuid-query-id')
-        }, 150)
-        return () => window.clearTimeout(timeout)
+        const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
+        logic?.actions.setTimedOutQueryId('a-uuid-query-id') // Show the suggestions immediately
     }, [])
     return <App />
 }
