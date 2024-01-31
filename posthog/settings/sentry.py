@@ -106,12 +106,11 @@ def traces_sampler(sampling_context: dict) -> float:
 
     elif op == "celery.task":
         task = sampling_context.get("celery_job", {}).get("task")
-        low_sample_tasks = (
+
+        if task in (
             "posthog.celery.redis_heartbeat",
             "posthog.celery.redis_celery_queue_depth",
-        )
-
-        if task in low_sample_tasks:
+        ):
             return 0.0001  # 0.01%
 
         # Default sample rate for Celery tasks
