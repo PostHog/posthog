@@ -15,7 +15,6 @@ from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
-    get_external_data_job,
     update_external_job_status,
 )
 from posthog.warehouse.models import (
@@ -23,6 +22,7 @@ from posthog.warehouse.models import (
     get_active_schemas_for_source_id,
     sync_old_schemas_with_new_schemas,
     ExternalDataSource,
+    get_external_data_job,
 )
 from posthog.warehouse.models.external_data_schema import get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -144,9 +144,8 @@ class ExternalDataJobInputs:
 
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
-    model: ExternalDataJob = await sync_to_async(get_external_data_job)(  # type: ignore
-        team_id=inputs.team_id,
-        run_id=inputs.run_id,
+    model: ExternalDataJob = await get_external_data_job(  # type: ignore
+        job_id=inputs.run_id,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
