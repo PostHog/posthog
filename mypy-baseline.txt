@@ -403,7 +403,6 @@ posthog/hogql_queries/hogql_query_runner.py:0: error: Argument "placeholders" to
 posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
 posthog/hogql_queries/hogql_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectUnionQuery", expected "SelectQuery")  [return-value]
 posthog/hogql_queries/events_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/events_query_runner.py:0: error: Argument "order_by" to "SelectQuery" has incompatible type "list[Expr]"; expected "list[OrderExpr] | None"  [arg-type]
 posthog/hogql/metadata.py:0: error: Argument "metadata_source" to "translate_hogql" has incompatible type "SelectQuery | SelectUnionQuery"; expected "SelectQuery | None"  [arg-type]
 posthog/hogql/metadata.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery | SelectUnionQuery")  [assignment]
 posthog/queries/breakdown_props.py:0: error: Argument 1 to "translate_hogql" has incompatible type "str | int"; expected "str"  [arg-type]
@@ -463,14 +462,6 @@ posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Item "None" o
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "PathFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "StickinessFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "Filter", variable has type "RetentionFilter")  [assignment]
-posthog/hogql_queries/actors_query_runner.py:0: error: Incompatible types in assignment (expression has type "Field", variable has type "Constant")  [assignment]
-posthog/hogql_queries/actors_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "Constant")  [assignment]
-posthog/hogql_queries/actors_query_runner.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/actors_query_runner.py:0: error: List comprehension has incompatible type List[Expr]; expected List[OrderExpr]  [misc]
-posthog/hogql_queries/actors_query_runner.py:0: error: Argument "select" to "SelectQuery" has incompatible type "list[Constant]"; expected "list[Expr]"  [arg-type]
-posthog/hogql_queries/actors_query_runner.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/actors_query_runner.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql_queries/actors_query_runner.py:0: error: Argument "group_by" to "SelectQuery" has incompatible type "list[Constant] | None"; expected "list[Expr] | None"  [arg-type]
 posthog/api/insight.py:0: error: Argument 1 to "is_insight_with_hogql_support" has incompatible type "Insight | DashboardTile"; expected "Insight"  [arg-type]
 posthog/api/insight.py:0: error: Argument 1 to "process_insight" has incompatible type "Insight | DashboardTile"; expected "Insight"  [arg-type]
 posthog/api/dashboards/dashboard.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
