@@ -212,6 +212,10 @@ def get_breakdown_prop_values(
             **entity_format_params,
         )
 
+    limit = filter.breakdown_limit_or_default + 1
+    if filter.breakdown_hide_other_aggregation:
+        limit += 1  # Account for the "other" aggregation
+
     response = insight_sync_execute(
         elements_query,
         {
