@@ -150,7 +150,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         person_factory(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
         #         self._signup_event(distinct_id="stopped_after_signup2")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["count"], 0)
 
         # def test_funnel_with_single_step(self):
@@ -163,7 +163,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     person_factory(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
         #     self._signup_event(distinct_id="stopped_after_signup2")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
 
@@ -316,7 +316,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self._movie_event(distinct_id="wrong_order")
         #     self._signup_event(distinct_id="wrong_order")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 4)
 
@@ -355,7 +355,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self._signup_event(distinct_id="wrong_order")
         #     self._movie_event(distinct_id="wrong_order")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["name"], None)
         #     self.assertEqual(result[0]["count"], 5)
 
@@ -408,7 +408,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self._movie_event(distinct_id="wrong_order")
         #     self._signup_event(distinct_id="wrong_order")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 4)
 
@@ -426,7 +426,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self._signup_event(distinct_id="wrong_order")
         #     self._movie_event(distinct_id="wrong_order")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[1]["count"], 0)
         #     self.assertEqual(result[2]["count"], 0)
 
@@ -449,7 +449,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
         #     self._pay_event(distinct_id="half_property")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["count"], 2)
         #     self.assertEqual(result[1]["count"], 1)
 
@@ -524,7 +524,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self._pay_event(distinct_id="half_property")
         #     self._movie_event(distinct_id="half_property")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["count"], 1)
         #     self.assertEqual(result[1]["count"], 1)
@@ -579,7 +579,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self._pay_event(distinct_id="with_property")
         #     self._movie_event(distinct_id="with_property")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["count"], 1)
         #     self.assertEqual(result[1]["count"], 1)
         #     self.assertEqual(result[2]["count"], 1)
@@ -768,7 +768,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         timestamp="2020-01-10T14:00:00Z",
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 1)
@@ -811,7 +811,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         distinct_id="stopped_after_signup2",
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
 
@@ -873,7 +873,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         properties={"key": "val"},
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
 
@@ -916,7 +916,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     filter = Filter(data=filters)
         #     funnel = Funnel(filter, self.team)
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -1042,7 +1042,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         timestamp="2021-05-01 06:00:00",
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(len(result), 2)
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -1223,7 +1223,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     filter = Filter(data=filters)
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -1246,7 +1246,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -1269,7 +1269,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 1)
@@ -1292,7 +1292,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 0)
@@ -1316,7 +1316,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 1)
@@ -1372,7 +1372,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         self.team,
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[1]["name"], "$pageview")
@@ -1535,7 +1535,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
         #     _create_event(team=self.team, event="$pageview", distinct_id="stopped_after_pageview5")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[1]["name"], "$pageview")
@@ -1638,7 +1638,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         properties={"key": "val"},
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "sign up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -1712,7 +1712,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #             properties={"key": "val"},
         #         )
 
-        #         result = funnel.run()
+        #         result = funnel.calculate().results
 
         #         self.assertEqual(result[0]["name"], "sign up")
         #         self.assertEqual(result[0]["count"], 2)
@@ -1789,7 +1789,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         properties={"key": "val"},
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "sign up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -1885,7 +1885,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         person_id="00000000-0000-0000-0000-000000000000",
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "sign up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -2186,7 +2186,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         self.team,
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[1]["name"], "$pageview")
@@ -2507,7 +2507,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         timestamp="2021-05-02 08:00:00",
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(len(result), 2)
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -2606,7 +2606,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         timestamp="2021-05-01 06:00:00",
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(len(result), 2)
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 2)
@@ -2654,7 +2654,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         timestamp="2020-01-10T14:00:00Z",
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 1)
@@ -2860,7 +2860,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     filter = Filter(data=filters)
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 1)
@@ -2889,7 +2889,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 1)
@@ -2918,7 +2918,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 1)
@@ -2947,7 +2947,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
         #     funnel = Funnel(filter, self.team)
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 1)
@@ -3392,7 +3392,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         create_people=False,
         #     )
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[1]["name"], "$pageview")
@@ -3450,7 +3450,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #         distinct_id="user_1",
         #         timestamp="2020-01-01T01:00:00Z",
         #     )
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
 
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 0)
@@ -3495,7 +3495,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     self._movie_event(distinct_id="wrong_order")
         #     self._signup_event(distinct_id="wrong_order")
 
-        #     result = funnel.run()
+        #     result = funnel.calculate().results
         #     self.assertEqual(result[0]["name"], "user signed up")
         #     self.assertEqual(result[0]["count"], 4)
 
