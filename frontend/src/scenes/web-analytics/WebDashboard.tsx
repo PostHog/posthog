@@ -17,6 +17,7 @@ import { WebTabs } from 'scenes/web-analytics/WebTabs'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 const Filters = (): JSX.Element => {
     const {
@@ -24,6 +25,7 @@ const Filters = (): JSX.Element => {
         dateFilter: { dateTo, dateFrom },
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+    const { mobileLayout } = useValues(navigationLogic)
 
     return (
         <div
@@ -31,7 +33,7 @@ const Filters = (): JSX.Element => {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: 'var(--bg-3000)',
-                top: 'var(--breadcrumbs-height-compact)',
+                top: mobileLayout ? 'var(--breadcrumbs-height-full)' : 'var(--breadcrumbs-height-compact)',
             }}
         >
             <div className="flex flex-row flex-wrap gap-2">
