@@ -1,6 +1,6 @@
+import { IconExpand45 } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { IconUnfoldMore } from 'lib/lemon-ui/icons'
 import React from 'react'
 
 import { TileId } from './webAnalyticsLogic'
@@ -32,7 +32,7 @@ export const WebTabs = ({
                             openModal(tileId, activeTabId)
                         }}
                     >
-                        <IconUnfoldMore />
+                        <IconExpand45 />
                     </Link>
                 ) : null}
                 {tabs.length > 3 ? (

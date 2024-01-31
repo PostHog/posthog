@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { QueryTile, TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -10,6 +9,7 @@ import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
 import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
+import { IconExpand45 } from '@posthog/icons'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
@@ -82,7 +82,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                         openModal(tileId)
                     }}
                 >
-                    <IconUnfoldMore />
+                    <IconExpand45 />
                 </Link>
             ) : null}
             <WebQuery query={query} insightProps={insightProps} />
