@@ -64,6 +64,14 @@ QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
+USAGE_REPORT_TASK_KWARGS = dict(
+    queue=CeleryQueue.USAGE_REPORTS.value,
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
+
 
 @dataclasses.dataclass
 class UsageReportCounters:
@@ -275,7 +283,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
-@shared_task(ignore_result=True, autoretry_for=(Exception,), max_retries=3, queue=CeleryQueue.USAGE_REPORTS.value)
+@shared_task(**USAGE_REPORT_TASK_KWARGS)
 def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
@@ -622,7 +630,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> List
     return results
 
 
-@shared_task(ignore_result=True, max_retries=0, queue=CeleryQueue.USAGE_REPORTS.value)
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
     capture_event_name: str,
     org_id: str,
@@ -953,7 +961,7 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> Dict[str
     return dataclasses.asdict(full_report)
 
 
-@shared_task(ignore_result=True, max_retries=3, autoretry_for=(Exception,), queue=CeleryQueue.USAGE_REPORTS.value)
+@shared_task(**USAGE_REPORT_TASK_KWARGS)
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
