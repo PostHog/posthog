@@ -465,13 +465,13 @@ class ApiRequest {
         return this.roleMemberships(roleId).addPathComponent(userUuid)
     }
 
-    // # Members
-    public members(): ApiRequest {
+    // # OrganizationMembers
+    public organizationMembers(): ApiRequest {
         return this.organizations().current().addPathComponent('members')
     }
 
-    public member(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
-        return this.members().addPathComponent(uuid)
+    public organizationMember(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
+        return this.organizationMembers().addPathComponent(uuid)
     }
 
     // # Persons
@@ -1264,20 +1264,25 @@ const api = {
         },
     },
 
-    members: {
+    organizationMembers: {
         async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
-            return await new ApiRequest().members().withQueryString(params).get()
+            return await new ApiRequest().organizationMembers().withQueryString(params).get()
+        },
+
+        async listAll(params: ListOrganizationMembersParams = {}): Promise<OrganizationMemberType[]> {
+            const url = new ApiRequest().organizationMembers().withQueryString(params).assembleFullUrl()
+            return api.loadPaginatedResults<OrganizationMemberType>(url)
         },
 
         async delete(uuid: OrganizationMemberType['user']['uuid']): Promise<PaginatedResponse<void>> {
-            return await new ApiRequest().member(uuid).delete()
+            return await new ApiRequest().organizationMember(uuid).delete()
         },
 
         async update(
             uuid: string,
             data: Partial<Pick<OrganizationMemberType, 'level'>>
         ): Promise<OrganizationMemberType> {
-            return new ApiRequest().member(uuid).update({ data })
+            return new ApiRequest().organizationMember(uuid).update({ data })
         },
     },
 
@@ -2098,11 +2103,11 @@ const api = {
         return response
     },
 
-    async loadPaginatedResults(
+    async loadPaginatedResults<T>(
         url: string | null,
         maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-    ): Promise<any[]> {
-        let results: any[] = []
+    ): Promise<T[]> {
+        let results: T[] = []
         for (let i = 0; i <= maxIterations; ++i) {
             if (!url) {
                 break

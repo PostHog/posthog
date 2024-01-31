@@ -37,23 +37,9 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
-                let allMembers: OrganizationMemberType[] = []
-                let membersResponse = await api.members.list({
+                return await api.organizationMembers.listAll({
                     limit: PAGINATION_LIMIT,
                 })
-
-                allMembers = membersResponse.results
-
-                while (membersResponse.next) {
-                    membersResponse = await api.members.list({
-                        limit: PAGINATION_LIMIT,
-                        offset: allMembers.length,
-                    })
-
-                    allMembers = [...allMembers, ...membersResponse.results]
-                }
-
-                return allMembers
             },
             loadMemberUpdates: async () => {
                 const newestMemberUpdate = values.members?.sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1))?.[0]
@@ -62,7 +48,7 @@ export const membersLogic = kea<membersLogicType>([
                     return null
                 }
 
-                const membersResponse = await api.members.list({
+                const membersResponse = await api.organizationMembers.list({
                     limit: PAGINATION_LIMIT,
                     updated_after: newestMemberUpdate.updated_at,
                 })
@@ -82,7 +68,7 @@ export const membersLogic = kea<membersLogicType>([
                 return members
             },
             removeMember: async (member: OrganizationMemberType) => {
-                await api.members.delete(member.user.uuid)
+                await api.organizationMembers.delete(member.user.uuid)
                 lemonToast.success(
                     <>
                         Removed <b>{member.user.first_name}</b> from organization
@@ -92,7 +78,7 @@ export const membersLogic = kea<membersLogicType>([
                 return values.members?.filter((thisMember) => thisMember.user.id !== member.user.id) ?? null
             },
             changeMemberAccessLevel: async ({ member, level }) => {
-                const updatedMember = await api.members.update(member.user.uuid, { level })
+                const updatedMember = await api.organizationMembers.update(member.user.uuid, { level })
                 lemonToast.success(
                     <>
                         Made <b>{member.user.first_name}</b> organization {membershipLevelToName.get(level)}
@@ -122,7 +108,7 @@ export const membersLogic = kea<membersLogicType>([
     selectors({
         sortedMembers: [
             (s) => [s.members],
-            (members) => {
+            (members): OrganizationMemberType[] | null => {
                 if (!members) {
                     return null
                 }
@@ -131,7 +117,7 @@ export const membersLogic = kea<membersLogicType>([
         ],
         meFirstMembers: [
             (s) => [s.sortedMembers, s.user],
-            (members, user) => {
+            (members, user): OrganizationMemberType[] => {
                 const me = user && members?.find((member) => member.user.uuid === user.uuid)
                 const result: OrganizationMemberType[] = me ? [me] : []
                 for (const member of members ?? []) {
