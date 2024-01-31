@@ -17,6 +17,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
+    BatchExportField,
     create_batch_export_backfill,
     create_batch_export_run,
     update_batch_export_backfill_status,
@@ -111,22 +112,6 @@ async def get_rows_count(
         raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
 
     return int(count)
-
-
-class BatchExportField(typing.TypedDict):
-    """A field to be queried from ClickHouse.
-    Attributes:
-        expression: A ClickHouse SQL expression that declares the field required.
-        alias: An alias to apply to the expression (after an 'AS' keyword).
-    """
-
-    expression: str
-    alias: str
-
-
-class BatchExportSchema(typing.TypedDict):
-    fields: list[BatchExportField]
-    values: dict[str, str]
 
 
 def default_fields() -> list[BatchExportField]:
