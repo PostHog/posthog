@@ -458,6 +458,7 @@ def redis_celery_queue_depth() -> None:
                 "posthog_celery_queue_depth",
                 "We use this to monitor the depth of the celery queue.",
                 registry=registry,
+                labelnames=["queue_name"],
             )
 
             for queue in CeleryQueue:
