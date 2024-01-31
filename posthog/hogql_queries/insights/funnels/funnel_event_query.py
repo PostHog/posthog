@@ -96,7 +96,7 @@ class FunnelEventQuery:
                 events.add(node.event)
             elif isinstance(node, ActionsNode):
                 action = Action.objects.get(pk=int(node.id), team=team)
-                events.add(action.name)
+                events.update(action.get_step_events())
             else:
                 raise ValidationError("Series must either be events or actions")
 

@@ -4,6 +4,7 @@ import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
@@ -249,40 +250,23 @@ class FunnelBase(ABC):
         return step_cols
 
     def _build_step_query(self, entity: EntityNode, index: int, entity_name: str, step_prefix: str) -> ast.Expr:
-        # filters = self._build_filters(entity, index, entity_name)
-        # if isinstance(entity, ActionsNode):
-        #     action = Action.objects.get(pk=int(entity.id), team=self.context.team)
-        #     for action_step_event in action.get_step_events():
-        #         if entity_name not in self.params[entity_name]:
-        #             self.params[entity_name].append(action_step_event)
+        if isinstance(entity, ActionsNode):
+            # action
+            action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+            event_expr = action_to_expr(action)
+        elif entity.event is None:
+            # all events
+            event_expr = ast.Constant(value=True)
+        else:
+            # event
+            event_expr = parse_expr(f"event = '{entity.event}'")
 
-        #     action_query, action_params = format_action_filter(
-        #         team_id=self._team.pk,
-        #         action=action,
-        #         prepend=f"{entity_name}_{step_prefix}step_{index}",
-        #         person_properties_mode=get_person_properties_mode(self._team),
-        #         person_id_joined_alias="person_id",
-        #         hogql_context=self._filter.hogql_context,
-        #     )
-        #     if action_query == "":
-        #         return ""
-
-        #     self.params.update(action_params)
-        #     expr = "{actions_query} {filters}".format(actions_query=action_query, filters=filters)
-        # elif entity.id is None:
-        #     # all events
-        #     # expr = f"1 = 1 {filters}"
-        #     expr = ast.Constant(value=True)
-        # else:
-        #     if entity_name not in self.params:
-        #         self.params[entity_name] = []
-        #     if entity.id not in self.params[entity_name]:
-        #         self.params[entity_name].append(entity.id)
-        #     event_param_key = f"{entity_name}_{step_prefix}event_{index}"
-        #     self.params[event_param_key] = entity.id
-        #     expr = f"event = %({event_param_key})s {filters}"
-        # return expr
-        return ast.Constant(value=True)
+        if entity.properties is not None and entity.properties != []:
+            # add property filters
+            filter_expr = property_to_expr(entity.properties, self.context.team)
+            return ast.And(exprs=[event_expr, filter_expr])
+        else:
+            return event_expr
 
     def _get_count_columns(self, max_steps: int) -> List[ast.Expr]:
         exprs: List[ast.Expr] = []

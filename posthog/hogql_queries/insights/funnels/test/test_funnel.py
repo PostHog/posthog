@@ -130,7 +130,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             filters["insight"] = INSIGHT_FUNNELS
             filter = Filter(data=filters, team=self.team)
-            # return Funnel(filter=filter, team=self.team)
 
             query = filter_to_query(filter.to_dict())
             return FunnelsQueryRunner(query=query, team=self.team)
