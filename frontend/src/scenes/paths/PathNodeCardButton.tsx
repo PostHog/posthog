@@ -53,10 +53,8 @@ export function PathNodeCardButton({
                 <span className="text-xs">{pageUrl(node, true)}</span>
             </div>
             <div className="flex flex-nowrap">
-                <LemonButton size="small">
-                    <span className="text-link text-xs pr-1 font-medium" onClick={openModal}>
-                        {count}
-                    </span>
+                <LemonButton size="small" onClick={openModal}>
+                    <span className="text-link text-xs px-1 font-medium">{count}</span>
                 </LemonButton>
                 <LemonButtonWithDropdown
                     size="small"

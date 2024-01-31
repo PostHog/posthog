@@ -22,7 +22,10 @@
 
 
 # NOTE: Keep in sync with bin/celery-queues.env
-class CeleryQueue:
+from enum import Enum
+
+
+class CeleryQueue(Enum):
     DEFAULT = "celery"
     STATS = "stats"
     EMAIL = "email"
