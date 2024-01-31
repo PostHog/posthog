@@ -1,6 +1,6 @@
 from typing import List, Set, Union
 from posthog.hogql import ast
-from posthog.hogql.hogql import translate_hogql
+from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.date_range import DateRange
 from posthog.hogql_queries.insights.utils.properties import Properties
@@ -27,7 +27,7 @@ class FunnelEventQuery:
     ) -> ast.SelectQuery:
         select: List[ast.Expr] = [
             ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
-            ast.Alias(alias="aggregation_target", expr=ast.Field(chain=[self._aggregation_target_column()])),
+            ast.Alias(alias="aggregation_target", expr=self._aggregation_target_expr()),
         ]
 
         select_from = ast.JoinExpr(
@@ -46,7 +46,7 @@ class FunnelEventQuery:
         )
         return stmt
 
-    def _aggregation_target_column(self) -> str:
+    def _aggregation_target_expr(self) -> ast.Expr:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
 
         # Aggregating by group
@@ -55,11 +55,7 @@ class FunnelEventQuery:
 
         # Aggregating by HogQL
         elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
-            aggregation_target = translate_hogql(
-                funnelsFilter.funnelAggregateByHogQL,
-                events_table_alias=self.EVENT_TABLE_ALIAS,
-                context=self.context.hogql_context,
-            )
+            aggregation_target = parse_expr(funnelsFilter.funnelAggregateByHogQL)
 
         # TODO: is this still relevant?
         # # Aggregating by Distinct ID
@@ -70,7 +66,10 @@ class FunnelEventQuery:
         else:
             aggregation_target = "person_id"
 
-        return aggregation_target
+        if isinstance(aggregation_target, str):
+            return ast.Field(chain=[aggregation_target])
+        else:
+            return aggregation_target
 
     def _sample_expr(self) -> ast.SampleExpr | None:
         query = self.context.query
