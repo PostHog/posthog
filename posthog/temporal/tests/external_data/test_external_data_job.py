@@ -519,7 +519,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def P(team, **kwargs):
+async def test_external_data_job_workflow_blank(team, **kwargs):
     """
     Test workflow with no schema.
     Smoke test for making sure all activities run.
