@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -10,10 +11,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'stopped_after_signup', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2.1
-  '
+  '''
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          countIf(ifNull(equals(steps, 3), 0)) AS step_3,
@@ -101,5 +102,5 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
