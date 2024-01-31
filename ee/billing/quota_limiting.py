@@ -1,7 +1,7 @@
 import copy
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple, TypedDict, cast
 
 import dateutil.parser
 from django.db.models import Q
@@ -80,7 +80,9 @@ class UsageCounters(TypedDict):
     rows_synced: int
 
 
-def org_quota_limited_until(organization: Organization, resource: QuotaResource, today: datetime) -> Optional[int]:
+def org_quota_limited_until(
+    organization: Organization, resource: QuotaResource, today: datetime
+) -> Optional[Tuple[Optional[int], Optional[int], Optional[bool]]]:
     if not organization.usage:
         return None
 
@@ -140,12 +142,12 @@ def sync_org_quota_limits(organization: Organization):
 
             if needs_save:
                 organization.save()
-            if quota_limited_until and data_retained_until < today_start.timestamp():
+            if quota_limited_until and (data_retained_until and data_retained_until < round(today_start.timestamp())):
                 add_limited_team_tokens(resource, {x: quota_limited_until for x in team_attributes})
                 continue
             elif data_retained_until and data_retained_until >= today_start.timestamp():
                 add_limited_team_tokens(
-                    resource, {x: quota_limited_until for x in team_attributes}, QUOTA_OVERAGE_RETENTION_CACHE_KEY
+                    resource, {x: data_retained_until for x in team_attributes}, QUOTA_OVERAGE_RETENTION_CACHE_KEY
                 )
                 continue
         remove_limited_team_tokens(resource, team_attributes)
@@ -209,7 +211,7 @@ def set_org_usage_summary(
     return has_changed
 
 
-def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, int]]:
+def update_all_org_billing_quotas(dry_run: bool = False) -> Tuple[Dict[str, Dict[str, int]], Dict[str, Dict[str, int]]]:
     period = get_current_day()
     period_start, period_end = period
 
