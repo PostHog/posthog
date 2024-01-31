@@ -49,7 +49,6 @@ export const membersLogic = kea<membersLogicType>([
                 }
 
                 const membersResponse = await api.organizationMembers.list({
-                    limit: PAGINATION_LIMIT,
                     updated_after: newestMemberUpdate.updated_at,
                 })
 
