@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.hogql import ast
@@ -11,7 +11,7 @@ from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
-from posthog.schema import ActionsNode, EventsNode
+from posthog.schema import ActionsNode, EventsNode, FunnelsFilter
 from posthog.types import EntityNode
 
 
@@ -160,6 +160,7 @@ class FunnelBase(ABC):
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
+        funnelsFilter = self.context.funnelsFilter or FunnelsFilter()
         entities_to_use = entities or self.context.query.series
 
         # extra_fields = []
@@ -183,16 +184,11 @@ class FunnelBase(ABC):
             step_cols = self._get_step_col(entity, index, entity_name)
             all_step_cols.extend(step_cols)
 
-        # for exclusion_id, entity in enumerate(self._filter.exclusions):
-        #     step_cols = self._get_step_col(
-        #         entity,
-        #         entity.funnel_from_step,
-        #         entity_name,
-        #         f"exclusion_{exclusion_id}_",
-        #     )
-        #     # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
-        #     # where i is the starting step for exclusion on that entity
-        #     all_step_cols.extend(step_cols)
+        for exclusion_id, entity in enumerate(funnelsFilter.exclusions or []):
+            step_cols = self._get_step_col(entity, entity.funnelFromStep, entity_name, f"exclusion_{exclusion_id}_")
+            # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
+            # where i is the starting step for exclusion on that entity
+            all_step_cols.extend(step_cols)
 
         # breakdown_select_prop, breakdown_select_prop_params = self._get_breakdown_select_prop()
 
@@ -399,8 +395,8 @@ class FunnelBase(ABC):
         return exprs
 
     def _get_partition_cols(self, level_index: int, max_steps: int) -> List[ast.Expr]:
-        # funnelsFilter = self.context.query.funnelsFilter or FunnelsFilter()
-        # exclusions = funnelsFilter.exclusions
+        funnelsFilter = self.context.query.funnelsFilter or FunnelsFilter()
+        exclusions = funnelsFilter.exclusions
         series = self.context.query.series
 
         exprs: List[ast.Expr] = []
@@ -414,9 +410,9 @@ class FunnelBase(ABC):
                 # for field in self.extra_event_fields_and_properties:
                 #     exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
 
-                # for exclusion_id, exclusion in enumerate(exclusions or []):
-                #     if cast(int, exclusion.funnelFromStep) + 1 == i:
-                #         exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"]))
+                for exclusion_id, exclusion in enumerate(exclusions or []):
+                    if cast(int, exclusion.funnelFromStep) + 1 == i:
+                        exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"]))
 
             else:
                 duplicate_event = 0
@@ -425,12 +421,8 @@ class FunnelBase(ABC):
                     duplicate_event = 1
 
                 exprs.append(
-                    # TODO: fix breakdown
-                    # parse_expr(
-                    #     f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
-                    # )
                     parse_expr(
-                        f"min(latest_{i}) over (PARTITION by aggregation_target ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                        f"min(latest_{i}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                     )
                 )
 
@@ -439,16 +431,19 @@ class FunnelBase(ABC):
                 #         f'last_value("{field}_{i}") over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) "{field}_{i}"'
                 #     )
 
-                # for exclusion_id, exclusion in enumerate(self._filter.exclusions):
-                #     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
-                #     if cast(int, exclusion.funnel_from_step) + 1 == i:
-                #         cols.append(
-                #             f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
-                #         )
+                for exclusion_id, exclusion in enumerate(exclusions or []):
+                    # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
+                    if cast(int, exclusion.funnelFromStep) + 1 == i:
+                        exprs.append(
+                            parse_expr(
+                                f"min(exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}) over (PARTITION by aggregation_target {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+                            )
+                        )
 
         return exprs
 
-    def _get_breakdown_prop(self, group_remaining=False) -> List[ast.Expr]:
+    def _get_breakdown_expr(self, group_remaining=False) -> List[ast.Expr]:
+        # SEE BELOW
         # if self._filter.breakdown:
         #     other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
         #     if group_remaining and self._filter.breakdown_type in [
@@ -463,6 +458,23 @@ class FunnelBase(ABC):
         # else:
         #     return ""
         return []
+
+    def _get_breakdown_prop(self, group_remaining=False) -> str:
+        # SEE ABOVE
+        # if self._filter.breakdown:
+        #     other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
+        #     if group_remaining and self._filter.breakdown_type in [
+        #         "person",
+        #         "event",
+        #         "group",
+        #     ]:
+        #         return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
+        #     else:
+        #         # Cohorts don't have "Other" aggregation
+        #         return ", prop"
+        # else:
+        #     return ""
+        return ""
 
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdown_type = self.context.breakdownFilter.breakdown, self.context.breakdownFilter.breakdown_type

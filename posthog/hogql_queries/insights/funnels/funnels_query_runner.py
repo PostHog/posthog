@@ -75,6 +75,9 @@ class FunnelsQueryRunner(QueryRunner):
         query = self.to_query()
         timings = []
 
+        # TODO: can we get this from execute_hogql_query as well?
+        hogql = to_printed_hogql(query, self.team)
+
         response = execute_hogql_query(
             query_type="FunnelsQuery",
             query=query,
@@ -87,9 +90,6 @@ class FunnelsQueryRunner(QueryRunner):
 
         if response.timings is not None:
             timings.extend(response.timings)
-
-        # TODO: can we get this from execute_hogql_query as well?
-        hogql = to_printed_hogql(query, self.team)
 
         return FunnelsQueryResponse(results=results, timings=timings, hogql=hogql)
 
