@@ -39,6 +39,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         deleteScheduledChange,
         setScheduleDateMarker,
         setScheduledChangeOperation,
+        createScheduledChange,
     } = useActions(featureFlagScheduleLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
@@ -185,9 +186,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
             <div className="space-y-4">
                 <Form
                     id="feature-flag"
-                    logic={featureFlagScheduleLogic as any}
+                    logic={featureFlagLogic}
+                    props={{ id: 'schedule' }}
                     formKey="featureFlag"
-                    enableFormOnSubmit
                     className="space-y-4"
                 >
                     {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
@@ -211,8 +212,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     <div className="flex items-center justify-end">
                         <LemonButton
                             type="primary"
-                            htmlType="submit"
-                            form="feature-flag"
+                            onClick={createScheduledChange}
                             disabledReason={!scheduleDateMarker ? 'Select the scheduled date and time' : null}
                         >
                             Schedule

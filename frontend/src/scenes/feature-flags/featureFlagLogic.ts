@@ -240,7 +240,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setScheduledChangeOperation: (changeType: string | null) => ({ changeType }),
     }),
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
             errors: ({ key, filters }) => {
@@ -262,11 +262,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
-                if (props.id === 'schedule') {
-                    actions.createScheduledChange()
-                } else {
-                    actions.saveFeatureFlag(featureFlag)
-                }
+                actions.saveFeatureFlag(featureFlag)
             },
         },
     })),
@@ -888,7 +884,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
-            if (scheduledChange && scheduledChange) {
+            if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.loadScheduledChanges()
                 actions.setFeatureFlag({
