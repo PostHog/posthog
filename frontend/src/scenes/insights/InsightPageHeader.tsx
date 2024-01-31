@@ -12,6 +12,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -164,25 +165,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             ) : null}
                                         </>
                                     )}
-                                    <LemonButton
-                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
-                                        onClick={() => {
-                                            // for an existing insight in view mode
-                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                                // enter edit mode
-                                                setInsightMode(ItemMode.Edit, null)
-
-                                                // exit early if query editor doesn't need to be toggled
-                                                if (showQueryEditor !== false) {
-                                                    return
-                                                }
-                                            }
-                                            toggleQueryEditorPanel()
-                                        }}
-                                        fullWidth
-                                    >
-                                        {showQueryEditor ? 'Hide source' : 'View source'}
-                                    </LemonButton>
                                     {hogQL && (
                                         <LemonButton
                                             data-attr="edit-insight-sql"
@@ -228,6 +210,27 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             </LemonButton>
                                         </>
                                     )}
+                                    <LemonDivider />
+                                    <LemonSwitch
+                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
+                                        className="p-2"
+                                        checked={showQueryEditor}
+                                        onChange={() => {
+                                            // for an existing insight in view mode
+                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                // enter edit mode
+                                                setInsightMode(ItemMode.Edit, null)
+
+                                                // exit early if query editor doesn't need to be toggled
+                                                if (showQueryEditor) {
+                                                    return
+                                                }
+                                            }
+                                            toggleQueryEditorPanel()
+                                        }}
+                                        fullWidth
+                                        label="View Source"
+                                    />
                                 </>
                             }
                         />
