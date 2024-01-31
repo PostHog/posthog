@@ -31,7 +31,7 @@ const Filters = (): JSX.Element => {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: 'var(--bg-3000)',
-                top: 'var(--breadcrumbs-height)',
+                top: 'var(--breadcrumbs-height-compact)',
             }}
         >
             <div className="flex flex-row flex-wrap gap-2">
