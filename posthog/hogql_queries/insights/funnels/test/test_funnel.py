@@ -8,7 +8,6 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action, ActionStep, Element
-from posthog.models.filters import Filter
 from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import EventsNode, FunnelsQuery
 from posthog.test.base import (
@@ -17,6 +16,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
@@ -134,9 +134,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 filters.update({"properties": properties})
 
             filters["insight"] = INSIGHT_FUNNELS
-            filter = Filter(data=filters, team=self.team)
+            # filter = Filter(data=filters, team=self.team)
 
-            query = filter_to_query(filter.to_dict())
+            # query = filter_to_query(filter.to_dict())
+            query = filter_to_query(filters)
             return FunnelsQueryRunner(query=query, team=self.team)
 
         # def test_funnel_default(self):
@@ -365,170 +366,172 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[2]["name"], None)
             self.assertEqual(result[2]["count"], 1)
 
-        # def test_funnel_with_new_entities_that_mess_up_order(self):
-        #     action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-        #     ActionStep.objects.create(
-        #         action=action_play_movie,
-        #         event="$autocapture",
-        #         tag_name="a",
-        #         href="/movie",
-        #     )
+        # TODO: obsolete test as new entities aren't part of the query schema?
+        def test_funnel_with_new_entities_that_mess_up_order(self):
+            action_play_movie = Action.objects.create(team=self.team, name="watched movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
 
-        #     funnel = self._basic_funnel(
-        #         filters={
-        #             "events": [{"id": "user signed up", "type": "events", "order": 1}],
-        #             "actions": [{"id": action_play_movie.pk, "type": "actions", "order": 2}],
-        #             "new_entities": [
-        #                 {"id": "first", "type": "new_entity", "order": 0},
-        #                 {"id": "last", "type": "new_entity", "order": 3},
-        #             ],
-        #             "funnel_window_days": 14,
-        #         }
-        #     )
+            funnel = self._basic_funnel(
+                filters={
+                    "events": [{"id": "user signed up", "type": "events", "order": 1}],
+                    "actions": [{"id": action_play_movie.pk, "type": "actions", "order": 2}],
+                    "new_entities": [
+                        {"id": "first", "type": "new_entity", "order": 0},
+                        {"id": "last", "type": "new_entity", "order": 3},
+                    ],
+                    "funnel_window_days": 14,
+                }
+            )
 
-        #     # events
-        #     person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="stopped_after_signup")
+            # events
+            person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
+            self._signup_event(distinct_id="stopped_after_signup")
 
-        #     person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="stopped_after_pay")
-        #     self._movie_event(distinct_id="completed_movie")
+            person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
+            self._signup_event(distinct_id="stopped_after_pay")
+            self._movie_event(distinct_id="completed_movie")
 
-        #     person_factory(
-        #         distinct_ids=["had_anonymous_id", "completed_movie"],
-        #         team_id=self.team.pk,
-        #     )
-        #     self._signup_event(distinct_id="had_anonymous_id")
-        #     self._movie_event(distinct_id="completed_movie")
+            person_factory(
+                distinct_ids=["had_anonymous_id", "completed_movie"],
+                team_id=self.team.pk,
+            )
+            self._signup_event(distinct_id="had_anonymous_id")
+            self._movie_event(distinct_id="completed_movie")
 
-        #     person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
-        #     self._movie_event(distinct_id="just_did_movie")
+            person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
+            self._movie_event(distinct_id="just_did_movie")
 
-        #     person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
-        #     self._movie_event(distinct_id="wrong_order")
-        #     self._signup_event(distinct_id="wrong_order")
+            person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
+            self._movie_event(distinct_id="wrong_order")
+            self._signup_event(distinct_id="wrong_order")
 
-        #     result = funnel.calculate().results
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 4)
+            result = funnel.calculate().results
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 4)
 
-        #     self.assertEqual(result[1]["name"], "watched movie")
-        #     self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[1]["name"], "watched movie")
+            self.assertEqual(result[1]["count"], 1)
 
+        # TODO: less than two series items are not supported in hogql funnels
         # def test_funnel_no_events(self):
         #     funnel = Funnel(filter=Filter(data={"some": "prop"}), team=self.team)
         #     self.assertEqual(funnel.run(), [])
 
-        # def test_funnel_skipped_step(self):
-        #     funnel = self._basic_funnel()
+        def test_funnel_skipped_step(self):
+            funnel = self._basic_funnel()
 
-        #     person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="wrong_order")
-        #     self._movie_event(distinct_id="wrong_order")
+            person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
+            self._signup_event(distinct_id="wrong_order")
+            self._movie_event(distinct_id="wrong_order")
 
-        #     result = funnel.calculate().results
-        #     self.assertEqual(result[1]["count"], 0)
-        #     self.assertEqual(result[2]["count"], 0)
+            result = funnel.calculate().results
+            self.assertEqual(result[1]["count"], 0)
+            self.assertEqual(result[2]["count"], 0)
 
-        # @also_test_with_materialized_columns(["$browser"])
-        # def test_funnel_prop_filters(self):
-        #     funnel = self._basic_funnel(properties={"$browser": "Safari"})
+        @also_test_with_materialized_columns(["$browser"])
+        def test_funnel_prop_filters(self):
+            funnel = self._basic_funnel(properties={"$browser": "Safari"})
 
-        #     # events
-        #     person_factory(distinct_ids=["with_property"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="with_property", properties={"$browser": "Safari"})
-        #     self._pay_event(distinct_id="with_property", properties={"$browser": "Safari"})
+            # events
+            person_factory(distinct_ids=["with_property"], team_id=self.team.pk)
+            self._signup_event(distinct_id="with_property", properties={"$browser": "Safari"})
+            self._pay_event(distinct_id="with_property", properties={"$browser": "Safari"})
 
-        #     # should not add a count
-        #     person_factory(distinct_ids=["without_property"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="without_property")
-        #     self._pay_event(distinct_id="without_property")
+            # should not add a count
+            person_factory(distinct_ids=["without_property"], team_id=self.team.pk)
+            self._signup_event(distinct_id="without_property")
+            self._pay_event(distinct_id="without_property")
 
-        #     # will add to first step
-        #     person_factory(distinct_ids=["half_property"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
-        #     self._pay_event(distinct_id="half_property")
+            # will add to first step
+            person_factory(distinct_ids=["half_property"], team_id=self.team.pk)
+            self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
+            self._pay_event(distinct_id="half_property")
 
-        #     result = funnel.calculate().results
-        #     self.assertEqual(result[0]["count"], 2)
-        #     self.assertEqual(result[1]["count"], 1)
+            result = funnel.calculate().results
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[1]["count"], 1)
 
-        # @also_test_with_materialized_columns(["$browser"])
-        # def test_funnel_prop_filters_per_entity(self):
-        #     action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
-        #     ActionStep.objects.create(
-        #         action=action_credit_card,
-        #         event="$autocapture",
-        #         tag_name="button",
-        #         text="Pay $10",
-        #     )
-        #     action_play_movie = Action.objects.create(team_id=self.team.pk, name="watched movie")
-        #     ActionStep.objects.create(
-        #         action=action_play_movie,
-        #         event="$autocapture",
-        #         tag_name="a",
-        #         href="/movie",
-        #     )
-        #     filters = {
-        #         "events": [
-        #             {
-        #                 "id": "user signed up",
-        #                 "type": "events",
-        #                 "order": 0,
-        #                 "properties": [
-        #                     {"key": "$browser", "value": "Safari"},
-        #                     {
-        #                         "key": "$browser",
-        #                         "operator": "is_not",
-        #                         "value": "Chrome",
-        #                     },
-        #                 ],
-        #             }
-        #         ],
-        #         "actions": [
-        #             {
-        #                 "id": action_credit_card.pk,
-        #                 "type": "actions",
-        #                 "order": 1,
-        #                 "properties": [{"key": "$browser", "value": "Safari"}],
-        #             },
-        #             {
-        #                 "id": action_play_movie.pk,
-        #                 "type": "actions",
-        #                 "order": 2,
-        #                 "properties": [{"key": "$browser", "value": "Firefox"}],
-        #             },
-        #         ],
-        #         "funnel_window_days": 14,
-        #     }
-        #     funnel = self._basic_funnel(filters=filters)
+        @also_test_with_materialized_columns(["$browser"])
+        def test_funnel_prop_filters_per_entity(self):
+            action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
+            ActionStep.objects.create(
+                action=action_credit_card,
+                event="$autocapture",
+                tag_name="button",
+                text="Pay $10",
+            )
+            action_play_movie = Action.objects.create(team_id=self.team.pk, name="watched movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
+            filters = {
+                "events": [
+                    {
+                        "id": "user signed up",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [
+                            {"key": "$browser", "value": "Safari"},
+                            {
+                                "key": "$browser",
+                                "operator": "is_not",
+                                "value": "Chrome",
+                            },
+                        ],
+                    }
+                ],
+                "actions": [
+                    {
+                        "id": action_credit_card.pk,
+                        "type": "actions",
+                        "order": 1,
+                        "properties": [{"key": "$browser", "value": "Safari"}],
+                    },
+                    {
+                        "id": action_play_movie.pk,
+                        "type": "actions",
+                        "order": 2,
+                        "properties": [{"key": "$browser", "value": "Firefox"}],
+                    },
+                ],
+                "funnel_window_days": 14,
+            }
+            funnel = self._basic_funnel(filters=filters)
 
-        #     # events
-        #     person_factory(
-        #         distinct_ids=["with_property"],
-        #         team_id=self.team.pk,
-        #         properties={"$browser": "Safari"},
-        #     )
-        #     self._signup_event(distinct_id="with_property", properties={"$browser": "Safari"})
-        #     self._pay_event(distinct_id="with_property", properties={"$browser": "Safari"})
-        #     self._movie_event(distinct_id="with_property")
+            # events
+            person_factory(
+                distinct_ids=["with_property"],
+                team_id=self.team.pk,
+                properties={"$browser": "Safari"},
+            )
+            self._signup_event(distinct_id="with_property", properties={"$browser": "Safari"})
+            self._pay_event(distinct_id="with_property", properties={"$browser": "Safari"})
+            self._movie_event(distinct_id="with_property")
 
-        #     # should not add a count
-        #     person_factory(distinct_ids=["without_property"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="without_property")
-        #     self._pay_event(distinct_id="without_property", properties={"$browser": "Safari"})
+            # should not add a count
+            person_factory(distinct_ids=["without_property"], team_id=self.team.pk)
+            self._signup_event(distinct_id="without_property")
+            self._pay_event(distinct_id="without_property", properties={"$browser": "Safari"})
 
-        #     # will add to first step
-        #     person_factory(distinct_ids=["half_property"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="half_property")
-        #     self._pay_event(distinct_id="half_property")
-        #     self._movie_event(distinct_id="half_property")
+            # will add to first step
+            person_factory(distinct_ids=["half_property"], team_id=self.team.pk)
+            self._signup_event(distinct_id="half_property")
+            self._pay_event(distinct_id="half_property")
+            self._movie_event(distinct_id="half_property")
 
-        #     result = funnel.calculate().results
+            result = funnel.calculate().results
 
-        #     self.assertEqual(result[0]["count"], 1)
-        #     self.assertEqual(result[1]["count"], 1)
-        #     self.assertEqual(result[2]["count"], 0)
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 0)
 
         # @also_test_with_materialized_columns(person_properties=["email"])
         # def test_funnel_person_prop(self):

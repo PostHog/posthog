@@ -92,7 +92,7 @@
                           FROM person_overrides
                           WHERE equals(person_overrides.team_id, 2)
                           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-                       WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2011-12-25 03:21:34.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('user signed up', '$autocapture')))))))
+                       WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2011-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('user signed up', '$autocapture')))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
