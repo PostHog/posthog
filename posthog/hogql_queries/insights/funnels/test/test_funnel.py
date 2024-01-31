@@ -134,9 +134,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 filters.update({"properties": properties})
 
             filters["insight"] = INSIGHT_FUNNELS
-            # filter = Filter(data=filters, team=self.team)
 
-            # query = filter_to_query(filter.to_dict())
             query = filter_to_query(filters)
             return FunnelsQueryRunner(query=query, team=self.team)
 
@@ -587,74 +585,68 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 1)
 
-        # @also_test_with_materialized_columns(["test_propX"])
-        # def test_funnel_multiple_actions(self):
-        #     # we had an issue on clickhouse where multiple actions with different property filters would incorrectly grab only the last
-        #     # properties.
-        #     # This test prevents a regression
-        #     person_factory(distinct_ids=["person1"], team_id=self.team.pk)
-        #     event_factory(distinct_id="person1", event="event1", team=self.team)
-        #     event_factory(
-        #         distinct_id="person1",
-        #         event="event2",
-        #         properties={"test_propX": "a"},
-        #         team=self.team,
-        #     )
+        @also_test_with_materialized_columns(["test_propX"])
+        def test_funnel_multiple_actions(self):
+            # we had an issue on clickhouse where multiple actions with different property filters would incorrectly grab only the last
+            # properties.
+            # This test prevents a regression
+            person_factory(distinct_ids=["person1"], team_id=self.team.pk)
+            event_factory(distinct_id="person1", event="event1", team=self.team)
+            event_factory(
+                distinct_id="person1",
+                event="event2",
+                properties={"test_propX": "a"},
+                team=self.team,
+            )
 
-        #     action1 = Action.objects.create(team_id=self.team.pk, name="event2")
-        #     ActionStep.objects.create(
-        #         action=action1,
-        #         event="event2",
-        #         properties=[{"key": "test_propX", "value": "a"}],
-        #     )
-        #     action2 = Action.objects.create(team_id=self.team.pk, name="event2")
-        #     ActionStep.objects.create(
-        #         action=action2,
-        #         event="event2",
-        #         properties=[{"key": "test_propX", "value": "c"}],
-        #     )
+            action1 = Action.objects.create(team_id=self.team.pk, name="event2")
+            ActionStep.objects.create(
+                action=action1,
+                event="event2",
+                properties=[{"key": "test_propX", "value": "a"}],
+            )
+            action2 = Action.objects.create(team_id=self.team.pk, name="event2")
+            ActionStep.objects.create(
+                action=action2,
+                event="event2",
+                properties=[{"key": "test_propX", "value": "c"}],
+            )
 
-        #     result = Funnel(
-        #         filter=Filter(
-        #             data={
-        #                 "events": [{"id": "event1", "order": 0}],
-        #                 "actions": [
-        #                     {"id": action1.pk, "order": 1},
-        #                     {"id": action2.pk, "order": 2},
-        #                 ],
-        #                 "insight": INSIGHT_FUNNELS,
-        #                 "funnel_window_days": 14,
-        #             }
-        #         ),
-        #         team=self.team,
-        #     ).run()
-        #     self.assertEqual(result[0]["count"], 1)
-        #     self.assertEqual(result[1]["count"], 1)
-        #     self.assertEqual(result[2]["count"], 0)
+            filter = {
+                "events": [{"id": "event1", "order": 0}],
+                "actions": [
+                    {"id": action1.pk, "order": 1},
+                    {"id": action2.pk, "order": 2},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
+            }
+            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
 
-        # @also_test_with_materialized_columns(person_properties=["email"])
-        # def test_funnel_filter_test_accounts(self):
-        #     person_factory(
-        #         distinct_ids=["person1"],
-        #         team_id=self.team.pk,
-        #         properties={"email": "test@posthog.com"},
-        #     )
-        #     person_factory(distinct_ids=["person2"], team_id=self.team.pk)
-        #     event_factory(distinct_id="person1", event="event1", team=self.team)
-        #     event_factory(distinct_id="person2", event="event1", team=self.team)
-        #     result = Funnel(
-        #         filter=Filter(
-        #             data={
-        #                 "events": [{"id": "event1", "order": 0}],
-        #                 "insight": INSIGHT_FUNNELS,
-        #                 FILTER_TEST_ACCOUNTS: True,
-        #                 "funnel_window_days": 14,
-        #             },
-        #             team=self.team,
-        #         ),
-        #         team=self.team,
-        #     ).run()
-        #     self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 0)
+
+        @also_test_with_materialized_columns(person_properties=["email"])
+        def test_funnel_filter_test_accounts(self):
+            person_factory(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"email": "test@posthog.com"},
+            )
+            person_factory(distinct_ids=["person2"], team_id=self.team.pk)
+            event_factory(distinct_id="person1", event="event1", team=self.team)
+            event_factory(distinct_id="person2", event="event1", team=self.team)
+
+            filter = {
+                "events": [{"id": "event1", "order": 0}, {"id": "event1", "order": 1}],
+                "insight": INSIGHT_FUNNELS,
+                "filter_test_accounts": True,
+                "funnel_window_days": 14,
+            }
+            result = FunnelsQueryRunner(query=filter_to_query(filter), team=self.team).calculate().results
+
+            self.assertEqual(result[0]["count"], 1)
 
         # @also_test_with_materialized_columns(person_properties=["email"])
         # def test_funnel_with_entity_person_property_filters(self):
