@@ -52,14 +52,20 @@ describe('sessionRecordingDataLogic', () => {
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     } else if (req.url.searchParams.get('source') === 'realtime') {
+                        if (req.params.id === 'has-only-empty-realtime') {
+                            return res(ctx.json({ snapshots: [] }))
+                        }
                         // ... since this is fake, we'll just return the same data in the right format
                         return res(ctx.json(snapshotsAsRealTimeJSONPayload()))
                     }
 
                     // with no source requested should return sources
-                    const sources = [BLOB_SOURCE]
+                    let sources = [BLOB_SOURCE]
                     if (req.params.id === 'has-real-time-too') {
                         sources.push(REALTIME_SOURCE)
+                    }
+                    if (req.params.id === 'has-only-empty-realtime') {
+                        sources = [REALTIME_SOURCE]
                     }
                     return [
                         200,
@@ -391,6 +397,30 @@ describe('sessionRecordingDataLogic', () => {
             await waitForExpect(() => {
                 expect(logic.cache.realTimePollingTimeoutID).toBeNull()
             })
+        })
+    })
+
+    describe('empty realtime loading', () => {
+        beforeEach(async () => {
+            logic = sessionRecordingDataLogic({
+                sessionRecordingId: 'has-only-empty-realtime',
+                // we don't want to wait for the default real time polling interval in tests
+                realTimePollingIntervalMilliseconds: 10,
+            })
+            logic.mount()
+            // Most of these tests assume the metadata is being loaded upfront which is the typical case
+            logic.actions.loadRecordingMeta()
+        })
+
+        it('should start polling even though realtime is empty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
+            }).toDispatchActions([
+                'loadRecordingSnapshotsSuccess',
+                'startRealTimePolling',
+                'pollRecordingSnapshots',
+                'pollRecordingSnapshotsSuccess',
+            ])
         })
     })
 })
