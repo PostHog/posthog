@@ -144,47 +144,48 @@ export function Group(): JSX.Element {
                                             an <code>id</code> property.
                                         </LemonBanner>
                                     </div>
-                                ) : null}
-                                <div className="SessionRecordingPlaylistHeightWrapper">
-                                    <SessionRecordingsPlaylist
-                                        logicKey="groups-recordings"
-                                        updateSearchParams
-                                        filters={{
-                                            events: [
-                                                {
-                                                    type: 'events',
-                                                    order: 0,
-                                                    name: 'All events',
-                                                    properties: [
-                                                        {
-                                                            key: 'id',
-                                                            value: [groupData.group_properties?.id],
-                                                            operator: 'exact',
-                                                            type: 'group',
-                                                            group_type_index: groupData.group_type_index,
-                                                        },
-                                                    ],
-                                                },
-                                            ],
-                                        }}
-                                        onFiltersChange={(filters) => {
-                                            const stillHasGroupFilter = filters.events?.some((event) => {
-                                                return event.properties.some(
-                                                    (prop) =>
-                                                        prop.type === 'group' &&
-                                                        prop.group_type_index === groupData.group_type_index &&
-                                                        prop.key === 'id'
-                                                )
-                                            })
-                                            if (!stillHasGroupFilter) {
-                                                lemonToast.warning(
-                                                    'Group filter removed. Please add it back to see recordings for this group.',
-                                                    { autoClose: 10000 }
-                                                )
-                                            }
-                                        }}
-                                    />
-                                </div>
+                                ) : (
+                                    <div className="SessionRecordingPlaylistHeightWrapper">
+                                        <SessionRecordingsPlaylist
+                                            logicKey="groups-recordings"
+                                            updateSearchParams
+                                            filters={{
+                                                events: [
+                                                    {
+                                                        type: 'events',
+                                                        order: 0,
+                                                        name: 'All events',
+                                                        properties: [
+                                                            {
+                                                                key: 'id',
+                                                                value: [groupData.group_properties?.id],
+                                                                operator: 'exact',
+                                                                type: 'group',
+                                                                group_type_index: groupData.group_type_index,
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            }}
+                                            onFiltersChange={(filters) => {
+                                                const stillHasGroupFilter = filters.events?.some((event) => {
+                                                    return event.properties.some(
+                                                        (prop: Record<string, any>) =>
+                                                            prop.type === 'group' &&
+                                                            prop.group_type_index === groupData.group_type_index &&
+                                                            prop.key === 'id'
+                                                    )
+                                                })
+                                                if (!stillHasGroupFilter) {
+                                                    lemonToast.warning(
+                                                        'Group filter removed. Please add it back to see recordings for this group.',
+                                                        { autoClose: 10000 }
+                                                    )
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                )}
                             </>
                         ),
                     },
