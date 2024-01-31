@@ -34,7 +34,7 @@ export function DashboardReloadAction(): JSX.Element {
     const options = intervalOptions.map((option) => {
         return {
             ...option,
-            disabledReason: !autoRefresh.enabled && '',
+            disabledReason: !autoRefresh.enabled ? 'Enable auto refresh before setting the interval' : undefined,
         }
     })
 
@@ -84,7 +84,6 @@ export function DashboardReloadAction(): JSX.Element {
                                         <LemonRadio
                                             value={autoRefresh.interval}
                                             options={options}
-                                            disabled={!autoRefresh.enabled}
                                             onChange={(value: number) => {
                                                 setAutoRefresh(true, value)
                                             }}

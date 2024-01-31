@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export interface LemonRadioOption<T extends React.Key> {
     label: string | JSX.Element
@@ -23,28 +24,32 @@ export function LemonRadio<T extends React.Key>({
     return (
         <div className={clsx('flex flex-col gap-2', fullWidth && 'w-full')}>
             {options.map((option) => (
-                <div
+                <Tooltip
+                    trigger="hover"
                     key={option.value}
-                    className={clsx(
-                        'flex items-center space-x-1',
-                        option.disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer'
-                    )}
-                    onClick={() => !!option.disabledReason && onChange(option.value)}
+                    title={option.disabledReason}
+                    visible={!!option.disabledReason}
                 >
-                    <input
-                        type="radio"
-                        checked={option.value === value}
-                        name={String(option.value)}
-                        value={option.value}
-                    />
-                    <label htmlFor={String(option.value)}>{option.label}</label>
-                    {/* {option.value === value ? (
-                        <IconCheckmark className={clsx('text-lg', !disabled && 'text-primary-3000')} />
-                    ) : (
-                        <IconRadioButtonUnchecked className={clsx('text-lg', !disabled && 'hover:text-primary-3000')} />
-                    )}
-                    <span>{option.label}</span> */}
-                </div>
+                    <label
+                        className={clsx(
+                            'flex items-center space-x-1',
+                            option.disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer'
+                        )}
+                    >
+                        <input
+                            type="radio"
+                            checked={option.value === value}
+                            value={option.value}
+                            onClick={() => {
+                                if (!option.disabledReason) {
+                                    onChange(option.value)
+                                }
+                            }}
+                            disabled={!!option.disabledReason}
+                        />
+                        <span>{option.label}</span>
+                    </label>
+                </Tooltip>
             ))}
         </div>
     )

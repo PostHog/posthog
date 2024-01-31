@@ -45,5 +45,9 @@ FullWidth.args = {
 
 export const Disabled: Story = Template.bind({})
 Disabled.args = {
-    disabledReason: '🤷‍♂️',
+    options: [
+        { value: 'calendar', label: 'Calendar' },
+        { value: 'calculator', label: 'Calculator' },
+        { value: 'banana', label: 'Banana', disabledReason: 'Bananas are not allowed' },
+    ],
 }
