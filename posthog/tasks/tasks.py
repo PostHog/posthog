@@ -656,7 +656,7 @@ def clickhouse_mark_all_materialized() -> None:
             mark_all_materialized()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS)
+@shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
 def send_org_usage_reports() -> None:
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
