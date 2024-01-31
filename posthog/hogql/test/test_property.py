@@ -242,7 +242,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "ifNull(not(match(properties.a, 'b')), false) and ifNull(not(match(properties.a, 'c')), true)"
+                "ifNull(not(match(properties.a, 'b')), true) and ifNull(not(match(properties.a, 'c')), true)"
             ),
         )
 
