@@ -144,7 +144,7 @@ class ExternalDataJobInputs:
 
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
-    model: ExternalDataJob = await get_external_data_job(  # type: ignore
+    model: ExternalDataJob = await get_external_data_job(
         job_id=inputs.run_id,
     )
 
