@@ -363,8 +363,8 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
 
         assert mock_get_columns.call_count == 10
         assert (
-            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 5
-        )  # type: ignore
+            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 5  # type: ignore
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -387,7 +387,7 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
         rows_synced=0,
     )
 
-    old_credential = await sync_to_async(DataWarehouseCredential.objects.create)(
+    old_credential = await sync_to_async(DataWarehouseCredential.objects.create)(  # type: ignore
         team=team,
         access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
@@ -395,7 +395,7 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
 
     url_pattern = await sync_to_async(old_job.url_pattern_by_schema)("test-1")
 
-    await sync_to_async(DataWarehouseTable.objects.create)(
+    await sync_to_async(DataWarehouseTable.objects.create)(  # type: ignore
         credential=old_credential,
         name="stripe_test-1",
         format="Parquet",
@@ -424,14 +424,14 @@ async def test_validate_schema_and_update_table_activity_with_existing(activity_
 
         assert mock_get_columns.call_count == 10
         assert (
-            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 5
-        )  # type: ignore
+            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 5  # type: ignore
+        )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_validate_schema_and_update_table_activity_half_run(activity_environment, team, **kwargs):
-    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(  # type: ignore
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
         destination_id=uuid.uuid4(),
@@ -439,7 +439,7 @@ async def test_validate_schema_and_update_table_activity_half_run(activity_envir
         status="running",
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+    )
 
     new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
         team_id=team.id,
@@ -452,7 +452,7 @@ async def test_validate_schema_and_update_table_activity_half_run(activity_envir
         "posthog.warehouse.data_load.validate_schema.validate_schema",
     ) as mock_validate, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
         mock_get_columns.return_value = {"id": "string"}
-        credential = await sync_to_async(DataWarehouseCredential.objects.create)(
+        credential = await sync_to_async(DataWarehouseCredential.objects.create)(  # type: ignore
             team=team,
             access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
@@ -476,8 +476,8 @@ async def test_validate_schema_and_update_table_activity_half_run(activity_envir
 
         assert mock_get_columns.call_count == 1
         assert (
-            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 1
-        )  # type: ignore
+            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 1  # type: ignore
+        )
 
 
 @pytest.mark.django_db(transaction=True)

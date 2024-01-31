@@ -31,7 +31,7 @@ async def validate_schema(
     }
 
     table = DataWarehouseTable(**params)
-    table.columns = await sync_to_async(table.get_columns)(safe_expose_ch_error=False)
+    table.columns = await sync_to_async(table.get_columns)(safe_expose_ch_error=False)  # type: ignore
 
     return {
         "credential": credential,
