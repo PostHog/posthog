@@ -277,51 +277,51 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 self.assertEqual(result[2]["name"], "watched movie")
                 self.assertEqual(result[2]["count"], 1)
 
-        # def test_funnel_with_messed_up_order(self):
-        #     action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-        #     ActionStep.objects.create(
-        #         action=action_play_movie,
-        #         event="$autocapture",
-        #         tag_name="a",
-        #         href="/movie",
-        #     )
+        def test_funnel_with_messed_up_order(self):
+            action_play_movie = Action.objects.create(team=self.team, name="watched movie")
+            ActionStep.objects.create(
+                action=action_play_movie,
+                event="$autocapture",
+                tag_name="a",
+                href="/movie",
+            )
 
-        #     funnel = self._basic_funnel(
-        #         filters={
-        #             "events": [{"id": "user signed up", "type": "events", "order": 0}],
-        #             "actions": [{"id": action_play_movie.pk, "type": "actions", "order": 2}],
-        #             "funnel_window_days": 14,
-        #         }
-        #     )
+            funnel = self._basic_funnel(
+                filters={
+                    "events": [{"id": "user signed up", "type": "events", "order": 0}],
+                    "actions": [{"id": action_play_movie.pk, "type": "actions", "order": 2}],
+                    "funnel_window_days": 14,
+                }
+            )
 
-        #     # events
-        #     person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="stopped_after_signup")
+            # events
+            person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
+            self._signup_event(distinct_id="stopped_after_signup")
 
-        #     person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="stopped_after_pay")
-        #     self._movie_event(distinct_id="completed_movie")
+            person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
+            self._signup_event(distinct_id="stopped_after_pay")
+            self._movie_event(distinct_id="completed_movie")
 
-        #     person_factory(
-        #         distinct_ids=["had_anonymous_id", "completed_movie"],
-        #         team_id=self.team.pk,
-        #     )
-        #     self._signup_event(distinct_id="had_anonymous_id")
-        #     self._movie_event(distinct_id="completed_movie")
+            person_factory(
+                distinct_ids=["had_anonymous_id", "completed_movie"],
+                team_id=self.team.pk,
+            )
+            self._signup_event(distinct_id="had_anonymous_id")
+            self._movie_event(distinct_id="completed_movie")
 
-        #     person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
-        #     self._movie_event(distinct_id="just_did_movie")
+            person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
+            self._movie_event(distinct_id="just_did_movie")
 
-        #     person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
-        #     self._movie_event(distinct_id="wrong_order")
-        #     self._signup_event(distinct_id="wrong_order")
+            person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
+            self._movie_event(distinct_id="wrong_order")
+            self._signup_event(distinct_id="wrong_order")
 
-        #     result = funnel.calculate().results
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 4)
+            result = funnel.calculate().results
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 4)
 
-        #     self.assertEqual(result[1]["name"], "watched movie")
-        #     self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[1]["name"], "watched movie")
+            self.assertEqual(result[1]["count"], 1)
 
         # def test_funnel_with_any_event(self):
         #     funnel = self._basic_funnel(
