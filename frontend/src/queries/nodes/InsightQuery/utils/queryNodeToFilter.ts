@@ -185,7 +185,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
             ? queryCopy.funnelsFilter.exclusions.map(({ funnelFromStep, funnelToStep, ...rest }) => ({
                   funnel_from_step: funnelFromStep,
                   funnel_to_step: funnelToStep,
-                  ...rest,
+                  ...seriesNodeToFilter(rest),
               }))
             : undefined
         camelCasedFunnelsProps.bin_count = queryCopy.funnelsFilter?.binCount
