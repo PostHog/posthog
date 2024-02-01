@@ -30,4 +30,4 @@ try:
 except Exception:
     print(  # noqa: T201 - print is fine here
         "Error parsing REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS, must be comma separated list of integers"
-    )  # noqa: T201 - print is fine here
+    )
