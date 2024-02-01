@@ -60,7 +60,7 @@ class TestQuotaLimiting(BaseTest):
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
             self.organization.id,
             groups={"organization": str(self.organization.id)},
-            group_properties={"organization": str(self.organization.id)},
+            group_properties={"organization": {"id": str(self.organization.id)}},
         )
         patch_capture.assert_called_once_with(
             str(self.organization.id),
