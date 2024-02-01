@@ -73,8 +73,9 @@ export function OperatorValueSelect({
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
     // DateTime properties should not default to Exact
+    const isDateTimeProperty = propertyDefinition?.property_type == PropertyType.DateTime
     const startingOperator =
-        propertyDefinition?.property_type == PropertyType.DateTime && (!operator || operator == PropertyOperator.Exact)
+        isDateTimeProperty && (!operator || operator == PropertyOperator.Exact)
             ? PropertyOperator.IsDateExact
             : operator || PropertyOperator.Exact
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
@@ -90,8 +91,9 @@ export function OperatorValueSelect({
         setOperators(operators)
         if (currentOperator !== operator) {
             setCurrentOperator(startingOperator)
-        } else if (limitedElementProperty && !operators.includes(currentOperator)) {
-            setCurrentOperator(PropertyOperator.Exact)
+        } else if (!operators.includes(currentOperator)) {
+            // Whenever the property type changes such that the operator is not compatible, we need to reset the operator
+            setCurrentOperator(isDateTimeProperty ? PropertyOperator.IsDateExact : PropertyOperator.Exact)
         }
     }, [propertyDefinition, propkey, operator])
 

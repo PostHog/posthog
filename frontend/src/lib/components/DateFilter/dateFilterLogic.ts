@@ -95,15 +95,29 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 ),
         ],
         label: [
-            (s) => [s.dateFrom, s.dateTo, s.isFixedRange, s.isDateToNow, s.isFixedDate, s.dateOptions],
-            (dateFrom, dateTo, isFixedRange, isDateToNow, isFixedDate, dateOptions) =>
+            (s) => [
+                s.dateFrom,
+                s.dateTo,
+                s.isFixedRange,
+                s.isDateToNow,
+                s.isFixedDate,
+                s.dateOptions,
+                (_, p) => p.isFixedDateMode,
+            ],
+            (dateFrom, dateTo, isFixedRange, isDateToNow, isFixedDate, dateOptions, isFixedDateMode) =>
                 isFixedRange
                     ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
                     ? `${formatDate(dayjs(dateFrom))} to now`
                     : isFixedDate
                     ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
-                    : dateFilterToText(dateFrom, dateTo, CUSTOM_OPTION_VALUE, dateOptions, false),
+                    : dateFilterToText(
+                          dateFrom,
+                          dateTo,
+                          isFixedDateMode ? 'Select a value' : CUSTOM_OPTION_VALUE,
+                          dateOptions,
+                          false
+                      ),
         ],
     }),
     listeners(({ actions, values, props }) => ({
