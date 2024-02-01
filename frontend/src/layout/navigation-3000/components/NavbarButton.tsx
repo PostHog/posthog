@@ -21,7 +21,7 @@ export interface NavbarButtonProps extends Pick<LemonButtonProps, 'onClick' | 'i
     title?: string | ReactElement
     shortTitle?: string
     forceTooltipOnHover?: boolean
-    tag?: 'alpha' | 'beta' | 'new'
+    tag?: string
     keyboardShortcut?: KeyboardShortcutProps
     sideAction?: NavbarItem['sideAction']
 }
