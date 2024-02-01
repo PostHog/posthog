@@ -236,12 +236,16 @@ class ClickhouseTrendExperimentResult:
         exposure_counts = {}
         exposure_ratios = {}
 
+        # :TRICKY: With count per user aggregation, our exposure filter is implicit:
+        # (1) We calculate the unique users for this event -> this is the exposure
+        # (2) We calculate the total count of this event -> this is the trend goal metric / arrival rate for probability calculation
+        # TODO: When we support group aggregation per user, change this.
         if uses_math_aggregation_by_user_or_property_value(self.query_filter):
             filtered_exposure_results = [
                 result for result in exposure_results if result["action"]["math"] == UNIQUE_USERS
             ]
             filtered_insight_results = [
-                result for result in insight_results if result["action"]["math"] != UNIQUE_USERS
+                result for result in exposure_results if result["action"]["math"] != UNIQUE_USERS
             ]
         else:
             filtered_exposure_results = exposure_results
