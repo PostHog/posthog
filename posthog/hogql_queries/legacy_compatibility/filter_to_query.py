@@ -1,8 +1,10 @@
+from enum import Enum
 import json
 from typing import List, Dict, Literal
 from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     BreakdownFilter,
     ChartDisplayType,
     DateRange,
@@ -24,6 +26,21 @@ from posthog.schema import (
     TrendsQuery,
 )
 from posthog.types import InsightQueryNode
+
+
+class MathAvailability(str, Enum):
+    Unavailable = ("Unavailable",)
+    All = ("All",)
+    ActorsOnly = "ActorsOnly"
+
+
+actors_only_math_types = [
+    BaseMathType.dau,
+    BaseMathType.weekly_active,
+    BaseMathType.monthly_active,
+    Literal["unique_group"],
+    Literal["hogql"],
+]
 
 
 def is_property_with_operator(property: Dict):
@@ -116,7 +133,7 @@ def clean_display(display: str):
 
 
 def legacy_entity_to_node(
-    entity: LegacyEntity, include_properties: bool, include_math: bool
+    entity: LegacyEntity, include_properties: bool, math_availability: MathAvailability
 ) -> EventsNode | ActionsNode:
     """
     Takes a legacy entity and converts it into an EventsNode or ActionsNode.
@@ -132,14 +149,24 @@ def legacy_entity_to_node(
             "properties": clean_entity_properties(entity._data.get("properties", None)),
         }
 
-    if include_math:
-        shared = {
-            **shared,
-            "math": entity.math,
-            "math_property": entity.math_property,
-            "math_hogql": entity.math_hogql,
-            "math_group_type_index": entity.math_group_type_index,
-        }
+    if math_availability != MathAvailability.Unavailable:
+        #  only trends and stickiness insights support math.
+        #  transition to then default math for stickiness, when an unsupported math type is encountered.
+
+        if (
+            entity.math is not None
+            and math_availability == MathAvailability.ActorsOnly
+            and entity.math not in actors_only_math_types
+        ):
+            shared = {**shared, "math": BaseMathType.dau}
+        else:
+            shared = {
+                **shared,
+                "math": entity.math,
+                "math_property": entity.math_property,
+                "math_hogql": entity.math_hogql,
+                "math_group_type_index": entity.math_group_type_index,
+            }
 
     if entity.type == "actions":
         return ActionsNode(id=entity.id, **shared)
@@ -151,7 +178,9 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
     """
     Takes a legacy exclusion entity and converts it into an FunnelExclusionEventsNode or FunnelExclusionActionsNode.
     """
-    base_entity = legacy_entity_to_node(LegacyEntity(entity), include_properties=False, include_math=False)
+    base_entity = legacy_entity_to_node(
+        LegacyEntity(entity), include_properties=False, math_availability=MathAvailability.Unavailable
+    )
     if isinstance(base_entity, EventsNode):
         return FunnelExclusionEventsNode(
             **base_entity.model_dump(),
@@ -216,15 +245,17 @@ def _series(filter: Dict):
     if filter.get("events") is not None:
         filter["events"] = [event for event in filter.get("events") if not (isinstance(event, str))]
 
-    include_math = False
-    include_properties = True
+    math_availability: MathAvailability = MathAvailability.Unavailable
+    include_properties: bool = True
 
-    if _insight_type(filter) == "TRENDS" or _insight_type(filter) == "STICKINESS":
-        include_math = True
+    if _insight_type(filter) == "TRENDS":
+        math_availability = MathAvailability.All
+    elif _insight_type(filter) == "STICKINESS":
+        math_availability = MathAvailability.ActorsOnly
 
     return {
         "series": [
-            legacy_entity_to_node(entity, include_properties, include_math)
+            legacy_entity_to_node(entity, include_properties, math_availability)
             for entity in _entities(filter)
             if entity.id is not None
         ]

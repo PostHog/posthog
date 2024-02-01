@@ -80,7 +80,7 @@ type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFil
 export const legacyEntityToNode = (
     entity: ActionFilter,
     includeProperties: boolean,
-    includeMath: MathAvailability
+    mathAvailability: MathAvailability
 ): EventsNode | ActionsNode => {
     let shared: Partial<EventsNode | ActionsNode> = {
         name: entity.name || undefined,
@@ -91,12 +91,12 @@ export const legacyEntityToNode = (
         shared = { ...shared, properties: cleanProperties(entity.properties) } as any
     }
 
-    if (includeMath !== MathAvailability.None) {
+    if (mathAvailability !== MathAvailability.None) {
         // only trends and stickiness insights support math.
         // transition to then default math for stickiness, when an unsupported math type is encountered.
         if (
             entity.math &&
-            includeMath === MathAvailability.ActorsOnly &&
+            mathAvailability === MathAvailability.ActorsOnly &&
             !actorsOnlyMathTypes.includes(entity.math as any)
         ) {
             shared = {
