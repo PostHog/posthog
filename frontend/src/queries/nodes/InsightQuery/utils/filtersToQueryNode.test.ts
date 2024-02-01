@@ -1,4 +1,5 @@
 import { FunnelLayout, ShownAsValue } from 'lib/constants'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
     FunnelsQuery,
@@ -37,7 +38,12 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { cleanHiddenLegendIndexes, cleanHiddenLegendSeries, filtersToQueryNode, series } from './filtersToQueryNode'
+import {
+    actionsAndEventsToSeries,
+    cleanHiddenLegendIndexes,
+    cleanHiddenLegendSeries,
+    filtersToQueryNode,
+} from './filtersToQueryNode'
 
 describe('actionsAndEventsToSeries', () => {
     it('sorts series by order', () => {
@@ -47,7 +53,7 @@ describe('actionsAndEventsToSeries', () => {
             { id: '$autocapture', type: 'events', order: 2, name: 'item3' },
         ]
 
-        const result = series({ actions, events })
+        const result = actionsAndEventsToSeries({ actions, events }, false, MathAvailability.None)
 
         expect(result[0].name).toEqual('item1')
         expect(result[1].name).toEqual('item2')
@@ -61,7 +67,7 @@ describe('actionsAndEventsToSeries', () => {
             { id: '$autocapture', type: 'events', order: 2, name: 'item2' },
         ]
 
-        const result = series({ actions, events })
+        const result = actionsAndEventsToSeries({ actions, events }, false, MathAvailability.None)
 
         expect(result[0].name).toEqual('itemWithOrder')
         expect(result[1].name).toEqual('item1')
@@ -71,7 +77,7 @@ describe('actionsAndEventsToSeries', () => {
     it('assumes typeless series is an event series', () => {
         const events: ActionFilter[] = [{ id: '$pageview', order: 0, name: 'item1' } as any]
 
-        const result = series({ events })
+        const result = actionsAndEventsToSeries({ events }, false, MathAvailability.None)
 
         expect(result[0].kind === NodeKind.EventsNode)
     })
@@ -1090,7 +1096,6 @@ describe('filtersToQueryNode', () => {
                             },
                         ],
                         custom_name: 'Viewed homepage',
-                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.EventsNode,
@@ -1105,14 +1110,12 @@ describe('filtersToQueryNode', () => {
                             },
                         ],
                         custom_name: 'Viewed signup page',
-                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.EventsNode,
                         event: 'signed_up',
                         name: 'signed_up',
                         custom_name: 'Signed up',
-                        math: BaseMathType.TotalCount,
                     },
                 ],
                 filterTestAccounts: true,
@@ -1169,20 +1172,17 @@ describe('filtersToQueryNode', () => {
                         event: 'signed_up',
                         name: 'signed_up',
                         custom_name: 'Signed up',
-                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.ActionsNode,
                         id: 1,
                         name: 'Interacted with file',
-                        math: BaseMathType.TotalCount,
                     },
                     {
                         kind: NodeKind.EventsNode,
                         event: 'upgraded_plan',
                         name: 'upgraded_plan',
                         custom_name: 'Upgraded plan',
-                        math: BaseMathType.TotalCount,
                     },
                 ],
                 filterTestAccounts: true,
