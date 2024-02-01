@@ -241,7 +241,7 @@ class ClickhouseTrendExperimentResult:
                 result for result in exposure_results if result["action"]["math"] == UNIQUE_USERS
             ]
             filtered_insight_results = [
-                result for result in exposure_results if result["action"]["math"] != UNIQUE_USERS
+                result for result in insight_results if result["action"]["math"] != UNIQUE_USERS
             ]
         else:
             filtered_exposure_results = exposure_results
