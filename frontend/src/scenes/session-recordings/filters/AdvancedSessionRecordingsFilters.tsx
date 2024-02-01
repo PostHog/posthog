@@ -79,7 +79,7 @@ export const AdvancedSessionRecordingsFilters = ({
                 }}
                 typeKey="session-recordings"
                 mathAvailability={MathAvailability.None}
-                buttonCopy="Filter for events or actions"
+                buttonCopy="Add filter"
                 hideRename
                 hideDuplicate
                 showNestedArrow={false}
@@ -97,6 +97,7 @@ export const AdvancedSessionRecordingsFilters = ({
                     name: '$pageview',
                     type: EntityTypes.EVENTS,
                 }}
+                buttonProps={{ type: 'secondary', size: 'small' }}
             />
 
             {showPropertyFilters && (

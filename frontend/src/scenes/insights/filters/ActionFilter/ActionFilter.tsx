@@ -26,8 +26,9 @@ export interface ActionFilterProps {
     addFilterDefaultOptions?: Record<string, any>
     mathAvailability?: MathAvailability
     /** Text copy for the action button to add more events/actions (graph series) */
-    buttonCopy: string
+    buttonCopy?: string
     buttonType?: LemonButtonProps['type']
+    buttonProps?: LemonButtonProps
     /** Whether the full control is enabled or not */
     disabled?: boolean
     /** Bordered view */
@@ -80,6 +81,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         addFilterDefaultOptions = {},
         mathAvailability = MathAvailability.All,
         buttonCopy = '',
+        buttonProps = { type: 'tertiary', fullWidth: true },
         disabled = false,
         sortable = false,
         showSeriesIndicator = false,
@@ -214,7 +216,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             data-attr="add-action-event-button"
                             icon={<IconPlusMini />}
                             disabled={reachedLimit || disabled || readOnly}
-                            fullWidth
+                            {...buttonProps}
                         >
                             {!reachedLimit
                                 ? buttonCopy || 'Action or event'
