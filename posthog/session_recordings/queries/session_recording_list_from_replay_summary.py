@@ -18,6 +18,7 @@ from posthog.models.team import PersonOnEventsMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.session_recordings.queries.session_replay_events import ttl_days
+from posthog.utils import get_default_event_name
 
 
 @dataclasses.dataclass(frozen=True)
@@ -233,7 +234,7 @@ class ActorsQuery(EventQuery):
                         -- and then any time filter for the events query
                         {events_timestamp_clause}
                         and $session_id != ''
-                        and event = '$pageview') as load_fewer_rows
+                        and event = '{default_event}') as load_fewer_rows
             """
                 if self._team.pk in settings.REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS
                 else ""
@@ -684,7 +685,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             ) = session_id_events_query.get_events_timestamp_clause
             persons_select = (
                 f"AND s.distinct_id in (select distinct_id from ({persons_select}) as session_persons_sub_query)"
-            ).format(events_timestamp_clause=events_timestamp_clause)
+            ).format(events_timestamp_clause=events_timestamp_clause, default_event=get_default_event_name(self.team))
 
         return (
             self._session_recordings_query.format(
