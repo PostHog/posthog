@@ -155,7 +155,13 @@ export function PersonsModal({
 
                     {query &&
                         Object.entries(insightActorsQueryOptions ?? {})
-                            .filter(([, value]) => !!value)
+                            .filter(([, value]) => {
+                                if (Array.isArray(value)) {
+                                    return !!value.length
+                                }
+
+                                return !!value
+                            })
                             .map(([key, options]) => (
                                 <div key={key}>
                                     <LemonSelect
@@ -331,14 +337,16 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
-                            <CopyToClipboardInline
-                                explicitValue={actor.distinct_ids[0]}
-                                iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="end"
-                                className="text-xs text-muted-alt"
-                            >
-                                {midEllipsis(actor.distinct_ids[0], 32)}
-                            </CopyToClipboardInline>
+                            {actor.distinct_ids?.[0] && (
+                                <CopyToClipboardInline
+                                    explicitValue={actor.distinct_ids[0]}
+                                    iconStyle={{ color: 'var(--primary)' }}
+                                    iconPosition="end"
+                                    className="text-xs text-muted-alt"
+                                >
+                                    {midEllipsis(actor.distinct_ids[0], 32)}
+                                </CopyToClipboardInline>
+                            )}
                         </>
                     )}
                 </div>
