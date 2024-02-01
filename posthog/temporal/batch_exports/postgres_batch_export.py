@@ -200,7 +200,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
         fields.append({"expression": "''", "alias": "site_url"})
 
-        results_iterator = iter_records(
+        record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
@@ -265,17 +265,18 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     rows_exported.add(pg_file.records_since_last_reset)
                     bytes_exported.add(pg_file.bytes_since_last_reset)
 
-                for result in results_iterator:
-                    row = result
-                    # TODO: Get rid of elements.
-                    row["elements"] = json.dumps(row["elements"])
-                    pg_file.write_records_to_tsv(
-                        [row], fieldnames=schema_columns, quoting=csv.QUOTE_MINIMAL, escapechar=None
-                    )
+                for record_batch in record_iterator:
+                    for result in record_batch.to_pylist():
+                        row = result
+                        # TODO: Get rid of elements.
+                        row["elements"] = json.dumps(row["elements"])
+                        pg_file.write_records_to_tsv(
+                            [row], fieldnames=schema_columns, quoting=csv.QUOTE_MINIMAL, escapechar=None
+                        )
 
-                    if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
-                        await flush_to_postgres()
-                        pg_file.reset()
+                        if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
+                            await flush_to_postgres()
+                            pg_file.reset()
 
                 if pg_file.tell() > 0:
                     await flush_to_postgres()

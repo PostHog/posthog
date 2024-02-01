@@ -238,7 +238,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
         fields.append({"expression": "''", "alias": "site_url"})
 
-        results_iterator = iter_records(
+        record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
@@ -297,7 +297,10 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         async with postgres_connection(inputs) as connection:
             await insert_records_to_redshift(
-                (map_to_record(result) for result in results_iterator), connection, inputs.schema, inputs.table_name
+                (map_to_record(record) for record_batch in record_iterator for record in record_batch.to_pylist()),
+                connection,
+                inputs.schema,
+                inputs.table_name,
             )
 
 

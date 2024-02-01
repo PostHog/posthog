@@ -221,8 +221,7 @@ def iter_records(
         query_parameters = base_query_parameters
 
     for record_batch in client.stream_query_as_arrow(query, query_parameters=query_parameters):
-        for record in record_batch.to_pylist():
-            yield record
+        yield record_batch
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:

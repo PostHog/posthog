@@ -376,7 +376,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
         fields.append({"expression": "''", "alias": "site_url"})
 
-        results_iterator = iter_records(
+        record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
@@ -406,32 +406,37 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             asyncio.create_task(worker_shutdown_handler())
 
             with BatchExportTemporaryFile() as local_results_file:
-                for result in results_iterator:
-                    record = {
-                        "uuid": result["uuid"],
-                        "event": result["event"],
-                        "properties": json.loads(result["properties"]) if result["properties"] is not None else None,
-                        "elements": result["elements"],
-                        # For now, we are not passing in any custom fields, we update the alias for backwards compatibility.
-                        "people_set": json.loads(result["set"]) if result["set"] is not None else None,
-                        "people_set_once": json.loads(result["set_once"]) if result["set_once"] is not None else None,
-                        "distinct_id": result["distinct_id"],
-                        "team_id": result["team_id"],
-                        "ip": result["ip"],
-                        "site_url": result["site_url"],
-                        "timestamp": result["timestamp"],
-                    }
-                    local_results_file.write_records_to_jsonl([record])
+                for record_batch in record_iterator:
+                    for result in record_batch.to_pylist():
+                        record = {
+                            "uuid": result["uuid"],
+                            "event": result["event"],
+                            "properties": json.loads(result["properties"])
+                            if result["properties"] is not None
+                            else None,
+                            "elements": result["elements"],
+                            # For now, we are not passing in any custom fields, we update the alias for backwards compatibility.
+                            "people_set": json.loads(result["set"]) if result["set"] is not None else None,
+                            "people_set_once": json.loads(result["set_once"])
+                            if result["set_once"] is not None
+                            else None,
+                            "distinct_id": result["distinct_id"],
+                            "team_id": result["team_id"],
+                            "ip": result["ip"],
+                            "site_url": result["site_url"],
+                            "timestamp": result["timestamp"],
+                        }
+                        local_results_file.write_records_to_jsonl([record])
 
-                    if local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES:
-                        await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no)
+                        if local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES:
+                            await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no)
 
-                        last_inserted_at = result["_inserted_at"]
-                        file_no += 1
+                            last_inserted_at = result["_inserted_at"]
+                            file_no += 1
 
-                        activity.heartbeat(str(last_inserted_at), file_no)
+                            activity.heartbeat(str(last_inserted_at), file_no)
 
-                        local_results_file.reset()
+                            local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
                     await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no, last=True)

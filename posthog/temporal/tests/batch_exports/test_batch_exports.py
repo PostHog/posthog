@@ -222,12 +222,13 @@ async def test_iter_records(clickhouse_client):
 
     records = [
         record
-        for record in iter_records(
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
         )
+        for record in record_batch.to_pylist()
     ]
 
     assert_records_match_events(records, events)
@@ -253,12 +254,13 @@ async def test_iter_records_handles_duplicates(clickhouse_client):
 
     records = [
         record
-        for record in iter_records(
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
         )
+        for record in record_batch.to_pylist()
     ]
 
     assert_records_match_events(records, events)
@@ -286,13 +288,14 @@ async def test_iter_records_can_exclude_events(clickhouse_client):
     exclude_events = (event["event"] for event in events[5000:])
     records = [
         record
-        for record in iter_records(
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
             exclude_events=exclude_events,
         )
+        for record in record_batch.to_pylist()
     ]
 
     assert_records_match_events(records, events[:5000])
@@ -320,13 +323,14 @@ async def test_iter_records_can_include_events(clickhouse_client):
     include_events = (event["event"] for event in events[5000:])
     records = [
         record
-        for record in iter_records(
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
             include_events=include_events,
         )
+        for record in record_batch.to_pylist()
     ]
 
     assert_records_match_events(records, events[5000:])
@@ -358,12 +362,13 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
 
     records = [
         record
-        for record in iter_records(
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             inserted_at.isoformat(),
             data_interval_end.isoformat(),
         )
+        for record in record_batch.to_pylist()
     ]
 
     assert len(records) == 0
@@ -371,12 +376,13 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
     with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
         records = [
             record
-            for record in iter_records(
+            for record_batch in iter_records(
                 clickhouse_client,
                 team_id,
                 inserted_at.isoformat(),
                 data_interval_end.isoformat(),
             )
+            for record in record_batch.to_pylist()
         ]
 
     assert_records_match_events(records, events)
@@ -412,13 +418,14 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
 
     records = [
         record
-        for record in iter_records(
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
             fields=[field],
         )
+        for record in record_batch.to_pylist()
     ]
 
     all_expected = sorted(events, key=operator.itemgetter(field["expression"]))
@@ -459,7 +466,7 @@ async def test_iter_records_can_flatten_properties(clickhouse_client):
 
     records = [
         record
-        for record in iter_records(
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             data_interval_start.isoformat(),
@@ -471,6 +478,7 @@ async def test_iter_records_can_flatten_properties(clickhouse_client):
                 {"expression": "JSONExtractInt(properties, 'custom-property')", "alias": "custom_prop"},
             ],
         )
+        for record in record_batch.to_pylist()
     ]
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
@@ -505,7 +513,7 @@ async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
 
     records = [
         record
-        for record in iter_records(
+        for record_batch in iter_records(
             clickhouse_client,
             team_id,
             data_interval_start.isoformat(),
@@ -515,6 +523,7 @@ async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
             ],
             extra_query_parameters={"hogql_val_0": "custom"},
         )
+        for record in record_batch.to_pylist()
     ]
 
     for expected, record in zip(events, records):

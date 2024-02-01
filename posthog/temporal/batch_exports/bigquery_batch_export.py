@@ -166,7 +166,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
         fields.append({"expression": "''", "alias": "site_url"})
 
-        results_iterator = iter_records(
+        record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=data_interval_start,
@@ -239,25 +239,27 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     bytes_exported.add(jsonl_file.bytes_since_last_reset)
 
                 table_columns = [field.name for field in default_table_schema]
-                for result in results_iterator:
-                    row = {k: v for k, v in result.items() if k in table_columns}
 
-                    for json_column in json_columns:
-                        if json_column in row and (json_str := row.get(json_column, None)) is not None:
-                            row[json_column] = json.loads(json_str)
+                for record_batch in record_iterator:
+                    for result in record_batch.to_pylist():
+                        row = {k: v for k, v in result.items() if k in table_columns}
 
-                    row["bq_ingested_timestamp"] = dt.datetime.now(dt.timezone.utc)
+                        for json_column in json_columns:
+                            if json_column in row and (json_str := row.get(json_column, None)) is not None:
+                                row[json_column] = json.loads(json_str)
 
-                    jsonl_file.write_records_to_jsonl([row])
+                        row["bq_ingested_timestamp"] = dt.datetime.now(dt.timezone.utc)
 
-                    if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        await flush_to_bigquery()
+                        jsonl_file.write_records_to_jsonl([row])
 
-                        inserted_at = result["_inserted_at"]
-                        last_inserted_at = inserted_at.isoformat()
-                        activity.heartbeat(last_inserted_at)
+                        if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
+                            await flush_to_bigquery()
 
-                        jsonl_file.reset()
+                            inserted_at = result["_inserted_at"]
+                            last_inserted_at = inserted_at.isoformat()
+                            activity.heartbeat(last_inserted_at)
+
+                            jsonl_file.reset()
 
                 if jsonl_file.tell() > 0 and result is not None:
                     await flush_to_bigquery()

@@ -409,7 +409,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
         fields.append({"expression": "toString(person_id)", "alias": "person_id"})
 
-        results_iterator = iter_records(
+        record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=interval_start,
@@ -457,28 +457,31 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
-                for result in results_iterator:
-                    record = {
-                        "created_at": result["created_at"],
-                        "distinct_id": result["distinct_id"],
-                        "elements_chain": result["elements_chain"],
-                        "event": result["event"],
-                        "inserted_at": result["_inserted_at"],
-                        "person_id": result["person_id"],
-                        "person_properties": json.loads(result["person_properties"])
-                        if result["person_properties"] is not None
-                        else None,
-                        "properties": json.loads(result["properties"]) if result["properties"] is not None else None,
-                        "timestamp": result["timestamp"],
-                        "uuid": result["uuid"],
-                    }
+                for record_batch in record_iterator:
+                    for result in record_batch.to_pylist():
+                        record = {
+                            "created_at": result["created_at"],
+                            "distinct_id": result["distinct_id"],
+                            "elements_chain": result["elements_chain"],
+                            "event": result["event"],
+                            "inserted_at": result["_inserted_at"],
+                            "person_id": result["person_id"],
+                            "person_properties": json.loads(result["person_properties"])
+                            if result["person_properties"] is not None
+                            else None,
+                            "properties": json.loads(result["properties"])
+                            if result["properties"] is not None
+                            else None,
+                            "timestamp": result["timestamp"],
+                            "uuid": result["uuid"],
+                        }
 
-                    local_results_file.write_records_to_jsonl([record])
+                        local_results_file.write_records_to_jsonl([record])
 
-                    if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                        last_uploaded_part_timestamp = str(result["_inserted_at"])
-                        await flush_to_s3(last_uploaded_part_timestamp)
-                        local_results_file.reset()
+                        if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
+                            last_uploaded_part_timestamp = str(result["_inserted_at"])
+                            await flush_to_s3(last_uploaded_part_timestamp)
+                            local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
                     last_uploaded_part_timestamp = str(result["_inserted_at"])
