@@ -59,21 +59,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
         resetActors: () => true,
         closeModal: () => true,
         setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
-        loadActors: ({
+        loadActors: ({ url, clear, offset }: { url?: string | null; clear?: boolean; offset?: number }) => ({
             url,
             clear,
             offset,
-            additionalSelect,
-        }: {
-            url?: string | null
-            clear?: boolean
-            offset?: number
-            additionalSelect?: PersonModalLogicProps['additionalSelect']
-        }) => ({
-            url,
-            clear,
-            offset,
-            additionalSelect,
         }),
         loadNextActors: true,
         updateQuery: (query: InsightActorsQuery) => ({ query }),
@@ -85,11 +74,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal', 'reportPersonsModalViewed']],
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, clear, offset, additionalSelect }, breakpoint) => {
+                loadActors: async ({ url, clear, offset }, breakpoint) => {
                     if (url) {
                         url += '&include_recordings=true'
 
@@ -121,7 +110,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
-                        const additionalFieldIndices = Object.values(additionalSelect || {}).map((field) =>
+                        const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
                             assembledSelectFields.indexOf(field)
                         )
                         const newResponse: ListActorsResponse = {
@@ -141,7 +130,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                             value_at_data_point: null,
                                         }
 
-                                        Object.keys(additionalSelect || {}).forEach((field, index) => {
+                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
                                             person[field] = result[additionalFieldIndices[index]]
                                         })
 
@@ -361,7 +350,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
-        actions.loadActors({ url: props.url, additionalSelect: props.additionalSelect })
+        actions.loadActors({ url: props.url })
 
         actions.reportPersonsModalViewed({
             url: props.url,
