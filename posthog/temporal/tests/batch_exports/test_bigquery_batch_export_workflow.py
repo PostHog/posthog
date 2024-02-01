@@ -18,14 +18,13 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.batch_exports.service import BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.batch_exports import (
-    BatchExportSchema,
     create_export_run,
     iter_records,
     update_export_run_status,
 )
 from posthog.temporal.batch_exports.bigquery_batch_export import (
-    BigQueryBatchExportInputs,
     BigQueryBatchExportWorkflow,
     BigQueryInsertInputs,
     bigquery_export_default_fields,

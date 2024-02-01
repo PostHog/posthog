@@ -11,11 +11,9 @@ from google.oauth2 import service_account
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BigQueryBatchExportInputs
+from posthog.batch_exports.service import BatchExportField, BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
-    BatchExportField,
-    BatchExportSchema,
     BatchExportTemporaryFile,
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
