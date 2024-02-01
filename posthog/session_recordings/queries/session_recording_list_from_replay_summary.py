@@ -445,7 +445,7 @@ class SessionIdEventsQuery(EventQuery):
         (
             events_timestamp_clause,
             events_timestamp_params,
-        ) = self._get_events_timestamp_clause
+        ) = self.get_events_timestamp_clause
 
         groups_query, groups_params = self._get_groups_query()
 
