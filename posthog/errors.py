@@ -46,7 +46,9 @@ def wrap_query_error(err: Exception) -> Exception:
     # Return a 512 error for queries which would time out
     match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
     if match:
-        return EstimatedQueryExecutionTimeTooLong(detail=match.group(0))
+        return EstimatedQueryExecutionTimeTooLong(
+            detail=f"{match.group(0)} Try reducing its scope by changing the time range."
+        )
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):

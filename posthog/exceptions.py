@@ -40,7 +40,7 @@ class Conflict(APIException):
 
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
-    default_detail = "Estimated query execution time is too long"
+    default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
 
 
 class ExceptionContext(TypedDict):
