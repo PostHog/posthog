@@ -289,7 +289,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
                 if inputs.use_json_type is True:
                     json_type = "JSON"
-                    json_columns = ["properties", "set", "set_once"]
+                    json_columns = ["properties", "set", "set_once", "person_properties"]
                 else:
                     json_type = "STRING"
                     json_columns = []

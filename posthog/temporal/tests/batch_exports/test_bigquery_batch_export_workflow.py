@@ -82,7 +82,7 @@ def assert_clickhouse_records_in_bigquery(
         use_json_type: Whether to use JSON type for known fields.
     """
     if use_json_type is True:
-        json_columns = ["properties", "set", "set_once"]
+        json_columns = ["properties", "set", "set_once", "person_properties"]
     else:
         json_columns = []
 
