@@ -212,11 +212,13 @@ class TrendsQueryRunner(QueryRunner):
                     label = cohort_name
                     value = value
                 elif value == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
-                    label = "Other"
-                    value = BREAKDOWN_OTHER_STRING_LABEL
+                    # label = "Other"
+                    # value = BREAKDOWN_OTHER_STRING_LABEL
+                    continue  # TODO: Add support for "other" breakdowns
                 elif value == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
-                    label = "Null"
-                    value = BREAKDOWN_NULL_STRING_LABEL
+                    # label = "Null"
+                    # value = BREAKDOWN_NULL_STRING_LABEL
+                    continue  # TODO: Add support for "null" breakdowns
                 elif is_boolean_breakdown:
                     label = self._convert_boolean(value)
                 else:
