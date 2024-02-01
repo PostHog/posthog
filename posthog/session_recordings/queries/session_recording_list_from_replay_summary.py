@@ -164,7 +164,17 @@ class ActorsQuery(EventQuery):
         pass
 
     _raw_persons_query = """
-        SELECT distinct_id, argMax(person_id, version) as person_id
+        SELECT
+            distinct_id
+            -- strictly speaking we should load the most recent person_id for a distinct_id
+            -- since we _technically_ don't know that a distinct_id isn't reused
+            -- they are customer provided after all
+            -- however, in practice this query is _way_ faster without the check
+            -- and likely to be correct in the vast majority of cases
+            -- we're already restricting by team, so there's no leaking of data between teams
+            -- if an individual team manages to re-use distinct ids we should maybe tell them not to
+            -- instead of having a very slow query
+            --, argMax(person_id, version) as person_id
         {select_person_props}
         FROM person_distinct_id2 as pdi
             {filter_persons_clause}
