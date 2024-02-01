@@ -61,24 +61,22 @@ export const personsModalLogic = kea<personsModalLogicType>([
         setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
         loadActors: ({
             url,
-            query,
             clear,
             offset,
             additionalSelect,
         }: {
             url?: string | null
-            query?: InsightActorsQuery | null
             clear?: boolean
             offset?: number
             additionalSelect?: PersonModalLogicProps['additionalSelect']
         }) => ({
             url,
-            query,
             clear,
             offset,
             additionalSelect,
         }),
         loadNextActors: true,
+        updateQuery: (query: InsightActorsQuery) => ({ query }),
         updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
@@ -91,7 +89,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, query, clear, offset, additionalSelect }, breakpoint) => {
+                loadActors: async ({ url, clear, offset, additionalSelect }, breakpoint) => {
                     if (url) {
                         url += '&include_recordings=true'
 
@@ -99,7 +97,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             url += `&search=${values.searchTerm}`
                         }
                     }
-                    if (url && !query) {
+                    if (url && !values.actorsQuery) {
                         const res = await api.get(url)
                         breakpoint()
 
@@ -108,7 +106,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         }
                         return res
                     }
-                    if (query) {
+                    if (values.actorsQuery) {
                         const response = await performQuery(
                             {
                                 ...values.actorsQuery,
@@ -189,7 +187,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         query: [
             props.query as InsightActorsQuery | null,
             {
-                loadActors: (state, { query }) => query ?? state ?? null,
+                updateQuery: (_, { query }) => query,
             },
         ],
         actors: [
@@ -233,7 +231,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     listeners(({ actions, values, props }) => ({
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(500)
-            actions.loadActors({ query: values.query, url: props.url, clear: true })
+            actions.loadActors({ url: props.url, clear: true })
         },
         saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {
@@ -273,17 +271,18 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 actions.loadActors({ url: values.actorsResponse.next })
             }
             if (values.actorsResponse?.next_offset) {
-                actions.loadActors({ query: values.query, offset: values.actorsResponse.next_offset })
+                actions.loadActors({ offset: values.actorsResponse.next_offset })
             }
         },
-        loadActors: ({ query }) => {
-            if (query && !values.insightActorsQueryOptions) {
-                actions.loadActorsQueryOptions(query)
+        loadActors: () => {
+            if (values.query && !values.insightActorsQueryOptions) {
+                actions.loadActorsQueryOptions(values.query)
             }
         },
-        updateActorsQuery: ({ query }) => {
-            if (query && values.query) {
-                actions.loadActors({ query: { ...values.query, ...query }, offset: 0, clear: true })
+        updateActorsQuery: ({ query: q }) => {
+            if (q && values.query) {
+                actions.updateQuery({ ...values.query, ...q })
+                actions.loadActors({ offset: 0, clear: true })
             }
         },
     })),
@@ -334,8 +333,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         actorsQuery: [
-            (s) => [(_, p) => p.query, (_, p) => p.orderBy, s.searchTerm, s.selectFields],
-            (query, orderBy, searchTerm, selectFields): ActorsQuery | null => {
+            (s) => [(_, p) => p.orderBy, s.query, s.searchTerm, s.selectFields],
+            (orderBy, query, searchTerm, selectFields): ActorsQuery | null => {
                 if (!query) {
                     return null
                 }
@@ -366,7 +365,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
-        actions.loadActors({ query: props.query, url: props.url, additionalSelect: props.additionalSelect })
+        actions.loadActors({ url: props.url, additionalSelect: props.additionalSelect })
 
         actions.reportPersonsModalViewed({
             url: props.url,
@@ -390,7 +389,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
     propsChanged(({ props, actions }, oldProps) => {
         if (props.url !== oldProps.url) {
-            actions.loadActors({ query: props.query, url: props.url, clear: true })
+            actions.loadActors({ url: props.url, clear: true })
         }
     }),
 ])
