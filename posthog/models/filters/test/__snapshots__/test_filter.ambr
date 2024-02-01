@@ -394,9 +394,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -470,9 +468,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -537,9 +533,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -564,9 +558,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -591,9 +583,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -618,9 +608,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''

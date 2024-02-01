@@ -56,7 +56,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
-from posthog.models.cohort import CohortOrEmpty
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -206,7 +205,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             )
 
                     if prop.type == "cohort":
-                        nested_cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        nested_cohort = Cohort.objects.get(pk=prop.value)
                         dependent_cohorts = get_dependent_cohorts(nested_cohort)
                         for dependent_cohort in [nested_cohort, *dependent_cohorts]:
                             if (
@@ -597,10 +596,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     if not feature_flag.active or feature_flag.deleted or feature_flag.aggregation_group_type_index is not None:
         return []
 
-    cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+    cohort = Cohort.objects.get(pk=cohort_id)
     matcher_cache = FlagsMatcherCache(team_id)
     uuids_to_add_to_cohort = []
-    cohorts_cache: Dict[int, CohortOrEmpty] = {}
+    cohorts_cache = {}
 
     if feature_flag.uses_cohorts:
         # TODO: Consider disabling flags with cohorts for creating static cohorts
@@ -625,7 +624,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # iterate through all persons
         queryset = (
             Person.objects.filter(team_id=team_id)
-            .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
+            .filter(property_group_to_Q(flag_property_group, cohorts_cache=cohorts_cache))
             .order_by("id")
         )
         # get batchsize number of people at a time
@@ -709,7 +708,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         capture_exception(err)
 
 
-def get_default_person_property(prop: Property, cohorts_cache: Dict[int, CohortOrEmpty]):
+def get_default_person_property(prop: Property, cohorts_cache: Dict[int, Cohort]):
     default_person_properties = {}
 
     if prop.operator not in ("is_set", "is_not_set") and prop.type == "person":
@@ -725,7 +724,7 @@ def get_default_person_property(prop: Property, cohorts_cache: Dict[int, CohortO
     return default_person_properties
 
 
-def get_default_person_properties_for_cohort(cohort: Cohort, cohorts_cache: Dict[int, CohortOrEmpty]) -> Dict[str, str]:
+def get_default_person_properties_for_cohort(cohort: Cohort, cohorts_cache: Dict[int, Cohort]) -> Dict[str, str]:
     """
     Returns a dictionary of default person properties to use when evaluating a feature flag
     """

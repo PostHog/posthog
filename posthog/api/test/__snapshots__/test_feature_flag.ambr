@@ -378,8 +378,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE ("posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   LIMIT 21
   '''
 # ---
@@ -620,8 +619,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE ("posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   LIMIT 21
   '''
 # ---
@@ -941,8 +939,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE ("posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   LIMIT 21
   '''
 # ---
@@ -1240,8 +1237,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE ("posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   LIMIT 21
   '''
 # ---
@@ -1307,8 +1303,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE ("posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   LIMIT 21
   '''
 # ---
@@ -1935,8 +1930,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE ("posthog_cohort"."id" = 2
-         AND "posthog_cohort"."team_id" = 2)
+  WHERE "posthog_cohort"."id" = 2
   LIMIT 21 /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/
   '''
 # ---

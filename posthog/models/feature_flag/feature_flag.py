@@ -13,7 +13,7 @@ from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
     PropertyOperatorType,
 )
-from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
@@ -135,7 +135,7 @@ class FeatureFlag(models.Model):
     def transform_cohort_filters_for_easy_evaluation(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+        seen_cohorts_cache: Optional[Dict[int, Cohort]] = None,
     ):
         """
         Expands cohort filters into person property filters when possible.
@@ -155,7 +155,7 @@ class FeatureFlag(models.Model):
             return self.conditions
 
         cohort_group_rollout = None
-        cohort: CohortOrEmpty = None
+        cohort: Optional[Cohort] = None
 
         parsed_conditions = []
         for condition in self.conditions:
@@ -177,15 +177,10 @@ class FeatureFlag(models.Model):
                         try:
                             if cohort_id in seen_cohorts_cache:
                                 cohort = seen_cohorts_cache[cohort_id]
-                                if not cohort:
-                                    return self.conditions
                             else:
-                                cohort = Cohort.objects.using(using_database).get(
-                                    pk=cohort_id, team_id=self.team_id, deleted=False
-                                )
+                                cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
                                 seen_cohorts_cache[cohort_id] = cohort
                         except Cohort.DoesNotExist:
-                            seen_cohorts_cache[cohort_id] = ""
                             return self.conditions
             if not cohort_condition:
                 # flag group without a cohort filter, let it be as is.
@@ -264,7 +259,7 @@ class FeatureFlag(models.Model):
     def get_cohort_ids(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+        seen_cohorts_cache: Optional[Dict[int, Cohort]] = None,
         sort_by_topological_order=False,
     ) -> List[int]:
         from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topologically
@@ -280,13 +275,9 @@ class FeatureFlag(models.Model):
                     cohort_id = int(prop.get("value"))
                     try:
                         if cohort_id in seen_cohorts_cache:
-                            cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
-                            if not cohort:
-                                continue
+                            cohort: Cohort = seen_cohorts_cache[cohort_id]
                         else:
-                            cohort = Cohort.objects.using(using_database).get(
-                                pk=cohort_id, team_id=self.team_id, deleted=False
-                            )
+                            cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
                             seen_cohorts_cache[cohort_id] = cohort
 
                         cohort_ids.add(cohort.pk)
@@ -301,7 +292,6 @@ class FeatureFlag(models.Model):
                             ]
                         )
                     except Cohort.DoesNotExist:
-                        seen_cohorts_cache[cohort_id] = ""
                         continue
         if sort_by_topological_order:
             return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)

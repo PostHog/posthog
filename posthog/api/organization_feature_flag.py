@@ -14,7 +14,7 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import FeatureFlag, Team
-from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.permissions import OrganizationMemberPermissions
 
@@ -97,7 +97,7 @@ class OrganizationFeatureFlagView(
                 continue
 
             # get all linked cohorts, sorted by creation order
-            seen_cohorts_cache: Dict[int, CohortOrEmpty] = {}
+            seen_cohorts_cache: Dict[int, Cohort] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
@@ -108,9 +108,6 @@ class OrganizationFeatureFlagView(
             if len(sorted_cohort_ids):
                 for cohort_id in sorted_cohort_ids:
                     original_cohort = seen_cohorts_cache[cohort_id]
-
-                    if not original_cohort:
-                        continue
 
                     # search in destination project by name
                     destination_cohort = Cohort.objects.filter(
@@ -128,9 +125,6 @@ class OrganizationFeatureFlagView(
                                 try:
                                     original_child_cohort_id = int(prop.value)
                                     original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
-
-                                    if not original_child_cohort:
-                                        continue
                                     prop.value = name_to_dest_cohort_id[original_child_cohort.name]
                                 except (ValueError, TypeError):
                                     continue
@@ -162,10 +156,7 @@ class OrganizationFeatureFlagView(
                     if isinstance(prop, dict) and prop.get("type") == "cohort":
                         try:
                             original_cohort_id = int(prop["value"])
-                            original_cohort_ref = seen_cohorts_cache[original_cohort_id]
-                            if not original_cohort_ref:
-                                continue
-                            cohort_name = original_cohort_ref.name
+                            cohort_name = (seen_cohorts_cache[original_cohort_id]).name
                             prop["value"] = name_to_dest_cohort_id[cohort_name]
                         except (ValueError, TypeError):
                             continue

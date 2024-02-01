@@ -577,7 +577,7 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
 def _filter_persons(filter: Filter, team: Team):
     flush_persons_and_events()
-    persons = Person.objects.filter(properties_to_Q(team.pk, filter.property_groups.flat))
+    persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
 
@@ -609,7 +609,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
 
-        persons = Person.objects.filter(property_group_to_Q(self.team.pk, filter.property_groups))
+        persons = Person.objects.filter(property_group_to_Q(filter.property_groups))
         persons = persons.filter(team_id=self.team.pk)
         results = sorted([person.distinct_ids[0] for person in persons])
 
@@ -634,7 +634,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     team_id=self.team.pk,
                     persondistinctid__distinct_id=person1_distinct_id,
                 )
-                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
         self.assertTrue(matched_person)
@@ -657,7 +657,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     team_id=self.team.pk,
                     persondistinctid__distinct_id=person1_distinct_id,
                 )
-                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
         self.assertTrue(matched_person)
@@ -745,7 +745,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     team_id=self.team.pk,
                     persondistinctid__distinct_id=person1_distinct_id,
                 )
-                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
         self.assertTrue(matched_person)
@@ -763,7 +763,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 ]
             }
         )
-        query_filter = properties_to_Q(self.team.pk, filter.property_groups.flat)
+        query_filter = properties_to_Q(filter.property_groups.flat)
         self.assertEqual(
             query_filter,
             Q(
@@ -790,7 +790,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     team_id=self.team.pk,
                     persondistinctid__distinct_id=person1_distinct_id,
                 )
-                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
         self.assertTrue(matched_person)
@@ -814,9 +814,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 )
                 .filter(
                     properties_to_Q(
-                        self.team.pk,
-                        filter.property_groups.flat,
-                        override_property_values={"created_at": "2022-10-06T10:00:00Z"},
+                        filter.property_groups.flat, override_property_values={"created_at": "2022-10-06T10:00:00Z"}
                     )
                 )
                 .exists()
@@ -845,7 +843,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     team_id=self.team.pk,
                     persondistinctid__distinct_id=person1_distinct_id,
                 )
-                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
             # needs an exact match
@@ -863,7 +861,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                     team_id=self.team.pk,
                     persondistinctid__distinct_id=person1_distinct_id,
                 )
-                .filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+                .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
             self.assertFalse(matched_person)
@@ -895,7 +893,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                         F("properties__$a_number"), function="JSONB_TYPEOF", output_field=CharField()
                     )
                 }
-            ).filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+            ).filter(properties_to_Q(filter.property_groups.flat))
             persons = persons.filter(team_id=team.pk)
             return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
 
@@ -945,7 +943,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                         F("properties__$key"), function="JSONB_TYPEOF", output_field=CharField()
                     )
                 }
-            ).filter(properties_to_Q(self.team.pk, filter.property_groups.flat))
+            ).filter(properties_to_Q(filter.property_groups.flat))
             persons = persons.filter(team_id=team.pk)
             return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
 
@@ -996,7 +994,7 @@ def filter_persons_with_property_group(
     filter: Filter, team: Team, property_overrides: Dict[str, Any] = {}
 ) -> List[str]:
     flush_persons_and_events()
-    persons = Person.objects.filter(property_group_to_Q(team.pk, filter.property_groups, property_overrides))
+    persons = Person.objects.filter(property_group_to_Q(filter.property_groups, property_overrides))
     persons = persons.filter(team_id=team.pk)
     return sorted([person.distinct_ids[0] for person in persons])
 
