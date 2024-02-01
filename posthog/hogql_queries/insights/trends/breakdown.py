@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -28,6 +28,7 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
+    breakdown_values_override: Optional[List[str | int]]
 
     def __init__(
         self,
@@ -38,6 +39,7 @@ class Breakdown:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
+        breakdown_values_override: Optional[List[str | int]] = None,
     ):
         self.team = team
         self.query = query
@@ -46,6 +48,7 @@ class Breakdown:
         self.timings = timings
         self.modifiers = modifiers
         self.events_filter = events_filter
+        self.breakdown_values_override = breakdown_values_override
 
     @cached_property
     def enabled(self) -> bool:
@@ -209,19 +212,20 @@ class Breakdown:
 
     @cached_property
     def _get_breakdown_values(self) -> List[str | int]:
+        # Used in the actors query
+        if self.breakdown_values_override is not None:
+            return self.breakdown_values_override
+
+        if self.query.breakdownFilter is None:
+            return []
+
         with self.timings.measure("breakdown_values_query"):
             breakdown = BreakdownValues(
                 team=self.team,
                 event_name=series_event_name(self.series) or "",
-                breakdown_field=self.query.breakdownFilter.breakdown,  # type: ignore
-                breakdown_type=self.query.breakdownFilter.breakdown_type,
-                query_date_range=self.query_date_range,
                 events_filter=self.events_filter,
                 chart_display_type=self._trends_display().display_type,
-                histogram_bin_count=self.query.breakdownFilter.breakdown_histogram_bin_count,
-                group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
-                hide_other_aggregation=self.query.breakdownFilter.breakdown_hide_other_aggregation,
-                breakdown_limit=self.query.breakdownFilter.breakdown_limit,
+                breakdown_filter=self.query.breakdownFilter,
             )
             return breakdown.get_breakdown_values()
 

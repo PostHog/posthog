@@ -897,6 +897,7 @@ export interface ActionFilter extends EntityFilter {
     math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
+    days?: string[] // TODO: why was this added here?
 }
 
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {

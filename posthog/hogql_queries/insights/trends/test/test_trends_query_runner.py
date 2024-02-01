@@ -12,10 +12,13 @@ from posthog.schema import (
     ActionsNode,
     BaseMathType,
     BreakdownFilter,
+    BreakdownItem,
     BreakdownType,
     ChartDisplayType,
+    CompareItem,
     CountPerActorMathType,
     DateRange,
+    DayItem,
     EventsNode,
     HogQLQueryModifiers,
     InCohortVia,
@@ -24,12 +27,15 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
+
+from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    flush_persons_and_events,
 )
 
 
@@ -47,7 +53,7 @@ class SeriesTestData:
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestQuery(ClickhouseTestMixin, APIBaseTest):
+class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
 
@@ -59,9 +65,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             for key, value in person.properties.items():
                 if key not in properties_to_create:
-                    if isinstance(value, str):
-                        type = "String"
-                    elif isinstance(value, bool):
+                    if isinstance(value, bool):
                         type = "Boolean"
                     elif isinstance(value, int):
                         type = "Numeric"
@@ -164,10 +168,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         date_to: str,
         interval: IntervalType,
         series: Optional[List[EventsNode | ActionsNode]],
-        trends_filters: Optional[TrendsFilter],
-        breakdown: Optional[BreakdownFilter],
-        filter_test_accounts: Optional[bool],
-        hogql_modifiers: Optional[HogQLQueryModifiers],
+        trends_filters: Optional[TrendsFilter] = None,
+        breakdown: Optional[BreakdownFilter] = None,
+        filter_test_accounts: Optional[bool] = None,
+        hogql_modifiers: Optional[HogQLQueryModifiers] = None,
     ) -> TrendsQueryRunner:
         query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
@@ -1050,7 +1054,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event),
         )
 
-        assert len(response.results) == 25
+        self.assertEqual(len(response.results), 26)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsLineGraph),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event, breakdown_limit=10),
+        )
+        self.assertEqual(len(response.results), 11)
 
     def test_breakdown_values_world_map_limit(self):
         PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
@@ -1354,3 +1368,233 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             str(e.exception),
             "Error thrown inside thread",
         )
+
+    def test_to_actors_query_options(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            None,
+        )
+        response = runner.to_actors_query_options()
+
+        assert response.day == [
+            DayItem(label="2020-01-09", value="2020-01-09"),
+            DayItem(label="2020-01-10", value="2020-01-10"),
+            DayItem(label="2020-01-11", value="2020-01-11"),
+            DayItem(label="2020-01-12", value="2020-01-12"),
+            DayItem(label="2020-01-13", value="2020-01-13"),
+            DayItem(label="2020-01-14", value="2020-01-14"),
+            DayItem(label="2020-01-15", value="2020-01-15"),
+            DayItem(label="2020-01-16", value="2020-01-16"),
+            DayItem(label="2020-01-17", value="2020-01-17"),
+            DayItem(label="2020-01-18", value="2020-01-18"),
+            DayItem(label="2020-01-19", value="2020-01-19"),
+            DayItem(label="2020-01-20", value="2020-01-20"),
+        ]
+
+        assert response.breakdown is None
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.compare is None
+
+    def test_to_actors_query_options_compare(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(compare=True),
+            None,
+        )
+        response = runner.to_actors_query_options()
+
+        assert response.day == [
+            DayItem(label="2020-01-09", value="2020-01-09"),
+            DayItem(label="2020-01-10", value="2020-01-10"),
+            DayItem(label="2020-01-11", value="2020-01-11"),
+            DayItem(label="2020-01-12", value="2020-01-12"),
+            DayItem(label="2020-01-13", value="2020-01-13"),
+            DayItem(label="2020-01-14", value="2020-01-14"),
+            DayItem(label="2020-01-15", value="2020-01-15"),
+            DayItem(label="2020-01-16", value="2020-01-16"),
+            DayItem(label="2020-01-17", value="2020-01-17"),
+            DayItem(label="2020-01-18", value="2020-01-18"),
+            DayItem(label="2020-01-19", value="2020-01-19"),
+            DayItem(label="2020-01-20", value="2020-01-20"),
+        ]
+
+        assert response.breakdown is None
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.compare == [
+            CompareItem(label="Current", value="current"),
+            CompareItem(label="Previous", value="previous"),
+        ]
+
+    def test_to_actors_query_options_multiple_series(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            None,
+            None,
+        )
+        response = runner.to_actors_query_options()
+
+        assert response.series == [
+            InsightActorsQuerySeries(label="$pageview", value=0),
+            InsightActorsQuerySeries(label="$pageleave", value=1),
+        ]
+
+    def test_to_actors_query_options_breakdowns(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.breakdown == [
+            # BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"), # TODO: uncomment when "other" shows correct results
+            BreakdownItem(label="Chrome", value="Chrome"),
+            BreakdownItem(label="Firefox", value="Firefox"),
+            BreakdownItem(label="Safari", value="Safari"),
+            BreakdownItem(label="Edge", value="Edge"),
+        ]
+
+    def test_to_actors_query_options_breakdowns_boolean(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="bool_field"),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.breakdown == [
+            # BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"), # TODO: Add when "Other" works
+            BreakdownItem(label="true", value=1),
+            BreakdownItem(label="false", value=0),
+        ]
+
+    def test_to_actors_query_options_breakdowns_histogram(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.event,
+                breakdown="prop",
+                breakdown_histogram_bin_count=4,
+            ),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.breakdown == [
+            BreakdownItem(label="[10.0,17.5]", value="[10.0,17.5]"),
+            BreakdownItem(label="[17.5,25.0]", value="[17.5,25.0]"),
+            BreakdownItem(label="[25.0,32.5]", value="[25.0,32.5]"),
+            BreakdownItem(label="[32.5,40.01]", value="[32.5,40.01]"),
+            BreakdownItem(label='["",""]', value='["",""]'),
+        ]
+
+    def test_to_actors_query_options_breakdowns_cohort(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=[cohort.pk]),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.breakdown == [BreakdownItem(label="cohort", value=cohort.pk)]
+
+    def test_to_actors_query_options_breakdowns_hogql(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.hogql, breakdown="properties.$browser"),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+
+        assert response.breakdown == [
+            # BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"), # TODO: uncomment when "other" shows correct results
+            BreakdownItem(label="Chrome", value="Chrome"),
+            BreakdownItem(label="Firefox", value="Firefox"),
+            BreakdownItem(label="Safari", value="Safari"),
+            BreakdownItem(label="Edge", value="Edge"),
+        ]

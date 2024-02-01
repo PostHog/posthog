@@ -143,10 +143,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 Share or embed
                                             </LemonButton>
-                                        </>
-                                    )}
-                                    {insight.short_id && (
-                                        <>
                                             <SubscribeButton insightShortId={insight.short_id} />
                                             {exporterResourceParams ? (
                                                 <ExportButton
@@ -163,9 +159,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     ]}
                                                 />
                                             ) : null}
+                                            <LemonDivider />
                                         </>
                                     )}
-                                    <LemonDivider />
                                     <LemonSwitch
                                         data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
                                         className="px-2 py-1"
