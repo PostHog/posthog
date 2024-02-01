@@ -1,3 +1,5 @@
+from typing import List
+
 from posthog.settings import get_from_env
 from posthog.utils import str_to_bool
 
@@ -15,3 +17,17 @@ REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_MAX = get_from_env("REALTIME_SNAPSHOTS_FRO
 REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_TIMEOUT_SECONDS = get_from_env(
     "REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_TIMEOUT_SECONDS", 0.2, type_cast=float
 )
+
+REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS: List[int] = []
+try:
+    REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS = [
+        int(x)
+        for x in get_from_env("REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS", "", type_cast=str).split(
+            ","
+        )
+        if x
+    ]
+except Exception:
+    print(  # noqa: T201 - print is fine here
+        "Error parsing REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS, must be comma separated list of integers"
+    )  # noqa: T201 - print is fine here

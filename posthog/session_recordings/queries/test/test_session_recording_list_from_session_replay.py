@@ -1397,6 +1397,43 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
 
     @snapshot_clickhouse_queries
+    def test_person_id_filter_with_distinct_id_optimization(self):
+        """
+        this test only exists for the snapshot... the test should be identical to `test_person_id_filter`
+        but with the setting enabled outputs different SQL
+        including an events table filter in the persons query
+        """
+        three_user_ids = [str(uuid4()) for _ in range(3)]
+        session_id_one = f"test_person_id_filter-{str(uuid4())}"
+        session_id_two = f"test_person_id_filter-{str(uuid4())}"
+        p = Person.objects.create(
+            team=self.team,
+            distinct_ids=[three_user_ids[0], three_user_ids[1]],
+            properties={"email": "bla"},
+        )
+        produce_replay_summary(
+            distinct_id=three_user_ids[0],
+            session_id=session_id_one,
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id=three_user_ids[1],
+            session_id=session_id_two,
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            distinct_id=three_user_ids[2],
+            session_id=str(uuid4()),
+            team_id=self.team.id,
+        )
+
+        with self.settings(REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS=[str(self.team.pk)]):
+            filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
+            session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
+
+    @snapshot_clickhouse_queries
     def test_all_filters_at_once(self):
         three_user_ids = [str(uuid4()) for _ in range(3)]
         target_session_id = f"test_all_filters_at_once-{str(uuid4())}"

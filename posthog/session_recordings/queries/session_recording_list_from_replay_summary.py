@@ -169,6 +169,7 @@ class ActorsQuery(EventQuery):
         FROM person_distinct_id2 as pdi
             {filter_persons_clause}
         WHERE team_id = %(team_id)s
+        {filter_by_events_presence}
         {prop_filter_clause}
         GROUP BY distinct_id
         HAVING
@@ -204,6 +205,40 @@ class ActorsQuery(EventQuery):
         if not should_join_persons:
             return "", {}
         else:
+            """
+            for teams with large numbers of distinct ids it can be super slow to load
+            distinct ids, particularly when loading by person uuid
+            we're stuck needing data from A to reduce the data needed to load B
+            and A relying on B
+            so, for some teams, we artificially limit the number of distinct ids we load
+            by looking at the events table and only loading distinct ids that have events
+            in the last 30 days (or whatever the storage TTL is) and have a session_id
+            for teams that have a lot of distinct ids and need the optimisation there are probably
+            too many events to load all of them anyway so we restrict to pageviews
+            not everyone will have those, so we will manually add teams to this optimisation as necessary
+            person on events and person merging improvements should remove the need for this
+            before we've had to add too many teams
+            """
+            filter_by_events_presence = (
+                """
+                AND distinct_id in (
+                    SELECT distinct_id
+                    FROM events e
+                    WHERE team_id = %(team_id)s
+                        -- regardless of what other filters are applied
+                        -- limit by storage TTL
+                        AND e.timestamp >= %(clamped_to_storage_ttl)s
+                        -- make sure we don't get the occasional unexpected future event
+                        AND e.timestamp <= now()
+                        -- and then any time filter for the events query
+                        {events_timestamp_clause}
+                        and $session_id != ''
+                        and event = '$pageview') as load_fewer_rows
+            """
+                if self._team.pk in settings.REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS
+                else ""
+            )
+
             filter_persons_clause = person_query or ""
             filter_by_person_uuid_condition = "and person_id = %(person_uuid)s" if self._filter.person_uuid else ""
             return self._raw_persons_query.format(
@@ -214,6 +249,7 @@ class ActorsQuery(EventQuery):
                 prop_filter_clause=prop_query,
                 prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
+                filter_by_events_presence=filter_by_events_presence,
             ), {
                 "team_id": self._team_id,
                 **person_query_params,
@@ -378,7 +414,7 @@ class SessionIdEventsQuery(EventQuery):
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
     @cached_property
-    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
@@ -631,18 +667,24 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
 
-        events_select, events_join_params = SessionIdEventsQuery(
+        session_id_events_query = SessionIdEventsQuery(
             team=self._team,
             filter=self._filter,
-        ).get_query()
+        )
+        events_select, events_join_params = session_id_events_query.get_query()
         if events_select:
             events_select = f"AND s.session_id in (select `$session_id` as session_id from ({events_select}) as session_events_sub_query)"
 
         persons_select, persons_select_params = ActorsQuery(filter=self._filter, team=self._team).get_query()
+        events_timestamp_clause, events_timestamp_clause_params = "", {}
         if persons_select:
+            (
+                events_timestamp_clause,
+                events_timestamp_clause_params,
+            ) = session_id_events_query.get_events_timestamp_clause
             persons_select = (
                 f"AND s.distinct_id in (select distinct_id from ({persons_select}) as session_persons_sub_query)"
-            )
+            ).format(events_timestamp_clause=events_timestamp_clause)
 
         return (
             self._session_recordings_query.format(
@@ -661,6 +703,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 **provided_session_ids_params,
                 **persons_select_params,
                 **log_matching_session_ids_params,
+                **events_timestamp_clause_params,
             },
         )
 
