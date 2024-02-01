@@ -74,7 +74,7 @@ body:not(.posthog-3000) {
 
         &:first-child,
         &:first-child .LemonButton {
-            border-top-left-radius: var(--radius);
+            border-top-left-radius: 42;
             border-bottom-left-radius: var(--radius);
         }
 
@@ -166,6 +166,12 @@ body:not(.posthog-3000) {
 
             .LemonButton__chrome::after {
                 background-color: var(--bg-light);
+            }
+        }
+
+        &--disabled {
+            > div {
+                width: 100%;
             }
         }
     }
