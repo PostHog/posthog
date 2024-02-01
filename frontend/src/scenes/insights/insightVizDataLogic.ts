@@ -17,7 +17,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     getBreakdown,
     getCompare,
@@ -306,7 +306,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         exclusionFilters: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions,
+                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
+                    funnel_from_step: funnelFromStep,
+                    funnel_to_step: funnelToStep,
+                    order: index,
+                    ...seriesNodeToFilter(rest),
+                })),
             }),
         ],
     }),
