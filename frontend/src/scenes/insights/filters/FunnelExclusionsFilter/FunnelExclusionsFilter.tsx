@@ -9,7 +9,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { EntityTypes, FilterType, FunnelExclusion } from '~/types'
+import { FunnelExclusion } from '~/queries/schema'
+import { EntityTypes, FilterType } from '~/types'
 
 import { ExclusionRow } from './ExclusionRow'
 import { ExclusionRowSuffix } from './ExclusionRowSuffix'

@@ -13,7 +13,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useEffect } from 'react'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 
-import { ActionFilter as ActionFilterType, FilterType, FunnelExclusion, InsightType, Optional } from '~/types'
+import { ActionFilter as ActionFilterType, FilterType, FunnelExclusionLegacy, InsightType, Optional } from '~/types'
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
@@ -52,7 +52,11 @@ export interface ActionFilterProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: { filter: ActionFilterType | FunnelExclusion; index: number; onClose: () => void }) => JSX.Element)
+        | ((props: {
+              filter: ActionFilterType | FunnelExclusionLegacy
+              index: number
+              onClose: () => void
+          }) => JSX.Element)
     /** Show nested arrows to the left of property filter buttons */
     showNestedArrow?: boolean
     /** Which tabs to show for actions selector */
