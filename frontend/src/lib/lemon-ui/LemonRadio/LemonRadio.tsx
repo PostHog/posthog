@@ -27,7 +27,7 @@ export function LemonRadio<T extends React.Key>({
                 const content = (
                     <label
                         className={clsx(
-                            'flex items-center space-x-1',
+                            'flex items-center space-x-2',
                             option.disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer'
                         )}
                     >

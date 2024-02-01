@@ -79,7 +79,7 @@ export function DashboardReloadAction(): JSX.Element {
                                     <LemonDivider />
                                     <div className="flex flex-col">
                                         <div role="heading" className="text-muted mb-2">
-                                            Refresh intervals
+                                            Refresh interval
                                         </div>
                                         <LemonRadio
                                             value={autoRefresh.interval}
