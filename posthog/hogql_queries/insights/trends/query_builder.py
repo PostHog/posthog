@@ -501,10 +501,8 @@ class TrendsQueryBuilder:
 
         if len(filters) == 0:
             return ast.Constant(value=True)
-        elif len(filters) == 1:
-            return filters[0]
-        else:
-            return ast.And(exprs=filters)
+
+        return ast.And(exprs=filters)
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:
