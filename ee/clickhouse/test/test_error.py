@@ -11,7 +11,7 @@ from posthog.errors import wrap_query_error
         (
             ServerException("Estimated query execution time (34.5 seconds) is too long. Aborting query"),
             "EstimatedQueryExecutionTimeTooLong",
-            "Estimated query execution time (34.5 seconds) is too long.",
+            "Estimated query execution time (34.5 seconds) is too long. Try reducing its scope by changing the time range.",
             None,
         ),
         (
