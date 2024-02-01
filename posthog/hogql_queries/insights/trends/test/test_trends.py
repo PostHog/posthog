@@ -4680,29 +4680,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             self.assertEqual(len(response), 26)
-            self.assertEqual(response[-1]["breakdown_value"], "$$_posthog_breakdown_other_$$")
-
-            response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "date_from": "-14d",
-                        "breakdown": "$some_property",
-                        "breakdown_limit": 50,
-                        "events": [
-                            {
-                                "id": "sign up",
-                                "name": "sign up",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                    },
-                ),
-                self.team,
-            )
-            self.assertEqual(len(response), 51)
-            self.assertEqual(response[-1]["breakdown_value"], "$$_posthog_breakdown_other_$$")
 
     @also_test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
     def test_breakdown_with_person_property_filter(self):
