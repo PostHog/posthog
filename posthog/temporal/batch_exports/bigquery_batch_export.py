@@ -2,8 +2,8 @@ import asyncio
 import contextlib
 import dataclasses
 import datetime as dt
+import json
 
-import orjson
 import pyarrow as pa
 from django.conf import settings
 from google.cloud import bigquery
@@ -332,7 +332,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
                         for json_column in json_columns:
                             if json_column in record and (json_str := record.get(json_column, None)) is not None:
-                                record[json_column] = orjson.loads(json_str)
+                                record[json_column] = json.loads(json_str)
 
                         # TODO: Parquet is a much more efficient format to send data to BigQuery.
                         jsonl_file.write_records_to_jsonl([record])
@@ -367,7 +367,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BigQueryBatchExportInputs:
         """Parse inputs from the management command CLI."""
-        loaded = orjson.loads(inputs[0])
+        loaded = json.loads(inputs[0])
         return BigQueryBatchExportInputs(**loaded)
 
     @workflow.run
