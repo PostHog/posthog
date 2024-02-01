@@ -173,7 +173,6 @@ class ActorsQueryRunner(QueryRunner):
                     aggregations.append(column)
                 elif not isinstance(column, ast.Constant):
                     group_by.append(column)
-            has_any_aggregation = len(aggregations) > 0
 
         with self.timings.measure("filters"):
             filter_conditions = self.strategy.filter_conditions()
@@ -212,6 +211,11 @@ class ActorsQueryRunner(QueryRunner):
             else:
                 order_by = []
 
+        # We need to group by all columns in the order by clause
+        for order_expr in order_by:
+            if order_expr.expr not in group_by:
+                group_by.append(order_expr.expr)
+
         with self.timings.measure("select"):
             if self.query.source:
                 join_expr = self.source_table_join()
@@ -223,7 +227,7 @@ class ActorsQueryRunner(QueryRunner):
                 select_from=join_expr,
                 where=where,
                 having=having,
-                group_by=group_by if has_any_aggregation else None,
+                group_by=group_by,
                 order_by=order_by,
             )
 

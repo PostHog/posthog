@@ -12,7 +12,7 @@ export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: 
     return {
         kind: NodeKind.ActorsQuery,
         select: [selectActor, ...selects],
-        orderBy: ['length(appearances) DESC', 'actor_id'],
+        orderBy: ['length(appearances) DESC', 'id'],
         source: {
             kind: NodeKind.InsightActorsQuery,
             interval: selectedInterval,

@@ -74,13 +74,14 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, interval, query, select=None):
+    def run_actors_query(self, interval, query, select=None, search=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
         runner = ActorsQueryRunner(
             team=self.team,
             query={
+                "search": search,
                 "select": ["person", "appearances", *(select or [])],
                 "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
@@ -873,6 +874,44 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(result[1][0]["id"], person1.uuid)
         self.assertCountEqual(result[1][1], [0, 3, 4])
+
+    def test_retention_people_search(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1", "alias1"],
+            properties={"email": "person1@test.com"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"email": "person2@test.com"},
+        )
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+                ("person2", _date(7)),
+            ],
+        )
+
+        result = self.run_actors_query(
+            interval=2,
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+            },
+            search="test",
+        )
+        self.assertEqual(len(result), 2)
 
     def test_retention_people_in_period_first_time(self):
         p1, p2, p3, p4 = self._create_first_time_retention_events()
