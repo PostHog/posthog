@@ -287,7 +287,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         first_record, record_iterator = peek_first_and_rewind(record_iterator)
 
         if inputs.batch_export_schema is None:
-            fields = [
+            table_fields = [
                 ("uuid", "VARCHAR(200)"),
                 ("event", "VARCHAR(200)"),
                 ("properties", "JSONB"),
@@ -304,7 +304,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         else:
             column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
             record_schema = first_record.select(column_names).schema
-            fields = get_postgres_fields_from_record_schema(
+            table_fields = get_postgres_fields_from_record_schema(
                 record_schema, known_json_columns=["properties", "set", "set_once", "person_properties"]
             )
 
@@ -313,10 +313,10 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                 connection,
                 schema=inputs.schema,
                 table_name=inputs.table_name,
-                fields=fields,
+                fields=table_fields,
             )
 
-        schema_columns = [field[0] for field in fields]
+        schema_columns = [field[0] for field in table_fields]
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()

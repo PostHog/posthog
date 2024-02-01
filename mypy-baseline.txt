@@ -883,8 +883,6 @@ posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py:0: error: 
 posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py:0: error: "tuple[Any, ...]" has no attribute "last_uploaded_part_timestamp"  [attr-defined]
 posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py:0: error: "tuple[Any, ...]" has no attribute "upload_state"  [attr-defined]
 posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py:0: error: "tuple[Any, ...]" has no attribute "upload_state"  [attr-defined]
-posthog/temporal/tests/batch_exports/test_postgres_batch_export_workflow.py:0: error: Unsupported left operand type for + ("None")  [operator]
-posthog/temporal/tests/batch_exports/test_postgres_batch_export_workflow.py:0: note: Left operand is of type "Any | None"
 posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "name" to "acreate_batch_export" has incompatible type "object"; expected "str"  [arg-type]
 posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "destination_data" to "acreate_batch_export" has incompatible type "object"; expected "dict[Any, Any]"  [arg-type]
 posthog/temporal/tests/batch_exports/test_backfill_batch_export.py:0: error: Argument "interval" to "acreate_batch_export" has incompatible type "object"; expected "str"  [arg-type]
