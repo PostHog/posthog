@@ -89,7 +89,7 @@ export function OperatorValueSelect({
         )
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
         setOperators(operators)
-        if (currentOperator !== operator) {
+        if (currentOperator !== operator && operators.includes(startingOperator)) {
             setCurrentOperator(startingOperator)
         } else if (!operators.includes(currentOperator)) {
             // Whenever the property type changes such that the operator is not compatible, we need to reset the operator
