@@ -890,14 +890,18 @@ export type EntityFilter = {
     order?: number
 }
 
+export interface ActionFilter extends EntityFilter {
+    math?: string
+    math_property?: string
+    math_group_type_index?: number | null
+    math_hogql?: string
+    properties?: AnyPropertyFilter[]
+    type: EntityType
+}
+
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step?: number
     funnel_to_step?: number
-}
-
-export interface FunnelExclusion extends Partial<EntityFilter> {
-    funnelFromStep?: number
-    funnelToStep?: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
@@ -2112,14 +2116,6 @@ export interface SystemStatusAnalyzeResult {
     flamegraphs: Record<string, string>
 }
 
-export interface ActionFilter extends EntityFilter {
-    math?: string
-    math_property?: string
-    math_group_type_index?: number | null
-    math_hogql?: string
-    properties?: AnyPropertyFilter[]
-    type: EntityType
-}
 export interface TrendAPIResponse<ResultType = TrendResult[]> {
     type: 'Trends'
     is_cached: boolean

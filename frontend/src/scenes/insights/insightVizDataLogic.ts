@@ -33,6 +33,7 @@ import {
 import {
     BreakdownFilter,
     DateRange,
+    FunnelExclusionSteps,
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
@@ -55,7 +56,7 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, FunnelExclusion, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, IntervalType } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
@@ -296,7 +297,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // Exclusion filters
         exclusionDefaultStepRange: [
             (s) => [s.querySource],
-            (querySource: FunnelsQuery): Omit<FunnelExclusion, 'id' | 'name'> => ({
+            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
                 funnelFromStep: 0,
                 funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
             }),

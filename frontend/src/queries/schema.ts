@@ -9,7 +9,6 @@ import {
     EventPropertyFilter,
     EventType,
     FilterType,
-    FunnelExclusion,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -572,6 +571,16 @@ export type FunnelsFilterLegacy = Omit<
     | 'funnel_step'
     | 'funnel_custom_steps'
 >
+
+export interface FunnelExclusionSteps {
+    /** @asType integer */
+    funnelFromStep?: number
+    /** @asType integer */
+    funnelToStep?: number
+}
+export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
+export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
+export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
     exclusions?: FunnelExclusion[]
