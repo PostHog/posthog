@@ -481,19 +481,20 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
-                for record in record_iterator:
-                    for json_column in ("properties", "person_properties", "set", "set_once"):
-                        if (json_str := record.get(json_column, None)) is not None:
-                            record[json_column] = json.loads(json_str)
+                for record_batch in record_iterator:
+                    for record in record_batch.to_pylist():
+                        for json_column in ("properties", "person_properties", "set", "set_once"):
+                            if (json_str := record.get(json_column, None)) is not None:
+                                record[json_column] = json.loads(json_str)
 
-                    inserted_at = record.pop("_inserted_at")
+                        inserted_at = record.pop("_inserted_at")
 
                         local_results_file.write_records_to_jsonl([record])
 
-                    if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                        last_uploaded_part_timestamp = str(inserted_at)
-                        await flush_to_s3(last_uploaded_part_timestamp)
-                        local_results_file.reset()
+                        if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
+                            last_uploaded_part_timestamp = str(inserted_at)
+                            await flush_to_s3(last_uploaded_part_timestamp)
+                            local_results_file.reset()
 
                 if local_results_file.tell() > 0 and record is not None:
                     last_uploaded_part_timestamp = str(inserted_at)

@@ -200,7 +200,7 @@ async def assert_clickhouse_records_in_s3(
     json_columns = ("properties", "person_properties", "set", "set_once")
 
     expected_records = []
-    for record in iter_records(
+    for record_batch in iter_records(
         client=clickhouse_client,
         team_id=team_id,
         interval_start=data_interval_start.isoformat(),
@@ -210,21 +210,22 @@ async def assert_clickhouse_records_in_s3(
         fields=batch_export_schema["fields"] if batch_export_schema is not None else s3_default_fields(),
         extra_query_parameters=batch_export_schema["values"] if batch_export_schema is not None else None,
     ):
-        expected_record = {}
-        for k, v in record.items():
-            if k not in schema_column_names or k == "_inserted_at":
-                # _inserted_at is not exported, only used for tracking progress.
-                continue
+        for record in record_batch.to_pylist():
+            expected_record = {}
+            for k, v in record.items():
+                if k not in schema_column_names or k == "_inserted_at":
+                    # _inserted_at is not exported, only used for tracking progress.
+                    continue
 
-            if k in json_columns and v is not None:
-                expected_record[k] = json.loads(v)
-            elif isinstance(v, dt.datetime):
-                # Some type precision is lost when json dumping to S3, so we have to cast this to str to match.
-                expected_record[k] = v.isoformat()
-            else:
-                expected_record[k] = v
+                if k in json_columns and v is not None:
+                    expected_record[k] = json.loads(v)
+                elif isinstance(v, dt.datetime):
+                    # Some type precision is lost when json dumping to S3, so we have to cast this to str to match.
+                    expected_record[k] = v.isoformat()
+                else:
+                    expected_record[k] = v
 
-        expected_records.append(expected_record)
+            expected_records.append(expected_record)
 
     assert len(json_data) == len(expected_records)
     assert json_data[0] == expected_records[0]
