@@ -216,8 +216,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           WHERE team_id = 2
           GROUP BY distinct_id
@@ -239,8 +238,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                 (SELECT distinct_id
                   FROM person_distinct_id2 as pdi
                   WHERE team_id = 2
                   GROUP BY distinct_id
@@ -1385,8 +1383,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+         (SELECT distinct_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1415,8 +1412,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id ,
+                 (SELECT distinct_id ,
                          argMax(person_props, version) as person_props
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
@@ -1466,8 +1462,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+         (SELECT distinct_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1495,8 +1490,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id ,
+                 (SELECT distinct_id ,
                          argMax(person_props, version) as person_props
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
@@ -1590,8 +1584,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -1619,8 +1612,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                 (SELECT distinct_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id,
@@ -1669,8 +1661,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -1697,8 +1688,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                 (SELECT distinct_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id,
@@ -1746,8 +1736,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+         (SELECT distinct_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1767,8 +1756,7 @@
                  `$session_id`
           FROM events e
           JOIN
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id ,
+            (SELECT distinct_id ,
                     argMax(person_props, version) as person_props
              FROM person_distinct_id2 as pdi
              INNER JOIN
@@ -1824,8 +1812,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+         (SELECT distinct_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1845,8 +1832,7 @@
                  `$session_id`
           FROM events e
           JOIN
-            (SELECT distinct_id,
-                    argMax(person_id, version) as person_id ,
+            (SELECT distinct_id ,
                     argMax(person_props, version) as person_props
              FROM person_distinct_id2 as pdi
              INNER JOIN
@@ -2176,8 +2162,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2411,8 +2396,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2446,8 +2430,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                 (SELECT distinct_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -2545,8 +2528,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2580,8 +2562,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                 (SELECT distinct_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -3326,8 +3307,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3397,8 +3377,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3430,8 +3409,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                 (SELECT distinct_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -3484,8 +3462,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3517,8 +3494,7 @@
             AND e.distinct_id in
               (select distinct_id
                from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                 (SELECT distinct_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -3663,8 +3639,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           WHERE team_id = 2
           GROUP BY distinct_id
@@ -4276,8 +4251,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+         (SELECT distinct_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -4369,8 +4343,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -4461,8 +4434,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -4557,8 +4529,7 @@
     AND s.distinct_id in
       (select distinct_id
        from
-         (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+         (SELECT distinct_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
