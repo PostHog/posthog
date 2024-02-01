@@ -221,6 +221,16 @@
                 }
             ]
         },
+        "AnyEntityNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
         "AnyPropertyFilter": {
             "anyOf": [
                 {
@@ -1556,14 +1566,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 }
@@ -2278,14 +2281,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 }
@@ -4067,14 +4063,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -4396,14 +4385,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
