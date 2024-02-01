@@ -1,195 +1,4 @@
 # serializer version: 1
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2022-12-14 00:00:00'
-    AND s.min_first_timestamp >= '2022-12-28 00:00:00'
-    AND s.max_last_timestamp <= '2023-01-04 00:00:00'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT groupUniqArray(event) as event_names,
-                 `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2022-12-14 00:00:00'
-          AND e.timestamp <= now()
-          AND timestamp >= '2022-12-27 12:00:00'
-          AND timestamp <= '2023-01-04 12:00:00'
-          WHERE notEmpty(`$session_id`)
-            AND (((event = 'custom-event'
-                   AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
-                        AND has(['test_action_filter-session-one'], "$session_id")
-                        AND has(['test_action_filter-window-id'], "$window_id")))))
-          GROUP BY `$session_id`
-          HAVING 1=1
-          AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.1
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2022-12-14 00:00:00'
-    AND s.min_first_timestamp >= '2022-12-28 00:00:00'
-    AND s.max_last_timestamp <= '2023-01-04 00:00:00'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT groupUniqArray(event) as event_names,
-                 `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2022-12-14 00:00:00'
-          AND e.timestamp <= now()
-          AND timestamp >= '2022-12-27 12:00:00'
-          AND timestamp <= '2023-01-04 12:00:00'
-          WHERE notEmpty(`$session_id`)
-            AND (((event = 'custom-event'
-                   AND (has(['test_action_filter-session-one'], "$session_id")
-                        AND has(['test_action_filter-window-id'], "$window_id")))))
-          GROUP BY `$session_id`
-          HAVING 1=1
-          AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.2
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2022-12-14 00:00:00'
-    AND s.min_first_timestamp >= '2022-12-28 00:00:00'
-    AND s.max_last_timestamp <= '2023-01-04 00:00:00'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT groupUniqArray(event) as event_names,
-                 `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2022-12-14 00:00:00'
-          AND e.timestamp <= now()
-          AND timestamp >= '2022-12-27 12:00:00'
-          AND timestamp <= '2023-01-04 12:00:00'
-          WHERE notEmpty(`$session_id`)
-            AND (((event = 'custom-event'
-                   AND (has(['test_action_filter-session-one'], "$session_id")
-                        AND has(['test_action_filter-window-id'], "$window_id"))))
-                 AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
-          GROUP BY `$session_id`
-          HAVING 1=1
-          AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_action_filter.3
-  '''
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2022-12-14 00:00:00'
-    AND s.min_first_timestamp >= '2022-12-28 00:00:00'
-    AND s.max_last_timestamp <= '2023-01-04 00:00:00'
-    AND s.session_id in
-      (select `$session_id` as session_id
-       from
-         (SELECT groupUniqArray(event) as event_names,
-                 `$session_id`
-          FROM events e PREWHERE team_id = 2
-          AND e.timestamp >= '2022-12-14 00:00:00'
-          AND e.timestamp <= now()
-          AND timestamp >= '2022-12-27 12:00:00'
-          AND timestamp <= '2023-01-04 12:00:00'
-          WHERE notEmpty(`$session_id`)
-            AND (((event = 'custom-event'
-                   AND (has(['test_action_filter-session-one'], "$session_id")
-                        AND has(['test_action_filter-window-id'], "$window_id"))))
-                 AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
-          GROUP BY `$session_id`
-          HAVING 1=1
-          AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '''
-# ---
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_all_filters_at_once
   '''
   
@@ -217,12 +26,17 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           WHERE team_id = 2
+            AND distinct_id IN
+              (SELECT distinct_id
+               FROM person_distinct_id2
+               WHERE team_id = 2
+                 AND person_id = '0176be33-0398-000a-cbb9-9285584d567d') as all_distinct_ids_that_might_match_a_person
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
-          and person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
+          and current_person_id = '0176be33-0398-000a-cbb9-9285584d567d') as session_persons_sub_query)
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -240,12 +54,17 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   WHERE team_id = 2
+                    AND distinct_id IN
+                      (SELECT distinct_id
+                       FROM person_distinct_id2
+                       WHERE team_id = 2
+                         AND person_id = '0176be33-0398-000a-cbb9-9285584d567d') as all_distinct_ids_that_might_match_a_person
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0
-                  and person_id = '00000000-0000-0000-0000-000000000000') as events_persons_sub_query)
+                  and current_person_id = '0176be33-0398-000a-cbb9-9285584d567d') as events_persons_sub_query)
           GROUP BY `$session_id`
           HAVING 1=1
           AND hasAll(event_names, ['$pageview', 'custom-event'])) as session_events_sub_query)
@@ -1386,7 +1205,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1416,7 +1235,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id ,
+                         argMax(person_id, version) as current_person_id ,
                          argMax(person_props, version) as person_props
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
@@ -1467,7 +1286,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1496,7 +1315,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id ,
+                         argMax(person_id, version) as current_person_id ,
                          argMax(person_props, version) as person_props
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
@@ -1591,7 +1410,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -1620,7 +1439,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id,
@@ -1670,7 +1489,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -1698,7 +1517,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id,
@@ -1747,7 +1566,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1768,7 +1587,7 @@
           FROM events e
           JOIN
             (SELECT distinct_id,
-                    argMax(person_id, version) as person_id ,
+                    argMax(person_id, version) as current_person_id ,
                     argMax(person_props, version) as person_props
              FROM person_distinct_id2 as pdi
              INNER JOIN
@@ -1825,7 +1644,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -1846,7 +1665,7 @@
           FROM events e
           JOIN
             (SELECT distinct_id,
-                    argMax(person_id, version) as person_id ,
+                    argMax(person_id, version) as current_person_id ,
                     argMax(person_props, version) as person_props
              FROM person_distinct_id2 as pdi
              INNER JOIN
@@ -2177,7 +1996,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2412,7 +2231,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2447,7 +2266,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -2546,7 +2365,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -2581,7 +2400,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -3327,7 +3146,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3398,7 +3217,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3431,7 +3250,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -3485,7 +3304,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -3518,7 +3337,7 @@
               (select distinct_id
                from
                  (SELECT distinct_id,
-                         argMax(person_id, version) as person_id
+                         argMax(person_id, version) as current_person_id
                   FROM person_distinct_id2 as pdi
                   INNER JOIN
                     (SELECT id
@@ -3664,12 +3483,17 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           WHERE team_id = 2
+            AND distinct_id IN
+              (SELECT distinct_id
+               FROM person_distinct_id2
+               WHERE team_id = 2
+                 AND person_id = '0176be33-0398-00c3-1255-6557094da8d3') as all_distinct_ids_that_might_match_a_person
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
-          and person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
+          and current_person_id = '0176be33-0398-00c3-1255-6557094da8d3') as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -4277,7 +4101,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id ,
+                 argMax(person_id, version) as current_person_id ,
                  argMax(person_props, version) as person_props
           FROM person_distinct_id2 as pdi
           INNER JOIN
@@ -4370,7 +4194,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id,
@@ -4462,7 +4286,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
@@ -4558,7 +4382,7 @@
       (select distinct_id
        from
          (SELECT distinct_id,
-                 argMax(person_id, version) as person_id
+                 argMax(person_id, version) as current_person_id
           FROM person_distinct_id2 as pdi
           INNER JOIN
             (SELECT id
