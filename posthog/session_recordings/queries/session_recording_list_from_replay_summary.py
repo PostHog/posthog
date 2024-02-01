@@ -677,7 +677,8 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             events_select = f"AND s.session_id in (select `$session_id` as session_id from ({events_select}) as session_events_sub_query)"
 
         persons_select, persons_select_params = ActorsQuery(filter=self._filter, team=self._team).get_query()
-        events_timestamp_clause, events_timestamp_clause_params = "", {}
+
+        events_timestamp_clause_params = {}
         if persons_select:
             (
                 events_timestamp_clause,
@@ -685,7 +686,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             ) = session_id_events_query.get_events_timestamp_clause
             persons_select = (
                 f"AND s.distinct_id in (select distinct_id from ({persons_select}) as session_persons_sub_query)"
-            ).format(events_timestamp_clause=events_timestamp_clause, default_event=get_default_event_name(self.team))
+            ).format(events_timestamp_clause=events_timestamp_clause, default_event=get_default_event_name(self._team))
 
         return (
             self._session_recordings_query.format(

@@ -1399,7 +1399,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     @snapshot_clickhouse_queries
     def test_person_id_filter_with_distinct_id_optimization(self):
         """
-        this test only exists for the snapshot... the test should be identical to `test_person_id_filter`
+        this test only really exists for the snapshot...
         but with the setting enabled outputs different SQL
         including an events table filter in the persons query
         """
@@ -1410,6 +1410,15 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team=self.team,
             distinct_ids=[three_user_ids[0], three_user_ids[1]],
             properties={"email": "bla"},
+        )
+
+        _create_event(
+            event="$pageview",
+            distinct_id=three_user_ids[0],
+            team=self.team,
+            # can't use $session_id as a keyword arg directly, but we can unpack it from a dict :shrug:
+            **{"$session_id": "in reality this should need to match but we just check for presence"},
+            timestamp=datetime.now() - relativedelta(days=1),
         )
         produce_replay_summary(
             distinct_id=three_user_ids[0],
@@ -1427,11 +1436,15 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team_id=self.team.id,
         )
 
-        with self.settings(REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS=[str(self.team.pk)]):
+        with self.settings(REPLAY_LISTING_DISTINCT_IDS_FROM_EVENTS_OPTIMISATION_TEAM_IDS=[self.team.pk]):
             filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
             session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
-            assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_two, session_id_one])
+            # we've not set up the events realistically
+            # which means we can check the filter is being applied
+            # because not all the sessions are returned
+            # because we've only created one event and we're now filtering by events presence
+            assert sorted([r["session_id"] for r in session_recordings]) == sorted([])
 
     @snapshot_clickhouse_queries
     def test_all_filters_at_once(self):
