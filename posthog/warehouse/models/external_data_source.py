@@ -3,6 +3,8 @@ from django.db import models
 
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
+from posthog.warehouse.util import database_sync_to_async
+from uuid import UUID
 
 
 class ExternalDataSource(CreatedMetaFields, UUIDModel):
@@ -31,3 +33,8 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     prefix: models.CharField = models.CharField(max_length=100, null=True, blank=True)
 
     __repr__ = sane_repr("id")
+
+
+@database_sync_to_async
+def get_external_data_source(source_id: UUID) -> ExternalDataSource:
+    return ExternalDataSource.objects.get(pk=source_id)

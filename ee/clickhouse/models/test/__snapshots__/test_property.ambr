@@ -58,7 +58,7 @@
 # ---
 # name: test_parse_groups_persons_edge_case_with_single_filter
   tuple(
-    'AND (  has(%(vglobalperson_0)s, "pmat_email"))',
+    'AND (  has(%(vglobalperson_0)s, replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_0)s), \'^"|"$\', \'\')))',
     dict({
       'kglobalperson_0': 'email',
       'vglobalperson_0': list([
@@ -76,7 +76,8 @@
           
       SELECT distinct_id, argMax(person_id, version) as person_id
       FROM person_distinct_id2
-      WHERE team_id = 1
+      WHERE team_id = %(team_id)s
+      
       GROUP BY distinct_id
       HAVING argMax(is_deleted, version) = 0
       
