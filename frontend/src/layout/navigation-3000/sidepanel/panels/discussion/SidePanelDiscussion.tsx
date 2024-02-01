@@ -1,4 +1,5 @@
 import { IconChat } from '@posthog/icons'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { WarningHog } from 'lib/components/hedgehogs'
@@ -54,14 +55,19 @@ export const SidePanelDiscussion = (): JSX.Element => {
         <div className="flex flex-col overflow-hidden flex-1">
             <SidePanelPaneHeader
                 title={
-                    <>
-                        Discussion{' '}
-                        {scope ? (
-                            <span className="font-normal text-muted-alt">
-                                about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
-                            </span>
-                        ) : null}
-                    </>
+                    <div className="flex space-x-2">
+                        <span>
+                            Discussion{' '}
+                            {scope ? (
+                                <span className="font-normal text-muted-alt">
+                                    about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
+                                </span>
+                            ) : null}
+                        </span>
+                        <Tooltip title="The Discussions feature might be removed at some point in the future">
+                            <LemonTag type="completion">Experimental</LemonTag>
+                        </Tooltip>
+                    </div>
                 }
             />
 
