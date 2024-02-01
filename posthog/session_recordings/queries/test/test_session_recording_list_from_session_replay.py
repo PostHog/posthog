@@ -1444,7 +1444,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             # which means we can check the filter is being applied
             # because not all the sessions are returned
             # because we've only created one event, and we're now filtering by events presence
-            assert sorted([r["session_id"] for r in session_recordings]) == sorted([])
+            assert sorted([r["session_id"] for r in session_recordings]) == sorted([session_id_one])
 
     @snapshot_clickhouse_queries
     def test_all_filters_at_once(self):
