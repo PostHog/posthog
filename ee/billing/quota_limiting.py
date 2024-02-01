@@ -96,9 +96,7 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
         QUOTA_LIMIT_DATA_RETENTION_FLAG,
         organization.id,
         groups={"organization": str(organization.id)},
-        group_properties={
-            "organization": str(organization.id),
-        },
+        group_properties={"organization": {"id": str(organization.id)}},
     ):
         # Don't drop data for this org but record that they __would have__ been
         # limited.
