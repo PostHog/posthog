@@ -884,7 +884,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
-            if (scheduledChange && scheduledChange) {
+            if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.loadScheduledChanges()
                 actions.setFeatureFlag({
