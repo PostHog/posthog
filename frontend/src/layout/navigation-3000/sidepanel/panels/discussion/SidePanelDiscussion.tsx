@@ -64,7 +64,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
                                 </span>
                             ) : null}
                         </span>
-                        <Tooltip title="The Discussions feature might be removed at some point in the future">
+                        <Tooltip title="We may choose to remove Discussions at some point in the future">
                             <LemonTag type="completion">Experimental</LemonTag>
                         </Tooltip>
                     </div>
