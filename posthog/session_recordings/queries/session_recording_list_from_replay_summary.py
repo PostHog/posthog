@@ -678,7 +678,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
         persons_select, persons_select_params = ActorsQuery(filter=self._filter, team=self._team).get_query()
 
-        events_timestamp_clause_params = {}
+        events_timestamp_clause_params: Dict[str, str] = {}
         if persons_select:
             (
                 events_timestamp_clause,
