@@ -33,10 +33,10 @@
               (SELECT distinct_id
                FROM person_distinct_id2
                WHERE team_id = 2
-                 AND person_id = '0176be33-0398-000a-472b-3bd7b3c44378') as all_distinct_ids_that_might_match_a_person
+                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
-          and current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
+          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
     AND s.session_id in
       (select `$session_id` as session_id
        from
@@ -61,10 +61,10 @@
                       (SELECT distinct_id
                        FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND person_id = '0176be33-0398-000a-472b-3bd7b3c44378') as all_distinct_ids_that_might_match_a_person
+                         AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0
-                  and current_person_id = '00000000-0000-0000-0000-000000000000') as events_persons_sub_query)
+                  AND current_person_id = '00000000-0000-0000-0000-000000000000') as events_persons_sub_query)
           GROUP BY `$session_id`
           HAVING 1=1
           AND hasAll(event_names, ['$pageview', 'custom-event'])) as session_events_sub_query)
@@ -3490,10 +3490,10 @@
               (SELECT distinct_id
                FROM person_distinct_id2
                WHERE team_id = 2
-                 AND person_id = '0176be33-0398-00c3-122a-8a5fac9f2d0d') as all_distinct_ids_that_might_match_a_person
+                 AND person_id = '00000000-0000-0000-0000-000000000000') as all_distinct_ids_that_might_match_a_person
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
-          and current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
+          AND current_person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
