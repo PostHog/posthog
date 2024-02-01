@@ -2734,9 +2734,13 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         "properties": {"$feature/a-b-test": "test_1"},
                     }
                 ],
-                # "person1": [
-                #     {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"},},
-                # ],
+                "person1": [
+                    {
+                        "event": "$pageview1",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                ],
                 "person2": [
                     {
                         "event": "$pageview1",
@@ -2824,11 +2828,14 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         self.assertEqual(result[0]["count"], 3)
         self.assertEqual("control", result[0]["breakdown_value"])
 
-        self.assertEqual(result[1]["count"], 2)
-        self.assertEqual("test_1", result[1]["breakdown_value"])
+        self.assertEqual(result[1]["count"], 1)
+        self.assertEqual("test", result[1]["breakdown_value"])
 
-        self.assertEqual(result[2]["count"], 1)
-        self.assertEqual("test_2", result[2]["breakdown_value"])
+        self.assertEqual(result[2]["count"], 2)
+        self.assertEqual("test_1", result[2]["breakdown_value"])
+
+        self.assertEqual(result[3]["count"], 1)
+        self.assertEqual("test_2", result[3]["breakdown_value"])
 
         # test missing from results, since no events
         self.assertAlmostEqual(response_data["probability"]["test_1"], 0.299, places=2)

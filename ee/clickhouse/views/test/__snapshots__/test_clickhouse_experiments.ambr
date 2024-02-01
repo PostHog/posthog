@@ -522,7 +522,43 @@
   ORDER BY breakdown_value
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
@@ -539,7 +575,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -585,7 +621,7 @@
   ORDER BY breakdown_value
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.6
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
@@ -603,7 +639,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.7
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT [now()] AS date,
