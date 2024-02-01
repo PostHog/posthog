@@ -423,6 +423,7 @@ const handleQuerySourceUpdateSideEffects = (
      * Date range change side effects.
      */
     if (
+        !isRetentionQuery(currentState) &&
         !isPathsQuery(currentState) && // TODO: Apply side logic more elegantly
         update.dateRange &&
         update.dateRange.date_from &&
