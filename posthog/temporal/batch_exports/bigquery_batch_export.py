@@ -59,7 +59,12 @@ async def create_table_in_bigquery(
     """Create a table in BigQuery."""
     fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
     table = bigquery.Table(fully_qualified_name, schema=table_schema)
-    table.time_partitioning = bigquery.TimePartitioning(type_=bigquery.TimePartitioningType.DAY, field="timestamp")
+
+    if "timestamp" in [field.name for field in table_schema]:
+        # TODO: Maybe choosing which column to use as parititoning should be a configuration parameter.
+        # 'timestamp' is used for backwards compatibility.
+        table.time_partitioning = bigquery.TimePartitioning(type_=bigquery.TimePartitioningType.DAY, field="timestamp")
+
     table = await asyncio.to_thread(bigquery_client.create_table, table, exists_ok=exists_ok)
 
     return table
@@ -164,7 +169,7 @@ def bigquery_client(inputs: BigQueryInsertInputs):
         client.close()
 
 
-def bigquery_export_default_fields() -> list[BatchExportField]:
+def bigquery_default_fields() -> list[BatchExportField]:
     """Default fields for a BigQuery batch export.
 
     Starting from the common defualt fields, we add and tweak some fields for
@@ -177,10 +182,11 @@ def bigquery_export_default_fields() -> list[BatchExportField]:
             "alias": "ip",
         }
     )
-    # Fields kept for backwards compatibility with legacy apps schema.
+    # Fields kept or removed for backwards compatibility with legacy apps schema.
     batch_export_fields.append({"expression": "toJSONString(elements_chain)", "alias": "elements"})
     batch_export_fields.append({"expression": "''", "alias": "site_url"})
     batch_export_fields.append({"expression": "NOW64()", "alias": "bq_ingested_timestamp"})
+    batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
 
     return batch_export_fields
 
@@ -227,7 +233,13 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
-        fields = bigquery_export_default_fields()
+        if inputs.batch_export_schema is None:
+            fields = bigquery_default_fields()
+            query_parameters = None
+
+        else:
+            fields = inputs.batch_export_schema["fields"]
+            query_parameters = inputs.batch_export_schema["values"]
 
         records_iterator = iter_records(
             client=client,
@@ -237,6 +249,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             fields=fields,
+            extra_query_parameters=query_parameters,
         )
 
         bigquery_table = None
@@ -298,7 +311,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     ]
 
                 else:
-                    column_names = [column for column in first_record.column_names if column != "_inserted_at"]
+                    column_names = [column for column in first_record.schema.names if column != "_inserted_at"]
                     record_schema = first_record.select(column_names).schema
                     schema = get_bigquery_fields_from_record_schema(record_schema, known_json_columns=json_columns)
 

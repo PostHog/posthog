@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+import operator
 import os
 import typing
 from random import randint
@@ -27,7 +28,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     BigQueryInsertInputs,
-    bigquery_export_default_fields,
+    bigquery_default_fields,
     get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
 )
@@ -62,6 +63,7 @@ def assert_clickhouse_records_in_bigquery(
     include_events: list[str] | None = None,
     batch_export_schema: BatchExportSchema | None = None,
     use_json_type: bool = False,
+    sort_key: str = "event",
 ) -> None:
     """Assert ClickHouse records are written to a given BigQuery table.
 
@@ -84,19 +86,28 @@ def assert_clickhouse_records_in_bigquery(
     else:
         json_columns = []
 
-    query_job = bigquery_client.query(f"SELECT * FROM {dataset_id}.{table_id} ORDER BY event, timestamp")
+    query_job = bigquery_client.query(f"SELECT * FROM {dataset_id}.{table_id}")
     result = query_job.result()
 
     inserted_records = []
+    inserted_bq_ingested_timestamp = []
 
     for row in result:
-        inserted_record = {k: json.loads(v) if k in json_columns and v is not None else v for k, v in row.items()}
+        inserted_record = {}
+
+        for k, v in row.items():
+            if k == "bq_ingested_timestamp":
+                inserted_bq_ingested_timestamp.append(v)
+                continue
+
+            inserted_record[k] = json.loads(v) if k in json_columns and v is not None else v
+
         inserted_records.append(inserted_record)
 
     if batch_export_schema is not None:
         schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
     else:
-        schema_column_names = [field["alias"] for field in bigquery_export_default_fields()]
+        schema_column_names = [field["alias"] for field in bigquery_default_fields()]
 
     expected_records = []
     for records in iter_records(
@@ -106,22 +117,38 @@ def assert_clickhouse_records_in_bigquery(
         interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
         include_events=include_events,
-        fields=batch_export_schema["fields"] if batch_export_schema is not None else bigquery_export_default_fields(),
+        fields=batch_export_schema["fields"] if batch_export_schema is not None else bigquery_default_fields(),
         extra_query_parameters=batch_export_schema["values"] if batch_export_schema is not None else None,
     ):
         for record in records.select(schema_column_names).to_pylist():
-            expected_records.append(
-                {k: json.loads(v) if k in json_columns and v is not None else v for k, v in record.items()}
-            )
+            expected_record = {}
+
+            for k, v in record.items():
+                if k not in schema_column_names or k == "_inserted_at" or k == "bq_ingested_timestamp":
+                    # _inserted_at is not exported, only used for tracking progress.
+                    # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
+                    continue
+
+                if k in json_columns and v is not None:
+                    expected_record[k] = json.loads(v)
+                elif isinstance(v, dt.datetime):
+                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc)
+                else:
+                    expected_record[k] = v
+
+            expected_records.append(expected_record)
 
     assert len(inserted_records) == len(expected_records)
-    # First check one event, the first one, so that we can get a nice diff if
-    # the included data is different.
+
+    # Ordering is not guaranteed, so we sort before comparing.
+    inserted_records.sort(key=operator.itemgetter(sort_key))
+    expected_records.sort(key=operator.itemgetter(sort_key))
+
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
 
-    if "bq_ingested_timestamp" in inserted_records[0]:
-        assert all(record["bq_ingested_timestamp"] >= min_ingested_timestamp for record in inserted_records)
+    if len(inserted_bq_ingested_timestamp) > 0:
+        assert all(ts >= min_ingested_timestamp for ts in inserted_bq_ingested_timestamp)
 
 
 @pytest.fixture
@@ -178,7 +205,7 @@ def use_json_type(request) -> bool:
 TEST_SCHEMAS = [
     {
         "fields": [
-            {"expression": "event", "alias": "my_event_name"},
+            {"expression": "event", "alias": "event"},
             {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
             {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_1)s), '')", "alias": "os"},
             {"expression": "nullIf(properties, '')", "alias": "all_properties"},
@@ -187,9 +214,9 @@ TEST_SCHEMAS = [
     },
     {
         "fields": [
-            {"expression": "event", "alias": "my_event_name"},
+            {"expression": "event", "alias": "event"},
             {"expression": "inserted_at", "alias": "inserted_at"},
-            {"expression": "1 + 1", "alias": "two"},
+            {"expression": "toInt8(1 + 1)", "alias": "two"},
         ],
         "values": {},
     },
@@ -253,6 +280,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         count_other_team=0,
         properties=None,
         person_properties=None,
+        event_name="test-no-prop-{i}",
     )
 
     if exclude_events:
