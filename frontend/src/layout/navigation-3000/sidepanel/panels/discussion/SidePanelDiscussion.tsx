@@ -64,7 +64,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
                                 </span>
                             ) : null}
                         </span>
-                        <Tooltip title="We may choose to remove Discussions at some point in the future">
+                        <Tooltip title="This is a feature we are experimenting with! We'd love to get your feedback on it and whether this is something useful for working with PostHog.">
                             <LemonTag type="completion">Experimental</LemonTag>
                         </Tooltip>
                     </div>
