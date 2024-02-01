@@ -13,7 +13,7 @@ import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingVerificationStep } from './OnboardingVerificationStep'
+import { OnboardingVerificationAndConfigStep } from './OnboardingVerificationAndConfigStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
@@ -82,19 +82,16 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.SDKS}
             />
-            <OnboardingVerificationStep
+            <OnboardingVerificationAndConfigStep
                 listeningForName="event"
                 teamPropertyToVerify="ingested_event"
-                stepKey={OnboardingStepKey.VERIFY}
-            />
-            <OnboardingProductConfiguration
-                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                stepKey={OnboardingStepKey.VERIFY_AND_CONFIGURE}
                 options={[
                     {
                         title: 'Autocapture frontend interactions',
                         description: `If you use our JavaScript or React Native libraries, we'll automagically 
-                            capture frontend interactions like pageviews, clicks, and more. Fine-tune what you 
-                            capture directly in your code snippet.`,
+                        capture frontend interactions like pageviews, clicks, and more. Fine-tune what you 
+                        capture directly in your code snippet.`,
                         teamProperty: 'autocapture_opt_out',
                         value: !currentTeam?.autocapture_opt_out,
                         type: 'toggle',

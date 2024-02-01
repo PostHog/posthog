@@ -1,5 +1,5 @@
 import { IconArrowLeft, IconEye } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDivider, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LaptopHog1 } from 'lib/components/hedgehogs'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -15,9 +15,7 @@ import { multiInstallProducts, sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
 export function SDKs({
-    usersAction,
     sdkInstructionMap,
-    subtitle,
     stepKey = OnboardingStepKey.SDKS,
 }: {
     usersAction?: string
@@ -79,14 +77,11 @@ export function SDKs({
         </OnboardingStep>
     ) : (
         <OnboardingStep
-            title={`Where are you ${usersAction || 'collecting data'} from?`}
-            subtitle={subtitle || 'Pick one or two to start and add more sources later.'}
+            title="Install"
             stepKey={stepKey}
             continueOverride={!showSideBySide && panel === 'options' ? <></> : undefined}
             backActionOverride={!showSideBySide && panel === 'instructions' ? () => setPanel('options') : undefined}
-            hedgehog={<LaptopHog1 />}
         >
-            <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">
                 <div
                     className={`flex-col gap-y-2 flex-wrap gap-x-4 ${showSideBySide && 'min-w-[12.5rem] w-50'} ${

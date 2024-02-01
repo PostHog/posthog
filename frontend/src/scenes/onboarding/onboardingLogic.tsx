@@ -23,6 +23,7 @@ export enum OnboardingStepKey {
     BILLING = 'billing',
     OTHER_PRODUCTS = 'other_products',
     VERIFY = 'verify',
+    VERIFY_AND_CONFIGURE = 'verify_and_configure',
     PRODUCT_CONFIGURATION = 'configure',
     INVITE_TEAMMATES = 'invite_teammates',
 }
@@ -116,12 +117,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
     })),
     selectors({
         breadcrumbs: [
-            (s) => [s.productKey],
-            (productKey) => [
+            (s) => [s.productKey, s.stepKey],
+            (productKey, stepKey) => [
                 {
                     key: Scene.OnboardingProductIntroduction,
                     name: productKeyToProductName[productKey],
                     path: urls.onboardingProductIntroduction(productKey),
+                },
+                {
+                    key: [Scene.Products, stepKey],
+                    name: 'Onboarding',
+                    path: urls.onboarding(productKey),
                 },
             ],
         ],
