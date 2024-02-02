@@ -716,6 +716,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
             }
         },
+        submitFeatureFlagFailure: async () => {
+            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
+            setTimeout(
+                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+                1
+            )
+        },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
@@ -884,7 +891,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
-            if (scheduledChange && scheduledChange) {
+            if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.loadScheduledChanges()
                 actions.setFeatureFlag({
@@ -1005,9 +1012,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                     : undefined,
                         })),
                         rollout_percentage:
-                            rollout_percentage === null || rollout_percentage === undefined
-                                ? 'You need to set a rollout % value'
-                                : undefined,
+                            rollout_percentage === undefined ? 'You need to set a rollout % value' : undefined,
                     })
                 )
             },
@@ -1016,7 +1021,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.affectedUsers, s.totalUsers],
             (affectedUsers, totalUsers) => (rolloutPercentage, index) => {
                 let effectiveRolloutPercentage = rolloutPercentage
-                if (rolloutPercentage === undefined || rolloutPercentage === null) {
+                if (
+                    rolloutPercentage === undefined ||
+                    rolloutPercentage === null ||
+                    (rolloutPercentage && rolloutPercentage > 100)
+                ) {
                     effectiveRolloutPercentage = 100
                 }
 

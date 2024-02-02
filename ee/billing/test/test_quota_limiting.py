@@ -1,4 +1,5 @@
 import time
+from unittest.mock import patch
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -7,6 +8,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from ee.billing.quota_limiting import (
+    QUOTA_LIMIT_DATA_RETENTION_FLAG,
     QUOTA_LIMITER_CACHE_KEY,
     QuotaResource,
     list_limited_team_attributes,
@@ -22,9 +24,82 @@ from posthog.test.base import BaseTest, _create_event
 
 
 class TestQuotaLimiting(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_dont_quota_limit_feature_flag_enabled(self, patch_feature_enabled, patch_capture) -> None:
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": 99, "limit": 100},
+                "recordings": {"usage": 1, "limit": 100},
+                "rows_synced": {"usage": 5, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            distinct_id = str(uuid4())
+
+            # add a bunch of events so that the organization is over the limit
+            # Because the feature flag is enabled
+            for _ in range(0, 10):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=1),
+                    team=self.team,
+                )
+        time.sleep(1)
+        result = update_all_org_billing_quotas()
+        patch_feature_enabled.assert_called_with(
+            QUOTA_LIMIT_DATA_RETENTION_FLAG,
+            self.organization.id,
+            groups={"organization": str(self.organization.id)},
+            group_properties={"organization": {"id": str(self.organization.id)}},
+        )
+        patch_capture.assert_called_once_with(
+            str(self.organization.id),
+            "quota limiting suspended",
+            properties={"current_usage": 109},
+            groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+        )
+        assert result["events"] == {}
+        assert result["recordings"] == {}
+        assert result["rows_synced"] == {}
+
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_quota_limit_feature_flag_not_on(self, patch_feature_enabled, patch_capture) -> None:
+        # Confirm that we don't send an event if they weren't going to be limited.
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100},
+            "recordings": {"usage": 1, "limit": 100},
+            "rows_synced": {"usage": 5, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        time.sleep(1)
+        result = update_all_org_billing_quotas()
+        # Shouldn't be called due to lazy evaluation of the conditional
+        patch_feature_enabled.assert_not_called()
+        patch_capture.assert_not_called()
+        assert result["events"] == {}
+        assert result["recordings"] == {}
+        assert result["rows_synced"] == {}
+
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
@@ -53,7 +128,8 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
-    def test_billing_rate_limit(self) -> None:
+    @patch("posthoganalytics.capture")
+    def test_billing_rate_limit(self, patch_capture) -> None:
         with self.settings(USE_TZ=False):
             self.organization.usage = {
                 "events": {"usage": 99, "limit": 100},
@@ -81,6 +157,17 @@ class TestQuotaLimiting(BaseTest):
         assert result["events"] == {org_id: 1612137599}
         assert result["recordings"] == {}
         assert result["rows_synced"] == {}
+
+        patch_capture.assert_called_once_with(
+            org_id,
+            "organization quota limits changed",
+            properties={
+                "quota_limited_events": 1612137599,
+                "quota_limited_recordings": 1612137599,
+                "quota_limited_rows_synced": None,
+            },
+            groups={"instance": "http://localhost:8000", "organization": org_id},
+        )
 
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
             self.team.api_token.encode("UTF-8")
