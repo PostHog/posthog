@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Sequence, Set, Tuple
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import HogQLContext
-from posthog.models.action.util import format_action_filter
+from posthog.models.action.util import format_action_filter, format_action_filter_event_only
 from posthog.models.entity import Entity
 from posthog.queries.util import PersonPropertiesMode
 
@@ -15,6 +15,7 @@ def get_entity_filtering_params(
     *,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     person_id_joined_alias: str = "person_id",
+    prefiltering: bool = False,
 ) -> Tuple[Dict, Dict]:
     """Return SQL condition for filtering events by allowed entities (events/actions).
 
@@ -32,13 +33,17 @@ def get_entity_filtering_params(
                 continue
             action_ids_already_included.add(int(entity.id))
             action = entity.get_action()
-            action_query, action_params = format_action_filter(
-                team_id=team_id,
-                action=action,
-                table_name=table_name,
-                person_properties_mode=person_properties_mode,
-                person_id_joined_alias=person_id_joined_alias,
-                hogql_context=hogql_context,
+            action_query, action_params = (
+                format_action_filter(
+                    team_id=team_id,
+                    action=action,
+                    table_name=table_name,
+                    person_properties_mode=person_properties_mode,
+                    person_id_joined_alias=person_id_joined_alias,
+                    hogql_context=hogql_context,
+                )
+                if not prefiltering
+                else format_action_filter_event_only(action)
             )
             params.update(action_params)
             entity_clauses.append(action_query)
