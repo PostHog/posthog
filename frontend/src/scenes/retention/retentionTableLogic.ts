@@ -73,28 +73,42 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                 const { period } = retentionFilter || {}
                 const { breakdowns } = breakdownFilter || {}
 
-                return range(maxIntervalsCount).map((rowIndex: number) => [
-                    // First column is the cohort label
-                    breakdowns?.length
-                        ? results[rowIndex].label
-                        : period === 'Hour'
-                        ? dayjs(results[rowIndex].date).format('MMM D, h A')
-                        : dayjs(results[rowIndex].date).format('MMM D'),
-                    // Second column is the first value (which is essentially the total)
-                    ...(hideSizeColumn ? [] : [results[rowIndex].values[0].count]),
-                    // All other columns are rendered as percentage
-                    ...results[rowIndex].values.map((row) => {
-                        const percentage =
-                            results[rowIndex].values[0]['count'] > 0
-                                ? (row['count'] / results[rowIndex].values[0]['count']) * 100
-                                : 0
+                return range(maxIntervalsCount).map((index: number) => {
+                    const currentResult = results[index]
+                    let firstColumn // Prepare for some date gymnastics
+
+                    if (breakdowns?.length) {
+                        firstColumn = currentResult.label
+                    } else {
+                        switch (period) {
+                            case 'Hour':
+                                firstColumn = dayjs(currentResult.date).format('MMM D, h A')
+                                break
+                            case 'Month':
+                                firstColumn = dayjs(currentResult.date).format('MMM YYYY')
+                                break
+                            case 'Week':
+                                firstColumn = `Week of ${dayjs(currentResult.date).format('MMM D')}`
+                                break
+                            default:
+                                firstColumn = dayjs(currentResult.date).format('MMM D')
+                        }
+                    }
+
+                    const secondColumn = hideSizeColumn ? [] : [currentResult.values[0].count]
+
+                    const otherColumns = currentResult.values.map((value) => {
+                        const totalCount = currentResult.values[0]['count']
+                        const percentage = totalCount > 0 ? (value['count'] / totalCount) * 100 : 0
 
                         return {
-                            count: row['count'],
+                            count: value['count'],
                             percentage,
                         }
-                    }),
-                ])
+                    })
+
+                    return [firstColumn, ...secondColumn, ...otherColumns]
+                })
             },
         ],
     }),
