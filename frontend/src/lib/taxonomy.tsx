@@ -960,7 +960,7 @@ const eventToPersonProperties = new Set([
 
 export function getKeyMapping(
     value: string | PropertyFilterValue | undefined,
-    type: 'event' | 'element'
+    type: 'event' | 'element' | 'person_properties'
 ): KeyMapping | null {
     if (value == undefined) {
         return null
@@ -978,7 +978,7 @@ export function getKeyMapping(
         }
         return data
     } else if (value in eventToPersonProperties) {
-        data = { ...KEY_MAPPING[value] }
+        data = { ...KEY_MAPPING[type][value] }
         if (data.description) {
             data.label = `Latest ${data.label}`
             data.description = `${String(data.description)} Data from the latest time this user was seen.`
