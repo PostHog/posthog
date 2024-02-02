@@ -63,7 +63,7 @@ class TrendsEventQueryBase(EventQuery):
         query = f"""
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query()}
+            {self._get_person_ids_query(relevant_events_conditions=entity_query + date_query)}
             {person_query}
             {groups_query}
             {session_query}

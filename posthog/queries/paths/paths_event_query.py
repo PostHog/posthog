@@ -126,7 +126,7 @@ class PathEventQuery(EventQuery):
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query()}
+            {self._get_person_ids_query(relevant_events_conditions=event_query + date_query)}
             {person_query}
             {groups_query}
             {funnel_paths_join}
