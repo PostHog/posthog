@@ -57,7 +57,7 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
     },
 
     [SidePanelTab.Activity]: {
-        label: 'Activity',
+        label: 'Team activity',
         Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },
