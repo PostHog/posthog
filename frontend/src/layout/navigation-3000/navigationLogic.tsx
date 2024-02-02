@@ -28,9 +28,11 @@ import { isNotNil } from 'lib/utils'
 import React from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { ProductKey } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -56,7 +58,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     path(['layout', 'navigation-3000', 'navigationLogic']),
     props({} as { inputElement?: HTMLInputElement | null }),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig'], navigationLogic, ['mobileLayout']],
+        values: [sceneLogic, ['sceneConfig'], navigationLogic, ['mobileLayout'], teamLogic, ['currentTeam']],
+        actions: [navigationLogic, ['closeAccountPopover']],
     })),
     actions({
         hideSidebar: true,
@@ -131,6 +134,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             {
                 showNavOnMobile: () => true,
                 hideNavOnMobile: () => false,
+                closeAccountPopover: () => false,
             },
         ],
         isSidebarKeyboardShortcutAcknowledged: [
@@ -315,13 +319,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             (isNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isNavCollapsedDesktop,
         ],
         navbarItems: [
-            () => [
+            (s) => [
                 featureFlagLogic.selectors.featureFlags,
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
+                s.currentTeam,
             ],
-            (featureFlags, dashboardsLoading, pinnedDashboards): NavbarItem[][] => {
+            (featureFlags, dashboardsLoading, pinnedDashboards, currentTeam): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
+                const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
                 return [
                     [
                         {
@@ -366,13 +372,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Notebooks',
                             icon: <IconNotebook />,
                             to: urls.notebooks(),
-                            tag: 'new' as const,
                         },
                         {
-                            identifier: Scene.Events,
-                            label: 'Events',
-                            icon: <IconLive />,
-                            to: urls.events(),
+                            identifier: Scene.DataManagement,
+                            label: 'Data management',
+                            icon: <IconDatabase />,
+                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                         {
                             identifier: Scene.PersonsManagement,
@@ -382,11 +388,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.persons(),
                         },
                         {
-                            identifier: Scene.DataManagement,
-                            label: 'Data management',
-                            icon: <IconDatabase />,
-                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
+                            identifier: Scene.Events,
+                            label: 'Activity',
+                            icon: <IconLive />,
+                            to: urls.events(),
                         },
                     ],
                     [
@@ -438,12 +443,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconChat />,
                             to: urls.surveys(),
                         },
-                        {
-                            identifier: Scene.EarlyAccessFeatures,
-                            label: 'Early access features',
-                            icon: <IconRocket />,
-                            to: urls.earlyAccessFeatures(),
-                        },
+                        featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
+                            ? {
+                                  identifier: Scene.EarlyAccessFeatures,
+                                  label: 'Early access features',
+                                  icon: <IconRocket />,
+                                  to: urls.earlyAccessFeatures(),
+                              }
+                            : null,
                         {
                             identifier: Scene.DataWarehouse,
                             label: 'Data warehouse',

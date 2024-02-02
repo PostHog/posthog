@@ -25,7 +25,7 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     connect({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
-        values: [sceneLogic, ['sceneConfig']],
+        values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
     }),
 
     actions({
@@ -85,7 +85,13 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        if (values.sceneConfig?.defaultDocsPath) {
+        // If a destination was set in the options, use that
+        // otherwise the default for the current scene
+        // otherwise, whatever it last was set to
+        if (values.selectedTabOptions) {
+            const initialPath = getPathFromUrl(values.selectedTabOptions)
+            actions.setInitialPath(initialPath)
+        } else if (values.sceneConfig?.defaultDocsPath) {
             actions.setInitialPath(values.sceneConfig?.defaultDocsPath)
         }
     }),

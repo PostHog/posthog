@@ -226,9 +226,9 @@ export function ReplayCostControl(): JSX.Element | null {
     const flagIsEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING]
     const samplingControlFeatureEnabled = flagIsEnabled || hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
     const recordingDurationMinimumFeatureEnabled =
-        flagIsEnabled || hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
+        flagIsEnabled || hasAvailableFeature(AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM)
     const featureFlagRecordingFeatureEnabled =
-        flagIsEnabled || hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
+        flagIsEnabled || hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
 
     const canAccessAnyControl =
         samplingControlFeatureEnabled || recordingDurationMinimumFeatureEnabled || featureFlagRecordingFeatureEnabled

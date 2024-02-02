@@ -72,3 +72,21 @@ export const isLegacyPathsFilter = (filters: Record<string, any> | undefined): b
     ]
     return legacyKeys.some((key) => key in filters)
 }
+
+export const isLegacyStickinessFilter = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const legacyKeys = ['show_legend', 'hidden_legend_keys', 'show_values_on_series']
+    return legacyKeys.some((key) => key in filters)
+}
+
+export const isLegacyLifecycleFilter = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const legacyKeys = ['show_values_on_series']
+    return legacyKeys.some((key) => key in filters)
+}

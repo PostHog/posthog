@@ -1,8 +1,16 @@
 import './PersonsModal.scss'
 
-import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    Link,
+} from '@posthog/lemon-ui'
 import { LemonModalProps } from '@posthog/lemon-ui'
-import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
@@ -55,7 +63,8 @@ export function PersonsModal({
     title,
     onAfterClose,
     inline,
-    additionalFields,
+    additionalSelect,
+    orderBy,
 }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
@@ -63,7 +72,8 @@ export function PersonsModal({
     const logic = personsModalLogic({
         url: originalUrl,
         query: _query,
-        additionalFields,
+        additionalSelect,
+        orderBy,
     })
 
     const {
@@ -145,7 +155,13 @@ export function PersonsModal({
 
                     {query &&
                         Object.entries(insightActorsQueryOptions ?? {})
-                            .filter(([, value]) => !!value)
+                            .filter(([, value]) => {
+                                if (Array.isArray(value)) {
+                                    return !!value.length
+                                }
+
+                                return !!value
+                            })
                             .map(([key, options]) => (
                                 <div key={key}>
                                     <LemonSelect
@@ -166,7 +182,7 @@ export function PersonsModal({
                             </>
                         ) : (
                             <span>
-                                {actorsResponse?.next || actorsResponse?.next_offset ? 'More than ' : ''}
+                                {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
                                 <b>
                                     {totalActorsCount || 'No'} unique{' '}
                                     {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
@@ -195,14 +211,17 @@ export function PersonsModal({
                                 ))}
                             </>
                         ) : actorsResponseLoading ? (
-                            <Skeleton title={false} />
+                            <div className="space-y-3">
+                                <LemonSkeleton active={false} className="h-4 w-full" />
+                                <LemonSkeleton active={false} className="h-4 w-3/5" />
+                            </div>
                         ) : (
                             <div className="text-center p-5">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
                             </div>
                         )}
 
-                        {(actorsResponse?.next || actorsResponse?.next_offset) && (
+                        {(actorsResponse?.next || actorsResponse?.offset) && (
                             <div className="m-4 flex justify-center">
                                 <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}
@@ -318,14 +337,16 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
-                            <CopyToClipboardInline
-                                explicitValue={actor.distinct_ids[0]}
-                                iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="end"
-                                className="text-xs text-muted-alt"
-                            >
-                                {midEllipsis(actor.distinct_ids[0], 32)}
-                            </CopyToClipboardInline>
+                            {actor.distinct_ids?.[0] && (
+                                <CopyToClipboardInline
+                                    explicitValue={actor.distinct_ids[0]}
+                                    iconStyle={{ color: 'var(--primary)' }}
+                                    iconPosition="end"
+                                    className="text-xs text-muted-alt"
+                                >
+                                    {midEllipsis(actor.distinct_ids[0], 32)}
+                                </CopyToClipboardInline>
+                            )}
                         </>
                     )}
                 </div>

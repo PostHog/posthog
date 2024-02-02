@@ -1,7 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import {
+    convertSnapshotsByWindowId,
+    snapshotsAsRealTimeJSONPayload,
+} from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import {
     prepareRecordingSnapshots,
     sessionRecordingDataLogic,
@@ -13,7 +16,8 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, SessionRecordingSnapshotSource } from '~/types'
+import { waitForExpect } from '~/test/waitForExpect'
+import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
@@ -48,14 +52,20 @@ describe('sessionRecordingDataLogic', () => {
                     if (req.url.searchParams.get('source') === 'blob') {
                         return res(ctx.text(snapshotsAsJSONLines()))
                     } else if (req.url.searchParams.get('source') === 'realtime') {
-                        // ... since this is fake, we'll just return the same data
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                        if (req.params.id === 'has-only-empty-realtime') {
+                            return res(ctx.json({ snapshots: [] }))
+                        }
+                        // ... since this is fake, we'll just return the same data in the right format
+                        return res(ctx.json(snapshotsAsRealTimeJSONPayload()))
                     }
 
                     // with no source requested should return sources
-                    const sources = [BLOB_SOURCE]
+                    let sources = [BLOB_SOURCE]
                     if (req.params.id === 'has-real-time-too') {
                         sources.push(REALTIME_SOURCE)
+                    }
+                    if (req.params.id === 'has-only-empty-realtime') {
+                        sources = [REALTIME_SOURCE]
                     }
                     return [
                         200,
@@ -71,7 +81,11 @@ describe('sessionRecordingDataLogic', () => {
             },
         })
         initKeaTests()
-        logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
+        logic = sessionRecordingDataLogic({
+            sessionRecordingId: '2',
+            // we don't want to wait for the default real time polling interval in tests
+            realTimePollingIntervalMilliseconds: 10,
+        })
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
         logic.actions.loadRecordingMeta()
@@ -175,7 +189,11 @@ describe('sessionRecordingDataLogic', () => {
             initKeaTests()
             useAvailableFeatures([])
             initKeaTests()
-            logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
+            logic = sessionRecordingDataLogic({
+                sessionRecordingId: '2',
+                // we don't want to wait for the default real time polling interval in tests
+                realTimePollingIntervalMilliseconds: 10,
+            })
             logic.mount()
             logic.actions.loadRecordingMeta()
             await expectLogic(logic).toFinishAllListeners()
@@ -268,6 +286,30 @@ describe('sessionRecordingDataLogic', () => {
             expect(prepareRecordingSnapshots(snapshots)).toEqual(prepareRecordingSnapshots(snapshotsWithDuplicates))
         })
 
+        it('should cope with two not duplicate snapshots with the same timestamp and delay', () => {
+            // these two snapshots are not duplicates but have the same timestamp and delay
+            // this regression test proves that we deduplicate them against themselves
+            // prior to https://github.com/PostHog/posthog/pull/20019
+            // each time prepareRecordingSnapshots was called with this input
+            // the result would be one event longer, introducing, instead of removing, a duplicate
+            const verySimilarSnapshots: RecordingSnapshot[] = [
+                {
+                    windowId: '1',
+                    type: 3,
+                    data: { source: 2, type: 0, id: 33, x: 852.7421875, y: 133.1640625 },
+                    timestamp: 1682952389798,
+                },
+                {
+                    windowId: '1',
+                    type: 3,
+                    data: { source: 2, type: 2, id: 33, x: 852, y: 133, pointerType: 0 },
+                    timestamp: 1682952389798,
+                },
+            ]
+            // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
+            expect(prepareRecordingSnapshots(verySimilarSnapshots, verySimilarSnapshots)).toEqual(verySimilarSnapshots)
+        })
+
         it('should match snapshot', () => {
             const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
 
@@ -278,15 +320,17 @@ describe('sessionRecordingDataLogic', () => {
     describe('blob and realtime loading', () => {
         beforeEach(async () => {
             // load a different session
-            logic = sessionRecordingDataLogic({ sessionRecordingId: 'has-real-time-too' })
+            logic = sessionRecordingDataLogic({
+                sessionRecordingId: 'has-real-time-too',
+                // we don't want to wait for the default real time polling interval in tests
+                realTimePollingIntervalMilliseconds: 10,
+            })
             logic.mount()
             // Most of these tests assume the metadata is being loaded upfront which is the typical case
             logic.actions.loadRecordingMeta()
         })
 
         it('loads each source, and on success reports recording viewed', async () => {
-            expect(logic.cache.realtimePollingInterval).toBeUndefined()
-
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
                 // loading the snapshots will trigger a loadRecordingSnapshotsSuccess
@@ -308,6 +352,74 @@ describe('sessionRecordingDataLogic', () => {
                 'loadRecordingSnapshotsSuccess',
                 // and then we report having viewed the recording
                 'reportViewed',
+                // having loaded any real time data we start polling to check for more
+                'startRealTimePolling',
+            ])
+        })
+
+        it('can start polling for snapshots', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.startRealTimePolling()
+            })
+                .toDispatchActions([
+                    // the action we triggered
+                    'startRealTimePolling',
+                    'pollRecordingSnapshots', // 0
+                    'pollRecordingSnapshotsSuccess',
+                    // the returned data isn't changing from our mock,
+                    // so we'll not keep polling indefinitely
+                    'pollRecordingSnapshots', // 1
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 2
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 3
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 4
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 5
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 6
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 7
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 8
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 9
+                    'pollRecordingSnapshotsSuccess',
+                    'pollRecordingSnapshots', // 10
+                    'pollRecordingSnapshotsSuccess',
+                ])
+                .toNotHaveDispatchedActions([
+                    // this isn't called again
+                    'pollRecordingSnapshots',
+                ])
+
+            await waitForExpect(() => {
+                expect(logic.cache.realTimePollingTimeoutID).toBeNull()
+            })
+        })
+    })
+
+    describe('empty realtime loading', () => {
+        beforeEach(async () => {
+            logic = sessionRecordingDataLogic({
+                sessionRecordingId: 'has-only-empty-realtime',
+                // we don't want to wait for the default real time polling interval in tests
+                realTimePollingIntervalMilliseconds: 10,
+            })
+            logic.mount()
+            // Most of these tests assume the metadata is being loaded upfront which is the typical case
+            logic.actions.loadRecordingMeta()
+        })
+
+        it('should start polling even though realtime is empty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
+            }).toDispatchActions([
+                'loadRecordingSnapshotsSuccess',
+                'startRealTimePolling',
+                'pollRecordingSnapshots',
+                'pollRecordingSnapshotsSuccess',
             ])
         })
     })

@@ -16,13 +16,11 @@ import {
 } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'kea-test-utils'
-import { windowValues } from 'kea-window-values'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
@@ -1008,9 +1006,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
     })),
-    windowValues({
-        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
-    }),
 
     beforeUnmount(({ values, actions, cache, props }) => {
         if (props.mode === SessionRecordingPlayerMode.Preview) {

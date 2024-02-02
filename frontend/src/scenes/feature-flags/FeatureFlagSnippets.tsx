@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { GroupType } from '~/types'
@@ -444,7 +445,7 @@ export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Bash} wrap>
-                {`curl ${window.location.origin}/decide?v=3/ \\
+                {`curl ${apiHostOrigin()}/decide?v=3/ \\
 -X POST -H 'Content-Type: application/json' \\
 -d '{
     "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",
