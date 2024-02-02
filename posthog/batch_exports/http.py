@@ -26,6 +26,7 @@ from posthog.batch_exports.models import (
 )
 from posthog.batch_exports.service import (
     BatchExportIdError,
+    BatchExportSchema,
     BatchExportServiceError,
     BatchExportServiceRPCError,
     BatchExportServiceScheduleNotFound,
@@ -165,7 +166,29 @@ class HogQLSelectQueryField(serializers.Field):
         except Exception:
             raise serializers.ValidationError("Failed to parse query")
 
-        return parsed_query
+        try:
+            prepared_select_query: ast.SelectQuery = cast(
+                ast.SelectQuery,
+                prepare_ast_for_printing(
+                    parsed_query,
+                    context=HogQLContext(team_id=self.context["team_id"], enable_select_queries=True),
+                    dialect="hogql",
+                ),
+            )
+        except errors.ResolverException:
+            raise serializers.ValidationError(f"Invalid HogQL query")
+
+        return prepared_select_query
+
+    def to_representation(self, value) -> str:
+        """Return a HogQL query string."""
+        query = print_prepared_ast(
+            value,
+            context=HogQLContext(team_id=self.context["team_id"], enable_select_queries=True, limit_top_select=False),
+            dialect="hogql",
+        )
+
+        return query
 
 
 class BatchExportsField(TypedDict):
@@ -202,14 +225,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "end_at",
             "latest_runs",
             "hogql_query",
+            "schema",
         ]
-        read_only_fields = [
-            "id",
-            "team_id",
-            "created_at",
-            "last_updated_at",
-            "latest_runs",
-        ]
+        read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -233,43 +251,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Higher frequency exports are not enabled for this team.")
 
-        if hogql_query := validated_data.pop("hogql_query", None):
-            context = HogQLContext(
-                team_id=team_id,
-                enable_select_queries=True,
-            )
-
-            try:
-                prepared_select_query: ast.SelectQuery = cast(
-                    ast.SelectQuery,
-                    prepare_ast_for_printing(hogql_query, context=context, dialect="clickhouse"),
-                )
-            except errors.ResolverException:
-                raise serializers.ValidationError(f"Invalid HogQL query")
-
-            batch_export_schema: BatchExportsSchema = {
-                "fields": [],
-                "values": {},
-            }
-            for field in prepared_select_query.select:
-                expression = print_prepared_ast(
-                    field.expr,  # type: ignore
-                    context=context,
-                    dialect="clickhouse",
-                )
-
-                if isinstance(field, ast.Alias):
-                    alias = field.alias
-                else:
-                    alias = expression
-
-                batch_export_field: BatchExportsField = {
-                    "expression": expression,
-                    "alias": alias,
-                }
-                batch_export_schema["fields"].append(batch_export_field)
-
-            batch_export_schema["values"] = context.values
+        if hogql_query := validated_data.get("hogql_query", None):
+            batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
             validated_data["schema"] = batch_export_schema
 
         destination = BatchExportDestination(**destination_data)
@@ -281,6 +264,39 @@ class BatchExportSerializer(serializers.ModelSerializer):
             batch_export.save()
 
         return batch_export
+
+    def serialize_hogql_query_to_batch_export_schema(self, hogql_query: ast.SelectQuery) -> BatchExportSchema:
+        """Return a batch export schema from a HogQL query ast."""
+        context = HogQLContext(
+            team_id=self.context["team_id"],
+            enable_select_queries=True,
+        )
+
+        batch_export_schema: BatchExportsSchema = {
+            "fields": [],
+            "values": {},
+        }
+        for field in hogql_query.select:
+            expression = print_prepared_ast(
+                field.expr,  # type: ignore
+                context=context,
+                dialect="clickhouse",
+            )
+
+            if isinstance(field, ast.Alias):
+                alias = field.alias
+            else:
+                alias = expression
+
+            batch_export_field: BatchExportsField = {
+                "expression": expression,
+                "alias": alias,
+            }
+            batch_export_schema["fields"].append(batch_export_field)
+
+        batch_export_schema["values"] = context.values
+
+        return batch_export_schema
 
     def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
         """Validate a HogQLQuery being used for batch exports.
@@ -321,6 +337,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     **batch_export.destination.config,
                     **destination_data.get("config", {}),
                 }
+
+            if hogql_query := validated_data.get("hogql_query", None):
+                batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
+                validated_data["schema"] = batch_export_schema
 
             batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)
