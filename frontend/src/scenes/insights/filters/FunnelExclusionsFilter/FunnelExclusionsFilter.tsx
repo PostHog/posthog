@@ -8,9 +8,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { FunnelExclusion } from '~/queries/schema'
-import { EntityTypes, FilterType } from '~/types'
+import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { ActionFilter as ActionFilterType, EntityTypes, FilterType, FunnelExclusionLegacy } from '~/types'
 
 import { ExclusionRow } from './ExclusionRow'
 import { ExclusionRowSuffix } from './ExclusionRowSuffix'
@@ -27,13 +26,10 @@ export function FunnelExclusionsFilter(): JSX.Element {
     const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
 
     const setFilters = (filters: Partial<FilterType>): void => {
-        const exclusions = actionsAndEventsToSeries(filters as any, false, MathAvailability.None).map(
-            (e: FunnelExclusion) => ({
-                ...e,
-                funnelFromStep: e.funnelFromStep || exclusionDefaultStepRange.funnelFromStep,
-                funnelToStep: e.funnelToStep || exclusionDefaultStepRange.funnelToStep,
-            })
-        )
+        const exclusions = filters.events?.map((entity: FunnelExclusionLegacy) => {
+            const baseEntity = legacyEntityToNode(entity as ActionFilterType, false, MathAvailability.None)
+            return { ...baseEntity, funnelFromStep: entity.funnel_from_step, funnelToStep: entity.funnel_to_step }
+        })
         updateInsightFilter({ exclusions })
     }
 
