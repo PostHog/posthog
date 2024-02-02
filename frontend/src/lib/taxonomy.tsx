@@ -720,20 +720,20 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         $app_build: {
             label: 'App Build',
-            description: 'The build number for the app',
+            description: 'The build number for the app.',
         },
         $app_name: {
             label: 'App Name',
-            description: 'The name of the app',
+            description: 'The name of the app.',
         },
         $app_namespace: {
             label: 'App Namespace',
-            description: 'The namespace of the app as identified in the app store',
+            description: 'The namespace of the app as identified in the app store.',
             examples: ['com.posthog.app'],
         },
         $app_version: {
             label: 'App Version',
-            description: 'The version of the app',
+            description: 'The version of the app.',
         },
         $device_manufacturer: {
             label: 'Device Manufacturer',
@@ -757,7 +757,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         $os_version: {
             label: 'OS Version',
-            description: 'The Operating System version',
+            description: 'The Operating System version.',
             examples: ['15.5'],
         },
         $timezone: {
@@ -926,6 +926,38 @@ export function isPostHogProp(key: string): boolean {
 export type PropertyKey = string | null | undefined
 export type PropertyType = 'event' | 'element'
 
+// copy from https://github.com/PostHog/posthog/blob/29ac8d6b2ba5de4b65a148136b681b8e52e20429/plugin-server/src/utils/db/utils.ts#L44
+const eventToPersonProperties = new Set([
+    // mobile params
+    '$app_build',
+    '$app_name',
+    '$app_namespace',
+    '$app_version',
+    // web params
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$current_url',
+    '$pathname',
+    '$os',
+    '$os_version',
+    '$referring_domain',
+    '$referrer',
+    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_name',
+    'utm_term',
+    'gclid',
+    'gad_source',
+    'gbraid',
+    'wbraid',
+    'fbclid',
+    'msclkid',
+])
+
 export function getKeyMapping(
     value: string | PropertyFilterValue | undefined,
     type: 'event' | 'element'
@@ -943,6 +975,13 @@ export function getKeyMapping(
         if (data.description) {
             data.label = `Initial ${data.label}`
             data.description = `${String(data.description)} Data from the first time this user was seen.`
+        }
+        return data
+    } else if (value in eventToPersonProperties) {
+        data = { ...KEY_MAPPING[value] }
+        if (data.description) {
+            data.label = `Latest ${data.label}`
+            data.description = `${String(data.description)} Data from the latest time this user was seen.`
         }
         return data
     } else if (value.startsWith('$survey_responded/')) {
