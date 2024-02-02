@@ -39,7 +39,7 @@ def format_action_filter(
     prepend: str = "action",
     filter_by_team=True,
     table_name: str = "",
-    person_properties_mode: Optional[PersonPropertiesMode] = PersonPropertiesMode.USING_SUBQUERY,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
 ) -> Tuple[str, Dict]:
     """Return SQL for filtering events by action."""
