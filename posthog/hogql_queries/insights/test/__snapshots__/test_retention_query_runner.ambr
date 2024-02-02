@@ -404,7 +404,7 @@
         FROM
           (SELECT DISTINCT toStartOfMonth(toTimeZone(events.timestamp, 'UTC')) AS event_date,
                            ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) AS target,
-                           [dateDiff('month', toStartOfMonth(toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')), toStartOfMonth(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
+                           [dateDiff('month', toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), toStartOfMonth(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
            FROM events
            LEFT OUTER JOIN
              (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
@@ -412,7 +412,7 @@
               FROM person_overrides
               WHERE equals(person_overrides.team_id, 2)
               GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))) AS target_event
+           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))) AS target_event
         JOIN
           (SELECT toStartOfMonth(toTimeZone(events.timestamp, 'UTC')) AS event_date,
                   ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) AS target
@@ -423,7 +423,7 @@
               FROM person_overrides
               WHERE equals(person_overrides.team_id, 2)
               GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))
+           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))
            GROUP BY target,
                     event_date) AS returning_event ON equals(returning_event.target, target_event.target)
         WHERE ifNull(greater(returning_event.event_date, target_event.event_date), 0)
@@ -433,7 +433,7 @@
         FROM
           (SELECT DISTINCT toStartOfMonth(toTimeZone(events.timestamp, 'UTC')) AS event_date,
                            ifNull(nullIf(events__override.override_person_id, '00000000-0000-0000-0000-000000000000'), events.person_id) AS target,
-                           [dateDiff('month', toStartOfMonth(toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')), toStartOfMonth(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
+                           [dateDiff('month', toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), toStartOfMonth(toTimeZone(events.timestamp, 'UTC')))] AS breakdown_values
            FROM events
            LEFT OUTER JOIN
              (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
@@ -441,7 +441,7 @@
               FROM person_overrides
               WHERE equals(person_overrides.team_id, 2)
               GROUP BY person_overrides.old_person_id) AS events__override ON equals(events.person_id, events__override.old_person_id)
-           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))) AS target_event)
+           WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfMonth(toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC'))))) AS target_event)
      WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
   GROUP BY breakdown_values,
            intervals_from_base

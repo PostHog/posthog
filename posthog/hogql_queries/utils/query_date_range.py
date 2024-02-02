@@ -304,6 +304,8 @@ class QueryDateRangeWithIntervals(QueryDateRange):
             if self._team.week_start_day == WeekStartDay.MONDAY:
                 week_start_alignment_days = date_from.weekday()
             return date_from - timedelta(days=week_start_alignment_days)
+        elif self._interval == IntervalType.month:
+            return self.date_to().replace(day=1, hour=0, minute=0, second=0, microsecond=0) - delta
         else:
             date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)
             return date_to - delta
