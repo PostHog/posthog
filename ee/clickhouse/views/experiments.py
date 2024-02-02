@@ -215,7 +215,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         ]
 
         filters = {
-            "groups": [{"properties": properties, "rollout_percentage": None}],
+            "groups": [{"properties": properties, "rollout_percentage": 100}],
             "multivariate": {"variants": variants or default_variants},
             "aggregation_group_type_index": aggregation_group_type_index,
         }

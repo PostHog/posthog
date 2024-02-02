@@ -329,6 +329,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     source: sources[0],
                 })
 
+                // If we only have a realtime source and its empty, start polling it anyway
+                if (sources[0].source === SnapshotSourceType.realtime) {
+                    actions.startRealTimePolling()
+                }
+
                 return
             }
 

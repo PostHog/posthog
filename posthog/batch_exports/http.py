@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any
+from typing import Any, TypedDict, cast
 
 import posthoganalytics
 import structlog
@@ -30,12 +30,16 @@ from posthog.batch_exports.service import (
     BatchExportServiceRPCError,
     BatchExportServiceScheduleNotFound,
     backfill_export,
-    cancel_running_batch_export_backfill,
     batch_export_delete_schedule,
+    cancel_running_batch_export_backfill,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
 )
+from posthog.hogql import ast, errors
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import (
     BatchExport,
     BatchExportBackfill,
@@ -153,12 +157,34 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         return data
 
 
+class HogQLSelectQueryField(serializers.Field):
+    def to_internal_value(self, data: str) -> ast.SelectQuery | ast.SelectUnionQuery:
+        """Parse a HogQL SelectQuery from a string query."""
+        try:
+            parsed_query = parse_select(data)
+        except Exception:
+            raise serializers.ValidationError("Failed to parse query")
+
+        return parsed_query
+
+
+class BatchExportsField(TypedDict):
+    expression: str
+    alias: str
+
+
+class BatchExportsSchema(TypedDict):
+    fields: list[BatchExportsField]
+    values: dict[str, str]
+
+
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
     destination = BatchExportDestinationSerializer()
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
+    hogql_query = HogQLSelectQueryField(required=False)
 
     class Meta:
         model = BatchExport
@@ -175,8 +201,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "start_at",
             "end_at",
             "latest_runs",
+            "hogql_query",
         ]
-        read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs"]
+        read_only_fields = [
+            "id",
+            "team_id",
+            "created_at",
+            "last_updated_at",
+            "latest_runs",
+        ]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -200,6 +233,45 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Higher frequency exports are not enabled for this team.")
 
+        if hogql_query := validated_data.pop("hogql_query", None):
+            context = HogQLContext(
+                team_id=team_id,
+                enable_select_queries=True,
+            )
+
+            try:
+                prepared_select_query: ast.SelectQuery = cast(
+                    ast.SelectQuery,
+                    prepare_ast_for_printing(hogql_query, context=context, dialect="clickhouse"),
+                )
+            except errors.ResolverException:
+                raise serializers.ValidationError(f"Invalid HogQL query")
+
+            batch_export_schema: BatchExportsSchema = {
+                "fields": [],
+                "values": {},
+            }
+            for field in prepared_select_query.select:
+                expression = print_prepared_ast(
+                    field.expr,  # type: ignore
+                    context=context,
+                    dialect="clickhouse",
+                )
+
+                if isinstance(field, ast.Alias):
+                    alias = field.alias
+                else:
+                    alias = expression
+
+                batch_export_field: BatchExportsField = {
+                    "expression": expression,
+                    "alias": alias,
+                }
+                batch_export_schema["fields"].append(batch_export_field)
+
+            batch_export_schema["values"] = context.values
+            validated_data["schema"] = batch_export_schema
+
         destination = BatchExportDestination(**destination_data)
         batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
         sync_batch_export(batch_export, created=True)
@@ -209,6 +281,34 @@ class BatchExportSerializer(serializers.ModelSerializer):
             batch_export.save()
 
         return batch_export
+
+    def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectUnionQuery) -> ast.SelectQuery:
+        """Validate a HogQLQuery being used for batch exports.
+
+        This method essentially checks that a query is supported by batch exports:
+        1. UNION ALL is not supported.
+        2. Any JOINs are not supported.
+        3. Query must SELECT FROM events, and only from events.
+        """
+
+        if isinstance(hogql_query, ast.SelectUnionQuery):
+            raise serializers.ValidationError("UNIONs are not supported")
+
+        parsed = cast(ast.SelectQuery, hogql_query)
+
+        if parsed.select_from is None:
+            raise serializers.ValidationError("Query must SELECT FROM events")
+
+        # Not sure how to make mypy understand this works, hence the ignore comment.
+        # And if it doesn't, it's still okay as it could mean an unsupported query.
+        # We would come back with the example to properly type this.
+        if parsed.select_from.table.chain != ["events"]:  # type: ignore
+            raise serializers.ValidationError("Query must only SELECT FROM events")
+
+        if parsed.select_from.next_join is not None:
+            raise serializers.ValidationError("JOINs are not supported")
+
+        return hogql_query
 
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
@@ -335,7 +435,10 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         try:
             batch_export_delete_schedule(temporal, str(instance.pk))
         except BatchExportServiceScheduleNotFound as e:
-            logger.warning("The Schedule %s could not be deleted as it was not found", e.schedule_id)
+            logger.warning(
+                "The Schedule %s could not be deleted as it was not found",
+                e.schedule_id,
+            )
 
         instance.save()
 

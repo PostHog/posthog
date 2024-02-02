@@ -3,6 +3,7 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import InsightActorsQueryOptions, InsightActorsQueryOptionsResponse
@@ -23,12 +24,11 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
         if isinstance(self.source_runner, LifecycleQueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
             return lifecycle_runner.to_actors_query_options()
+        elif isinstance(self.source_runner, TrendsQueryRunner):
+            trends_runner = cast(TrendsQueryRunner, self.source_runner)
+            return trends_runner.to_actors_query_options()
 
-        return InsightActorsQueryOptionsResponse(
-            day=None,
-            status=None,
-            interval=None,
-        )
+        return InsightActorsQueryOptionsResponse(day=None, status=None, interval=None, breakdown=None, series=None)
 
     def _is_stale(self, cached_result_package):
         return True
