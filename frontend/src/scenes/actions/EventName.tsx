@@ -34,7 +34,11 @@ export function LemonEventName({
             type="secondary"
             placeholder={placeholder}
             data-attr="event-name-box"
-            renderValue={(v) => (v !== null ? <PropertyKeyInfo value={v} disablePopover /> : null)}
+            renderValue={(v) =>
+                v !== null ? (
+                    <PropertyKeyInfo value={v} disablePopover filterGroupType={TaxonomicFilterGroupType.Events} />
+                ) : null
+            }
             allowClear={allEventsOption === 'clear'}
             excludedProperties={allEventsOption !== 'explicit' ? { events: [null] } : undefined}
             size="small"

@@ -274,7 +274,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
 
                     const propertyKeyType = keyTypes[group.type]
-                    return propertyKeyType ? getKeyMapping(group?.getName?.(item), propertyKeyType)?.label : undefined
+                    return propertyKeyType
+                        ? getKeyMapping(group?.getName?.(item), propertyKeyType, group.type)?.label
+                        : undefined
                 }
 
                 const haystack = (rawLocalItems || []).map((item) => ({

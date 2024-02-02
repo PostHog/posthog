@@ -126,9 +126,9 @@ function Example({ value }: { value?: string }): JSX.Element {
         type === TaxonomicFilterGroupType.GroupsPrefix ||
         type === TaxonomicFilterGroupType.Metadata
     ) {
-        data = getKeyMapping(value, 'event')
+        data = getKeyMapping(value, 'event', type)
     } else if (type === TaxonomicFilterGroupType.Elements) {
-        data = getKeyMapping(value, 'element')
+        data = getKeyMapping(value, 'element', type)
     }
 
     return data?.examples?.[0] ? (

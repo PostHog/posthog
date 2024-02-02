@@ -104,7 +104,7 @@ function RawDefinitionHeader({
 
     const innerContent = (
         <span className={asLink ? 'text-link cursor-pointer' : ''}>
-            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon />
+            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon filterGroupType={group.type} />
         </span>
     )
     const linkedInnerContent = isLink ? (
@@ -115,7 +115,7 @@ function RawDefinitionHeader({
         innerContent
     )
 
-    const description = definition.description || getKeyMapping(definition.name, 'event')?.description
+    const description = definition.description || getKeyMapping(definition.name, 'event', group.type)?.description
 
     return (
         <>

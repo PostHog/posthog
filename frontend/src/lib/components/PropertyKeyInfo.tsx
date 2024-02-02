@@ -6,6 +6,8 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { getKeyMapping, PropertyKey, PropertyType } from 'lib/taxonomy'
 import React, { useState } from 'react'
 
+import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
+
 interface PropertyKeyInfoProps {
     value: PropertyKey
     type?: PropertyType
@@ -15,6 +17,7 @@ interface PropertyKeyInfoProps {
     /** @default true */
     ellipsis?: boolean
     className?: string
+    filterGroupType?: TaxonomicFilterGroupType
 }
 
 export function PropertyKeyInfo({
@@ -24,12 +27,13 @@ export function PropertyKeyInfo({
     disableIcon = false,
     ellipsis = true,
     className = '',
+    filterGroupType,
 }: PropertyKeyInfoProps): JSX.Element {
     const [popoverVisible, setPopoverVisible] = useState(false)
 
     value = value?.toString() ?? '' // convert to string
 
-    const data = getKeyMapping(value, type)
+    const data = getKeyMapping(value, type, filterGroupType)
     const valueDisplayText = (data ? data.label : value)?.trim() ?? ''
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 

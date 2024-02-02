@@ -419,6 +419,7 @@ export function ControlledDefinitionPopover({
                                 disablePopover
                                 disableIcon={!!icon}
                                 ellipsis={false}
+                                filterGroupType={group.type}
                             />
                         }
                         headerTitle={group.getPopoverHeader?.(item)}

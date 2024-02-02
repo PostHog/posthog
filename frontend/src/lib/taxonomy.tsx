@@ -1,5 +1,6 @@
 import { KeyMapping, KeyMappingInterface, PropertyFilterValue } from '~/types'
 
+import { TaxonomicFilterGroupType } from './components/TaxonomicFilter/types'
 import { Link } from './lemon-ui/Link'
 
 // If adding event properties with labels, check whether they should be added to
@@ -960,7 +961,8 @@ const eventToPersonProperties = new Set([
 
 export function getKeyMapping(
     value: string | PropertyFilterValue | undefined,
-    type: 'event' | 'element' | 'person_properties'
+    type: 'event' | 'element',
+    filterGroupType?: TaxonomicFilterGroupType
 ): KeyMapping | null {
     if (value == undefined) {
         return null
@@ -977,7 +979,7 @@ export function getKeyMapping(
             data.description = `${String(data.description)} Data from the first time this user was seen.`
         }
         return data
-    } else if (value in eventToPersonProperties) {
+    } else if (filterGroupType === TaxonomicFilterGroupType.PersonProperties && value in eventToPersonProperties) {
         data = { ...KEY_MAPPING[type][value] }
         if (data.description) {
             data.label = `Latest ${data.label}`
