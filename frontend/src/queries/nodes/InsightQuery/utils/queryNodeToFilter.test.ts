@@ -156,7 +156,7 @@ describe('queryNodeToFilter', () => {
                 {
                     id: '$pageview',
                     type: 'events',
-                    // order: 0,
+                    order: 0,
                     name: '$pageview',
                     funnel_from_step: 1,
                     funnel_to_step: 2,
@@ -164,7 +164,7 @@ describe('queryNodeToFilter', () => {
                 {
                     id: 3,
                     type: 'actions',
-                    // order: 1,
+                    order: 1,
                     name: 'Some action',
                     funnel_from_step: 1,
                     funnel_to_step: 2,
