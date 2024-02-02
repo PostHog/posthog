@@ -69,23 +69,10 @@ class RetentionQueryRunner(QueryRunner):
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        fields: list[ast.Expr] = []
-
         if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            fields += [
-                ast.Alias(
-                    alias="event_date_precise",
-                    expr=ast.Call(name="min", args=[ast.Field(chain=["events", "timestamp"])]),
-                ),
-                ast.Alias(alias="event_date", expr=(ast.Call(name="min", args=[start_of_interval_sql]))),
-            ]
+            event_date_expr = ast.Call(name="min", args=[start_of_interval_sql])
         else:
-            fields += [
-                ast.Alias(
-                    alias="event_date",
-                    expr=start_of_interval_sql,
-                ),
-            ]
+            event_date_expr = start_of_interval_sql
 
         event_filters = [
             entity_to_expr(entity=self.get_applicable_entity(event_query_type)),
@@ -109,7 +96,8 @@ class RetentionQueryRunner(QueryRunner):
                     ),
                 )
 
-        fields += [
+        fields = [
+            ast.Alias(alias="event_date", expr=event_date_expr),
             ast.Alias(alias="target", expr=ast.Field(chain=["events", target_field])),
         ]
 
@@ -176,7 +164,7 @@ class RetentionQueryRunner(QueryRunner):
 
     def date_filter_expr(self, event_query_type) -> ast.Expr:
         field_to_compare = (
-            ast.Field(chain=["event_date_precise"])
+            ast.Field(chain=["event_date"])
             if event_query_type == RetentionQueryType.TARGET_FIRST_TIME
             else ast.Field(chain=["events", "timestamp"])
         )
@@ -185,7 +173,7 @@ class RetentionQueryRunner(QueryRunner):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=field_to_compare,
-                    right=ast.Constant(value=self.query_date_range.date_from()),
+                    right=self.query_date_range.get_start_of_interval_hogql(),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
