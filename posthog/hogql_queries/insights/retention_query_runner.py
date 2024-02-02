@@ -69,10 +69,23 @@ class RetentionQueryRunner(QueryRunner):
             source=ast.Field(chain=["events", "timestamp"])
         )
 
+        fields: list[ast.Expr] = []
+
         if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            event_date_expr = ast.Call(name="min", args=[start_of_interval_sql])
+            fields += [
+                ast.Alias(
+                    alias="event_date_precise",
+                    expr=ast.Call(name="min", args=[ast.Field(chain=["events", "timestamp"])]),
+                ),
+                ast.Alias(alias="event_date", expr=(ast.Call(name="min", args=[start_of_interval_sql]))),
+            ]
         else:
-            event_date_expr = start_of_interval_sql
+            fields += [
+                ast.Alias(
+                    alias="event_date",
+                    expr=start_of_interval_sql,
+                ),
+            ]
 
         event_filters = [
             entity_to_expr(entity=self.get_applicable_entity(event_query_type)),
@@ -96,8 +109,7 @@ class RetentionQueryRunner(QueryRunner):
                     ),
                 )
 
-        fields = [
-            ast.Alias(alias="event_date", expr=event_date_expr),
+        fields += [
             ast.Alias(alias="target", expr=ast.Field(chain=["events", target_field])),
         ]
 
@@ -164,7 +176,7 @@ class RetentionQueryRunner(QueryRunner):
 
     def date_filter_expr(self, event_query_type) -> ast.Expr:
         field_to_compare = (
-            ast.Field(chain=["event_date"])
+            ast.Field(chain=["event_date_precise"])
             if event_query_type == RetentionQueryType.TARGET_FIRST_TIME
             else ast.Field(chain=["events", "timestamp"])
         )
@@ -325,7 +337,7 @@ class RetentionQueryRunner(QueryRunner):
         results = [
             {
                 "values": [
-                    result_dict.get(((first_interval + 1,), return_interval), {"count": 0})
+                    result_dict.get(((first_interval,), return_interval), {"count": 0})
                     for return_interval in range(self.query_date_range.total_intervals - first_interval)
                 ],
                 "label": f"{self.query_date_range.interval_name.title()} {first_interval}",

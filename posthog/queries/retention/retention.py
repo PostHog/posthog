@@ -127,7 +127,7 @@ class Retention:
         result = [
             {
                 "values": [
-                    resultset.get(CohortKey((first_day + 1,), day), {"count": 0, "people": []})
+                    resultset.get(CohortKey((first_day,), day), {"count": 0, "people": []})
                     for day in range(filter.total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
