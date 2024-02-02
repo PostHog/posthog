@@ -325,7 +325,7 @@ class RetentionQueryRunner(QueryRunner):
         results = [
             {
                 "values": [
-                    result_dict.get(((first_interval,), return_interval), {"count": 0})
+                    result_dict.get(((first_interval + 1,), return_interval), {"count": 0})
                     for return_interval in range(self.query_date_range.total_intervals - first_interval)
                 ],
                 "label": f"{self.query_date_range.interval_name.title()} {first_interval}",
