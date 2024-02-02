@@ -15,7 +15,7 @@ def get_entity_filtering_params(
     *,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     person_id_joined_alias: str = "person_id",
-    prefiltering: bool = False,
+    deep_filtering: bool = False,
 ) -> Tuple[Dict, Dict]:
     """Return SQL condition for filtering events by allowed entities (events/actions).
 
@@ -42,7 +42,7 @@ def get_entity_filtering_params(
                     person_id_joined_alias=person_id_joined_alias,
                     hogql_context=hogql_context,
                 )
-                if not prefiltering
+                if not deep_filtering
                 else format_action_filter_event_only(action)
             )
             params.update(action_params)

@@ -26,8 +26,8 @@ def format_action_filter_event_only(
     params = {}
     for index, step in enumerate(steps):
         if step.event:
-            params.update({f"{prepend}_{action.pk}_{index}_pre": step.event})
-            or_queries.append(f"event = %({prepend}_{action.pk}_{index}_pre)s")
+            params.update({f"{prepend}_{action.pk}_{index}_event_only": step.event})
+            or_queries.append(f"event = %({prepend}_{action.pk}_{index}_event_only)s")
     formatted_query = "(({}))".format(") OR (".join(or_queries))
     return formatted_query, params
 
