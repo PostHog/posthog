@@ -52,7 +52,7 @@ def assert_events_in_bigquery(
     result = query_job.result()
 
     inserted_events = []
-    json_columns = ("properties", "elements", "set", "set_once")
+    json_columns = ("properties", "set", "set_once")
 
     for row in result:
         inserted_event = {k: json.loads(v) if k in json_columns and v is not None else v for k, v in row.items()}

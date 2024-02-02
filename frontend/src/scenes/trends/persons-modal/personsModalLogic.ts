@@ -47,7 +47,7 @@ export interface ListActorsResponse {
     }[]
     missing_persons?: number
     next?: string
-    next_offset?: number
+    offset?: number // Offset for HogQL queries
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
@@ -59,21 +59,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
         resetActors: () => true,
         closeModal: () => true,
         setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
-        loadActors: ({
+        loadActors: ({ url, clear, offset }: { url?: string | null; clear?: boolean; offset?: number }) => ({
             url,
             clear,
             offset,
-            additionalSelect,
-        }: {
-            url?: string | null
-            clear?: boolean
-            offset?: number
-            additionalSelect?: PersonModalLogicProps['additionalSelect']
-        }) => ({
-            url,
-            clear,
-            offset,
-            additionalSelect,
         }),
         loadNextActors: true,
         updateQuery: (query: InsightActorsQuery) => ({ query }),
@@ -85,11 +74,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal', 'reportPersonsModalViewed']],
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         actorsResponse: [
             null as ListActorsResponse | null,
             {
-                loadActors: async ({ url, clear, offset, additionalSelect }, breakpoint) => {
+                loadActors: async ({ url, clear, offset }, breakpoint) => {
                     if (url) {
                         url += '&include_recordings=true'
 
@@ -110,8 +99,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         const response = await performQuery(
                             {
                                 ...values.actorsQuery,
-                                limit: RESULTS_PER_PAGE,
-                                offset: offset || 0,
+                                limit: offset ? offset * 2 : RESULTS_PER_PAGE,
+                                offset,
                             } as ActorsQuery,
                             undefined,
                             undefined,
@@ -121,41 +110,37 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
-                        const additionalFieldIndices = Object.values(additionalSelect || {}).map((field) =>
+                        const additionalFieldIndices = Object.values(props.additionalSelect || {}).map((field) =>
                             assembledSelectFields.indexOf(field)
                         )
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
                                     count: response.results.length,
-                                    people: response.results
-                                        .slice(0, RESULTS_PER_PAGE)
-                                        .map((result): PersonActorType => {
-                                            const person: PersonActorType = {
-                                                type: 'person',
-                                                id: result[0].id,
-                                                uuid: result[0].id,
-                                                distinct_ids: result[0].distinct_ids,
-                                                is_identified: result[0].is_identified,
-                                                properties: result[0].properties,
-                                                created_at: result[0].created_at,
-                                                matched_recordings: [],
-                                                value_at_data_point: null,
-                                            }
+                                    people: response.results.map((result): PersonActorType => {
+                                        const person: PersonActorType = {
+                                            type: 'person',
+                                            id: result[0].id,
+                                            uuid: result[0].id,
+                                            distinct_ids: result[0].distinct_ids,
+                                            is_identified: result[0].is_identified,
+                                            properties: result[0].properties,
+                                            created_at: result[0].created_at,
+                                            matched_recordings: [],
+                                            value_at_data_point: null,
+                                        }
 
-                                            Object.keys(additionalSelect || {}).forEach((field, index) => {
-                                                person[field] = result[additionalFieldIndices[index]]
-                                            })
+                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                            person[field] = result[additionalFieldIndices[index]]
+                                        })
 
-                                            return person
-                                        }),
+                                        return person
+                                    }),
                                 },
                             ],
                         }
-                        if (response.results.length > RESULTS_PER_PAGE) {
-                            newResponse.results[0].count = newResponse.results[0].people.length
-                            newResponse.next_offset = (offset || 0) + newResponse.results[0].count
-                        }
+                        newResponse.offset = response.hasMore ? response.offset + response.limit : undefined
+                        newResponse.missing_persons = response.missing_actors_count
                         if (clear) {
                             actions.resetActors()
                         }
@@ -270,8 +255,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
             if (values.actorsResponse?.next) {
                 actions.loadActors({ url: values.actorsResponse.next })
             }
-            if (values.actorsResponse?.next_offset) {
-                actions.loadActors({ offset: values.actorsResponse.next_offset })
+            if (values.actorsResponse?.offset) {
+                actions.loadActors({ offset: values.actorsResponse.offset })
             }
         },
         loadActors: () => {
@@ -365,7 +350,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
-        actions.loadActors({ url: props.url, additionalSelect: props.additionalSelect })
+        actions.loadActors({ url: props.url })
 
         actions.reportPersonsModalViewed({
             url: props.url,

@@ -182,7 +182,7 @@ export function PersonsModal({
                             </>
                         ) : (
                             <span>
-                                {actorsResponse?.next || actorsResponse?.next_offset ? 'More than ' : ''}
+                                {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
                                 <b>
                                     {totalActorsCount || 'No'} unique{' '}
                                     {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
@@ -221,7 +221,7 @@ export function PersonsModal({
                             </div>
                         )}
 
-                        {(actorsResponse?.next || actorsResponse?.next_offset) && (
+                        {(actorsResponse?.next || actorsResponse?.offset) && (
                             <div className="m-4 flex justify-center">
                                 <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}

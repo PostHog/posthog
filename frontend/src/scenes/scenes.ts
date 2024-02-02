@@ -72,7 +72,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Event explorer',
+        name: 'Activity',
         defaultDocsPath: '/docs/data/events',
     },
     [Scene.BatchExports]: {
