@@ -2,7 +2,6 @@ import { customEvent, eventWithTime } from '@rrweb/types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-// import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getKeyMapping } from 'lib/taxonomy'
@@ -133,7 +132,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     actions(() => ({
         setWindowIdFilter: (windowId: string | null) => ({ windowId }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
-        resetItemsExpanded: true,
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
     reducers(() => ({
@@ -759,11 +757,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             }
         },
     })),
-    // subscriptions(({ actions }) => ({
-    //     items: () => {
-    //         actions.setItemExpanded
-    //     },
-    // })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadMatchingEvents()
