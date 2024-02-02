@@ -17,19 +17,15 @@ def format_action_filter_event_only(
     prepend: str = "action",
 ) -> Tuple[str, Dict]:
     """Return SQL for prefiltering events by action, i.e. down to only the events and without any other filters."""
-    steps = action.steps.all()
-    if len(steps) == 0:
+    events = action.get_step_events()
+    if not events:
         # If no steps, it shouldn't match this part of the query
         return "1=2", {}
-
-    or_queries = []
-    params = {}
-    for index, step in enumerate(steps):
-        if step.event:
-            params.update({f"{prepend}_{action.pk}_{index}_event_only": step.event})
-            or_queries.append(f"event = %({prepend}_{action.pk}_{index}_event_only)s")
-    formatted_query = "(({}))".format(") OR (".join(or_queries))
-    return formatted_query, params
+    if None in events:
+        # If selecting for "All events", disable entity pre-filtering
+        return "1 = 1", {}
+    entity_name = f"{prepend}_{action.pk}"
+    return f"event IN %({entity_name})s", {entity_name: sorted(list(events))}
 
 
 def format_action_filter(
