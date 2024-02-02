@@ -452,7 +452,6 @@ ee/api/role.py:0: error: Metaclass conflict: the metaclass of a derived class mu
 ee/api/dashboard_collaborator.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 ee/api/test/base.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "License")  [assignment]
 ee/api/test/base.py:0: error: "setUpTestData" undefined in superclass  [misc]
-posthog/temporal/batch_exports/squash_person_overrides.py:0: error: Return type "SquashPersonOverridesInputs" of "parse_inputs" incompatible with return type "BatchExportsInputsProtocol" in supertype "PostHogWorkflow"  [override]
 posthog/tasks/exports/test/test_image_exporter.py:0: error: Function is missing a type annotation  [no-untyped-def]
 posthog/tasks/exports/test/test_image_exporter.py:0: error: Function is missing a type annotation  [no-untyped-def]
 posthog/tasks/exports/test/test_image_exporter.py:0: error: Function is missing a type annotation for one or more arguments  [no-untyped-def]
