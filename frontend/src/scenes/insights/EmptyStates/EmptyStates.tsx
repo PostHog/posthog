@@ -240,7 +240,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     )
 }
 
-export function FunnelValidationError({ detail }: { detail: string }): JSX.Element {
+export function InsightValidationError({ detail }: { detail: string }): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
