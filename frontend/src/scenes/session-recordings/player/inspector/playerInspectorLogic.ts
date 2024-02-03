@@ -1,4 +1,4 @@
-import { customEvent, eventWithTime } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@rrweb/types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -103,6 +103,30 @@ const PostHogMobileEvents = [
 
 function isPostHogEvent(item: InspectorListItemEvent): boolean {
     return item.data.event.startsWith('$') || PostHogMobileEvents.includes(item.data.event)
+}
+
+function _isCustomSnapshot(x: unknown): x is customEvent {
+    return (x as customEvent).type === 5
+}
+
+function _isPluginSnapshot(x: unknown): x is pluginEvent {
+    return (x as pluginEvent).type === 6
+}
+
+function isFullSnapshotEvent(x: unknown): x is fullSnapshotEvent {
+    return (x as fullSnapshotEvent).type === 2
+}
+
+function snapshotDescription(snapshot: eventWithTime): string {
+    const snapshotTypeName = EventType[snapshot.type]
+    let suffix = ''
+    if (_isCustomSnapshot(snapshot)) {
+        suffix = ': ' + (snapshot as customEvent).data.tag
+    }
+    if (_isPluginSnapshot(snapshot)) {
+        suffix = ': ' + (snapshot as pluginEvent).data.plugin
+    }
+    return snapshotTypeName + suffix
 }
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
@@ -260,9 +284,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     snapshots.forEach((snapshot: eventWithTime) => {
-                        snapshotCounts[windowId][snapshot.type] = (snapshotCounts[windowId][snapshot.type] || 0) + 1
+                        const description = snapshotDescription(snapshot)
+                        snapshotCounts[windowId][description] = (snapshotCounts[windowId][description] || 0) + 1
 
-                        if (snapshot.type === 5) {
+                        if (_isCustomSnapshot(snapshot)) {
                             const customEvent = snapshot as customEvent
                             const tag = customEvent.data.tag
 
@@ -283,7 +308,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 data: customEvent.data.payload as Record<string, any>,
                             })
                         }
-                        if (snapshot.type === 2) {
+                        if (isFullSnapshotEvent(snapshot)) {
                             const timestamp = dayjs(snapshot.timestamp)
                             const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
 
@@ -320,10 +345,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
                     snapshots.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
-                        ) {
+                        if (_isPluginSnapshot(snapshot) && snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME) {
                             const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
                             const { level, payload, trace } = data
                             const lines = (Array.isArray(payload) ? payload : [payload]).filter((x) => !!x) as string[]
