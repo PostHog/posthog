@@ -246,10 +246,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         doctorEvents: [
             (s) => [s.start, s.sessionPlayerData],
             (start, sessionPlayerData): InspectorListItemDoctor[] => {
+                if (!start) {
+                    return []
+                }
+
                 const items: InspectorListItemDoctor[] = []
 
+                const snapshotCounts: Record<string, Record<string, number>> = {}
+
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
+                    if (!snapshotCounts[windowId]) {
+                        snapshotCounts[windowId] = {}
+                    }
+
                     snapshots.forEach((snapshot: eventWithTime) => {
+                        snapshotCounts[windowId][snapshot.type] = (snapshotCounts[windowId][snapshot.type] || 0) + 1
+
                         if (snapshot.type === 5) {
                             const customEvent = snapshot as customEvent
                             const tag = customEvent.data.tag
@@ -286,6 +298,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             })
                         }
                     })
+                })
+
+                items.push({
+                    type: SessionRecordingPlayerTab.DOCTOR,
+                    timestamp: start,
+                    timeInRecording: 0,
+                    tag: 'count of snapshot types by window',
+                    search: 'count of snapshot types by window',
+                    data: snapshotCounts,
                 })
 
                 return items
