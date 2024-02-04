@@ -319,7 +319,7 @@ export async function buildOrWatch(config) {
         log({ name })
         try {
             const buildResult = await esbuildContext.rebuild()
-            await fs.writeFile('b.json', JSON.stringify(buildResult))
+
             if (config.name === 'Toolbar') {
                 await fs.writeFile('toolbar-esbuild-meta.json', JSON.stringify(buildResult.metafile))
             }
