@@ -61,3 +61,4 @@ hogvm/typescript/dist
 .wokeignore
 plugin-transpiler/dist
 toolbar-esbuild-meta.json
+toolbar-esbuild-bundle-visualization.html

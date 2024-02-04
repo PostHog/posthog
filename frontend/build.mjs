@@ -10,6 +10,7 @@ import {
     isDev,
     startDevServer,
 } from './utils.mjs'
+import {visualizer} from "esbuild-visualizer";
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 

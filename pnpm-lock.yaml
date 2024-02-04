@@ -548,6 +548,9 @@ devDependencies:
   cypress-terminal-report:
     specifier: ^5.3.7
     version: 5.3.7(cypress@13.3.0)
+  esbuild-visualizer:
+    specifier: ^0.6.0
+    version: 0.6.0
   eslint:
     specifier: ^8.52.0
     version: 8.52.0
@@ -11564,6 +11567,16 @@ packages:
       resolve: 1.22.8
       sass: 1.56.0
     dev: false
+
+  /esbuild-visualizer@0.6.0:
+    resolution: {integrity: sha512-oNK3JAhC7+re93VTtUdWJKTDVnA2qXPAjCAoaw9OxEFUXztszw3kcaK46u1U790T8FdUBAWv6F9Xt59P8nJCVA==}
+    engines: {node: '>=18'}
+    hasBin: true
+    dependencies:
+      open: 8.4.2
+      picomatch: 2.3.1
+      yargs: 17.6.2
+    dev: true
 
   /esbuild@0.18.20:
     resolution: {integrity: sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA==}
