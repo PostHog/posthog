@@ -51,9 +51,10 @@ await buildInParallel(
             // make sure we don't link to a global window.define
             banner: { js: 'var posthogToolbar = (function () { var define = undefined;' },
             footer: { js: 'return posthogToolbar })();' },
-            // This isn't great but we load some static assets at runtime for the toolbar and we can't sub in
+            // This isn't great, but we load some static assets at runtime for the toolbar, and we can't sub in
             // a variable at runtime it seems...
             publicPath: isDev ? '/static/' : 'https://app.posthog.com/static/',
+            metafile: true,
             ...common,
         },
     ],
