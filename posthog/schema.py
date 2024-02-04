@@ -915,6 +915,7 @@ class WebStatsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: Optional[List] = None
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1296,6 +1297,22 @@ class QueryResponseAlternative10(BaseModel):
         extra="forbid",
     )
     columns: Optional[List] = None
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class QueryResponseAlternative11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1464,6 +1481,7 @@ class WebStatsTableQuery(BaseModel):
     includeBounceRate: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    limit: Optional[float] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -1930,6 +1948,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative8,
             QueryResponseAlternative9,
             QueryResponseAlternative10,
+            QueryResponseAlternative11,
             QueryResponseAlternative12,
             QueryResponseAlternative13,
             Dict[str, List[DatabaseSchemaQueryResponseField]],
@@ -1948,6 +1967,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative8,
         QueryResponseAlternative9,
         QueryResponseAlternative10,
+        QueryResponseAlternative11,
         QueryResponseAlternative12,
         QueryResponseAlternative13,
         Dict[str, List[DatabaseSchemaQueryResponseField]],

@@ -3487,6 +3487,9 @@
                             "items": {},
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -4939,6 +4942,9 @@
                     "const": "WebStatsTableQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "number"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -4967,6 +4973,9 @@
                 "columns": {
                     "items": {},
                     "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
                 },
                 "hogql": {
                     "type": "string"
