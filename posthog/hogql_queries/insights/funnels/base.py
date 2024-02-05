@@ -11,6 +11,7 @@ from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
+from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode
 from posthog.types import EntityNode, ExclusionEntityNode
 
@@ -146,7 +147,7 @@ class FunnelBase(ABC):
             "custom_name": step.custom_name,
             "order": index,
             "people": people if people else [],
-            "count": count,  # TODO: correct_result_for_sampling(count, sampling_factor),
+            "count": correct_result_for_sampling(count, sampling_factor),
             "type": "events" if isinstance(step, EventsNode) else "actions",
         }
 
