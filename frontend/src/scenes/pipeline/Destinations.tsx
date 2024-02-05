@@ -1,4 +1,4 @@
-import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTag, lemonToast, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,7 +15,7 @@ import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
-import { Destination } from './types'
+import { Destination, PipelineBackend } from './types'
 import { RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
@@ -173,14 +173,18 @@ export const DestinationMoreOverlay = ({
                 {
                     label: 'Delete destination',
                     onClick: () => {
-                        void deleteWithUndo({
-                            endpoint: `plugin_config`, // TODO: Batch exports too
-                            object: {
-                                id: destination.id,
-                                name: destination.name,
-                            },
-                            callback: loadPluginConfigs,
-                        })
+                        if (destination.backend === PipelineBackend.Plugin) {
+                            void deleteWithUndo({
+                                endpoint: `plugin_config`, // TODO: Batch exports too
+                                object: {
+                                    id: destination.id,
+                                    name: destination.name,
+                                },
+                                callback: loadPluginConfigs,
+                            })
+                        } else {
+                            lemonToast.warning('Deleting batch export destinations is not yet supported here.')
+                        }
                     },
                     disabledReason: canConfigurePlugins
                         ? undefined
