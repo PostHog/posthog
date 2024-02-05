@@ -163,8 +163,8 @@ class HogQLSelectQueryField(serializers.Field):
         """Parse a HogQL SelectQuery from a string query."""
         try:
             parsed_query = parse_select(data)
-        except Exception:
-            raise serializers.ValidationError("Failed to parse query")
+        except Exception as e:
+            raise serializers.ValidationError(f"Failed to parse query: {e}") from e
 
         try:
             prepared_select_query: ast.SelectQuery = cast(
@@ -175,8 +175,8 @@ class HogQLSelectQueryField(serializers.Field):
                     dialect="hogql",
                 ),
             )
-        except errors.ResolverException:
-            raise serializers.ValidationError(f"Invalid HogQL query")
+        except errors.ResolverException as e:
+            raise serializers.ValidationError(f"Invalid HogQL query: {e}")
 
         return prepared_select_query
 
