@@ -28,6 +28,8 @@ async fn main() {
         // side, but we don't need more than one queue for now.
         &config.queue_name,
         &config.database_url,
+        config.max_pg_connections,
+        "hook-api",
     )
     .await
     .expect("failed to initialize queue");

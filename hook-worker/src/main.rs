@@ -35,9 +35,14 @@ async fn main() -> Result<(), WorkerError> {
         retry_policy_builder
     };
 
-    let queue = PgQueue::new(config.queue_name.as_str(), &config.database_url)
-        .await
-        .expect("failed to initialize queue");
+    let queue = PgQueue::new(
+        config.queue_name.as_str(),
+        &config.database_url,
+        config.max_pg_connections,
+        "hook-worker",
+    )
+    .await
+    .expect("failed to initialize queue");
 
     let worker = WebhookWorker::new(
         &config.worker_name,

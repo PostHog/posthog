@@ -7,7 +7,7 @@ use std::time;
 use async_trait::async_trait;
 use chrono;
 use serde;
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use thiserror::Error;
 
 /// Enumeration of errors for operations with PgQueue.
@@ -524,11 +524,19 @@ impl PgQueue {
     ///
     /// * `queue_name`: A name for the queue we are going to initialize.
     /// * `url`: A URL pointing to where the PostgreSQL database is hosted.
-    pub async fn new(queue_name: &str, url: &str) -> PgQueueResult<Self> {
+    pub async fn new(
+        queue_name: &str,
+        url: &str,
+        max_connections: u32,
+        app_name: &'static str,
+    ) -> PgQueueResult<Self> {
         let name = queue_name.to_owned();
+        let options = PgConnectOptions::from_str(url)
+            .map_err(|error| PgQueueError::PoolCreationError { error })?
+            .application_name(app_name);
         let pool = PgPoolOptions::new()
-            .connect_lazy(url)
-            .map_err(|error| PgQueueError::PoolCreationError { error })?;
+            .max_connections(max_connections)
+            .connect_lazy_with(options);
 
         Ok(Self { name, pool })
     }

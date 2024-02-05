@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -7,7 +8,7 @@ use hook_common::webhook::WebhookJobError;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde_json::error::Error as SerdeError;
-use sqlx::postgres::{PgPool, PgPoolOptions, Postgres};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, Postgres};
 use sqlx::types::{chrono, Uuid};
 use sqlx::{Row, Transaction};
 use thiserror::Error;
@@ -158,10 +159,12 @@ impl WebhookCleaner {
         kafka_producer: FutureProducer<KafkaContext>,
         app_metrics_topic: String,
     ) -> Result<Self> {
+        let options = PgConnectOptions::from_str(database_url)
+            .map_err(|error| WebhookCleanerError::PoolCreationError { error })?
+            .application_name("hook-janitor");
         let pg_pool = PgPoolOptions::new()
             .acquire_timeout(Duration::from_secs(10))
-            .connect_lazy(database_url)
-            .map_err(|error| WebhookCleanerError::PoolCreationError { error })?;
+            .connect_lazy_with(options);
 
         Ok(Self {
             pg_pool,

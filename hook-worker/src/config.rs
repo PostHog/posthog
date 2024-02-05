@@ -29,6 +29,9 @@ pub struct Config {
     #[envconfig(default = "1024")]
     pub max_concurrent_jobs: usize,
 
+    #[envconfig(default = "100")]
+    pub max_pg_connections: u32,
+
     #[envconfig(nested = true)]
     pub retry_policy: RetryPolicyConfig,
 

@@ -13,6 +13,9 @@ pub struct Config {
 
     #[envconfig(default = "default")]
     pub queue_name: String,
+
+    #[envconfig(default = "100")]
+    pub max_pg_connections: u32,
 }
 
 impl Config {
