@@ -47,7 +47,7 @@ class Command(BaseCommand):
                 modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string)
                 # insight.team.week_start_day = 1
                 query_runner = get_query_runner(query, insight.team, modifiers=modifiers)
-                hogql_results = cast(HogQLQueryResponse, query_runner.calculate()).results
+                hogql_results = cast(HogQLQueryResponse, query_runner.calculate()).results or []
                 all_ok = True
                 for legacy_result, hogql_result in zip(legacy_results, hogql_results):
                     if insight_type == "LIFECYCLE":
