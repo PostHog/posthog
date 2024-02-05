@@ -88,7 +88,7 @@ import {
  * Preferably create a dedicated file in utils/..
  */
 
-type CheckboxValueType = string | number | boolean
+export type CheckboxValueType = string | number | boolean
 
 const PAGINATION_DEFAULT_MAX_PAGES = 10
 

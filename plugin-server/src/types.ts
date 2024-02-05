@@ -171,7 +171,6 @@ export interface PluginsServerConfig {
     PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
     PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
     SITE_URL: string | null
-    MAX_PENDING_PROMISES_PER_WORKER: number // (advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CONVERSION_BUFFER_ENABLED: boolean
@@ -204,6 +203,7 @@ export interface PluginsServerConfig {
     POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
+    RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
     RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 

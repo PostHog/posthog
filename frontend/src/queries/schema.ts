@@ -663,9 +663,11 @@ export type PathsFilter = {
     funnelPaths?: PathsFilterLegacy['funnel_paths']
     funnelFilter?: PathsFilterLegacy['funnel_filter']
 
-    // persons only
+    /** Relevant only within actors query */
     pathStartKey?: string
+    /** Relevant only within actors query */
     pathEndKey?: string
+    /** Relevant only within actors query */
     pathDropoffKey?: string
 }
 
@@ -967,11 +969,16 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
      * @asType integer
      */
     interval?: number
-    // TODO: add breakdowns
+    /** @asType integer */
+    series?: number
+    breakdown?: string | BreakdownValueInt
+    compare?: 'current' | 'previous'
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: ActorsQueryResponse
 }
 
+/** @asType integer */
+export type BreakdownValueInt = number
 export interface InsightActorsQueryOptionsResponse {
     day?: { label: string; value: string | Day }[]
     status?: { label: string; value: string }[]
@@ -982,6 +989,19 @@ export interface InsightActorsQueryOptionsResponse {
          * @asType integer
          */
         value: number
+    }[]
+    breakdown?: {
+        label: string
+        value: string | BreakdownValueInt
+    }[]
+    series?: {
+        label: string
+        /** @asType integer */
+        value: number
+    }[]
+    compare?: {
+        label: string
+        value: string
     }[]
 }
 

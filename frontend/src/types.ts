@@ -2113,6 +2113,7 @@ export interface SystemStatusAnalyzeResult {
 }
 
 export interface ActionFilter extends EntityFilter {
+    days?: string[]
     math?: string
     math_property?: string
     math_group_type_index?: number | null
@@ -2428,7 +2429,7 @@ export enum SurveyQuestionType {
 
 export interface FeatureFlagGroupType {
     properties?: AnyPropertyFilter[]
-    rollout_percentage: number | null
+    rollout_percentage?: number | null
     variant: string | null
     users_affected?: number
 }
@@ -3683,6 +3684,7 @@ export enum SDKKey {
     WORDPRESS = 'wordpress',
     SENTRY = 'sentry',
     RETOOL = 'retool',
+    HTML_SNIPPET = 'html',
 }
 
 export enum SDKTag {

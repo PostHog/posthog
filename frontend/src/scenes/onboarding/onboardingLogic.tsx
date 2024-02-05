@@ -6,6 +6,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { BillingProductV2Type, ProductKey } from '~/types'
 
@@ -50,8 +51,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
     connect({
-        values: [billingLogic, ['billing'], teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
-        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeamSuccess']],
+        values: [
+            billingLogic,
+            ['billing'],
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+        ],
+        actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
     }),
     actions({
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
@@ -175,6 +185,28 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 window.location.href = urls.default()
             } else {
                 actions.resetStepKey()
+                const includeFirstOnboardingProductOnUserProperties = values.user?.date_joined
+                    ? new Date(values.user?.date_joined) > new Date('2024-01-10T00:00:00Z')
+                    : false
+                eventUsageLogic.actions.reportOnboardingProductSelected(
+                    product.type,
+                    includeFirstOnboardingProductOnUserProperties
+                )
+                switch (product.type) {
+                    case ProductKey.PRODUCT_ANALYTICS:
+                        return
+                    case ProductKey.SESSION_REPLAY:
+                        actions.updateCurrentTeam({
+                            session_recording_opt_in: true,
+                            capture_console_log_opt_in: true,
+                            capture_performance_opt_in: true,
+                        })
+                        return
+                    case ProductKey.FEATURE_FLAGS:
+                        return
+                    default:
+                        return
+                }
             }
         },
         setProductKey: ({ productKey }) => {

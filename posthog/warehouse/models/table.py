@@ -24,6 +24,7 @@ from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
 from sentry_sdk import capture_exception
+from posthog.warehouse.util import database_sync_to_async
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -145,7 +146,18 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         raise Exception("Could not get columns")
 
 
+@database_sync_to_async
 def get_table_by_url_pattern_and_source(url_pattern: str, source_id: UUID, team_id: int) -> DataWarehouseTable:
     return DataWarehouseTable.objects.filter(Q(deleted=False) | Q(deleted__isnull=True)).get(
         team_id=team_id, external_data_source_id=source_id, url_pattern=url_pattern
     )
+
+
+@database_sync_to_async
+def acreate_datawarehousetable(**kwargs):
+    return DataWarehouseTable.objects.create(**kwargs)
+
+
+@database_sync_to_async
+def asave_datawarehousetable(table: DataWarehouseTable) -> None:
+    table.save()

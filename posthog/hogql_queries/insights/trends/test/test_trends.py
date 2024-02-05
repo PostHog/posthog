@@ -4679,7 +4679,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
+            self.assertEqual(len(response), 26)
 
     @also_test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
     def test_breakdown_with_person_property_filter(self):

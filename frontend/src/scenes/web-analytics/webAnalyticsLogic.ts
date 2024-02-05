@@ -138,9 +138,9 @@ const initialDateFrom = '-7d' as string | null
 const initialDateTo = null as string | null
 const initialInterval = getDefaultInterval(initialDateFrom, initialDateTo)
 
-const getDashboardItemId = (section: Tile, tab?: string): `new-${string}` => {
-    // pretend to be Adhoc as that gives the correct behaviour elsewhere
-    return `new-Adhoc.web-analytics.${section}${tab ? `-${tab}` : ''}`
+const getDashboardItemId = (section: Tile, tab?: string): `new-AdHoc.${string}` => {
+    // pretend to be a new-AdHoc to get the correct behaviour elsewhere
+    return `new-AdHoc.web-analytics.${section}${tab ? `-${tab}` : ''}`
 }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),

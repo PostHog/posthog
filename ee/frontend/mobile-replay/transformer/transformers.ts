@@ -31,12 +31,14 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframeNavigationBar,
     wireframePlaceholder,
     wireframeProgress,
     wireframeRadio,
     wireframeRadioGroup,
     wireframeRectangle,
     wireframeSelect,
+    wireframeStatusBar,
     wireframeText,
     wireframeToggle,
 } from '../mobile.types'
@@ -44,7 +46,6 @@ import { makeNavigationBar, makeStatusBar } from './screen-chrome'
 import { ConversionContext, ConversionResult } from './types'
 import {
     asStyleString,
-    KEYBOARD_Z_INDEX,
     makeBodyStyles,
     makeColorStyles,
     makeDeterminateProgressStyles,
@@ -87,8 +88,14 @@ const HTML_DOC_TYPE_ID = 2
 const HTML_ELEMENT_ID = 3
 const HEAD_ID = 4
 const BODY_ID = 5
-const KEYBOARD_ID = 6
-export const STATUS_BAR_ID = 7
+// the nav bar should always be the last item in the body so that it is at the top of the stack
+const NAVIGATION_BAR_PARENT_ID = 7
+export const NAVIGATION_BAR_ID = 8
+// the keyboard so that it is still before the nav bar
+const KEYBOARD_PARENT_ID = 9
+const KEYBOARD_ID = 10
+export const STATUS_BAR_PARENT_ID = 11
+export const STATUS_BAR_ID = 12
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
@@ -132,14 +139,13 @@ export const makeCustomEvent = (
                     idSequence: globalIdSequence,
                     skippableNodes: new Set(),
                     styleOverride: {
-                        'z-index': KEYBOARD_Z_INDEX,
                         ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
                     },
                 }
             )
             if (keyboardPlaceHolder) {
                 adds.push({
-                    parentId: BODY_ID,
+                    parentId: KEYBOARD_PARENT_ID,
                     nextId: null,
                     node: keyboardPlaceHolder.result,
                 })
@@ -160,7 +166,7 @@ export const makeCustomEvent = (
             }
         } else {
             removes.push({
-                parentId: BODY_ID,
+                parentId: KEYBOARD_PARENT_ID,
                 id: KEYBOARD_ID,
             })
         }
@@ -299,6 +305,8 @@ function makePlaceholderElement(
 }
 
 export function dataURIOrPNG(src: string): string {
+    // replace all new lines in src
+    src = src.replace(/\r?\n|\r/g, '')
     if (!src.startsWith('data:image/')) {
         return 'data:image/png;base64,' + src
     }
@@ -1145,6 +1153,109 @@ export const makeIncrementalEvent = (
     return converted
 }
 
+function makeKeyboardParent(): serializedNodeWithId {
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-render-reason': 'a fixed placeholder to contain the keyboard in the correct stacking position',
+            'data-rrweb-id': KEYBOARD_PARENT_ID,
+        },
+        id: KEYBOARD_PARENT_ID,
+        childNodes: [],
+    }
+}
+
+function makeStatusBarNode(
+    statusBar: wireframeStatusBar | undefined,
+    context: ConversionContext
+): serializedNodeWithId {
+    const childNodes = statusBar ? convertWireframesFor([statusBar], context).result : []
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-rrweb-id': STATUS_BAR_PARENT_ID,
+        },
+        id: STATUS_BAR_PARENT_ID,
+        childNodes,
+    }
+}
+
+function makeNavBarNode(
+    navigationBar: wireframeNavigationBar | undefined,
+    context: ConversionContext
+): serializedNodeWithId {
+    const childNodes = navigationBar ? convertWireframesFor([navigationBar], context).result : []
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-rrweb-id': NAVIGATION_BAR_PARENT_ID,
+        },
+        id: NAVIGATION_BAR_PARENT_ID,
+        childNodes,
+    }
+}
+
+function stripBarsFromWireframe(wireframe: wireframe): {
+    wireframe: wireframe | undefined
+    statusBar: wireframeStatusBar | undefined
+    navBar: wireframeNavigationBar | undefined
+} {
+    if (wireframe.type === 'status_bar') {
+        return { wireframe: undefined, statusBar: wireframe, navBar: undefined }
+    } else if (wireframe.type === 'navigation_bar') {
+        return { wireframe: undefined, statusBar: undefined, navBar: wireframe }
+    } else {
+        let statusBar: wireframeStatusBar | undefined
+        let navBar: wireframeNavigationBar | undefined
+        const wireframeToReturn: wireframe | undefined = { ...wireframe }
+        wireframeToReturn.childWireframes = []
+        for (const child of wireframe.childWireframes || []) {
+            const {
+                wireframe: childWireframe,
+                statusBar: childStatusBar,
+                navBar: childNavBar,
+            } = stripBarsFromWireframe(child)
+            statusBar = statusBar || childStatusBar
+            navBar = navBar || childNavBar
+            if (childWireframe) {
+                wireframeToReturn.childWireframes.push(childWireframe)
+            }
+        }
+        return { wireframe: wireframeToReturn, statusBar, navBar }
+    }
+}
+
+/**
+ * We want to be able to place the status bar and navigation bar in the correct stacking order.
+ * So, we lift them out of the tree, and return them separately.
+ */
+export function stripBarsFromWireframes(wireframes: wireframe[]): {
+    statusBar: wireframeStatusBar | undefined
+    navigationBar: wireframeNavigationBar | undefined
+    appNodes: wireframe[]
+} {
+    let statusBar: wireframeStatusBar | undefined
+    let navigationBar: wireframeNavigationBar | undefined
+    const copiedNodes: wireframe[] = []
+
+    wireframes.forEach((w) => {
+        const matches = stripBarsFromWireframe(w)
+        if (matches.statusBar) {
+            statusBar = matches.statusBar
+        }
+        if (matches.navBar) {
+            navigationBar = matches.navBar
+        }
+        if (matches.wireframe) {
+            copiedNodes.push(matches.wireframe)
+        }
+    })
+    return { statusBar, navigationBar, appNodes: copiedNodes }
+}
+
 export const makeFullEvent = (
     mobileEvent: MobileFullSnapshotEvent & {
         timestamp: number
@@ -1162,6 +1273,19 @@ export const makeFullEvent = (
             timestamp: number
             delay?: number
         }
+    }
+
+    const conversionContext = {
+        timestamp: mobileEvent.timestamp,
+        idSequence: globalIdSequence,
+    }
+
+    const { statusBar, navigationBar, appNodes } = stripBarsFromWireframes(mobileEvent.data.wireframes)
+
+    const nodeGroups = {
+        appNodes: convertWireframesFor(appNodes, conversionContext).result || [],
+        statusBarNode: makeStatusBarNode(statusBar, conversionContext),
+        navBarNode: makeNavBarNode(navigationBar, conversionContext),
     }
 
     return {
@@ -1196,11 +1320,14 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes:
-                                    convertWireframesFor(mobileEvent.data.wireframes, {
-                                        timestamp: mobileEvent.timestamp,
-                                        idSequence: globalIdSequence,
-                                    }).result || [],
+                                childNodes: [
+                                    // in the order they should stack if they ever clash
+                                    // lower is higher in the stacking context
+                                    ...nodeGroups.appNodes,
+                                    makeKeyboardParent(),
+                                    nodeGroups.navBarNode,
+                                    nodeGroups.statusBarNode,
+                                ],
                             },
                         ],
                     },

@@ -43,6 +43,10 @@ ul {
     border-width: 0;
 }
 
+input[type='radio'] {
+    accent-color: var(--primary);
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;

@@ -272,7 +272,10 @@ export const WebStatsTrendTile = ({
                     onSegmentClick: onDeviceTilePieChartClick,
                 },
             },
-            insightProps,
+            insightProps: {
+                ...insightProps,
+                query,
+            },
         }
     }, [onWorldMapClick, insightProps])
 

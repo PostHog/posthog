@@ -22,4 +22,4 @@ export interface ConversionContext {
 // StyleOverride is defined here and not in the schema
 // because these are overrides that the transformer is allowed to make
 // not that clients are allowed to request
-export type StyleOverride = MobileStyles & { bottom?: true; 'z-index'?: number }
+export type StyleOverride = MobileStyles & { bottom?: true }

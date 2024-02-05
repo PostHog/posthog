@@ -256,13 +256,20 @@ class StickinessQueryRunner(QueryRunner):
         )
 
         # Series
-        if self.series_event(series) is not None:
+        if isinstance(series, EventsNode) and series.event is not None:
             filters.append(
                 parse_expr(
                     "event = {event}",
-                    placeholders={"event": ast.Constant(value=self.series_event(series))},
+                    placeholders={"event": ast.Constant(value=series.event)},
                 )
             )
+        elif isinstance(series, ActionsNode):
+            try:
+                action = Action.objects.get(pk=int(series.id), team=self.team)
+                filters.append(action_to_expr(action))
+            except Action.DoesNotExist:
+                # If an action doesn't exist, we want to return no events
+                filters.append(parse_expr("1 = 2"))
 
         # Filter Test Accounts
         if (
@@ -280,15 +287,6 @@ class StickinessQueryRunner(QueryRunner):
         # Series Filters
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
-
-        # Actions
-        if isinstance(series, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(series.id), team=self.team)
-                filters.append(action_to_expr(action))
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                filters.append(parse_expr("1 = 2"))
 
         if len(filters) == 0:
             return ast.Constant(value=True)

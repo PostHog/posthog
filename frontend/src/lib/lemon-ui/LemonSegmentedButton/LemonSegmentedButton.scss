@@ -168,5 +168,11 @@ body:not(.posthog-3000) {
                 background-color: var(--bg-light);
             }
         }
+
+        &--disabled {
+            > div {
+                width: 100%;
+            }
+        }
     }
 }
