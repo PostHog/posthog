@@ -582,7 +582,6 @@ export enum ExperimentsTabs {
 
 export enum PipelineTab {
     Overview = 'overview',
-    Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
     AppsManagement = 'apps-management',
