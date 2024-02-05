@@ -1881,6 +1881,10 @@
                 "limit": {
                     "type": "integer"
                 },
+                "metadata": {
+                    "$ref": "#/definitions/HogQLMetadataResponse",
+                    "description": "Query metadata output"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -3206,6 +3210,10 @@
                         },
                         "limit": {
                             "type": "integer"
+                        },
+                        "metadata": {
+                            "$ref": "#/definitions/HogQLMetadataResponse",
+                            "description": "Query metadata output"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",

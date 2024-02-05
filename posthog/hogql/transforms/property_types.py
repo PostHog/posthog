@@ -180,9 +180,11 @@ class PropertySwapper(CloningVisitor):
         else:
             materialized_column = self._get_materialized_column("events", property_name, "properties")
 
-        message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'"
+        message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'. "
         if materialized_column:
-            message = "⚡️" + message
+            message += "This property is materialized ⚡️."
+        else:
+            message += "This property is not materialized 🐢."
 
         self._add_notice(node=node, message=message)
 
