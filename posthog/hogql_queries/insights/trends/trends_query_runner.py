@@ -58,6 +58,7 @@ from posthog.schema import (
     TrendsQueryResponse,
     HogQLQueryModifiers,
 )
+from posthog.utils import format_label_date
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -323,15 +324,6 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql)
 
-    def format_date_label(self, date: datetime) -> str:
-        date_formats = {
-            "default": "%-d-%b-%Y",
-            "hour": "%-d-%b-%Y %H:%M",
-            "month": "%b %Y",
-        }
-        format_string = date_formats.get(self.query_date_range.interval_name, date_formats["default"])
-        return date.strftime(format_string)
-
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:
             return []
@@ -388,7 +380,9 @@ class TrendsQueryRunner(QueryRunner):
 
                 series_object = {
                     "data": get_value("total", val),
-                    "labels": [self.format_date_label(item) for item in get_value("date", val)],
+                    "labels": [
+                        format_label_date(item, self.query_date_range.interval_name) for item in get_value("date", val)
+                    ],
                     "days": [
                         item.strftime(
                             "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
