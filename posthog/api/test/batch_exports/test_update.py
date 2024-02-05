@@ -284,10 +284,6 @@ def test_can_patch_hogql_query(client: HttpClient):
 
         response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert (
-            response.json()["hogql_query"]
-            == "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events"
-        ), response.json()
 
         batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
         assert batch_export["interval"] == "hour"
@@ -308,6 +304,7 @@ def test_can_patch_hogql_query(client: HttpClient):
                 },
             ],
             "values": {"hogql_val_0": "test"},
+            "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         }
 
         # validate the underlying temporal schedule has been updated
@@ -334,4 +331,5 @@ def test_can_patch_hogql_query(client: HttpClient):
                 },
             ],
             "values": {"hogql_val_0": "test"},
+            "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         }

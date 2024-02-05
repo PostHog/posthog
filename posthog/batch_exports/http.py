@@ -180,16 +180,6 @@ class HogQLSelectQueryField(serializers.Field):
 
         return prepared_select_query
 
-    def to_representation(self, value) -> str:
-        """Return a HogQL query string."""
-        query = print_prepared_ast(
-            value,
-            context=HogQLContext(team_id=self.context["team_id"], enable_select_queries=True, limit_top_select=False),
-            dialect="hogql",
-        )
-
-        return query
-
 
 class BatchExportsField(TypedDict):
     expression: str
@@ -199,6 +189,7 @@ class BatchExportsField(TypedDict):
 class BatchExportsSchema(TypedDict):
     fields: list[BatchExportsField]
     values: dict[str, str]
+    hogql_query: str
 
 
 class BatchExportSerializer(serializers.ModelSerializer):
@@ -251,7 +242,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Higher frequency exports are not enabled for this team.")
 
-        if hogql_query := validated_data.get("hogql_query", None):
+        hogql_query = None
+        if hogql_query := validated_data.pop("hogql_query", None):
             batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
             validated_data["schema"] = batch_export_schema
 
@@ -270,11 +262,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
         context = HogQLContext(
             team_id=self.context["team_id"],
             enable_select_queries=True,
+            limit_top_select=False,
         )
 
         batch_export_schema: BatchExportsSchema = {
             "fields": [],
             "values": {},
+            "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
         }
         for field in hogql_query.select:
             expression = print_prepared_ast(
@@ -338,7 +332,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     **destination_data.get("config", {}),
                 }
 
-            if hogql_query := validated_data.get("hogql_query", None):
+            if hogql_query := validated_data.pop("hogql_query", None):
                 batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
                 validated_data["schema"] = batch_export_schema
 
