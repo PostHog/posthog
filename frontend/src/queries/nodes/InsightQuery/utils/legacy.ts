@@ -40,6 +40,15 @@ export const isLegacyFunnelsFilter = (filters: Record<string, any> | undefined):
     return legacyKeys.some((key) => key in filters)
 }
 
+export const isLegacyFunnelsExclusion = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const exclusions = filters.exclusions || []
+    return exclusions.some((exclusion: Record<string, any>) => 'type' in exclusion)
+}
+
 export const isLegacyRetentionFilter = (filters: Record<string, any> | undefined): boolean => {
     if (filters == null) {
         return false

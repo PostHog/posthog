@@ -58,15 +58,18 @@ export function HogQLEditor({
                 className={`font-mono ${CLICK_OUTSIDE_BLOCK_CLASS}`}
                 minRows={3}
                 maxRows={6}
-                placeholder={
-                    placeholder ??
-                    (metadataSource && isActorsQuery(metadataSource)
-                        ? "Enter HogQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- is_identified ? 'user' : 'anon'"
-                        : disablePersonProperties
-                        ? "Enter HogQL expression, such as:\n- properties.$current_url\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')"
-                        : "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')")
-                }
+                placeholder="properties.$browser"
             />
+            <div className="text-muted pt-2 text-xs">
+                <pre>
+                    {placeholder ??
+                        (metadataSource && isActorsQuery(metadataSource)
+                            ? "Enter HogQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- is_identified ? 'user' : 'anon'"
+                            : disablePersonProperties
+                            ? "Enter HogQL expression, such as:\n- properties.$current_url\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')"
+                            : "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')")}
+                </pre>
+            </div>
             {error ? (
                 <div className="text-danger flex mt-1 gap-1 text-sm max-h-20 overflow-auto">
                     <IconErrorOutline className="text-xl" />
