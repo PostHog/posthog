@@ -66,6 +66,9 @@ class ContainsLazyJoinType(TraversingVisitor):
     def visit_lazy_join_type(self, node: ast.LazyJoinType):
         self.contains_lazy_join = True
 
+    def visit_field_type(self, node: ast.FieldType):
+        self.visit(node.table_type)
+
 
 class WhereClauseExtractor:
     compare_operators: List[ast.Expr]

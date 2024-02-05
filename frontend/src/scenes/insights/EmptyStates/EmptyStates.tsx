@@ -25,6 +25,7 @@ import { FunnelsQuery } from '~/queries/schema'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -194,7 +195,9 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
 
     const filters = series ? seriesToActionsAndEvents(series) : {}
     const setFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as Partial<FunnelsQuery>)
+        updateQuerySource({
+            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.None),
+        } as Partial<FunnelsQuery>)
     }
 
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
