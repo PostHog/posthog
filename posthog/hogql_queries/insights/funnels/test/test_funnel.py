@@ -2421,302 +2421,295 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person3.uuid])
 
-        # def test_advanced_funnel_multiple_exclusions_between_steps(self):
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "$pageview", "type": "events", "order": 1},
-        #             {"id": "insight viewed", "type": "events", "order": 2},
-        #             {"id": "invite teammate", "type": "events", "order": 3},
-        #             {"id": "pageview2", "type": "events", "order": 4},
-        #         ],
-        #         "date_from": "2021-05-01 00:00:00",
-        #         "date_to": "2021-05-14 00:00:00",
-        #         "insight": INSIGHT_FUNNELS,
-        #         "exclusions": [
-        #             {
-        #                 "id": "x",
-        #                 "type": "events",
-        #                 "funnel_from_step": 0,
-        #                 "funnel_to_step": 1,
-        #             },
-        #             {
-        #                 "id": "y",
-        #                 "type": "events",
-        #                 "funnel_from_step": 2,
-        #                 "funnel_to_step": 3,
-        #             },
-        #         ],
-        #     }
+        def test_advanced_funnel_multiple_exclusions_between_steps(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "$pageview", "type": "events", "order": 1},
+                    {"id": "insight viewed", "type": "events", "order": 2},
+                    {"id": "invite teammate", "type": "events", "order": 3},
+                    {"id": "pageview2", "type": "events", "order": 4},
+                ],
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-14 00:00:00",
+                "insight": INSIGHT_FUNNELS,
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    },
+                    {
+                        "id": "y",
+                        "type": "events",
+                        "funnel_from_step": 2,
+                        "funnel_to_step": 3,
+                    },
+                ],
+            }
 
-        #     _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 01:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="x",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 02:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="$pageview",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 03:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="insight viewed",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 04:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="y",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 04:30:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="invite teammate",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 05:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="pageview2",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 06:00:00",
-        #     )
+            _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="person1",
+                timestamp="2021-05-01 01:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person1",
+                timestamp="2021-05-01 02:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="person1",
+                timestamp="2021-05-01 03:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person1",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="y",
+                distinct_id="person1",
+                timestamp="2021-05-01 04:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person1",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person1",
+                timestamp="2021-05-01 06:00:00",
+            )
 
-        #     _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 01:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="y",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 01:30:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="$pageview",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 02:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="insight viewed",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 04:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="y",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 04:30:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="invite teammate",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 05:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="x",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 05:30:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="pageview2",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 06:00:00",
-        #     )
+            _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="person2",
+                timestamp="2021-05-01 01:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="y",
+                distinct_id="person2",
+                timestamp="2021-05-01 01:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="person2",
+                timestamp="2021-05-01 02:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="y",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person2",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person2",
+                timestamp="2021-05-01 05:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person2",
+                timestamp="2021-05-01 06:00:00",
+            )
 
-        #     _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 01:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="x",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 01:30:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="$pageview",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 02:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="insight viewed",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 04:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="invite teammate",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 05:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="x",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 05:30:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="pageview2",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 06:00:00",
-        #     )
+            _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 01:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person3",
+                timestamp="2021-05-01 01:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="person3",
+                timestamp="2021-05-01 02:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person3",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person3",
+                timestamp="2021-05-01 06:00:00",
+            )
 
-        #     person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-01 01:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="$pageview",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-01 02:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="insight viewed",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-01 04:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="invite teammate",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-01 05:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="pageview2",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-01 06:00:00",
-        #     )
+            person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="person4",
+                timestamp="2021-05-01 01:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="person4",
+                timestamp="2021-05-01 02:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="insight viewed",
+                distinct_id="person4",
+                timestamp="2021-05-01 04:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="invite teammate",
+                distinct_id="person4",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="pageview2",
+                distinct_id="person4",
+                timestamp="2021-05-01 06:00:00",
+            )
 
-        #     filter = Filter(data=filters)
-        #     funnel = Funnel(filter, self.team)
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     result = funnel.calculate().results
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 1)
 
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(results[4]["count"], 1)
 
-        #     self.assertEqual(result[4]["count"], 1)
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
+            filters = {
+                **filters,
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    },
+                    {
+                        "id": "y",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    },
+                ],
+            }
 
-        #     filter = filter.shallow_clone(
-        #         {
-        #             "exclusions": [
-        #                 {
-        #                     "id": "x",
-        #                     "type": "events",
-        #                     "funnel_from_step": 0,
-        #                     "funnel_to_step": 1,
-        #                 },
-        #                 {
-        #                     "id": "y",
-        #                     "type": "events",
-        #                     "funnel_from_step": 0,
-        #                     "funnel_to_step": 1,
-        #                 },
-        #             ]
-        #         }
-        #     )
-        #     funnel = Funnel(filter, self.team)
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     result = funnel.calculate().results
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 1)
 
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(results[4]["count"], 1)
 
-        #     self.assertEqual(result[4]["count"], 1)
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
+            filters = {
+                **filters,
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    },
+                    {
+                        "id": "y",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    },
+                ],
+            }
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     filter = filter.shallow_clone(
-        #         {
-        #             "exclusions": [
-        #                 {
-        #                     "id": "x",
-        #                     "type": "events",
-        #                     "funnel_from_step": 0,
-        #                     "funnel_to_step": 1,
-        #                 },
-        #                 {
-        #                     "id": "y",
-        #                     "type": "events",
-        #                     "funnel_from_step": 0,
-        #                     "funnel_to_step": 1,
-        #                 },
-        #             ]
-        #         }
-        #     )
-        #     funnel = Funnel(filter, self.team)
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 1)
 
-        #     result = funnel.calculate().results
+            self.assertEqual(results[4]["count"], 1)
 
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 1)
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
 
-        #     self.assertEqual(result[4]["count"], 1)
+            filters = {
+                **filters,
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 4,
+                    },
+                    {
+                        "id": "y",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 4,
+                    },
+                ],
+            }
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 1)
 
-        #     filter = filter.shallow_clone(
-        #         {
-        #             "exclusions": [
-        #                 {
-        #                     "id": "x",
-        #                     "type": "events",
-        #                     "funnel_from_step": 0,
-        #                     "funnel_to_step": 4,
-        #                 },
-        #                 {
-        #                     "id": "y",
-        #                     "type": "events",
-        #                     "funnel_from_step": 0,
-        #                     "funnel_to_step": 4,
-        #                 },
-        #             ]
-        #         }
-        #     )
-        #     funnel = Funnel(filter, self.team)
+            self.assertEqual(results[4]["count"], 1)
 
-        #     result = funnel.calculate().results
-
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 1)
-
-        #     self.assertEqual(result[4]["count"], 1)
-
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person4.uuid])
 
         @also_test_with_materialized_columns(["test_prop"])
         def test_funnel_with_denormalised_properties(self):
