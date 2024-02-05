@@ -43,7 +43,8 @@ export function FunnelExclusionsFilter(): JSX.Element {
                 id: '$pageview',
                 name: '$pageview',
                 type: EntityTypes.EVENTS,
-                ...exclusionDefaultStepRange,
+                funnel_from_step: exclusionDefaultStepRange.funnelFromStep,
+                funnel_to_step: exclusionDefaultStepRange.funnelToStep,
             }}
             disabled={!isFunnelWithEnoughSteps}
             buttonCopy="Add exclusion"
