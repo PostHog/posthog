@@ -1875,105 +1875,105 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
         #     )
         #     self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
-        # def test_funnel_exclusion_no_end_event(self):
-        #     filters = {
-        #         "events": [
-        #             {"id": "user signed up", "type": "events", "order": 0},
-        #             {"id": "paid", "type": "events", "order": 1},
-        #         ],
-        #         "insight": INSIGHT_FUNNELS,
-        #         "funnel_window_days": 1,
-        #         "date_from": "2021-05-01 00:00:00",
-        #         "date_to": "2021-05-14 00:00:00",
-        #         "exclusions": [
-        #             {
-        #                 "id": "x",
-        #                 "type": "events",
-        #                 "funnel_from_step": 0,
-        #                 "funnel_to_step": 1,
-        #             }
-        #         ],
-        #     }
+        def test_funnel_exclusion_no_end_event(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "paid", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_interval": 1,
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-14 00:00:00",
+                "exclusions": [
+                    {
+                        "id": "x",
+                        "type": "events",
+                        "funnel_from_step": 0,
+                        "funnel_to_step": 1,
+                    }
+                ],
+            }
 
-        #     # person 1
-        #     person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 01:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="paid",
-        #         distinct_id="person1",
-        #         timestamp="2021-05-01 02:00:00",
-        #     )
+            # person 1
+            person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="person1",
+                timestamp="2021-05-01 01:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person1",
+                timestamp="2021-05-01 02:00:00",
+            )
 
-        #     # person 2
-        #     _create_person(distinct_ids=["person2"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 03:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="x",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 03:30:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="paid",
-        #         distinct_id="person2",
-        #         timestamp="2021-05-01 04:00:00",
-        #     )
+            # person 2
+            _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="person2",
+                timestamp="2021-05-01 03:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person2",
+                timestamp="2021-05-01 03:30:00",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id="person2",
+                timestamp="2021-05-01 04:00:00",
+            )
 
-        #     # person 3
-        #     _create_person(distinct_ids=["person3"], team_id=self.team.pk)
-        #     # should be discarded, even if nothing happened after x, since within conversion window
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 05:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="x",
-        #         distinct_id="person3",
-        #         timestamp="2021-05-01 06:00:00",
-        #     )
+            # person 3
+            _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+            # should be discarded, even if nothing happened after x, since within conversion window
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="person3",
+                timestamp="2021-05-01 05:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person3",
+                timestamp="2021-05-01 06:00:00",
+            )
 
-        #     # person 4 - outside conversion window
-        #     person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
-        #     _create_event(
-        #         team=self.team,
-        #         event="user signed up",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-01 07:00:00",
-        #     )
-        #     _create_event(
-        #         team=self.team,
-        #         event="x",
-        #         distinct_id="person4",
-        #         timestamp="2021-05-02 08:00:00",
-        #     )
+            # person 4 - outside conversion window
+            person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="person4",
+                timestamp="2021-05-01 07:00:00",
+            )
+            _create_event(
+                team=self.team,
+                event="x",
+                distinct_id="person4",
+                timestamp="2021-05-02 08:00:00",
+            )
 
-        #     query = cast(FunnelsQuery, filter_to_query(filters))
-        #     results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        #     self.assertEqual(len(results), 2)
-        #     self.assertEqual(results[0]["name"], "user signed up")
-        #     self.assertEqual(results[0]["count"], 2)
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 2)
 
-        #     self.assertEqual(results[1]["name"], "paid")
-        #     self.assertEqual(results[1]["count"], 1)
+            self.assertEqual(results[1]["name"], "paid")
+            self.assertEqual(results[1]["count"], 1)
 
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person4.uuid])
-        #     self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1), [person1.uuid, person4.uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid])
 
         @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
