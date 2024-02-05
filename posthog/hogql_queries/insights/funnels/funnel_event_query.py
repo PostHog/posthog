@@ -5,7 +5,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.utils.date_range import DateRange
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.models.action.action import Action
-from posthog.schema import ActionsNode, EventsNode
+from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelExclusionEventsNode, FunnelsFilter
 from rest_framework.exceptions import ValidationError
 
 
@@ -83,20 +83,22 @@ class FunnelEventQuery:
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
         team, query = self.context.team, self.context.query
+        funnelsFilter = self.context.funnelsFilter or FunnelsFilter()
+        exclusions = funnelsFilter.exclusions or []
 
         if skip_entity_filter is True:
             return None
 
         events: Set[Union[int, str, None]] = set()
 
-        for node in query.series:
-            if isinstance(node, EventsNode):
+        for node in [*query.series, *exclusions]:
+            if isinstance(node, EventsNode) or isinstance(node, FunnelExclusionEventsNode):
                 events.add(node.event)
-            elif isinstance(node, ActionsNode):
+            elif isinstance(node, ActionsNode) or isinstance(node, FunnelExclusionActionsNode):
                 action = Action.objects.get(pk=int(node.id), team=team)
                 events.update(action.get_step_events())
             else:
-                raise ValidationError("Series must either be events or actions")
+                raise ValidationError("Series and exclusions must be compose of action and event nodes")
 
         # Disable entity pre-filtering for "All events"
         if None in events:

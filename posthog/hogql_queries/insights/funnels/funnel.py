@@ -6,6 +6,8 @@ from posthog.hogql_queries.insights.funnels.base import FunnelBase
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.schema import FunnelsFilter
+
 
 class Funnel(FunnelBase):
     """
@@ -179,6 +181,8 @@ class Funnel(FunnelBase):
         level index is already at the minimum ordered timestamps.
         """
         exprs: List[ast.Expr] = []
+        funnelsFilter = self.context.query.funnelsFilter or FunnelsFilter()
+        exclusions = funnelsFilter.exclusions
 
         for i in range(0, max_steps):
             exprs.append(ast.Field(chain=[f"step_{i}"]))
@@ -189,9 +193,9 @@ class Funnel(FunnelBase):
                 # for field in self.extra_event_fields_and_properties:
                 #     exprs.append(ast.Field(chain=[f'"{field}_{i}"']))
 
-                # for exclusion_id, exclusion in enumerate(exclusions or []):
-                #     if cast(int, exclusion.funnelFromStep) + 1 == i:
-                #         exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"]))
+                for exclusion_id, exclusion in enumerate(exclusions or []):
+                    if exclusion.funnelFromStep + 1 == i:
+                        exprs.append(ast.Field(chain=[f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"]))
 
             else:
                 comparison = self._get_comparison_at_step(i, level_index)
@@ -204,12 +208,14 @@ class Funnel(FunnelBase):
                 # for field in self.extra_event_fields_and_properties:
                 #     exprs.append(f'if({comparison}, NULL, "{field}_{i}") as "{field}_{i}"')
 
-                # for exclusion_id, exclusion in enumerate(self._filter.exclusions):
-                #     if cast(int, exclusion.funnel_from_step) + 1 == i:
-                #         exclusion_identifier = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
-                #         exprs.append(
-                #             f"if({exclusion_identifier} < latest_{exclusion.funnel_from_step}, NULL, {exclusion_identifier}) as {exclusion_identifier}"
-                #         )
+                for exclusion_id, exclusion in enumerate(exclusions or []):
+                    if exclusion.funnelFromStep + 1 == i:
+                        exclusion_identifier = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+                        exprs.append(
+                            parse_expr(
+                                f"if({exclusion_identifier} < latest_{exclusion.funnelFromStep}, NULL, {exclusion_identifier}) as {exclusion_identifier}"
+                            )
+                        )
 
         return exprs
 
