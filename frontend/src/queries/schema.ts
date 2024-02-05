@@ -616,7 +616,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
 }
 
 export interface FunnelsQueryResponse extends QueryResponse {
-    results: Record<string, any>[]
+    results: Record<string, any>[] | Record<string, any>[][]
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */

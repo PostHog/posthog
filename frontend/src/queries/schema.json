@@ -1757,10 +1757,23 @@
                     "type": "string"
                 },
                 "results": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "items": {
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timings": {
                     "items": {

@@ -1078,7 +1078,7 @@ class FunnelsQueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: List[Dict[str, Any]]
+    results: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]]
     timings: Optional[List[QueryTiming]] = None
 
 
