@@ -68,7 +68,6 @@ export const TARGET_AREA_TO_NAME = {
     toolbar: 'Toolbar & Heatmaps',
     surveys: 'Surveys',
     web_analytics: 'Web Analytics',
-    'posthog-3000': 'PostHog 3000',
 }
 
 export const SEVERITY_LEVEL_TO_NAME = {
@@ -234,7 +233,8 @@ export const supportLogic = kea<supportLogicType>([
             const payload = {
                 request: {
                     requester: { name: name, email: email },
-                    subject: subject,
+                    subject,
+                    status: 'new',
                     custom_fields: [
                         {
                             id: 22084126888475,
