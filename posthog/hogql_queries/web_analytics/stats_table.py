@@ -25,7 +25,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY, limit=self.query.limit
+            limit_context=LimitContext.QUERY, limit=int(self.query.limit) if self.query.limit else None
         )
 
     def _bounce_rate_subquery(self):
@@ -65,13 +65,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 },
             )
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery:
         # special case for channel, as some hogql features to use the general code are still being worked on
         if self.query.breakdownBy == WebStatsBreakdown.InitialChannelType:
-            return self.to_channel_query()
-
-        if self.query.includeScrollDepth:
-            return parse_select(
+            query = self.to_channel_query()
+        elif self.query.includeScrollDepth:
+            query = parse_select(
                 """
 SELECT
     counts.breakdown_value as "context.columns.breakdown_value",
@@ -107,7 +106,7 @@ ORDER BY
             )
         elif self.query.includeBounceRate:
             with self.timings.measure("stats_table_query"):
-                return parse_select(
+                query = parse_select(
                     """
     SELECT
         counts.breakdown_value as "context.columns.breakdown_value",
@@ -135,7 +134,7 @@ ORDER BY
                 )
         else:
             with self.timings.measure("stats_table_query"):
-                return parse_select(
+                query = parse_select(
                     """
     SELECT
         counts.breakdown_value as "context.columns.breakdown_value",
@@ -155,6 +154,8 @@ ORDER BY
                         "where_breakdown": self.where_breakdown(),
                     },
                 )
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
     def calculate(self):
         response = self.paginator.execute_hogql_query(
