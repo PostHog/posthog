@@ -103,6 +103,9 @@ export function queryExportContext<N extends DataNode = DataNode>(
     throw new Error(`Unsupported query: ${query.kind}`)
 }
 
+/**
+ * Execute a query node and return the response, use async query if enabled
+ */
 async function executeQuery<N extends DataNode = DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
@@ -226,7 +229,7 @@ export async function query<N extends DataNode = DataNode>(
                     const legacyFunction = legacyUrl ? fetchLegacyUrl : fetchLegacyInsights
                     let legacyResponse: any
                     ;[response, legacyResponse] = await Promise.all([
-                        api.query(queryNode, methodOptions, queryId, refresh),
+                        executeQuery(queryNode, methodOptions, refresh, queryId),
                         legacyFunction(),
                     ])
 
@@ -353,7 +356,7 @@ export async function query<N extends DataNode = DataNode>(
                             : {}),
                     })
                 } else {
-                    response = await api.query(queryNode, methodOptions, queryId, refresh)
+                    response = await executeQuery(queryNode, methodOptions, refresh, queryId)
                 }
             } else {
                 response = await fetchLegacyInsights()
