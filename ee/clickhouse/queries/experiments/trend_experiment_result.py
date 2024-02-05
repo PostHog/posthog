@@ -442,11 +442,28 @@ def validate_event_variants(insight_results, variants):
     if not insight_results or not insight_results[0]:
         raise ValidationError("No experiment events have been ingested yet.", code="no-events")
 
-    missing_variants = set(variants)
+    missing_variants = []
+
+    # Check if "control" is present
+    control_found = False
     for event in insight_results:
         event_variant = event.get("breakdown_value")
-        if event_variant in missing_variants:
-            missing_variants.discard(event_variant)
+        if event_variant == "control":
+            control_found = True
+            break
+    if not control_found:
+        missing_variants.append("control")
+
+    # Check if at least one of the test variants is present
+    test_variants = [variant for variant in variants if variant != "control"]
+    test_variant_found = False
+    for event in insight_results:
+        event_variant = event.get("breakdown_value")
+        if event_variant in test_variants:
+            test_variant_found = True
+            break
+    if not test_variant_found:
+        missing_variants.extend(test_variants)
 
     if not len(missing_variants) == 0:
         missing_variants_str = ", ".join(missing_variants)
