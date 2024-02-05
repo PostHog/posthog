@@ -1129,7 +1129,6 @@ export const makeIncrementalEvent = (
             const updatesContext = {
                 timestamp: mobileEvent.timestamp,
                 idSequence: globalIdSequence,
-                skippableNodes: new Set<number>(),
             }
             mobileEvent.data.updates.forEach((update) => {
                 const removal = makeIncrementalRemoveForUpdate(update)
