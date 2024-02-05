@@ -30,7 +30,8 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
                 is_initial_query,
                 log_comment,
                 exception_code,
-                read_bytes
+                read_bytes,
+                read_rows
             ) VALUES (
                 '{query}',
                 now(),
@@ -38,7 +39,8 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
                 1,
                 '{log_comment}',
                 159,
-                40000000000
+                40000000000,
+                10000000
             )
             """.format(query=query, log_comment='{"team_id": 2}')
             )
