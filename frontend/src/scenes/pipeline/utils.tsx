@@ -18,8 +18,8 @@ import {
     PluginType,
 } from '~/types'
 
-import { DestinationFrequency } from './destinationsLogic'
-import { PipelineAppLogLevel } from './pipelineAppLogsLogic'
+import { PipelineLogLevel } from './pipelineNodeLogsLogic'
+import { Destination } from './types'
 
 const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     // frontend apps
@@ -150,59 +150,59 @@ export function RenderBatchExportIcon({ type }: { type: BatchExportDestination['
     )
 }
 
-export const logLevelToTypeFilter = (level: PipelineAppLogLevel): PluginLogEntryType => {
+export const logLevelToTypeFilter = (level: PipelineLogLevel): PluginLogEntryType => {
     switch (level) {
-        case PipelineAppLogLevel.Debug:
+        case PipelineLogLevel.Debug:
             return PluginLogEntryType.Debug
-        case PipelineAppLogLevel.Error:
+        case PipelineLogLevel.Error:
             return PluginLogEntryType.Error
-        case PipelineAppLogLevel.Info:
+        case PipelineLogLevel.Info:
             return PluginLogEntryType.Info
-        case PipelineAppLogLevel.Log:
+        case PipelineLogLevel.Log:
             return PluginLogEntryType.Log
-        case PipelineAppLogLevel.Warning:
+        case PipelineLogLevel.Warning:
             return PluginLogEntryType.Warn
         default:
             throw new Error('unknown log level')
     }
 }
 
-export const logLevelsToTypeFilters = (levels: PipelineAppLogLevel[]): PluginLogEntryType[] =>
+export const logLevelsToTypeFilters = (levels: PipelineLogLevel[]): PluginLogEntryType[] =>
     levels.map((l) => logLevelToTypeFilter(l))
 
-export const typeToLogLevel = (type: PluginLogEntryType): PipelineAppLogLevel => {
+export const typeToLogLevel = (type: PluginLogEntryType): PipelineLogLevel => {
     switch (type) {
         case PluginLogEntryType.Debug:
-            return PipelineAppLogLevel.Debug
+            return PipelineLogLevel.Debug
         case PluginLogEntryType.Error:
-            return PipelineAppLogLevel.Error
+            return PipelineLogLevel.Error
         case PluginLogEntryType.Info:
-            return PipelineAppLogLevel.Info
+            return PipelineLogLevel.Info
         case PluginLogEntryType.Log:
-            return PipelineAppLogLevel.Log
+            return PipelineLogLevel.Log
         case PluginLogEntryType.Warn:
-            return PipelineAppLogLevel.Warning
+            return PipelineLogLevel.Warning
         default:
             throw new Error('unknown log type')
     }
 }
 
-export function LogLevelDisplay(level: PipelineAppLogLevel): JSX.Element {
+export function LogLevelDisplay(level: PipelineLogLevel): JSX.Element {
     let color: string | undefined
     switch (level) {
-        case PipelineAppLogLevel.Debug:
+        case PipelineLogLevel.Debug:
             color = 'text-muted'
             break
-        case PipelineAppLogLevel.Log:
+        case PipelineLogLevel.Log:
             color = 'text-default'
             break
-        case PipelineAppLogLevel.Info:
+        case PipelineLogLevel.Info:
             color = 'text-primary'
             break
-        case PipelineAppLogLevel.Warning:
+        case PipelineLogLevel.Warning:
             color = 'text-warning'
             break
-        case PipelineAppLogLevel.Error:
+        case PipelineLogLevel.Error:
             color = 'text-danger'
             break
         default:
@@ -215,7 +215,7 @@ export function LogTypeDisplay(type: PluginLogEntryType): JSX.Element {
     return LogLevelDisplay(typeToLogLevel(type))
 }
 
-export const humanFriendlyFrequencyName = (frequency: DestinationFrequency): string => {
+export const humanFriendlyFrequencyName = (frequency: Destination['interval']): string => {
     switch (frequency) {
         case 'realtime':
             return 'Realtime'

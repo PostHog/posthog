@@ -52,6 +52,8 @@ import {
     OrganizationType,
     PersonListParams,
     PersonType,
+    PluginConfigTypeNew,
+    PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -147,7 +149,7 @@ export class ApiConfig {
         return this._currentOrganizationId
     }
 
-    static setCurrentOrganizationId(id: OrganizationType['id']): void {
+    static setCurrentOrganizationId(id: OrganizationType['id'] | null): void {
         this._currentOrganizationId = id
     }
 
@@ -269,16 +271,24 @@ class ApiRequest {
     }
 
     // # Plugins
-    public plugins(): ApiRequest {
-        return this.addPathComponent('plugins')
+    public plugins(orgId?: OrganizationType['id']): ApiRequest {
+        return this.organizationsDetail(orgId).addPathComponent('plugins')
     }
 
-    public pluginLogs(pluginConfigId: number): ApiRequest {
-        return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
+    public pluginsActivity(orgId?: OrganizationType['id']): ApiRequest {
+        return this.plugins(orgId).addPathComponent('activity')
     }
 
-    public pluginsActivity(): ApiRequest {
-        return this.organizations().current().plugins().addPathComponent('activity')
+    public pluginConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('plugin_configs')
+    }
+
+    public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
+        return this.pluginConfigs(teamId).addPathComponent(id)
+    }
+
+    public pluginLogs(pluginConfigId: number, teamId?: TeamType['id']): ApiRequest {
+        return this.pluginConfig(pluginConfigId, teamId).addPathComponent('logs')
     }
 
     // # Actions
@@ -1402,10 +1412,21 @@ const api = {
         },
     },
 
+    pluginConfigs: {
+        async get(id: PluginConfigTypeNew['id']): Promise<PluginConfigWithPluginInfoNew> {
+            return await new ApiRequest().pluginConfig(id).get()
+        },
+        async update(id: PluginConfigTypeNew['id'], data: FormData): Promise<PluginConfigWithPluginInfoNew> {
+            return await new ApiRequest().pluginConfig(id).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pluginConfigs().get()
+        },
+    },
+
     pluginLogs: {
         async search(
             pluginConfigId: number,
-            currentTeamId: number | null,
             searchTerm: string | null = null,
             typeFilters: CheckboxValueType[] = [],
             trailingEntry: PluginLogEntry | null = null,
@@ -1422,11 +1443,7 @@ const api = {
                 true
             )
 
-            const response = await new ApiRequest()
-                .projectsDetail(currentTeamId || undefined)
-                .pluginLogs(pluginConfigId)
-                .withQueryString(params)
-                .get()
+            const response = await new ApiRequest().pluginLogs(pluginConfigId).withQueryString(params).get()
 
             return response.results
         },
@@ -1435,7 +1452,6 @@ const api = {
     batchExportLogs: {
         async search(
             batchExportId: string,
-            currentTeamId: number | null,
             searchTerm: string | null = null,
             typeFilters: CheckboxValueType[] = [],
             trailingEntry: BatchExportLogEntry | null = null,
@@ -1452,10 +1468,7 @@ const api = {
                 true
             )
 
-            const response = await new ApiRequest()
-                .batchExportLogs(batchExportId, currentTeamId || undefined)
-                .withQueryString(params)
-                .get()
+            const response = await new ApiRequest().batchExportLogs(batchExportId).withQueryString(params).get()
 
             return response.results
         },

@@ -1,5 +1,4 @@
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
 import { PluginType } from '~/types'
 
@@ -45,12 +44,13 @@ export function defaultConfigForPlugin(plugin: PluginType): Record<string, any> 
 }
 
 export function getPluginConfigFormData(
-    editingPlugin: PluginTypeWithConfig,
-    pluginConfigChanges: Record<string, any>
+    rawConfigSchema: PluginType['config_schema'],
+    existingConfig: Record<string, any> | undefined,
+    updatedConfig: Record<string, any>
 ): FormData {
-    const { __enabled: enabled, ...config } = pluginConfigChanges
+    const { __enabled: enabled, ...config } = updatedConfig
 
-    const configSchema = getConfigSchemaObject(editingPlugin.config_schema)
+    const configSchema = getConfigSchemaObject(rawConfigSchema)
 
     const formData = new FormData()
     const otherConfig: Record<string, any> = {}
@@ -60,7 +60,7 @@ export function getPluginConfigFormData(
             if (value && !value.saved) {
                 formData.append(`add_attachment[${key}]`, value)
             }
-            if (!value && editingPlugin.pluginConfig.config?.[key]) {
+            if (!value && existingConfig?.[key]) {
                 formData.append(`remove_attachment[${key}]`, 'true')
             }
         } else if (!configSchema[key]?.secret || value !== SECRET_FIELD_VALUE) {
@@ -105,15 +105,19 @@ export const determineInvisibleFields = (getFieldValue: (fieldName: string) => a
 export const determineRequiredFields = (getFieldValue: (fieldName: string) => any, plugin: PluginType): string[] => {
     const fieldsToSetAsRequired = []
     for (const field of Object.values(getConfigSchemaArray(plugin.config_schema || {}))) {
-        if (!field.required_if || !Array.isArray(field.required_if) || !field.key) {
+        if (!field.key) {
             continue
         }
-        const shouldBeRequired = field.required_if.every(
-            ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
-                doFieldRequirementsMatch(getFieldValue, targetFieldName, targetFieldValue)
-        )
-        if (shouldBeRequired) {
+        if (field.required) {
             fieldsToSetAsRequired.push(field.key)
+        } else if (field.required_if && Array.isArray(field.required_if)) {
+            const shouldBeRequired = field.required_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(getFieldValue, targetFieldName, targetFieldValue)
+            )
+            if (shouldBeRequired) {
+                fieldsToSetAsRequired.push(field.key)
+            }
         }
     }
     return fieldsToSetAsRequired
