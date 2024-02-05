@@ -131,14 +131,15 @@ class ActorsQueryRunner(QueryRunner):
                 return [str(part) for part in column.chain]
         raise ValueError("Source query must have an id column")
 
-    def source_table_join(self) -> ast.JoinExpr:
+    def source_table_join(self, actors_subquery: ast.SelectQuery) -> ast.JoinExpr:
         assert self.source_query_runner is not None  # For type checking
         source_query = self.source_query_runner.to_actors_query()
         source_id_chain = self.source_id_column(source_query)
         source_alias = "source"
 
         return ast.JoinExpr(
-            table=ast.Field(chain=[self.strategy.origin]),
+            table=actors_subquery,
+            alias=self.strategy.origin,
             next_join=ast.JoinExpr(
                 table=source_query,
                 join_type="INNER JOIN",
@@ -153,26 +154,46 @@ class ActorsQueryRunner(QueryRunner):
             ),
         )
 
+    def has_column(self, columns: list[ast.Expr], search: str) -> bool:
+        for column in columns:
+            if isinstance(column, ast.Field) and column.chain[-1] == search:
+                return True
+            elif isinstance(column, ast.Alias) and column.alias == search:
+                return True
+        return False
+
     def to_query(self) -> ast.SelectQuery:
+        source_query = self.source_query_runner.to_actors_query() if self.query.source else None
+        source_columns = source_query.select if source_query else []
+        outer_columns = []
+
         with self.timings.measure("columns"):
             columns = []
             group_by = []
             aggregations = []
-            for expr in self.input_columns():
-                column: ast.Expr = parse_expr(expr)
+            for input_column in self.input_columns():
+                column: ast.Expr = parse_expr(input_column)
 
-                if expr == "person.$delete":
+                if input_column == "person.$delete":
                     column = ast.Constant(value=1)
-                elif expr == self.strategy.field:
+                elif input_column == self.strategy.field:
                     column = ast.Field(chain=[self.strategy.origin_id])
-                elif expr == "matched_recordings":
-                    column = ast.Field(chain=["matching_events"])  # TODO: Hmm?
+                elif input_column == "matched_recordings":
+                    column = ast.Field(chain=["matching_events"])
+
+                outer_columns.append(column)
+
+                if self.has_column(source_columns, input_column):
+                    continue
 
                 columns.append(column)
                 if has_aggregation(column):
                     aggregations.append(column)
                 elif not isinstance(column, ast.Constant):
                     group_by.append(column)
+
+            # Append strategy column in any case
+            columns.append(ast.Field(chain=[self.strategy.origin_id]))
 
         with self.timings.measure("filters"):
             filter_conditions = self.strategy.filter_conditions()
@@ -211,27 +232,27 @@ class ActorsQueryRunner(QueryRunner):
             else:
                 order_by = []
 
-        # We need to group by all columns in the order by clause
-        for order_expr in order_by:
-            if order_expr.expr not in group_by:
-                group_by.append(order_expr.expr)
-
         with self.timings.measure("select"):
-            if self.query.source:
-                join_expr = self.source_table_join()
-            else:
-                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
-
             stmt = ast.SelectQuery(
                 select=columns,
-                select_from=join_expr,
+                select_from=ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin])),
                 where=where,
                 having=having,
                 group_by=group_by,
-                order_by=order_by,
             )
 
-        return stmt
+        if self.query.source:
+            join_expr = self.source_table_join(actors_subquery=stmt)
+        else:
+            join_expr = ast.JoinExpr(table=stmt, alias="actors")
+
+        outer_select = ast.SelectQuery(
+            select=outer_columns,
+            select_from=join_expr,
+            order_by=order_by,
+        )
+
+        return outer_select
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
