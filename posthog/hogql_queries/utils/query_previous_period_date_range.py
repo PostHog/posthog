@@ -30,14 +30,16 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
 
     def date_from_delta_mappings(self) -> Dict[str, int] | None:
         if self._date_range and isinstance(self._date_range.date_from, str) and self._date_range.date_from != "all":
-            delta_mapping = relative_date_parse_with_delta_mapping(
-                self._date_range.date_from,
-                self._team.timezone_info,
-                now=self.now_with_timezone,
-            )[1]
-            return delta_mapping
+            date_from = self._date_range.date_from
+        else:
+            date_from = "-7d"
 
-        return None
+        delta_mapping = relative_date_parse_with_delta_mapping(
+            date_from,
+            self._team.timezone_info,
+            now=self.now_with_timezone,
+        )[1]
+        return delta_mapping
 
     def date_to_delta_mappings(self) -> Dict[str, int] | None:
         if self._date_range and self._date_range.date_to:

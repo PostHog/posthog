@@ -2207,11 +2207,170 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(7):
-            # multiple queries to get the same cohort, because it doesn't exist
-            # TODO: Find a better way to optimise this in cache
+        with self.assertNumQueries(6):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
+    def test_flag_with_multiple_complex_unknown_cohort(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+
+        other_team = Team.objects.create(
+            organization=self.organization,
+            api_token="bazinga_new",
+            name="New Team",
+        )
+        self.client.logout()
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": "something_1"},
+        )
+
+        deleted_cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        }
+                    ]
+                },
+            ],
+            name="cohort1",
+            deleted=True,
+        )
+
+        cohort_from_other_team = Cohort.objects.create(
+            team=other_team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        }
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        cohort_with_nested_invalid = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        },
+                        {
+                            "key": "id",
+                            "value": 99999,
+                            "type": "cohort",
+                        },
+                        {
+                            "key": "id",
+                            "value": deleted_cohort.pk,
+                            "type": "cohort",
+                        },
+                        {
+                            "key": "id",
+                            "value": cohort_from_other_team.pk,
+                            "type": "cohort",
+                        },
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        cohort_valid = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        },
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": 99999, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [{"key": "id", "value": cohort_with_nested_invalid.pk, "type": "cohort"}]}]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag-2",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_from_other_team.pk, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag-3",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort_valid.pk, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": cohort_with_nested_invalid.pk, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": 99999, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": deleted_cohort.pk, "type": "cohort"}]},
+                ]
+            },
+            name="This is a cohort-based flag",
+            key="cohort-flag-4",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            name="This is a regular flag",
+            key="simple-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(8):
+            # Each invalid cohort is queried only once
+            # 1. Select all valid cohorts
+            # 2. Select 99999 cohort
+            # 3. Select deleted cohort
+            # 4. Select cohort from other team
+            response = self._post_decide(api_version=3, distinct_id="example_id_1")
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {
+                    "cohort-flag": False,
+                    "simple-flag": True,
+                    "cohort-flag-2": False,
+                    "cohort-flag-3": False,
+                    "cohort-flag-4": True,
+                },
+            )
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     @snapshot_postgres_queries

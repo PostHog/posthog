@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import structlog
 from django.conf import settings
@@ -16,6 +16,10 @@ from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import sane_repr
 from posthog.settings.base_variables import TEST
+
+# The empty string literal helps us determine when the cohort is invalid/deleted, when
+# set in cohorts_cache
+CohortOrEmpty = Union["Cohort", Literal[""], None]
 
 logger = structlog.get_logger(__name__)
 

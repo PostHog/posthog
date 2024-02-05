@@ -163,8 +163,8 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                         We apologize for this unexpected situation. There are a couple of things you can do:
                         <ol>
                             <li>
-                                First and foremost you can <b>try again</b>. We recommended you wait a moment before
-                                doing so.
+                                First and foremost you can <b>try again</b>. We recommend you wait a moment before doing
+                                so.
                             </li>
                             <li>
                                 <Link

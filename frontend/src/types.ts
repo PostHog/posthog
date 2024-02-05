@@ -2113,6 +2113,7 @@ export interface SystemStatusAnalyzeResult {
 }
 
 export interface ActionFilter extends EntityFilter {
+    days?: string[]
     math?: string
     math_property?: string
     math_group_type_index?: number | null
