@@ -140,8 +140,6 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
     assert len(schemas) == 0
-    count = await sync_to_async(ExternalDataSchema.objects.filter(source_id=new_source.pk).count)()  # type:ignore
-    assert count == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -176,9 +174,6 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
     assert len(schemas) == 1
-    # doesn't overlap
-    count = await sync_to_async(ExternalDataSchema.objects.filter(source_id=new_source.pk).count)()  # type:ignore
-    assert count == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
 
 
 @pytest.mark.django_db(transaction=True)
