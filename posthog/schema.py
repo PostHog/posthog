@@ -223,8 +223,8 @@ class FunnelExclusionLegacy(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
-    funnel_from_step: Optional[float] = None
-    funnel_to_step: Optional[float] = None
+    funnel_from_step: float
+    funnel_to_step: float
     id: Optional[Union[str, float]] = None
     index: Optional[float] = None
     name: Optional[str] = None
@@ -236,8 +236,8 @@ class FunnelExclusionSteps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    funnelFromStep: Optional[int] = None
-    funnelToStep: Optional[int] = None
+    funnelFromStep: int
+    funnelToStep: int
 
 
 class FunnelLayout(str, Enum):
@@ -1706,8 +1706,8 @@ class FunnelExclusionActionsNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    funnelFromStep: Optional[int] = None
-    funnelToStep: Optional[int] = None
+    funnelFromStep: int
+    funnelToStep: int
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
@@ -1761,8 +1761,8 @@ class FunnelExclusionEventsNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    funnelFromStep: Optional[int] = None
-    funnelToStep: Optional[int] = None
+    funnelFromStep: int
+    funnelToStep: int
     kind: Literal["EventsNode"] = "EventsNode"
     limit: Optional[int] = None
     math: Optional[

@@ -12,6 +12,8 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     FeaturePropertyFilter,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
@@ -51,3 +53,4 @@ AnyPropertyFilter: TypeAlias = Union[
 ]
 
 EntityNode: TypeAlias = Union[EventsNode, ActionsNode]
+ExclusionEntityNode: TypeAlias = Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]

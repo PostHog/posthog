@@ -11,8 +11,8 @@ from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
-from posthog.schema import ActionsNode, EventsNode, FunnelsFilter
-from posthog.types import EntityNode
+from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelsFilter
+from posthog.types import EntityNode, ExclusionEntityNode
 
 
 class FunnelBase(ABC):
@@ -228,7 +228,13 @@ class FunnelBase(ABC):
 
     #     return " OR ".join(step_conditions)
 
-    def _get_step_col(self, entity: EntityNode, index: int, entity_name: str, step_prefix: str = "") -> List[ast.Expr]:
+    def _get_step_col(
+        self,
+        entity: EntityNode | ExclusionEntityNode,
+        index: int,
+        entity_name: str,
+        step_prefix: str = "",
+    ) -> List[ast.Expr]:
         # step prefix is used to distinguish actual steps, and exclusion steps
         # without the prefix, we get the same parameter binding for both, which borks things up
         step_cols: List[ast.Expr] = []
@@ -245,8 +251,14 @@ class FunnelBase(ABC):
 
         return step_cols
 
-    def _build_step_query(self, entity: EntityNode, index: int, entity_name: str, step_prefix: str) -> ast.Expr:
-        if isinstance(entity, ActionsNode):
+    def _build_step_query(
+        self,
+        entity: EntityNode | ExclusionEntityNode,
+        index: int,
+        entity_name: str,
+        step_prefix: str,
+    ) -> ast.Expr:
+        if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
             action = Action.objects.get(pk=int(entity.id), team=self.context.team)
             event_expr = action_to_expr(action)

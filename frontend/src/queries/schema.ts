@@ -574,9 +574,9 @@ export type FunnelsFilterLegacy = Omit<
 
 export interface FunnelExclusionSteps {
     /** @asType integer */
-    funnelFromStep?: number
+    funnelFromStep: number
     /** @asType integer */
-    funnelToStep?: number
+    funnelToStep: number
 }
 export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
 export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}

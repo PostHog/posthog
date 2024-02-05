@@ -196,12 +196,11 @@ describe('getClampedStepRange', () => {
     })
 
     it('ensures step range is clamped to step range', () => {
-        const stepRange: FunnelExclusionSteps = {}
+        const stepRange = {} as FunnelExclusionSteps
         const query: FunnelsQuery = {
             kind: NodeKind.FunnelsQuery,
             funnelsFilter: {
                 funnelFromStep: -1,
-
                 funnelToStep: 12,
             },
             series: [{}, {}, {}] as EventsNode[],
@@ -217,7 +216,7 @@ describe('getClampedStepRange', () => {
     })
 
     it('returns undefined if the incoming filters are undefined', () => {
-        const stepRange: FunnelExclusionSteps = {}
+        const stepRange = {} as FunnelExclusionSteps
         const query: FunnelsQuery = {
             kind: NodeKind.FunnelsQuery,
             funnelsFilter: {

@@ -1412,7 +1412,7 @@
                     "type": "object"
                 }
             },
-            "required": ["id", "kind"],
+            "required": ["funnelFromStep", "funnelToStep", "id", "kind"],
             "type": "object"
         },
         "FunnelExclusionEventsNode": {
@@ -1509,7 +1509,7 @@
                     "type": "object"
                 }
             },
-            "required": ["kind"],
+            "required": ["funnelFromStep", "funnelToStep", "kind"],
             "type": "object"
         },
         "FunnelExclusionLegacy": {
@@ -1540,6 +1540,7 @@
                     "$ref": "#/definitions/EntityType"
                 }
             },
+            "required": ["funnel_from_step", "funnel_to_step"],
             "type": "object"
         },
         "FunnelExclusionSteps": {
@@ -1552,6 +1553,7 @@
                     "type": "integer"
                 }
             },
+            "required": ["funnelFromStep", "funnelToStep"],
             "type": "object"
         },
         "FunnelLayout": {

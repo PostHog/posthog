@@ -33,10 +33,7 @@ export function ExclusionRowSuffix({
         funnelToStep: exclusions?.[index]?.funnelToStep ?? exclusionDefaultStepRange.funnelToStep,
     }
 
-    const onChange = (
-        funnelFromStep: number | undefined = stepRange.funnelFromStep,
-        funnelToStep: number | undefined = stepRange.funnelToStep
-    ): void => {
+    const onChange = (funnelFromStep = stepRange.funnelFromStep, funnelToStep = stepRange.funnelToStep): void => {
         const newStepRange = getClampedStepRange({
             stepRange: { funnelFromStep, funnelToStep },
             query: querySource as FunnelsQuery,
