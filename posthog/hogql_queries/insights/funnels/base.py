@@ -11,7 +11,7 @@ from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
-from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelsFilter
+from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode
 from posthog.types import EntityNode, ExclusionEntityNode
 
 
@@ -161,7 +161,7 @@ class FunnelBase(ABC):
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
-        funnelsFilter = self.context.funnelsFilter or FunnelsFilter()
+        funnelsFilter = self.context.funnelsFilter
         entities_to_use = entities or self.context.query.series
 
         # extra_fields = []
@@ -408,7 +408,7 @@ class FunnelBase(ABC):
         return exprs
 
     def _get_partition_cols(self, level_index: int, max_steps: int) -> List[ast.Expr]:
-        funnelsFilter = self.context.query.funnelsFilter or FunnelsFilter()
+        funnelsFilter = self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions
         series = self.context.query.series
 

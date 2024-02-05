@@ -5,7 +5,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.utils.date_range import DateRange
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.models.action.action import Action
-from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelExclusionEventsNode, FunnelsFilter
+from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelExclusionEventsNode
 from rest_framework.exceptions import ValidationError
 
 
@@ -83,7 +83,7 @@ class FunnelEventQuery:
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
         team, query = self.context.team, self.context.query
-        funnelsFilter = self.context.funnelsFilter or FunnelsFilter()
+        funnelsFilter = self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions or []
 
         if skip_entity_filter is True:

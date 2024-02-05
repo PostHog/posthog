@@ -6,8 +6,6 @@ from posthog.hogql_queries.insights.funnels.base import FunnelBase
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelsFilter
-
 
 class Funnel(FunnelBase):
     """
@@ -181,7 +179,7 @@ class Funnel(FunnelBase):
         level index is already at the minimum ordered timestamps.
         """
         exprs: List[ast.Expr] = []
-        funnelsFilter = self.context.query.funnelsFilter or FunnelsFilter()
+        funnelsFilter = self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions
 
         for i in range(0, max_steps):
