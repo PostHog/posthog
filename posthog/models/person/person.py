@@ -114,7 +114,7 @@ class PersonDistinctId(models.Model):
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
-    person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE)
+    person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE, null=True)
     distinct_id: models.CharField = models.CharField(max_length=400)
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
