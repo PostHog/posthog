@@ -20,7 +20,7 @@ import { useEffect, useRef } from 'react'
 import {
     AppMetricErrorDetail,
     AppMetricsData,
-    pipelineNodeMetricsLogic as pipelineNodeMetricsLogic,
+    pipelineNodeMetricsLogic,
     PipelineNodeMetricsProps,
 } from './pipelineNodeMetricsLogic'
 

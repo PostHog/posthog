@@ -3,7 +3,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { pipelineNodeLogic, PipelineNodeLogicProps as PipelineNodeLogicProps } from 'scenes/pipeline/pipelineNodeLogic'
+import { pipelineNodeLogic, PipelineNodeLogicProps } from 'scenes/pipeline/pipelineNodeLogic'
 
 import api from '~/lib/api'
 import { BatchExportLogEntry, PluginLogEntry } from '~/types'
