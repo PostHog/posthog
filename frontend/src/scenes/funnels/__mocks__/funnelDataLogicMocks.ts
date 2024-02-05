@@ -326,6 +326,6 @@ export const funnelResultTrends = {
 export const funnelInvalidExclusionError = {
     type: 'validation_error',
     code: 'invalid_input',
-    detail: "Exclusion event can't be the same as funnel step",
+    detail: "Exclusion steps cannot contain an event that's part of funnel steps.",
     attr: null,
 }

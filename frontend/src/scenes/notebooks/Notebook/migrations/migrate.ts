@@ -2,15 +2,21 @@ import { JSONContent } from '@tiptap/core'
 
 import {
     breakdownFilterToQuery,
+    exlusionEntityToNode,
     funnelsFilterToQuery,
+    lifecycleFilterToQuery,
     pathsFilterToQuery,
     retentionFilterToQuery,
+    stickinessFilterToQuery,
     trendsFilterToQuery,
 } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
+    isLegacyFunnelsExclusion,
     isLegacyFunnelsFilter,
+    isLegacyLifecycleFilter,
     isLegacyPathsFilter,
     isLegacyRetentionFilter,
+    isLegacyStickinessFilter,
     isLegacyTrendsFilter,
 } from '~/queries/nodes/InsightQuery/utils/legacy'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
@@ -99,8 +105,15 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             query.trendsFilter = trendsFilterToQuery(query.trendsFilter as any)
         }
 
-        if (query.kind === NodeKind.FunnelsQuery && isLegacyFunnelsFilter(query.funnelsFilter as any)) {
-            query.funnelsFilter = funnelsFilterToQuery(query.funnelsFilter as any)
+        if (query.kind === NodeKind.FunnelsQuery) {
+            if (isLegacyFunnelsFilter(query.funnelsFilter as any)) {
+                query.funnelsFilter = funnelsFilterToQuery(query.funnelsFilter as any)
+            } else if (isLegacyFunnelsExclusion(query.funnelsFilter as any)) {
+                query.funnelsFilter = {
+                    ...query.funnelsFilter,
+                    exclusions: query.funnelsFilter!.exclusions!.map((entity) => exlusionEntityToNode(entity)),
+                }
+            }
         }
 
         if (query.kind === NodeKind.RetentionQuery && isLegacyRetentionFilter(query.retentionFilter as any)) {
@@ -109,6 +122,14 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 
         if (query.kind === NodeKind.PathsQuery && isLegacyPathsFilter(query.pathsFilter as any)) {
             query.pathsFilter = pathsFilterToQuery(query.pathsFilter as any)
+        }
+
+        if (query.kind === NodeKind.StickinessQuery && isLegacyStickinessFilter(query.stickinessFilter as any)) {
+            query.stickinessFilter = stickinessFilterToQuery(query.stickinessFilter as any)
+        }
+
+        if (query.kind === NodeKind.LifecycleQuery && isLegacyLifecycleFilter(query.lifecycleFilter as any)) {
+            query.lifecycleFilter = lifecycleFilterToQuery(query.lifecycleFilter as any)
         }
 
         /*

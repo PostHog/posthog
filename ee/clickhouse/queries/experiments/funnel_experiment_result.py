@@ -85,7 +85,11 @@ class ClickhouseFunnelExperimentResult:
 
     def get_results(self):
         funnel_results = self.funnel.run()
+
+        validate_event_variants(funnel_results, self.variants)
+
         filtered_results = [result for result in funnel_results if result[0]["breakdown_value"][0] in self.variants]
+
         control_variant, test_variants = self.get_variants(filtered_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)
@@ -292,3 +296,42 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     total_test_probabilities = sum(probabilities[1:])
 
     return [max(0, 1 - total_test_probabilities), *probabilities[1:]]
+
+
+def validate_event_variants(funnel_results, variants):
+    if not funnel_results or not funnel_results[0]:
+        raise ValidationError("No experiment events have been ingested yet.", code="no-events")
+
+    eventsWithOrderZero = []
+    for eventArr in funnel_results:
+        for event in eventArr:
+            if event.get("order") == 0:
+                eventsWithOrderZero.append(event)
+
+    missing_variants = []
+
+    # Check if "control" is present
+    control_found = False
+    for event in eventsWithOrderZero:
+        event_variant = event.get("breakdown_value")[0]
+        if event_variant == "control":
+            control_found = True
+            break
+    if not control_found:
+        missing_variants.append("control")
+
+    # Check if at least one of the test variants is present
+    test_variants = [variant for variant in variants if variant != "control"]
+    test_variant_found = False
+    for event in eventsWithOrderZero:
+        event_variant = event.get("breakdown_value")[0]
+        if event_variant in test_variants:
+            test_variant_found = True
+            break
+    if not test_variant_found:
+        missing_variants.extend(test_variants)
+
+    if not len(missing_variants) == 0:
+        missing_variants_str = ", ".join(missing_variants)
+        message = f"No experiment events have been ingested yet for the following variants: {missing_variants_str}"
+        raise ValidationError(message, code=f"missing-flag-variants::{missing_variants_str}")

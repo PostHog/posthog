@@ -104,7 +104,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     connect((props: PlayerInspectorLogicProps) => ({
         actions: [
             playerSettingsLogic,
-            ['setTab', 'setMiniFilter', 'setSyncScroll'],
+            ['setTab', 'setMiniFilter', 'setSyncScroll', 'setSearchQuery'],
             eventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataLogic(props),
@@ -150,6 +150,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 setTab: () => [],
                 setMiniFilter: () => [],
+                setSearchQuery: () => [],
+                setWindowIdFilter: () => [],
             },
         ],
 

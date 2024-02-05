@@ -166,6 +166,12 @@ class BatchExport(UUIDModel):
         help_text="Time after which any Batch Export runs won't be triggered.",
     )
 
+    schema: models.JSONField = models.JSONField(
+        null=True,
+        default=None,
+        help_text="A schema of custom fields to select when exporting data.",
+    )
+
     @property
     def latest_runs(self):
         """Return the latest 10 runs for this batch export."""

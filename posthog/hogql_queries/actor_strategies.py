@@ -5,6 +5,7 @@ from django.db.models import Prefetch
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.utils.recordings import RecordingsHelper
 from posthog.models import Team, Person, Group
 from posthog.schema import ActorsQuery
 
@@ -21,6 +22,9 @@ class ActorStrategy:
 
     def get_actors(self, actor_ids) -> Dict[str, Dict]:
         raise NotImplementedError()
+
+    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
+        return {}
 
     def input_columns(self) -> List[str]:
         raise NotImplementedError()
@@ -49,6 +53,9 @@ class PersonStrategy(ActorStrategy):
             .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
             .iterator(chunk_size=self.paginator.limit)
         }
+
+    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
+        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> List[str]:
         return ["person", "id", "created_at", "person.$delete"]

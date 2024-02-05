@@ -6,44 +6,26 @@ import { getClampedStepRange } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { FunnelsFilter, FunnelsQuery } from '~/queries/schema'
-import { ActionFilter as ActionFilterType, FunnelExclusion } from '~/types'
+import { FunnelsQuery } from '~/queries/schema'
 
 type ExclusionRowSuffixComponentBaseProps = {
-    filter: ActionFilterType | FunnelExclusion
     index: number
     onClose?: () => void
     isVertical: boolean
 }
 
 export function ExclusionRowSuffix({
-    filter,
     index,
     onClose,
     isVertical,
 }: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, insightFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
+    const { querySource, funnelsFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const setOneEventExclusionFilter = (eventFilter: FunnelExclusion, index: number): void => {
-        const exclusions = ((insightFilter as FunnelsFilter)?.exclusions || []).map((e, e_i) =>
-            e_i === index
-                ? getClampedStepRange({
-                      stepRange: eventFilter,
-                      query: querySource as FunnelsQuery,
-                  })
-                : e
-        )
-
-        updateInsightFilter({
-            exclusions,
-        })
-    }
-
-    const exclusions = (insightFilter as FunnelsFilter)?.exclusions
+    const exclusions = funnelsFilter?.exclusions
     const numberOfSeries = series?.length || 0
 
     const stepRange = {
@@ -55,14 +37,14 @@ export function ExclusionRowSuffix({
         funnelFromStep: number | undefined = stepRange.funnelFromStep,
         funnelToStep: number | undefined = stepRange.funnelToStep
     ): void => {
-        setOneEventExclusionFilter(
-            {
-                ...filter,
-                funnelFromStep,
-                funnelToStep,
-            },
-            index
+        const newStepRange = getClampedStepRange({
+            stepRange: { funnelFromStep, funnelToStep },
+            query: querySource as FunnelsQuery,
+        })
+        const newExclusions = funnelsFilter?.exclusions?.map((exclusion, exclusionIndex) =>
+            exclusionIndex === index ? { ...exclusion, ...newStepRange } : exclusion
         )
+        updateInsightFilter({ exclusions: newExclusions })
     }
 
     return (
@@ -90,10 +72,12 @@ export function ExclusionRowSuffix({
                 disabled={!isFunnelWithEnoughSteps}
             />
             <LemonButton
+                size="small"
                 icon={<IconDelete />}
                 onClick={onClose}
                 data-attr="delete-prop-exclusion-filter"
                 title="Delete event exclusion series"
+                className="ml-1"
             />
         </div>
     )

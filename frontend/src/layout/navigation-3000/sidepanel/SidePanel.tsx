@@ -1,6 +1,6 @@
 import './SidePanel.scss'
 
-import { IconConfetti, IconEllipsis, IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
+import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -19,7 +19,6 @@ import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
-import { SidePanelWelcome } from './panels/SidePanelWelcome'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -58,7 +57,7 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
     },
 
     [SidePanelTab.Activity]: {
-        label: 'Activity',
+        label: 'Team activity',
         Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },
@@ -66,11 +65,6 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Discussion',
         Icon: SidePanelDiscussionIcon,
         Content: SidePanelDiscussion,
-    },
-    [SidePanelTab.Welcome]: {
-        label: "What's new?",
-        Icon: IconConfetti,
-        Content: SidePanelWelcome,
     },
     [SidePanelTab.Status]: {
         label: 'System status',

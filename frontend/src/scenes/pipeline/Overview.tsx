@@ -7,14 +7,14 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppKind, PipelineAppTab, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
+import { PipelineNodeTab, PipelineStage, PluginType } from '~/types'
 
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { DestinationMoreOverlay } from './Destinations'
-import { DestinationType, PipelineAppBackend } from './destinationsLogic'
 import { pipelineOverviewLogic } from './overviewLogic'
 import { TransformationsMoreOverlay } from './Transformations'
 import { pipelineTransformationsLogic } from './transformationsLogic'
+import { Destination, PipelineBackend, Transformation } from './types'
 import { humanFriendlyFrequencyName } from './utils'
 
 type PipelineStepProps = {
@@ -81,53 +81,48 @@ const PipelineStepSkeleton = (): JSX.Element => (
     </LemonCard>
 )
 
-const PipelineStepTransformation = ({
-    transformation,
-}: {
-    transformation: PluginConfigWithPluginInfoNew
-}): JSX.Element => {
-    const { sortedEnabledPluginConfigs } = useValues(pipelineTransformationsLogic)
+const PipelineStepTransformation = ({ transformation }: { transformation: Transformation }): JSX.Element => {
+    const { sortedEnabledTransformations } = useValues(pipelineTransformationsLogic)
 
     return (
         <PipelineStep
-            order={sortedEnabledPluginConfigs.findIndex((pc) => pc.id === transformation.id) + 1}
+            order={sortedEnabledTransformations.findIndex((pc) => pc.id === transformation.id) + 1}
             name={transformation.name}
-            to={urls.pipelineApp(PipelineAppKind.Transformation, transformation.id, PipelineAppTab.Configuration)}
+            to={urls.pipelineNode(PipelineStage.Transformation, transformation.id, PipelineNodeTab.Configuration)}
             description={transformation.description}
             headerInfo={
                 <>
                     <div className="mr-1">
-                        <AppMetricSparkLine config={transformation} />
+                        <AppMetricSparkLine pipelineNode={transformation} />
                     </div>
-                    <More overlay={<TransformationsMoreOverlay pluginConfig={transformation} inOverview />} />
+                    <More overlay={<TransformationsMoreOverlay transformation={transformation} inOverview />} />
                 </>
             }
-            plugin={transformation.plugin_info}
+            plugin={transformation.plugin}
         />
     )
 }
 
-const PipelineStepDestination = ({ destination }: { destination: DestinationType }): JSX.Element => {
+const PipelineStepDestination = ({ destination }: { destination: Destination }): JSX.Element => {
     return (
         <PipelineStep
             name={destination.name}
-            to={destination.config_url}
+            to={urls.pipelineNode(PipelineStage.Destination, destination.id, PipelineNodeTab.Configuration)}
             description={destination.description}
             headerInfo={
                 <>
                     <div className="mr-1">
-                        <AppMetricSparkLine config={destination} />
+                        <AppMetricSparkLine pipelineNode={destination} />
                     </div>
                     <More overlay={<DestinationMoreOverlay destination={destination} inOverview />} />
                 </>
             }
             additionalInfo={
                 <div className="flex gap-1">
-                    <LemonTag type="primary">{humanFriendlyFrequencyName(destination.frequency)}</LemonTag>
-                    {destination.backend === PipelineAppBackend.BatchExport}
+                    <LemonTag type="primary">{humanFriendlyFrequencyName(destination.interval)}</LemonTag>
                 </div>
             }
-            plugin={destination.backend === PipelineAppBackend.Plugin ? destination.plugin : undefined}
+            plugin={destination.backend === PipelineBackend.Plugin ? destination.plugin : undefined}
         />
     )
 }

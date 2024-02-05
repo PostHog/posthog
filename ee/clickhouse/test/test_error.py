@@ -11,7 +11,7 @@ from posthog.errors import wrap_query_error
         (
             ServerException("Estimated query execution time (34.5 seconds) is too long. Aborting query"),
             "EstimatedQueryExecutionTimeTooLong",
-            "Estimated query execution time (34.5 seconds) is too long.",
+            "Estimated query execution time (34.5 seconds) is too long. Try reducing its scope by changing the time range.",
             None,
         ),
         (
@@ -32,7 +32,7 @@ from posthog.errors import wrap_query_error
                 code=241,
             ),
             "CHQueryErrorMemoryLimitExceeded",
-            "Query exceeds memory limits. Tip: Specifying a narrower time range helps most of the time.",
+            "Query exceeds memory limits. Try reducing its scope by changing the time range.",
             241,
         ),
     ],

@@ -359,7 +359,7 @@
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_person"."team_id" = 2
-         AND "posthog_person"."id" = -1)
+         AND ("posthog_person"."properties" -> 'created_at') > '["2m", "3d"]')
   LIMIT 1
   '''
 # ---
@@ -370,7 +370,7 @@
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_person"."team_id" = 2
-         AND "posthog_person"."id" = -1)
+         AND ("posthog_person"."properties" -> 'created_at') > '"bazinga"')
   LIMIT 1
   '''
 # ---
@@ -394,7 +394,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -468,7 +470,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -533,7 +537,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -558,7 +564,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -583,7 +591,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''
@@ -608,7 +618,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   ORDER BY "posthog_cohort"."id" ASC
   LIMIT 1
   '''

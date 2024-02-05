@@ -12,6 +12,14 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/js',
     },
     {
+        name: 'HTML snippet',
+        key: SDKKey.HTML_SNIPPET,
+        recommended: true,
+        tags: [SDKTag.RECOMMENDED, SDKTag.WEB],
+        image: require('./logos/html.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/js',
+    },
+    {
         name: 'React',
         key: SDKKey.REACT,
         tags: [SDKTag.WEB, SDKTag.RECOMMENDED],

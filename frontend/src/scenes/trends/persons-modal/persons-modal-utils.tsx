@@ -52,10 +52,16 @@ export const funnelTitle = (props: {
     )
 }
 
-export const pathsTitle = (props: { isDropOff: boolean; label: string }): React.ReactNode => {
+type pathModes = 'completion' | 'dropOff' | 'continue'
+export const pathsTitle = (props: { mode: pathModes; label: string }): React.ReactNode => {
+    const modeMap: Record<pathModes, string> = {
+        completion: 'Completed',
+        dropOff: 'Dropped off after',
+        continue: 'Continued after',
+    }
     return (
         <>
-            {props.isDropOff ? 'Dropped off after' : 'Completed'} step{' '}
+            {modeMap[props.mode]} step{' '}
             <PropertyKeyInfo value={props.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
         </>
     )

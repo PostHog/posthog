@@ -397,8 +397,6 @@ def negate_operator(operator: OperatorType) -> OperatorType:
         "is_not_set": "is_set",
         "is_date_before": "is_date_after",
         "is_date_after": "is_date_before",
-        "is_relative_date_before": "is_relative_date_after",
-        "is_relative_date_after": "is_relative_date_before",
         # is_date_exact not yet supported
     }.get(operator, operator)  # type: ignore
 

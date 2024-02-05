@@ -328,7 +328,7 @@ describe('the feature flag logic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setFeatureFlag(
                     generateFeatureFlag([
-                        { properties: [], rollout_percentage: null, variant: null },
+                        { properties: [], rollout_percentage: undefined, variant: null },
                         {
                             properties: [
                                 {
@@ -338,7 +338,7 @@ describe('the feature flag logic', () => {
                                     operator: PropertyOperator.Exact,
                                 },
                             ],
-                            rollout_percentage: null,
+                            rollout_percentage: undefined,
                             variant: null,
                         },
                         {
@@ -350,7 +350,7 @@ describe('the feature flag logic', () => {
                                     operator: PropertyOperator.Exact,
                                 },
                             ],
-                            rollout_percentage: null,
+                            rollout_percentage: undefined,
                             variant: null,
                         },
                     ])

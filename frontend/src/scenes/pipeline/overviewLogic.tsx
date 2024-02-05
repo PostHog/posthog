@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { connect, kea, path } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
@@ -12,18 +12,9 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
             teamLogic,
             ['currentTeamId'],
             pipelineTransformationsLogic,
-            [
-                'pluginsLoading as transformationPluginsLoading',
-                'pluginConfigsLoading as transformationPluginConfigsLoading',
-                'displayablePluginConfigs as transformations',
-            ],
+            ['loading as transformationsLoading', 'transformations'],
             pipelineDestinationsLogic,
-            [
-                'pluginsLoading as destinationPluginsLoading',
-                'pluginConfigsLoading as destinationPluginConfigsLoading',
-                'batchExportConfigsLoading',
-                'destinations',
-            ],
+            ['loading as destinationsLoading', 'destinations'],
         ],
         actions: [
             pipelineTransformationsLogic,
@@ -35,27 +26,5 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                 'loadBatchExports as loadBatchExportConfigs',
             ],
         ],
-    }),
-    selectors({
-        transformationsLoading: [
-            (s) => [s.transformationPluginsLoading, s.transformationPluginConfigsLoading],
-            (transformationPluginsLoading, transformationPluginConfigsLoading) =>
-                transformationPluginsLoading || transformationPluginConfigsLoading,
-        ],
-        destinationsLoading: [
-            (s) => [s.destinationPluginsLoading, s.destinationPluginConfigsLoading, s.batchExportConfigsLoading],
-            (pluginsLoading, destinationPluginConfigsLoading, batchExportConfigsLoading) =>
-                pluginsLoading || destinationPluginConfigsLoading || batchExportConfigsLoading,
-        ],
-    }),
-    afterMount(({ actions }) => {
-        // transformations
-        actions.loadTransformationPlugins()
-        actions.loadTransformationPluginConfigs()
-
-        // destinations
-        actions.loadDestinationPlugins()
-        actions.loadDestinationPluginConfigs()
-        actions.loadBatchExportConfigs()
     }),
 ])

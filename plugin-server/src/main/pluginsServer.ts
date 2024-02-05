@@ -361,6 +361,7 @@ export async function startPluginsServer(
                 hub?.rustyHook ??
                 new RustyHook(
                     buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
+                    serverConfig.RUSTY_HOOK_ROLLOUT_PERCENTAGE,
                     serverConfig.RUSTY_HOOK_URL,
                     serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
                 )

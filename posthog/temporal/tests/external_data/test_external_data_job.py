@@ -26,6 +26,7 @@ from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
     ExternalDataSchema,
+    DataWarehouseCredential,
 )
 
 from posthog.temporal.data_imports.pipelines.schemas import (
@@ -225,16 +226,16 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             status="running",
             source_type="Stripe",
             job_inputs={"stripe_secret_key": "test-key"},
-        )  # type: ignore
+        )
 
-        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
             team_id=team.id,
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
+        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
         schemas = ["Customer"]
         inputs = ExternalDataJobInputs(
@@ -255,16 +256,16 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
             status="running",
             source_type="Stripe",
             job_inputs={"stripe_secret_key": "test-key"},
-        )  # type: ignore
+        )
 
-        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
             team_id=team.id,
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
+        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
         schemas = ["Customer", "Invoice"]
         inputs = ExternalDataJobInputs(
@@ -361,6 +362,122 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
         )
 
         assert mock_get_columns.call_count == 10
+        assert (
+            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 5
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_validate_schema_and_update_table_activity_with_existing(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key"},
+    )
+
+    old_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
+        team_id=team.id,
+        pipeline_id=new_source.pk,
+        status=ExternalDataJob.Status.COMPLETED,
+        rows_synced=0,
+    )
+
+    old_credential = await sync_to_async(DataWarehouseCredential.objects.create)(
+        team=team,
+        access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    )
+
+    url_pattern = await sync_to_async(old_job.url_pattern_by_schema)("test-1")
+
+    await sync_to_async(DataWarehouseTable.objects.create)(
+        credential=old_credential,
+        name="stripe_test-1",
+        format="Parquet",
+        url_pattern=url_pattern,
+        team_id=team.pk,
+        external_data_source_id=new_source.pk,
+    )
+
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(
+        team_id=team.id,
+        pipeline_id=new_source.pk,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+    )
+
+    with mock.patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
+    ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
+        mock_get_columns.return_value = {"id": "string"}
+        await activity_environment.run(
+            validate_schema_activity,
+            ValidateSchemaInputs(
+                run_id=new_job.pk, team_id=team.id, schemas=["test-1", "test-2", "test-3", "test-4", "test-5"]
+            ),
+        )
+
+        assert mock_get_columns.call_count == 10
+        assert (
+            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 5
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_validate_schema_and_update_table_activity_half_run(activity_environment, team, **kwargs):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key"},
+    )
+
+    new_job = await sync_to_async(ExternalDataJob.objects.create)(
+        team_id=team.id,
+        pipeline_id=new_source.pk,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+    )
+
+    with mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns, mock.patch(
+        "posthog.warehouse.data_load.validate_schema.validate_schema",
+    ) as mock_validate, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
+        mock_get_columns.return_value = {"id": "string"}
+        credential = await sync_to_async(DataWarehouseCredential.objects.create)(
+            team=team,
+            access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        )
+
+        mock_validate.side_effect = [
+            Exception,
+            {
+                "credential": credential,
+                "format": "Parquet",
+                "name": "test_schema",
+                "url_pattern": "test_url_pattern",
+                "team_id": team.pk,
+            },
+        ]
+
+        await activity_environment.run(
+            validate_schema_activity,
+            ValidateSchemaInputs(run_id=new_job.pk, team_id=team.id, schemas=["broken_schema", "test_schema"]),
+        )
+
+        assert mock_get_columns.call_count == 1
+        assert (
+            await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 1
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -446,7 +563,7 @@ async def test_external_data_job_workflow_blank(team, **kwargs):
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
-    run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=new_source.pk)
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
 
@@ -475,7 +592,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]
     for schema in schemas:
-        await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
+        await sync_to_async(ExternalDataSchema.objects.create)(
             name=schema,
             team_id=team.id,
             source_id=new_source.pk,
@@ -509,7 +626,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
-    run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=new_source.pk)
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
@@ -548,16 +665,16 @@ async def test_run_postgres_job(
                 "password": postgres_config["password"],
                 "schema": postgres_config["schema"],
             },
-        )  # type: ignore
+        )
 
-        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(
             team_id=team.id,
             pipeline_id=new_source.pk,
             status=ExternalDataJob.Status.RUNNING,
             rows_synced=0,
         )
 
-        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
+        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()
 
         schemas = ["posthog_test"]
         inputs = ExternalDataJobInputs(

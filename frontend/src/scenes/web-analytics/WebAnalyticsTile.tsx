@@ -8,7 +8,7 @@ import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, GraphPointPayload, PropertyFilterType } from '~/types'
+import { ChartDisplayType, GraphPointPayload, InsightLogicProps, PropertyFilterType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -190,9 +190,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
 export const WebStatsTrendTile = ({
     query,
     showIntervalTile,
+    insightProps,
 }: {
     query: InsightVizNode
     showIntervalTile?: boolean
+    insightProps: InsightLogicProps
 }): JSX.Element => {
     const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
     const {
@@ -270,8 +272,12 @@ export const WebStatsTrendTile = ({
                     onSegmentClick: onDeviceTilePieChartClick,
                 },
             },
+            insightProps: {
+                ...insightProps,
+                query,
+            },
         }
-    }, [onWorldMapClick])
+    }, [onWorldMapClick, insightProps])
 
     return (
         <div className="border rounded bg-bg-light">
@@ -300,9 +306,11 @@ export const WebStatsTrendTile = ({
 export const WebStatsTableTile = ({
     query,
     breakdownBy,
+    insightProps,
 }: {
     query: DataTableNode
     breakdownBy: WebStatsBreakdown
+    insightProps: InsightLogicProps
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
@@ -329,9 +337,10 @@ export const WebStatsTableTile = ({
         }
         return {
             ...webAnalyticsDataTableQueryContext,
+            insightProps,
             rowProps,
         }
-    }, [onClick])
+    }, [onClick, insightProps])
 
     return <Query query={query} readOnly={true} context={context} />
 }

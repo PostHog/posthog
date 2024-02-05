@@ -29,8 +29,8 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                                 ? 'person'
                                 : 'people'
                             : numberOfRows === 1
-                            ? 'event'
-                            : 'events'}
+                            ? 'entry'
+                            : 'entries'}
                         {canLoadNextData ? '. Click to load more.' : '. Reached the end of results.'}
                     </>
                 )}

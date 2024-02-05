@@ -40,6 +40,15 @@ export const isLegacyFunnelsFilter = (filters: Record<string, any> | undefined):
     return legacyKeys.some((key) => key in filters)
 }
 
+export const isLegacyFunnelsExclusion = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const exclusions = filters.exclusions || []
+    return exclusions.some((exclusion: Record<string, any>) => 'type' in exclusion)
+}
+
 export const isLegacyRetentionFilter = (filters: Record<string, any> | undefined): boolean => {
     if (filters == null) {
         return false
@@ -70,5 +79,23 @@ export const isLegacyPathsFilter = (filters: Record<string, any> | undefined): b
         'min_edge_weight',
         'max_edge_weight',
     ]
+    return legacyKeys.some((key) => key in filters)
+}
+
+export const isLegacyStickinessFilter = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const legacyKeys = ['show_legend', 'hidden_legend_keys', 'show_values_on_series']
+    return legacyKeys.some((key) => key in filters)
+}
+
+export const isLegacyLifecycleFilter = (filters: Record<string, any> | undefined): boolean => {
+    if (filters == null) {
+        return false
+    }
+
+    const legacyKeys = ['show_values_on_series']
     return legacyKeys.some((key) => key in filters)
 }

@@ -220,7 +220,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
-                "dateRange": {"date_to": _date(0, month=5, hour=0)},
+                "dateRange": {"date_to": _date(15, month=5, hour=0)},
                 "retentionFilter": {
                     "period": "Month",
                     "totalIntervals": 11,
@@ -265,17 +265,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result, "date"),
             [
-                datetime(2020, 1, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 2, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 3, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 4, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 5, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 8, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 9, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 10, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 11, 10, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 1, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 2, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 3, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 4, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 5, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 6, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 7, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 8, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 9, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 10, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 11, 1, 0, tzinfo=ZoneInfo("UTC")),
             ],
         )
 
@@ -440,17 +440,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result, "date"),
             [
-                datetime(2020, 1, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 2, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 3, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 4, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 5, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 7, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 8, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 9, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 10, 10, 0, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 11, 10, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 1, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 2, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 3, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 4, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 5, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 6, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 7, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 8, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 9, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 10, 1, 0, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 11, 1, 0, tzinfo=ZoneInfo("UTC")),
             ],
         )
 

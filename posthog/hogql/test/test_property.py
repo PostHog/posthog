@@ -145,11 +145,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("match(properties.a, '.*')"),
+            self._parse_expr("ifNull(match(properties.a, '.*'), false)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
-            self._parse_expr("not(match(properties.a, '.*'))"),
+            self._parse_expr("ifNull(not(match(properties.a, '.*')), true)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
@@ -187,6 +187,13 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("properties.unknown_prop = true"),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "boolean_prop", "value": "false"},
+                team=self.team,
+            ),
+            self._parse_expr("properties.boolean_prop = false"),
+        )
 
     def test_property_to_expr_event_list(self):
         # positive
@@ -207,7 +214,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"}),
-            self._parse_expr("match(properties.a, 'b') or match(properties.a, 'c')"),
+            self._parse_expr("ifNull(match(properties.a, 'b'), false) or ifNull(match(properties.a, 'c'), false)"),
         )
         # negative
         self.assertEqual(
@@ -234,7 +241,9 @@ class TestProperty(BaseTest):
                     "operator": "not_regex",
                 }
             ),
-            self._parse_expr("not(match(properties.a, 'b')) and not(match(properties.a, 'c'))"),
+            self._parse_expr(
+                "ifNull(not(match(properties.a, 'b')), true) and ifNull(not(match(properties.a, 'c')), true)"
+            ),
         )
 
     def test_property_to_expr_feature(self):
