@@ -1,13 +1,12 @@
 use std::time::Instant;
 
 use axum::{extract::State, http::StatusCode, Json};
-use hook_common::webhook::{WebhookJobMetadata, WebhookJobParameters};
-use serde_derive::Deserialize;
-use url::Url;
-
 use hook_common::pgqueue::{NewJob, PgQueue};
+use hook_common::webhook::{WebhookJobMetadata, WebhookJobParameters};
 use serde::Serialize;
+use serde_derive::Deserialize;
 use tracing::{debug, error};
+use url::Url;
 
 const MAX_BODY_SIZE: usize = 1_000_000;
 
@@ -116,6 +115,7 @@ mod tests {
         http::{self, Request, StatusCode},
         Router,
     };
+    use chrono::Utc;
     use hook_common::pgqueue::PgQueue;
     use hook_common::webhook::{HttpMethod, WebhookJobParameters};
     use http_body_util::BodyExt;
@@ -153,6 +153,7 @@ mod tests {
                                 team_id: 1,
                                 plugin_id: 2,
                                 plugin_config_id: 3,
+                                created_at: Utc::now(),
                             },
                             max_attempts: 1,
                         })
@@ -195,6 +196,7 @@ mod tests {
                                 team_id: 1,
                                 plugin_id: 2,
                                 plugin_config_id: 3,
+                                created_at: Utc::now(),
                             },
                             max_attempts: 1,
                         })
@@ -283,6 +285,7 @@ mod tests {
                                 team_id: 1,
                                 plugin_id: 2,
                                 plugin_config_id: 3,
+                                created_at: Utc::now(),
                             },
                             max_attempts: 1,
                         })

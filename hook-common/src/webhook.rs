@@ -3,9 +3,11 @@ use std::convert::From;
 use std::fmt;
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
 use serde::{de::Visitor, Deserialize, Serialize};
 
 use crate::kafka_messages::app_metrics;
+use crate::kafka_messages::{deserialize_datetime, serialize_datetime};
 use crate::pgqueue::PgQueueError;
 
 /// Supported HTTP methods for webhooks.
@@ -135,6 +137,11 @@ pub struct WebhookJobMetadata {
     pub team_id: u32,
     pub plugin_id: i32,
     pub plugin_config_id: i32,
+    #[serde(
+        serialize_with = "serialize_datetime",
+        deserialize_with = "deserialize_datetime"
+    )]
+    pub created_at: DateTime<Utc>,
 }
 
 /// An error originating during a Webhook Job invocation.

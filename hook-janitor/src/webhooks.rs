@@ -892,6 +892,7 @@ mod tests {
                 team_id: 1,
                 plugin_id: 2,
                 plugin_config_id: 3,
+                created_at: Utc::now(),
             };
             let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
             queue.enqueue(new_job).await.expect("failed to enqueue job");
@@ -918,6 +919,7 @@ mod tests {
                 team_id: 1,
                 plugin_id: 2,
                 plugin_config_id: 3,
+                created_at: Utc::now(),
             };
             let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
             queue.enqueue(new_job).await.expect("failed to enqueue job");
