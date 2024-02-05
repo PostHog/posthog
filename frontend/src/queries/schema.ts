@@ -245,7 +245,10 @@ export interface HogQLMetadata extends DataNode {
     exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
+    /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
+    /** Enable more verbose output, usually run from the /debug page */
+    debug?: boolean
     response?: HogQLMetadataResponse
 }
 

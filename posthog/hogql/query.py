@@ -184,7 +184,7 @@ def execute_hogql_query(
         with timings.measure("metadata"):
             from posthog.hogql.metadata import get_hogql_metadata
 
-            metadata = get_hogql_metadata(HogQLMetadata(select=hogql), team)
+            metadata = get_hogql_metadata(HogQLMetadata(select=hogql, debug=True), team)
     else:
         explain_output = None
 

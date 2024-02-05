@@ -2447,6 +2447,9 @@ class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    debug: Optional[bool] = Field(
+        default=None, description="Enable more verbose output, usually run from the /debug page"
+    )
     expr: Optional[str] = Field(
         default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
     )
@@ -2468,7 +2471,7 @@ class HogQLMetadata(BaseModel):
             WebTopClicksQuery,
         ]
     ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
-    filters: Optional[HogQLFilters] = None
+    filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
     select: Optional[str] = Field(
