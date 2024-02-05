@@ -2,8 +2,8 @@ from typing import List, Set, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.utils.date_range import DateRange
 from posthog.hogql_queries.insights.utils.properties import Properties
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelExclusionEventsNode
 from rest_framework.exceptions import ValidationError
@@ -79,11 +79,32 @@ class FunnelEventQuery:
             return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=query.samplingFactor)))
 
     def _date_range_expr(self) -> ast.Expr:
-        return DateRange(context=self.context).to_expr(field=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"]))
+        team, query, now = self.context.team, self.context.query, self.context.now
+
+        date_range = QueryDateRange(
+            date_range=query.dateRange,
+            team=team,
+            interval=query.interval,
+            now=now,
+        )
+
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"]),
+                    right=ast.Constant(value=date_range.date_from()),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"]),
+                    right=ast.Constant(value=date_range.date_to()),
+                ),
+            ]
+        )
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
-        team, query = self.context.team, self.context.query
-        funnelsFilter = self.context.funnelsFilter
+        team, query, funnelsFilter = self.context.team, self.context.query, self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions or []
 
         if skip_entity_filter is True:

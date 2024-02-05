@@ -46,10 +46,12 @@ class FunnelBase(ABC):
         raise NotImplementedError()
 
     def _format_results(self, results) -> List[Dict[str, Any]]:
+        breakdownFilter = self.context.breakdownFilter
+
         if not results or len(results) == 0:
             return []
 
-        if self.context.breakdownFilter.breakdown:
+        if breakdownFilter.breakdown:
             return [self._format_single_funnel(res, with_breakdown=True) for res in results]
         else:
             return self._format_single_funnel(results[0])
@@ -162,8 +164,8 @@ class FunnelBase(ABC):
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
-        funnelsFilter = self.context.funnelsFilter
-        entities_to_use = entities or self.context.query.series
+        query, funnelsFilter = self.context.query, self.context.funnelsFilter
+        entities_to_use = entities or query.series
 
         # extra_fields = []
 
@@ -409,9 +411,9 @@ class FunnelBase(ABC):
         return exprs
 
     def _get_partition_cols(self, level_index: int, max_steps: int) -> List[ast.Expr]:
-        funnelsFilter = self.context.funnelsFilter
+        query, funnelsFilter = self.context.query, self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions
-        series = self.context.query.series
+        series = query.series
 
         exprs: List[ast.Expr] = []
 
