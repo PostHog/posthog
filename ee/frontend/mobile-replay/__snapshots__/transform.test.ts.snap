@@ -190,9 +190,49 @@ exports[`replay/transform transform can convert navigation bar 1`] = `
                       {
                         "attributes": {
                           "data-rrweb-id": 12345,
-                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;",
+                          "style": "border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;color: #ee3ee4;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;display:flex;flex-direction:row;align-items:center;justify-content:space-around;color:white;",
                         },
-                        "childNodes": [],
+                        "childNodes": [
+                          {
+                            "attributes": {},
+                            "childNodes": [
+                              {
+                                "id": 101,
+                                "textContent": "◀",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 100,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                          {
+                            "attributes": {},
+                            "childNodes": [
+                              {
+                                "id": 103,
+                                "textContent": "⚪",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 102,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                          {
+                            "attributes": {},
+                            "childNodes": [
+                              {
+                                "id": 105,
+                                "textContent": "⬜️",
+                                "type": 3,
+                              },
+                            ],
+                            "id": 104,
+                            "tagName": "div",
+                            "type": 2,
+                          },
+                        ],
                         "id": 12345,
                         "tagName": "div",
                         "type": 2,
@@ -428,7 +468,7 @@ exports[`replay/transform transform can convert status bar 1`] = `
                       {
                         "attributes": {
                           "data-rrweb-id": 12,
-                          "style": "width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;display:flex;flex-direction:row;align-items:center;",
+                          "style": "color: black;width: 100px;height: 0px;position: fixed;left: 13px;top: 17px;display:flex;flex-direction:row;align-items:center;",
                         },
                         "childNodes": [
                           {

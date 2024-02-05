@@ -19,17 +19,18 @@ from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
     get_rows_count,
+    iter_records,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -402,24 +403,24 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
-        # Iterate through chunks of results from ClickHouse and push them to S3
-        # as a multipart upload. The intention here is to keep memory usage low,
-        # even if the entire results set is large. We receive results from
-        # ClickHouse, write them to a local file, and then upload the file to S3
-        # when it reaches 50MB in size.
+        fields = default_fields()
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "elements_chain", "alias": "elements_chain"})
+        fields.append({"expression": "nullIf(person_properties, '')", "alias": "person_properties"})
+        fields.append({"expression": "toString(person_id)", "alias": "person_id"})
 
-        results_iterator = get_results_iterator(
+        record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            include_person_properties=True,
+            fields=fields,
         )
 
         result = None
-        last_uploaded_part_timestamp = None
+        last_uploaded_part_timestamp: str | None = None
 
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
@@ -427,6 +428,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             logger.warn(
                 f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}",
             )
+            if last_uploaded_part_timestamp is None:
+                # Don't heartbeat if worker shuts down before we could even send anything
+                # Just start from the beginning again.
+                return
+
             activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
         asyncio.create_task(worker_shutdown_handler())
@@ -451,29 +457,34 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
-                for result in results_iterator:
-                    record = {
-                        "created_at": result["created_at"],
-                        "distinct_id": result["distinct_id"],
-                        "elements_chain": result["elements_chain"],
-                        "event": result["event"],
-                        "inserted_at": result["inserted_at"],
-                        "person_id": result["person_id"],
-                        "person_properties": result["person_properties"],
-                        "properties": result["properties"],
-                        "timestamp": result["timestamp"],
-                        "uuid": result["uuid"],
-                    }
+                for record_batch in record_iterator:
+                    for result in record_batch.to_pylist():
+                        record = {
+                            "created_at": result["created_at"],
+                            "distinct_id": result["distinct_id"],
+                            "elements_chain": result["elements_chain"],
+                            "event": result["event"],
+                            "inserted_at": result["_inserted_at"],
+                            "person_id": result["person_id"],
+                            "person_properties": json.loads(result["person_properties"])
+                            if result["person_properties"] is not None
+                            else None,
+                            "properties": json.loads(result["properties"])
+                            if result["properties"] is not None
+                            else None,
+                            "timestamp": result["timestamp"],
+                            "uuid": result["uuid"],
+                        }
 
-                    local_results_file.write_records_to_jsonl([record])
+                        local_results_file.write_records_to_jsonl([record])
 
-                    if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
-                        last_uploaded_part_timestamp = result["inserted_at"]
-                        await flush_to_s3(last_uploaded_part_timestamp)
-                        local_results_file.reset()
+                        if local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
+                            last_uploaded_part_timestamp = str(result["_inserted_at"])
+                            await flush_to_s3(last_uploaded_part_timestamp)
+                            local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
-                    last_uploaded_part_timestamp = result["inserted_at"]
+                    last_uploaded_part_timestamp = str(result["_inserted_at"])
                     await flush_to_s3(last_uploaded_part_timestamp, last=True)
 
             await s3_upload.complete()

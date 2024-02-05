@@ -1,7 +1,7 @@
 import * as Icons from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -14,24 +14,18 @@ import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type, ProductKey } from '~/types'
 
-import { productsLogic } from './productsLogic'
-
 export const scene: SceneExport = {
     component: Products,
-    logic: productsLogic,
 }
 
 function OnboardingCompletedButton({
     productUrl,
     onboardingUrl,
-    productKey,
 }: {
     productUrl: string
     onboardingUrl: string
     productKey: ProductKey
 }): JSX.Element {
-    const { onSelectProduct } = useActions(productsLogic)
-
     return (
         <>
             <LemonButton type="secondary" to={productUrl}>
@@ -40,7 +34,6 @@ function OnboardingCompletedButton({
             <LemonButton
                 type="tertiary"
                 onClick={() => {
-                    onSelectProduct(productKey)
                     router.actions.push(onboardingUrl)
                 }}
             >
@@ -52,14 +45,12 @@ function OnboardingCompletedButton({
 
 function OnboardingNotCompletedButton({
     url,
-    productKey,
     getStartedActionOverride,
 }: {
     url: string
     productKey: ProductKey
     getStartedActionOverride?: () => void
 }): JSX.Element {
-    const { onSelectProduct } = useActions(productsLogic)
     return (
         <LemonButton
             type="primary"
@@ -67,7 +58,6 @@ function OnboardingNotCompletedButton({
                 if (getStartedActionOverride) {
                     getStartedActionOverride()
                 } else {
-                    onSelectProduct(productKey)
                     router.actions.push(url)
                 }
             }}

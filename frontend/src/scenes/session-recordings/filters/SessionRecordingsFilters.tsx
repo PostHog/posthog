@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useEffect, useState } from 'react'
@@ -70,16 +70,36 @@ export function SessionRecordingsFilters({
     }, [filters])
 
     return (
-        <div className="relative flex flex-col gap-2 p-3">
-            {onReset && (
-                <span className="absolute top-2 right-2">
-                    <LemonButton size="small" onClick={onReset}>
-                        Reset
-                    </LemonButton>
-                </span>
-            )}
+        <div className="relative flex flex-col gap-6 p-3">
+            <div className="space-y-1">
+                {onReset && (
+                    <span className="absolute top-2 right-2">
+                        <LemonButton size="small" onClick={onReset}>
+                            Reset
+                        </LemonButton>
+                    </span>
+                )}
 
-            <LemonLabel info="Show recordings where all of below filters match.">Find sessions by:</LemonLabel>
+                <LemonLabel info="Show recordings where all of below filters match.">Find sessions by:</LemonLabel>
+
+                <LemonSegmentedButton
+                    size="small"
+                    value={showAdvancedFilters ? 'advanced' : 'simple'}
+                    options={[
+                        {
+                            value: 'simple',
+                            label: 'Simple filters',
+                            disabledReason: hasAdvancedFilters
+                                ? 'You are only allowed person filters and a single pageview event (filtered by current url) to switch back to simple filters'
+                                : undefined,
+                        },
+                        { value: 'advanced', label: 'Advanced filters' },
+                    ]}
+                    onChange={(newValue) => setShowAdvancedFilters(newValue === 'advanced')}
+                    data-attr={`session-recordings-show-${showAdvancedFilters ? 'simple' : 'advanced'}-filters`}
+                    fullWidth
+                />
+            </div>
 
             {showAdvancedFilters ? (
                 <AdvancedSessionRecordingsFilters
@@ -97,21 +117,6 @@ export function SessionRecordingsFilters({
                     setLocalFilters={setLocalFilters}
                 />
             )}
-
-            <div>
-                <LemonButton
-                    size="small"
-                    onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                    disabledReason={
-                        hasAdvancedFilters
-                            ? 'You are only allowed person filters and a single pageview event (filtered by current url) to switch back to simple filters'
-                            : undefined
-                    }
-                    data-attr={`session-recordings-show-${showAdvancedFilters ? 'simple' : 'advanced'}-filters`}
-                >
-                    Show {showAdvancedFilters ? 'simple filters' : 'advanced filters'}
-                </LemonButton>
-            </div>
         </div>
     )
 }

@@ -998,7 +998,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "groups": [
                     {
                         "properties": [],
-                        "rollout_percentage": None,
+                        "rollout_percentage": 100,
                     }
                 ],
                 "multivariate": {
@@ -1049,7 +1049,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "groups": [
                     {
                         "properties": [],
-                        "rollout_percentage": None,
+                        "rollout_percentage": 100,
                     }
                 ],
                 "multivariate": {
@@ -1116,7 +1116,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "groups": [
                     {
                         "properties": [],
-                        "rollout_percentage": None,
+                        "rollout_percentage": 100,
                     }
                 ],
                 "multivariate": {

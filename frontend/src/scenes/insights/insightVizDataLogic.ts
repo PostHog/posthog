@@ -272,6 +272,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return insightDataError?.queryId || null
             },
         ],
+        validationError: [
+            (s) => [s.insightDataError],
+            (insightDataError): string | null => {
+                // We use 512 for query timeouts
+                return insightDataError?.status === 400 || insightDataError?.status === 512
+                    ? insightDataError.detail.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    : null
+            },
+        ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
 
@@ -298,12 +307,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (funnelsFilter): FilterType => ({
                 events: funnelsFilter?.exclusions,
             }),
-        ],
-        areExclusionFiltersValid: [
-            (s) => [s.insightDataError],
-            (insightDataError): boolean => {
-                return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
-            },
         ],
     }),
 
@@ -348,7 +351,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
-            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
+            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER) // By timeout we just mean long loading time here
 
             if (values.insightDataLoading) {
                 actions.setTimedOutQueryId(queryId)
@@ -423,6 +426,7 @@ const handleQuerySourceUpdateSideEffects = (
      * Date range change side effects.
      */
     if (
+        !isRetentionQuery(currentState) &&
         !isPathsQuery(currentState) && // TODO: Apply side logic more elegantly
         update.dateRange &&
         update.dateRange.date_from &&
