@@ -23,10 +23,9 @@ def test_format_label_date_with_default_interval():
     assert formatted_date == "31-Dec-2022"
 
 
-def test_format_label_date_with_no_interval():
+def test_format_label_date_with_missing_interval():
     date = datetime.datetime(2022, 12, 31)
-    interval = None
-    formatted_date = format_label_date(date, interval)
+    formatted_date = format_label_date(date)
     assert formatted_date == "31-Dec-2022"
 
 
