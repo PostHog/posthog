@@ -1,6 +1,7 @@
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.ctes import (
     COUNTS_CTE,
     BOUNCE_RATE_CTE,
@@ -9,7 +10,6 @@ from posthog.hogql_queries.web_analytics.ctes import (
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     WebStatsTableQuery,
     WebStatsBreakdown,
@@ -20,13 +20,13 @@ from posthog.schema import (
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
     query_type = WebStatsTableQuery
+    paginator: HogQLHasMorePaginator
 
-    def _limit(self):
-        return int(self.query.limit or 10)
-
-    @cached_property
-    def _limit_expr(self):
-        return ast.Constant(value=self._limit() + 1)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=LimitContext.QUERY, limit=self.query.limit
+        )
 
     def _bounce_rate_subquery(self):
         with self.timings.measure("bounce_rate_query"):
@@ -95,7 +95,6 @@ WHERE
 ORDER BY
     "context.columns.views" DESC,
     "context.columns.breakdown_value" DESC
-LIMIT {limit}
                 """,
                 timings=self.timings,
                 placeholders={
@@ -104,7 +103,6 @@ LIMIT {limit}
                     "scroll_depth_query": self._scroll_depth_subquery(),
                     "where_breakdown": self.where_breakdown(),
                     "sample_rate": self._sample_ratio,
-                    "limit": self._limit_expr,
                 },
             )
         elif self.query.includeBounceRate:
@@ -127,14 +125,12 @@ LIMIT {limit}
     ORDER BY
         "context.columns.views" DESC,
         "context.columns.breakdown_value" DESC
-    LIMIT {limit}
                     """,
                     timings=self.timings,
                     placeholders={
                         "counts_query": self._counts_subquery(),
                         "bounce_rate_query": self._bounce_rate_subquery(),
                         "where_breakdown": self.where_breakdown(),
-                        "limit": self._limit_expr,
                     },
                 )
         else:
@@ -152,25 +148,25 @@ LIMIT {limit}
     ORDER BY
         "context.columns.views" DESC,
         "context.columns.breakdown_value" DESC
-    LIMIT {limit}
                     """,
                     timings=self.timings,
                     placeholders={
                         "counts_query": self._counts_subquery(),
                         "where_breakdown": self.where_breakdown(),
-                        "limit": self._limit_expr,
                     },
                 )
 
     def calculate(self):
-        response = execute_hogql_query(
+        response = self.paginator.execute_hogql_query(
             query_type="top_sources_query",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
         )
-        assert response.results is not None
+        results = self.paginator.results
+
+        assert results is not None
 
         def to_data(col_val, col_idx):
             if col_idx == 0:  # breakdown_value
@@ -184,18 +180,15 @@ LIMIT {limit}
             else:
                 return col_val
 
-        results_plus_one = [[to_data(c, i) for (i, c) in enumerate(r)] for r in response.results]
-        limit = self._limit()
-        results = results_plus_one[:limit]
-        has_more = len(results_plus_one) > len(results)
+        results_mapped = [[to_data(c, i) for (i, c) in enumerate(r)] for r in results]
 
         return WebStatsTableQueryResponse(
             columns=response.columns,
-            results=results,
+            results=results_mapped,
             timings=response.timings,
             types=response.types,
             hogql=response.hogql,
-            hasMore=has_more,
+            hasMore=self.paginator.has_more(),
         )
 
     def counts_breakdown(self):
@@ -359,7 +352,6 @@ WHERE
 ORDER BY
     "context.columns.views" DESC,
     "context.columns.breakdown_value" DESC
-LIMIT {limit}
                 """,
                 timings=self.timings,
                 backend="cpp",
@@ -367,7 +359,6 @@ LIMIT {limit}
                     "counts_where": self.events_where(),
                     "where_breakdown": self.where_breakdown(),
                     "sample_rate": self._sample_ratio,
-                    "limit": self._limit_expr,
                 },
             )
 
