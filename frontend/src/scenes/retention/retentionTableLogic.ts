@@ -87,9 +87,12 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                             case 'Month':
                                 firstColumn = dayjs(currentResult.date).format('MMM YYYY')
                                 break
-                            case 'Week':
-                                firstColumn = `Week of ${dayjs(currentResult.date).format('MMM D')}`
+                            case 'Week': {
+                                const startDate = dayjs(currentResult.date)
+                                const endDate = startDate.add(6, 'day') // To show last day of the week we add 6 days, not 7
+                                firstColumn = `${startDate.format('MMM D')} to ${endDate.format('MMM D')}`
                                 break
+                            }
                             default:
                                 firstColumn = dayjs(currentResult.date).format('MMM D')
                         }
