@@ -3240,6 +3240,28 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 200)
             self.assertFalse("analytics" in response.json())
 
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_new_capture_domains(self, *args):
+        self.client.logout()
+        with self.settings(
+            NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(self.team.id)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=1.0
+        ):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            assert response.json()["__preview_ingestion_endpoints"] is True
+
+        with self.settings(NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(999)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=1.0):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            assert "__preview_ingestion_endpoints" not in response.json()
+
+        with self.settings(
+            NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS={str(self.team.id)}, NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE=0.0
+        ):
+            response = self._post_decide(api_version=3)
+            assert response.status_code == 200
+            assert "__preview_ingestion_endpoints" not in response.json()
+
     def test_decide_element_chain_as_string(self, *args):
         self.client.logout()
         with self.settings(
