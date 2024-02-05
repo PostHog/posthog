@@ -276,12 +276,12 @@
          (SELECT id
           FROM person
           WHERE team_id = 2
-            AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))
-                  OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))) )
+            AND (((has(['none'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))
+                  OR (has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))
-           OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)
+     AND (((has(['none'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))
+           OR (has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
@@ -378,7 +378,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE ("posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   LIMIT 21
   '''
 # ---
@@ -619,7 +620,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE ("posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   LIMIT 21
   '''
 # ---
@@ -939,7 +941,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE ("posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   LIMIT 21
   '''
 # ---
@@ -1237,7 +1240,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE ("posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   LIMIT 21
   '''
 # ---
@@ -1303,7 +1307,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE ("posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   LIMIT 21
   '''
 # ---
@@ -1687,7 +1692,7 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.14
   '''
-  /* user_id:194 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  /* user_id:195 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
@@ -1930,7 +1935,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
+  WHERE ("posthog_cohort"."id" = 2
+         AND "posthog_cohort"."team_id" = 2)
   LIMIT 21 /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/
   '''
 # ---

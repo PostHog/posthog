@@ -20,7 +20,7 @@
         flex: 1;
 
         .LemonButton__content {
-            text-wrap: nowrap;
+            white-space: nowrap;
         }
     }
 }
@@ -166,6 +166,12 @@ body:not(.posthog-3000) {
 
             .LemonButton__chrome::after {
                 background-color: var(--bg-light);
+            }
+        }
+
+        &--disabled {
+            > div {
+                width: 100%;
             }
         }
     }

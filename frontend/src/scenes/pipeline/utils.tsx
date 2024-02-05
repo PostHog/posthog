@@ -30,6 +30,7 @@ const PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR = [
     // filtering apps
     'https://github.com/PostHog/downsampling-plugin',
     'https://github.com/PostHog/posthog-filter-out-plugin',
+    'https://github.com/PostHog/schema-enforcer-plugin',
     // transformation apps
     'https://github.com/PostHog/language-url-splitter-app',
     'https://github.com/PostHog/posthog-app-url-parameters-to-event-properties',

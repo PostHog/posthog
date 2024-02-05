@@ -151,6 +151,7 @@ def property_to_expr(
                             type=property.type,
                             key=property.key,
                             operator=property.operator,
+                            group_type_index=property.group_type_index,
                             value=v,
                         ),
                         team,
@@ -203,11 +204,20 @@ def property_to_expr(
                 right=ast.Constant(value=f"%{value}%"),
             )
         elif operator == PropertyOperator.regex:
-            return ast.Call(name="match", args=[field, ast.Constant(value=value)])
+            return ast.Call(
+                name="ifNull",
+                args=[ast.Call(name="match", args=[field, ast.Constant(value=value)]), ast.Constant(value=False)],
+            )
         elif operator == PropertyOperator.not_regex:
             return ast.Call(
-                name="not",
-                args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
+                name="ifNull",
+                args=[
+                    ast.Call(
+                        name="not",
+                        args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
+                    ),
+                    ast.Constant(value=True),
+                ],
             )
         elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
             op = ast.CompareOperationOp.Eq
@@ -263,6 +273,7 @@ def property_to_expr(
                             type=property.type,
                             key=property.key,
                             operator=property.operator,
+                            group_type_index=property.group_type_index,
                             value=v,
                         ),
                         team,

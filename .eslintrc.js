@@ -119,7 +119,7 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip'],
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip', 'Progress', 'Radio', 'Divider'],
                         message: 'please use the Lemon equivalent instead',
                     },
                 ],
@@ -142,20 +142,12 @@ module.exports = {
             {
                 forbid: [
                     {
-                        element: 'Divider',
-                        message: 'use <LemonDivider> instead',
-                    },
-                    {
                         element: 'Button',
                         message: 'use <LemonButton> instead',
                     },
                     {
                         element: 'Input',
                         message: 'use <LemonInput> instead',
-                    },
-                    {
-                        element: 'Skeleton',
-                        message: 'use <LemonSkeleton> instead',
                     },
                     {
                         element: 'Modal',
@@ -168,6 +160,10 @@ module.exports = {
                     {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
+                    },
+                    {
+                        element: 'Progress',
+                        message: 'use <LemonProgress> instead',
                     },
                 ],
             },
@@ -235,12 +231,26 @@ module.exports = {
                     {
                         element: 'Tag',
                         message: 'use <LemonTag> instead',
+                    },
+                    {
                         element: 'Alert',
                         message: 'use <LemonBanner> instead',
                     },
                     {
                         element: 'ReactJson',
                         message: 'use <JSONViewer> for dark mode support instead',
+                    },
+                    {
+                        element: 'Radio',
+                        message: 'use <LemonRadio> instead',
+                    },
+                    {
+                        element: 'Skeleton',
+                        message: 'use <LemonSkeleton> instead',
+                    },
+                    {
+                        element: 'Divider',
+                        message: 'use <LemonDivider> instead',
                     },
                 ],
             },

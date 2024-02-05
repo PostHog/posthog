@@ -9,13 +9,19 @@ import { useState } from 'react'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 let uniqueNode = 0
-export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: AnyResponseType }): JSX.Element | null {
+export function WebOverview(props: {
+    query: WebOverviewQuery
+    cachedResults?: AnyResponseType
+    context: QueryContext
+}): JSX.Element | null {
+    const { onData, loadPriority } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebOverview.${uniqueNode++}`)
-    const logic = dataNodeLogic({ query: props.query, key, cachedResults: props.cachedResults })
+    const logic = dataNodeLogic({ query: props.query, key, cachedResults: props.cachedResults, loadPriority, onData })
     const { response, responseLoading } = useValues(logic)
 
     if (responseLoading) {

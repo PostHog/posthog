@@ -9,7 +9,6 @@ import {
     EventPropertyFilter,
     EventType,
     FilterType,
-    FunnelExclusion,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -281,6 +280,8 @@ export interface ActionsNode extends EntityNode {
     id: number
 }
 
+export type AnyEntityNode = EventsNode | ActionsNode
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -548,7 +549,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -570,6 +571,16 @@ export type FunnelsFilterLegacy = Omit<
     | 'funnel_step'
     | 'funnel_custom_steps'
 >
+
+export interface FunnelExclusionSteps {
+    /** @asType integer */
+    funnelFromStep?: number
+    /** @asType integer */
+    funnelToStep?: number
+}
+export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
+export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
+export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
     exclusions?: FunnelExclusion[]
@@ -593,7 +604,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -663,9 +674,11 @@ export type PathsFilter = {
     funnelPaths?: PathsFilterLegacy['funnel_paths']
     funnelFilter?: PathsFilterLegacy['funnel_filter']
 
-    // persons only
+    /** Relevant only within actors query */
     pathStartKey?: string
+    /** Relevant only within actors query */
     pathEndKey?: string
+    /** Relevant only within actors query */
     pathDropoffKey?: string
 }
 
@@ -700,7 +713,7 @@ export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_gr
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
 }
@@ -785,7 +798,7 @@ export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_gro
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
@@ -967,11 +980,16 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
      * @asType integer
      */
     interval?: number
-    // TODO: add breakdowns
+    /** @asType integer */
+    series?: number
+    breakdown?: string | BreakdownValueInt
+    compare?: 'current' | 'previous'
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: ActorsQueryResponse
 }
 
+/** @asType integer */
+export type BreakdownValueInt = number
 export interface InsightActorsQueryOptionsResponse {
     day?: { label: string; value: string | Day }[]
     status?: { label: string; value: string }[]
@@ -982,6 +1000,19 @@ export interface InsightActorsQueryOptionsResponse {
          * @asType integer
          */
         value: number
+    }[]
+    breakdown?: {
+        label: string
+        value: string | BreakdownValueInt
+    }[]
+    series?: {
+        label: string
+        /** @asType integer */
+        value: number
+    }[]
+    compare?: {
+        label: string
+        value: string
     }[]
 }
 

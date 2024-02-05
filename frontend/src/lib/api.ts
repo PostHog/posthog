@@ -31,6 +31,7 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataPostgresSchema,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataStripeSource,
@@ -89,7 +90,7 @@ import {
  * Preferably create a dedicated file in utils/..
  */
 
-type CheckboxValueType = string | number | boolean
+export type CheckboxValueType = string | number | boolean
 
 const PAGINATION_DEFAULT_MAX_PAGES = 10
 
@@ -1550,9 +1551,7 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
-        async summarize(
-            recordingId: SessionRecordingType['id']
-        ): Promise<{ content: string; ai_result: Record<string, any> }> {
+        async summarize(recordingId: SessionRecordingType['id']): Promise<{ content: string }> {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
         },
 
@@ -1838,6 +1837,22 @@ const api = {
         },
         async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
+        },
+        async database_schema(
+            host: string,
+            port: string,
+            dbname: string,
+            user: string,
+            password: string,
+            schema: string
+        ): Promise<ExternalDataPostgresSchema[]> {
+            const queryParams = toParams({ host, port, dbname, user, password, schema })
+
+            return await new ApiRequest()
+                .externalDataSources()
+                .withAction('database_schema')
+                .withQueryString(queryParams)
+                .get()
         },
     },
 

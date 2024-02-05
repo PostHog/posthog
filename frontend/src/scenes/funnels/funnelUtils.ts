@@ -6,7 +6,7 @@ import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelExclusionSteps, FunnelsQuery } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     Breakdown,
@@ -17,7 +17,6 @@ import {
     FunnelConversionWindow,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
-    FunnelExclusion,
     FunnelResultType,
     FunnelStep,
     FunnelStepReference,
@@ -226,9 +225,9 @@ export const getClampedStepRange = ({
     stepRange,
     query,
 }: {
-    stepRange?: FunnelExclusion
+    stepRange?: FunnelExclusionSteps
     query: FunnelsQuery
-}): FunnelExclusion => {
+}): FunnelExclusionSteps => {
     const maxStepIndex = Math.max((query.series.length || 0) - 1, 1)
 
     let funnelFromStep = findFirstNumber([stepRange?.funnelFromStep, query.funnelsFilter?.funnelFromStep])
