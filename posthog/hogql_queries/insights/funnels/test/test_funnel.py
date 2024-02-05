@@ -27,6 +27,9 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
+from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
+    funnel_conversion_time_test_factory,
+)
 
 from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.test.test_journeys import journeys_for
@@ -55,14 +58,14 @@ def _create_action(**kwargs):
 #     pass
 
 
-# class TestFunnelConversionTime(
-#     ClickhouseTestMixin,
-#     funnel_conversion_time_test_factory(  # type: ignore
-#         ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person
-#     ),
-# ):
-#     maxDiff = None
-#     pass
+class TestFunnelConversionTime(
+    ClickhouseTestMixin,
+    funnel_conversion_time_test_factory(  # type: ignore
+        Funnel, ClickhouseFunnelActors, _create_event, _create_person
+    ),
+):
+    maxDiff = None
+    pass
 
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
