@@ -1,5 +1,10 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { CUSTOM_OPTION_VALUE, DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
+import {
+    DateFilterLogicProps,
+    DateFilterView,
+    NO_OVERRIDE_RANGE_PLACEHOLDER,
+    SELECT_FIXED_VALUE_PLACEHOLDER,
+} from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { dateFilterToText, dateStringToDayJs, formatDate, formatDateRange, isDate } from 'lib/utils'
 
@@ -114,7 +119,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                     : dateFilterToText(
                           dateFrom,
                           dateTo,
-                          isFixedDateMode ? 'Select a value' : CUSTOM_OPTION_VALUE,
+                          isFixedDateMode ? SELECT_FIXED_VALUE_PLACEHOLDER : NO_OVERRIDE_RANGE_PLACEHOLDER,
                           dateOptions,
                           false
                       ),

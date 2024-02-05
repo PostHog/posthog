@@ -70,6 +70,7 @@ export function OperatorValueSelect({
     defaultOpen,
     addRelativeDateTimeOptions,
 }: OperatorValueSelectProps): JSX.Element {
+    const propertyDefinitionsExist = propertyDefinitions.length > 0
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
     // DateTime properties should not default to Exact
@@ -89,10 +90,11 @@ export function OperatorValueSelect({
         )
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
         setOperators(operators)
-        if (currentOperator !== operator && operators.includes(startingOperator)) {
+        if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinitionsExist) {
             setCurrentOperator(startingOperator)
-        } else if (!operators.includes(currentOperator)) {
+        } else if (!operators.includes(currentOperator) && propertyDefinitionsExist) {
             // Whenever the property type changes such that the operator is not compatible, we need to reset the operator
+            // But, only if the propertyDefinitions are available
             setCurrentOperator(isDateTimeProperty ? PropertyOperator.IsDateExact : PropertyOperator.Exact)
         }
     }, [propertyDefinition, propkey, operator])

@@ -36,37 +36,6 @@ export function ComparingPropertyFilters(): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/event/values/': [],
-            '/api/projects/:team_id/property_definitions*': {
-                count: 4,
-                next: null,
-                previous: null,
-                results: [
-                    {
-                        id: '017dde0e-1cb5-0000-68b4-44835b7c894k',
-                        name: 'Browser',
-                        is_numerical: false,
-                        query_usage_30_day: null,
-                        property_type: null,
-                        is_seen_on_filtered_events: null,
-                    },
-                    {
-                        id: '017dde0e-1cb5-0000-68b4-44835b7c894f',
-                        name: 'OS',
-                        is_numerical: false,
-                        query_usage_30_day: null,
-                        property_type: 'String',
-                        is_seen_on_filtered_events: null,
-                    },
-                    {
-                        id: '017dde0e-1cb5-0000-68b4-44835b7c894h',
-                        name: '$timestamp',
-                        is_numerical: false,
-                        query_usage_30_day: null,
-                        property_type: 'DateTime',
-                        is_seen_on_filtered_events: null,
-                    },
-                ],
-            },
         },
     })
     return (
