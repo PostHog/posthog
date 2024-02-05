@@ -181,16 +181,18 @@ class ActorsQueryRunner(QueryRunner):
                 elif input_column == "matched_recordings":
                     column = ast.Field(chain=["matching_events"])
 
-                outer_columns.append(column)
+                column_alias = ast.Alias(expr=column, alias=input_column)
+                column_accessor = ast.Field(chain=[input_column])
+                outer_columns.append(column_accessor)
 
                 if self.has_column(source_columns, input_column):
                     continue
 
-                columns.append(column)
+                columns.append(column_alias)
                 if has_aggregation(column):
-                    aggregations.append(column)
+                    aggregations.append(column_accessor)
                 elif not isinstance(column, ast.Constant):
-                    group_by.append(column)
+                    group_by.append(column_accessor)
 
             # Append strategy column in any case
             columns.append(ast.Field(chain=[self.strategy.origin_id]))
