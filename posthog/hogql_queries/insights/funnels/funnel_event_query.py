@@ -49,6 +49,9 @@ class FunnelEventQuery:
     def _aggregation_target_expr(self) -> ast.Expr:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
 
+        # Aggregating by Person ID
+        aggregation_target: str | ast.Expr = "person_id"
+
         # Aggregating by group
         if query.aggregation_group_type_index is not None:
             aggregation_target = f'{self.EVENT_TABLE_ALIAS}."$group_{query.aggregation_group_type_index}"'
@@ -61,10 +64,6 @@ class FunnelEventQuery:
         # # Aggregating by Distinct ID
         # elif self._aggregate_users_by_distinct_id:
         #     aggregation_target = f"{self.EVENT_TABLE_ALIAS}.distinct_id"
-
-        # Aggregating by Person ID
-        else:
-            aggregation_target = "person_id"
 
         if isinstance(aggregation_target, str):
             return ast.Field(chain=[aggregation_target])
@@ -106,7 +105,7 @@ class FunnelEventQuery:
         return ast.CompareOperation(
             left=ast.Field(chain=["event"]),
             # Sorting for consistent snapshots in tests
-            right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(events)]),
+            right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(events)]),  # type: ignore
             op=ast.CompareOperationOp.In,
         )
 

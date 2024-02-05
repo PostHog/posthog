@@ -70,12 +70,9 @@ class Funnel(FunnelBase):
             *person_and_group_properties,
         ]
 
-        # TODO: max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps
-        max_steps_expr = parse_expr("max(steps) over (PARTITION BY aggregation_target) as max_steps")
-        max_steps_expr.expr.over_expr.partition_by = [
-            *max_steps_expr.expr.over_expr.partition_by,
-            *breakdown_exprs,
-        ]
+        max_steps_expr = parse_expr(
+            f"max(steps) over (PARTITION BY aggregation_target {self._get_breakdown_prop()}) as max_steps"
+        )
 
         inner_select: List[ast.Expr] = [
             *group_by_columns,
