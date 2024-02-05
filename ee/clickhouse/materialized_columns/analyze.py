@@ -129,6 +129,14 @@ def _analyze(since_hours_ago: int, min_query_time: int) -> List[Suggestion]:
 
     raw_queries = sync_execute(
         """
+WITH
+    {min_query_time} as slow_query_minimum,
+    (
+        159, -- TIMEOUT EXCEEDED
+        160, -- TOO SLOW (estimated query execution time)
+    ) as exception_codes,
+    20 * 1000 * 1000 * 1000 as min_bytes_read,
+    5000000 as min_read_rows
 SELECT
     arrayJoin(
         extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\((?:[a-zA-Z0-9\\`_-]+\\.)?(.*?), .*?\\)')
@@ -153,19 +161,16 @@ WHERE
     and JSONExtractInt(log_comment, 'team_id') != 0
     and query not like '%person_distinct_id2%' -- Old style person properties that are joined, no need to optimize those queries
     and column not like 'argMax(%'  -- Old style person properties that are joined, no need to optimize those queries
-    and read_bytes > 20 * 1000 * 1000 * 1000 -- Has to read at least 30GB, otherwise this isn't the reason this query is slow
-    and exception_code IN (
-        159, -- TIMEOUT EXCEEDED
-        160, -- TOO SLOW (estimated query execution time)
-        -- 241, -- MEMORY LIMIT EXCEEDED -- I don't think this is solved with materialized columns
-    )
+    and read_bytes > min_bytes_read
+    and (exception_code IN exception_codes OR query_duration_ms > slow_query_minimum)
+    and read_rows > min_read_rows
 GROUP BY
     1, 2
 HAVING
-    countIf(type > 2) > 0
+    countIf(exception_code IN exception_codes) > 0 OR countIf(query_duration_ms > slow_query_minimum) > 9
 ORDER BY
-    countIf(type > 2) DESC,
-    countIf(query_duration_ms > {min_query_time}) DESC
+    countIf(exception_code IN exception_codes) DESC,
+    countIf(query_duration_ms > slow_query_minimum) DESC
 LIMIT 100 -- Make sure we don't add 100s of columns in one run
         """.format(since=since_hours_ago, min_query_time=min_query_time),
     )
