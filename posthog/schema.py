@@ -1481,7 +1481,7 @@ class WebStatsTableQuery(BaseModel):
     includeBounceRate: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
-    limit: Optional[float] = None
+    limit: Optional[int] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None

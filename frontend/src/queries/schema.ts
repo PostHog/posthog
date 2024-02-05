@@ -935,6 +935,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     response?: WebStatsTableQueryResponse
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    /** @asType integer */
     limit?: number
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {

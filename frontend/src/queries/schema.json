@@ -4943,7 +4943,7 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"

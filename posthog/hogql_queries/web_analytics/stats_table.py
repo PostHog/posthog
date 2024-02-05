@@ -25,7 +25,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY, limit=int(self.query.limit) if self.query.limit else None
+            limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
 
     def _bounce_rate_subquery(self):
