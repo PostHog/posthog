@@ -30,9 +30,9 @@
                   latest_1 AS latest_1,
                   step_2 AS step_2,
                   latest_2 AS latest_2,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15.0))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalSecond(15.0))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15.0))), 0)), 2, 1)) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15.0))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalSecond(15.0))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalSecond(15))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalSecond(15))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -146,7 +146,7 @@
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id ,
+                              pdi.person_id as person_id,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
@@ -159,6 +159,13 @@
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
                           WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
@@ -343,7 +350,7 @@
                         if(and(equals(e.event, 'user signed up'), ifNull(in(e__pdi.person_id,
                                                                               (SELECT cohortpeople.person_id AS person_id
                                                                                FROM cohortpeople
-                                                                               WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 92))
+                                                                               WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 103))
                                                                                GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
@@ -526,7 +533,7 @@
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id ,
+                              pdi.person_id as person_id,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
@@ -541,6 +548,13 @@
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
                           WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['$pageview', 'user signed up']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -634,7 +648,7 @@
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id ,
+                              pdi.person_id as person_id,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
@@ -649,6 +663,13 @@
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
                           WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['$pageview', 'user signed up']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -742,7 +763,7 @@
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
-                              pdi.person_id as person_id ,
+                              pdi.person_id as person_id,
                               if(event = 'user signed up', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = '$pageview'
@@ -757,6 +778,13 @@
                                  argMax(person_id, version) as person_id
                           FROM person_distinct_id2
                           WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['$pageview', 'user signed up']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        INNER JOIN
@@ -843,7 +871,7 @@
                         if(and(equals(e.event, 'user signed up'), ifNull(in(e__pdi.person_id,
                                                                               (SELECT person_static_cohort.person_id AS person_id
                                                                                FROM person_static_cohort
-                                                                               WHERE and(equals(person_static_cohort.team_id, 2), equals(person_static_cohort.cohort_id, 93)))), 0)), 1, 0) AS step_0,
+                                                                               WHERE and(equals(person_static_cohort.team_id, 2), equals(person_static_cohort.cohort_id, 104)))), 0)), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                         if(equals(e.event, 'paid'), 1, 0) AS step_1,
                         if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
