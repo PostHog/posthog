@@ -211,13 +211,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "notices": [
                     {
-                        "message": "Event property 'string' is of type 'String'",
+                        "message": "Event property 'string' is of type 'String'. This property is not materialized 🐢.",
                         "start": 11,
                         "end": 17,
                         "fix": None,
                     },
                     {
-                        "message": "⚡️Event property 'number' is of type 'Float'",
+                        "message": "Event property 'number' is of type 'Float'. This property is materialized ⚡️.",
                         "start": 32,
                         "end": 38,
                         "fix": None,
