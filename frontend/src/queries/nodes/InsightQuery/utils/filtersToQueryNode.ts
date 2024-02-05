@@ -94,11 +94,7 @@ export const legacyEntityToNode = (
     if (mathAvailability !== MathAvailability.None) {
         // only trends and stickiness insights support math.
         // transition to then default math for stickiness, when an unsupported math type is encountered.
-        if (
-            entity.math &&
-            mathAvailability === MathAvailability.ActorsOnly &&
-            !actorsOnlyMathTypes.includes(entity.math as any)
-        ) {
+        if (mathAvailability === MathAvailability.ActorsOnly && !actorsOnlyMathTypes.includes(entity.math as any)) {
             shared = {
                 ...shared,
                 math: BaseMathType.UniqueUsers,
