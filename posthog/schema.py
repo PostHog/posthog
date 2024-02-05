@@ -218,20 +218,6 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     month = "month"
 
 
-class FunnelExclusion(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: Optional[str] = None
-    funnelFromStep: Optional[float] = None
-    funnelToStep: Optional[float] = None
-    id: Optional[Union[str, float]] = None
-    index: Optional[float] = None
-    name: Optional[str] = None
-    order: Optional[float] = None
-    type: Optional[EntityType] = None
-
-
 class FunnelExclusionLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -244,6 +230,14 @@ class FunnelExclusionLegacy(BaseModel):
     name: Optional[str] = None
     order: Optional[float] = None
     type: Optional[EntityType] = None
+
+
+class FunnelExclusionSteps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelFromStep: Optional[int] = None
+    funnelToStep: Optional[int] = None
 
 
 class FunnelLayout(str, Enum):
@@ -1056,26 +1050,6 @@ class FeaturePropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class FunnelsFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    binCount: Optional[Union[float, str]] = None
-    breakdownAttributionType: Optional[BreakdownAttributionType] = None
-    breakdownAttributionValue: Optional[float] = None
-    exclusions: Optional[List[FunnelExclusion]] = None
-    funnelAggregateByHogQL: Optional[str] = None
-    funnelFromStep: Optional[float] = None
-    funnelOrderType: Optional[StepOrderValue] = None
-    funnelStepReference: Optional[FunnelStepReference] = None
-    funnelToStep: Optional[float] = None
-    funnelVizType: Optional[FunnelVizType] = None
-    funnelWindowInterval: Optional[float] = None
-    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
-    hidden_legend_breakdowns: Optional[List[str]] = None
-    layout: Optional[FunnelLayout] = None
-
-
 class FunnelsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1708,6 +1682,116 @@ class EventsQuery(BaseModel):
     where: Optional[List[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
+class FunnelExclusionActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    funnelFromStep: Optional[int] = None
+    funnelToStep: Optional[int] = None
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
+
+
+class FunnelExclusionEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    event: Optional[str] = Field(default=None, description="The event or `null` for all events.")
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    funnelFromStep: Optional[int] = None
+    funnelToStep: Optional[int] = None
+    kind: Literal["EventsNode"] = "EventsNode"
+    limit: Optional[int] = None
+    math: Optional[
+        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    orderBy: Optional[List[str]] = Field(default=None, description="Columns to order by")
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[Response] = Field(default=None, description="Return a limited set of data")
+
+
 class HogQLFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1744,12 +1828,6 @@ class HogQLQuery(BaseModel):
     values: Optional[Dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
-
-
-class InsightFilter(
-    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
-):
-    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
 class PersonsNode(BaseModel):
@@ -1963,8 +2041,34 @@ class DataVisualizationNode(BaseModel):
     source: HogQLQuery
 
 
+class FunnelsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binCount: Optional[Union[float, str]] = None
+    breakdownAttributionType: Optional[BreakdownAttributionType] = None
+    breakdownAttributionValue: Optional[float] = None
+    exclusions: Optional[List[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = None
+    funnelAggregateByHogQL: Optional[str] = None
+    funnelFromStep: Optional[float] = None
+    funnelOrderType: Optional[StepOrderValue] = None
+    funnelStepReference: Optional[FunnelStepReference] = None
+    funnelToStep: Optional[float] = None
+    funnelVizType: Optional[FunnelVizType] = None
+    funnelWindowInterval: Optional[float] = None
+    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
+    hidden_legend_breakdowns: Optional[List[str]] = None
+    layout: Optional[FunnelLayout] = None
+
+
 class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
     root: Union[EventsNode, EventsQuery, PersonsNode]
+
+
+class InsightFilter(
+    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
+):
+    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
 class PropertyGroupFilter(BaseModel):
