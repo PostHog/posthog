@@ -1,6 +1,54 @@
 # serializer version: 1
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results
   '''
+  /* user_id:2 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.1
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.4
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
@@ -15,7 +63,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.1
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
@@ -96,6 +144,54 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones
   '''
+  /* user_id:3 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.1
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.4
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
@@ -110,7 +206,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.1
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
@@ -191,6 +287,54 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '''
+  /* user_id:5 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.4
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
@@ -205,7 +349,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
@@ -286,6 +430,54 @@
 # ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation
   '''
+  /* user_id:6 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation.1
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation.4
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
          count(*) as count
@@ -300,7 +492,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation.1
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
@@ -381,6 +573,54 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
   '''
+  /* user_id:9 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.1
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.4
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
@@ -396,7 +636,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.1
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -442,7 +682,7 @@
   ORDER BY breakdown_value
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.2
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.6
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
@@ -460,7 +700,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.3
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.7
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -520,6 +760,18 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
+  '''
+  /* user_id:10 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
   '''
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
@@ -650,6 +902,54 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone
   '''
+  /* user_id:12 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.1
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.4
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
@@ -665,7 +965,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.1
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -711,7 +1011,7 @@
   ORDER BY breakdown_value
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.2
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.6
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
@@ -729,7 +1029,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.3
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.7
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -793,6 +1093,54 @@
 # ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter
   '''
+  /* user_id:14 celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.1
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.2
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.3
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.4
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
          count(*) as count
@@ -809,7 +1157,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.1
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.5
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -856,7 +1204,7 @@
   ORDER BY breakdown_value
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.2
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.6
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
@@ -874,7 +1222,7 @@
   OFFSET 0
   '''
 # ---
-# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.3
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter.7
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
