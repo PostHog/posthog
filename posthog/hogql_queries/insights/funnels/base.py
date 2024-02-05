@@ -7,8 +7,8 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
-from posthog.hogql_queries.insights.utils.funnels_filter import funnel_window_interval_unit_to_sql
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
 from posthog.queries.util import correct_result_for_sampling
