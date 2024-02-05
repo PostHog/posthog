@@ -30,9 +30,10 @@ class FunnelBase(ABC):
         self._extra_event_fields: List[ColumnName] = []
         self._extra_event_properties: List[PropertyName] = []
 
-        if False:  # self._filter.include_recordings: TODO: implement with actors query
-            self._extra_event_fields = ["uuid"]
-            self._extra_event_properties = ["$session_id", "$window_id"]
+        # TODO: implement with actors query
+        # if self._filter.include_recordings:
+        #     self._extra_event_fields = ["uuid"]
+        #     self._extra_event_properties = ["$session_id", "$window_id"]
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
