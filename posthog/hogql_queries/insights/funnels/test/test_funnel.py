@@ -13,6 +13,8 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.filter import Filter
+from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal
@@ -60,9 +62,7 @@ def _create_action(**kwargs):
 
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(  # type: ignore
-        Funnel, ClickhouseFunnelActors, _create_event, _create_person
-    ),
+    funnel_conversion_time_test_factory(Funnel, ClickhouseFunnelActors, _create_event, _create_person),  # type: ignore
 ):
     maxDiff = None
     pass
@@ -3432,6 +3432,143 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
+
+        def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
+            GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+            GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"industry": "finance"},
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:6",
+                properties={"industry": "technology"},
+            )
+
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:1",
+                properties={},
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:2",
+                properties={},
+            )
+
+            _create_person(
+                distinct_ids=[f"user_1"],
+                team=self.team,
+                properties={"email": "fake@test.com"},
+            )
+            _create_person(
+                distinct_ids=[f"user_2"],
+                team=self.team,
+                properties={"email": "fake@test.com"},
+            )
+            _create_person(
+                distinct_ids=[f"user_3"],
+                team=self.team,
+                properties={"email": "fake_2@test.com"},
+            )
+
+            action1 = Action.objects.create(team=self.team, name="action1")
+            ActionStep.objects.create(event="$pageview", action=action1)
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "operator": "icontains",
+                                "value": "fake@test.com",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ],
+            )
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                    {
+                        "event": "user signed up",  # same person, different group, so should count as different step 1 in funnel
+                        "timestamp": datetime(2020, 1, 10, 14),
+                        "properties": {"$group_0": "org:6"},
+                    },
+                ],
+                "user_2": [
+                    {  # different person, same group, so should count as step two in funnel
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {"$group_0": "org:5"},
+                    }
+                ],
+                "user_3": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:7"},
+                    },
+                    {  # person not in cohort so should be filtered out
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {"$group_0": "org:7"},
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+            cohort.calculate_people_ch(pending_version=0)
+
+            filters = {
+                "events": [
+                    {
+                        "id": "user signed up",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [
+                            {
+                                "type": "precalculated-cohort",
+                                "key": "id",
+                                "value": cohort.pk,
+                            }
+                        ],
+                    },
+                    {"id": "paid", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-14",
+                "aggregation_group_type_index": 0,
+            }
+
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+            self.assertEqual(results[0]["name"], "user signed up")
+            self.assertEqual(results[0]["count"], 2)
+
+            self.assertEqual(results[1]["name"], "paid")
+            self.assertEqual(results[1]["count"], 1)
 
     return TestGetFunnel
 
