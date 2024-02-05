@@ -2,7 +2,6 @@ use std::collections;
 use std::sync::Arc;
 use std::time;
 
-use chrono::Utc;
 use hook_common::health::HealthHandle;
 use hook_common::{
     pgqueue::{Job, PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
@@ -265,10 +264,6 @@ async fn process_webhook_job<W: WebhookJob>(
 
     match send_result {
         Ok(_) => {
-            let end_to_end_duration = Utc::now() - webhook_job.metadata().created_at;
-            metrics::histogram!("webhook_jobs_end_to_end_duration_seconds", &labels)
-                .record((end_to_end_duration.num_milliseconds() as f64) / 1_000_f64);
-
             webhook_job
                 .complete()
                 .await
@@ -455,8 +450,6 @@ mod tests {
     // This is due to a long-standing cargo bug that reports imports and helper functions as unused.
     // See: https://github.com/rust-lang/rust/issues/46379.
     #[allow(unused_imports)]
-    use chrono::Utc;
-    #[allow(unused_imports)]
     use hook_common::health::HealthRegistry;
     #[allow(unused_imports)]
     use hook_common::pgqueue::{JobStatus, NewJob};
@@ -530,7 +523,6 @@ mod tests {
             team_id: 1,
             plugin_id: 2,
             plugin_config_id: 3,
-            created_at: Utc::now(),
         };
         let registry = HealthRegistry::new("liveness");
         let liveness = registry

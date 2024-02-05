@@ -16,12 +16,9 @@ where
     D: Deserializer<'de>,
 {
     let formatted: String = Deserialize::deserialize(deserializer)?;
-    let datetime = match DateTime::parse_from_rfc3339(&formatted) {
-        Ok(d) => d.with_timezone(&Utc),
-        Err(_) => match NaiveDateTime::parse_from_str(&formatted, "%Y-%m-%d %H:%M:%S") {
-            Ok(d) => d.and_utc(),
-            Err(_) => return Err(serde::de::Error::custom("Invalid datetime format")),
-        },
+    let datetime = match NaiveDateTime::parse_from_str(&formatted, "%Y-%m-%d %H:%M:%S") {
+        Ok(d) => d.and_utc(),
+        Err(_) => return Err(serde::de::Error::custom("Invalid datetime format")),
     };
 
     Ok(datetime)
