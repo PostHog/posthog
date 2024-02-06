@@ -870,10 +870,13 @@ mod tests {
         {
             // The fixtures include an available job, so let's complete it while the txn is open.
             let webhook_job: PgJob<WebhookJobParameters, WebhookJobMetadata> = queue
-                .dequeue(&"worker_id")
+                .dequeue(&"worker_id", 1)
                 .await
                 .expect("failed to dequeue job")
-                .expect("didn't find a job to dequeue");
+                .expect("didn't find a job to dequeue")
+                .jobs
+                .pop()
+                .unwrap();
             webhook_job
                 .complete()
                 .await
@@ -896,10 +899,13 @@ mod tests {
             let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
             queue.enqueue(new_job).await.expect("failed to enqueue job");
             let webhook_job: PgJob<WebhookJobParameters, WebhookJobMetadata> = queue
-                .dequeue(&"worker_id")
+                .dequeue(&"worker_id", 1)
                 .await
                 .expect("failed to dequeue job")
-                .expect("didn't find a job to dequeue");
+                .expect("didn't find a job to dequeue")
+                .jobs
+                .pop()
+                .unwrap();
             webhook_job
                 .complete()
                 .await
