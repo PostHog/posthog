@@ -20,6 +20,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
 
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 const MAX_CRITERIA_GROUPS = 2
 const MAX_CRITERIA = 2
@@ -134,7 +135,10 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                             group.properties.map((property, propIndex) => (
                                                 <li key={propIndex}>
                                                     <span>
-                                                        <PropertyKeyInfo value={property.key} />
+                                                        <PropertyKeyInfo
+                                                            value={property.key}
+                                                            type={TaxonomicFilterGroupType.PersonProperties}
+                                                        />
                                                         {genericOperatorToHumanName(property)}
                                                         <code>{propertyValueToHumanName(property.value)}</code>
                                                     </span>

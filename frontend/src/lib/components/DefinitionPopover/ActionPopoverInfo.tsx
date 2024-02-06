@@ -3,6 +3,7 @@ import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/compon
 
 import { ActionType } from '~/types'
 
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
@@ -75,7 +76,15 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                                             step.properties.map((property, propIndex) => (
                                                 <li key={propIndex}>
                                                     <span>
-                                                        <PropertyKeyInfo value={property.key} />{' '}
+                                                        <PropertyKeyInfo
+                                                            value={property.key}
+                                                            type={
+                                                                property.type &&
+                                                                PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
+                                                                    property.type
+                                                                ]
+                                                            }
+                                                        />{' '}
                                                         {genericOperatorToHumanName(property)}{' '}
                                                         <b>{propertyValueToHumanName(property.value)}</b>
                                                     </span>
