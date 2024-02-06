@@ -6,7 +6,6 @@ import { Dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
-import { AlignType } from 'rc-trigger/lib/interface'
 
 export interface TimelinePoint {
     timestamp: Dayjs
@@ -21,25 +20,6 @@ export interface TimelineSeekbarProps {
     dateRange: [Dayjs, Dayjs] | null
     loading?: boolean
     className?: string
-}
-
-const SEEKBAR_TOOLTIP_PLACEMENTS: Record<string, AlignType> = {
-    topRight: {
-        points: ['br', 'tr'],
-        offset: [7, 0], // To align with badges
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-    topLeft: {
-        points: ['bl', 'tl'],
-        offset: [-7, 0], // To align with badges
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
 }
 
 export function TimelineSeekbar({
@@ -81,7 +61,7 @@ export function TimelineSeekbar({
                                 )
                             }
                             placement="top-start"
-                            builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
+                            offset={0}
                             delayMs={0}
                         >
                             <div className="TimelineSeekbar__line-start" />
@@ -102,7 +82,7 @@ export function TimelineSeekbar({
                                 )
                             }
                             placement="top-end"
-                            builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
+                            offset={0}
                             delayMs={0}
                         >
                             <div
@@ -128,8 +108,8 @@ export function TimelineSeekbar({
                                             {pluralize(count, 'relevant event')} with such properties
                                         </span>
                                     }
-                                    placement="topLeft"
-                                    builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
+                                    placement="top-start"
+                                    offset={0}
                                     delayMs={0}
                                 >
                                     <div

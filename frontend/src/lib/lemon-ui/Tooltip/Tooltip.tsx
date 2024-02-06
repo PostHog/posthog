@@ -3,7 +3,7 @@ import {
     autoUpdate,
     flip,
     FloatingPortal,
-    offset,
+    offset as offsetFunc,
     Placement,
     shift,
     useDismiss,
@@ -19,10 +19,11 @@ import React, { useRef, useState } from 'react'
 const DEFAULT_DELAY_MS = 500
 
 export type TooltipProps = {
-    title: string | React.ReactNode
+    title: string | React.ReactNode | (() => string)
     children: JSX.Element
     open?: boolean
     delayMs?: number
+    offset?: number
     placement?: Placement
     className?: string
 }
@@ -32,6 +33,7 @@ export const Tooltip = ({
     children,
     open,
     placement = 'top',
+    offset = 5,
     delayMs = DEFAULT_DELAY_MS,
     className = '',
 }: TooltipProps): JSX.Element => {
@@ -44,7 +46,7 @@ export const Tooltip = ({
         placement: placement,
         whileElementsMounted: autoUpdate,
         middleware: [
-            offset(5),
+            offsetFunc(offset),
             flip({
                 fallbackAxisSideDirection: 'start',
             }),
@@ -89,7 +91,7 @@ export const Tooltip = ({
                             style={floatingStyles}
                             {...getFloatingProps()}
                         >
-                            {title}
+                            {typeof title === 'function' ? title() : title}
                             <div
                                 ref={caretRef}
                                 className="absolute w-1.5 h-1.5 bg-tooltip-bg rotate-45"
