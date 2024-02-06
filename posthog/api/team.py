@@ -17,7 +17,7 @@ from posthog.api.geoip import get_geoip_properties
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.mixins import AnalyticsDestroyModelMixin
+from posthog.event_usage import report_user_action
 from posthog.models import InsightCachingState, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -295,7 +295,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return updated_team
 
 
-class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class TeamViewSet(viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
@@ -376,6 +376,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
         with mute_selected_signals():
             super().perform_destroy(team)
+
         # Once the project is deleted, queue deletion of associated data
         AsyncDeletion.objects.bulk_create(
             [
@@ -388,6 +389,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             ],
             ignore_conflicts=True,
         )
+
+        # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
+        report_user_action(self.request.user, f"team deleted", team=team)
 
     @action(
         methods=["PATCH"],
