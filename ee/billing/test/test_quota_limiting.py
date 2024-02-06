@@ -55,6 +55,7 @@ class TestQuotaLimiting(BaseTest):
                     team=self.team,
                 )
         time.sleep(1)
+
         result = update_all_org_billing_quotas()
         patch_feature_enabled.assert_called_with(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -89,7 +90,8 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         time.sleep(1)
-        result = update_all_org_billing_quotas()
+        with self.assertNumQueries(2):
+            result = update_all_org_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()
         patch_capture.assert_not_called()
