@@ -9,13 +9,78 @@ import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import type { editor as importedEditor, IDisposable, languages } from 'monaco-editor'
+import type { editor as importedEditor, IDisposable } from 'monaco-editor'
+import { languages } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery } from '~/queries/schema'
+import { query } from '~/queries/query'
+import { HogQLIntelliSense, HogQLQuery, IntelliSenseCompletionItem, NodeKind } from '~/queries/schema'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
+
+const convertCompletionItemKind = (kind: IntelliSenseCompletionItem['kind']): languages.CompletionItemKind => {
+    switch (kind) {
+        case 'Method':
+            return languages.CompletionItemKind.Method
+        case 'Function':
+            return languages.CompletionItemKind.Function
+        case 'Constructor':
+            return languages.CompletionItemKind.Constructor
+        case 'Field':
+            return languages.CompletionItemKind.Field
+        case 'Variable':
+            return languages.CompletionItemKind.Variable
+        case 'Class':
+            return languages.CompletionItemKind.Class
+        case 'Struct':
+            return languages.CompletionItemKind.Struct
+        case 'Interface':
+            return languages.CompletionItemKind.Interface
+        case 'Module':
+            return languages.CompletionItemKind.Module
+        case 'Property':
+            return languages.CompletionItemKind.Property
+        case 'Event':
+            return languages.CompletionItemKind.Event
+        case 'Operator':
+            return languages.CompletionItemKind.Operator
+        case 'Unit':
+            return languages.CompletionItemKind.Unit
+        case 'Value':
+            return languages.CompletionItemKind.Value
+        case 'Constant':
+            return languages.CompletionItemKind.Constant
+        case 'Enum':
+            return languages.CompletionItemKind.Enum
+        case 'EnumMember':
+            return languages.CompletionItemKind.EnumMember
+        case 'Keyword':
+            return languages.CompletionItemKind.Keyword
+        case 'Text':
+            return languages.CompletionItemKind.Text
+        case 'Color':
+            return languages.CompletionItemKind.Color
+        case 'File':
+            return languages.CompletionItemKind.File
+        case 'Reference':
+            return languages.CompletionItemKind.Reference
+        case 'Customcolor':
+            return languages.CompletionItemKind.Customcolor
+        case 'Folder':
+            return languages.CompletionItemKind.Folder
+        case 'TypeParameter':
+            return languages.CompletionItemKind.TypeParameter
+        case 'User':
+            return languages.CompletionItemKind.User
+        case 'Issue':
+            return languages.CompletionItemKind.Issue
+        case 'Snippet':
+            return languages.CompletionItemKind.Snippet
+        default:
+            throw new Error(`Unknown CompletionItemKind: ${kind}`)
+    }
+}
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -127,6 +192,55 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             onChange={(v) => setQueryInput(v ?? '')}
                             height="100%"
                             onMount={(editor, monaco) => {
+                                monaco.languages.registerCompletionItemProvider('mysql', {
+                                    triggerCharacters: [' ', ','],
+                                    provideCompletionItems: async (model, position) => {
+                                        if (!featureFlags[FEATURE_FLAGS.HOGQL_INTELLISENSE]) {
+                                            return undefined
+                                        }
+
+                                        const word = model.getWordUntilPosition(position)
+
+                                        const startOffset = model.getOffsetAt({
+                                            lineNumber: position.lineNumber,
+                                            column: word.startColumn,
+                                        })
+                                        const endOffset = model.getOffsetAt({
+                                            lineNumber: position.lineNumber,
+                                            column: word.endColumn,
+                                        })
+
+                                        const response = await query<HogQLIntelliSense>({
+                                            kind: NodeKind.HogQLIntelliSense,
+                                            select: queryInput,
+                                            filters: props.query.filters,
+                                            startPosition: startOffset,
+                                            endPosition: endOffset,
+                                        })
+
+                                        const completionItems = response.suggestions
+
+                                        const suggestions = completionItems.map((item) => {
+                                            return {
+                                                label: item.label,
+                                                documentation: item.documentation,
+                                                insertText: item.insertText,
+                                                range: {
+                                                    startLineNumber: position.lineNumber,
+                                                    endLineNumber: position.lineNumber,
+                                                    startColumn: word.startColumn,
+                                                    endColumn: word.endColumn,
+                                                },
+                                                kind: convertCompletionItemKind(item.kind),
+                                            }
+                                        })
+
+                                        return {
+                                            suggestions,
+                                        }
+                                    },
+                                })
+
                                 monaco.languages.registerCodeActionProvider('mysql', {
                                     provideCodeActions: (model, _range, context) => {
                                         if (logic.isMounted()) {
