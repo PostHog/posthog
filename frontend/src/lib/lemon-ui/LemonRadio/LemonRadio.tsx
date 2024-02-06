@@ -12,6 +12,7 @@ export interface LemonRadioProps<T extends React.Key> {
     onChange: (newValue: T) => void
     options: LemonRadioOption<T>[]
     fullWidth?: boolean
+    horizontal?: boolean
 }
 
 /** Single choice radio. */
@@ -20,9 +21,10 @@ export function LemonRadio<T extends React.Key>({
     onChange,
     options,
     fullWidth,
+    horizontal,
 }: LemonRadioProps<T>): JSX.Element {
     return (
-        <div className={clsx('flex flex-col gap-2', fullWidth && 'w-full')}>
+        <div className={clsx('flex gap-2', horizontal ? 'flex-row' : 'flex-col', fullWidth && 'w-full')}>
             {options.map((option) => {
                 const content = (
                     <label
