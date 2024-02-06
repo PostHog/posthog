@@ -1,15 +1,14 @@
-from typing import Type
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.hogql_queries.insights.funnels import FunnelBase
 from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, StepOrderValue
 from rest_framework.exceptions import ValidationError
 
 
-def get_funnel_order_class(funnelsFilter: FunnelsFilter) -> Type[FunnelBase]:
+def get_funnel_order_class(funnelsFilter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
         # FunnelStrict,
         # FunnelUnordered,
+        FunnelBase,
     )
 
     if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
