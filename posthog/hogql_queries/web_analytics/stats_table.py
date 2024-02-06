@@ -189,7 +189,7 @@ ORDER BY
             timings=response.timings,
             types=response.types,
             hogql=response.hogql,
-            **self.paginator.response_params()
+            **self.paginator.response_params(),
         )
 
     def counts_breakdown(self):
