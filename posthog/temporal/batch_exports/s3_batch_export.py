@@ -468,7 +468,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                 async def flush_to_s3(last_uploaded_part_timestamp: str, last=False):
                     logger.debug(
-                        "Uploading %spart %s containing %s records with size %s bytes",
+                        "Uploading %s part %s containing %s records with size %s bytes",
                         "last " if last else "",
                         s3_upload.part_number + 1,
                         local_results_file.records_since_last_reset,

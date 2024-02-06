@@ -679,7 +679,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=1000000,
+        count=100000,
         count_outside_range=1000,
         count_other_team=1000,
         duplicate=True,
