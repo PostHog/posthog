@@ -279,7 +279,3 @@ class ActionViewSet(
             },
         )
         return Response({"count": results[0][0]})
-
-
-class LegacyActionViewSet(ActionViewSet):
-    legacy_team_compatibility = True
