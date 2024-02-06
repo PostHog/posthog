@@ -582,7 +582,6 @@ export enum ExperimentsTabs {
 
 export enum PipelineTab {
     Overview = 'overview',
-    Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
     AppsManagement = 'apps-management',
@@ -813,6 +812,7 @@ export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
+    DOCTOR = 'doctor',
 }
 
 export enum SessionPlayerState {
