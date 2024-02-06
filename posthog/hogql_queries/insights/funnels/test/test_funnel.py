@@ -102,20 +102,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 **kwargs,
             )
 
-        # def _single_step_funnel(self, properties=None, filters=None):
-        #     if filters is None:
-        #         filters = {
-        #             "events": [{"id": "user signed up", "type": "events", "order": 0}],
-        #             "insight": INSIGHT_FUNNELS,
-        #             "funnel_window_days": 14,
-        #         }
-
-        #     if properties is not None:
-        #         filters.update({"properties": properties})
-
-        #     filter = Filter(data=filters)
-        #     return Funnel(filter=filter, team=self.team)
-
         def _basic_funnel(self, properties=None, filters=None):
             action_credit_card = Action.objects.create(team=self.team, name="paid")
             ActionStep.objects.create(
@@ -149,49 +135,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             return FunnelsQueryRunner(query=query, team=self.team)
-
-        # def test_funnel_default(self):
-        #     funnel = self._single_step_funnel()
-
-        #     with freeze_time("2012-01-01T03:21:34.000Z"):
-        #         # event
-        #         person_factory(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        #         self._signup_event(distinct_id="stopped_after_signup1")
-
-        #         person_factory(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-        #         self._signup_event(distinct_id="stopped_after_signup2")
-
-        #     result = funnel.calculate().results
-        #     self.assertEqual(result[0]["count"], 0)
-
-        # def test_funnel_with_single_step(self):
-        #     funnel = self._single_step_funnel()
-
-        #     # event
-        #     person_factory(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="stopped_after_signup1")
-
-        #     person_factory(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-        #     self._signup_event(distinct_id="stopped_after_signup2")
-
-        #     result = funnel.calculate().results
-        #     self.assertEqual(result[0]["name"], "user signed up")
-        #     self.assertEqual(result[0]["count"], 2)
-
-        # def test_breakdown_values_is_set_on_the_query_with_fewer_than_two_entities(self):
-        #     """
-        #     failing test for https://sentry.io/organizations/posthog/issues/2807609211/?project=1899813&referrer=slack
-        #     """
-
-        #     filter_with_breakdown = {
-        #         "events": [{"id": "with one entity", "type": "events", "order": 0}],
-        #         "breakdown": "something",
-        #     }
-
-        #     try:
-        #         ClickhouseFunnel(Filter(data=filter_with_breakdown), self.team).run()
-        #     except KeyError as ke:
-        #         assert False, f"Should not have raised a key error: {ke}"
 
         def test_funnel_events(self):
             funnel = self._basic_funnel()
