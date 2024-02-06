@@ -280,6 +280,7 @@
         "postcss-loader": "^4.3.0",
         "process": "^0.11.10",
         "raw-loader": "^4.0.2",
+        "redis": "^4.6.13",
         "safe-stable-stringify": "^2.4.3",
         "sass-loader": "^10.0.1",
         "storybook": "^7.6.4",
