@@ -5,6 +5,7 @@ from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 from posthog.schema import (
+    BreakdownAttributionType,
     BreakdownFilter,
     FunnelConversionWindowTimeUnit,
     FunnelsFilter,
@@ -34,6 +35,10 @@ class FunnelQueryContext(QueryContext):
         self.funnelsFilter = self.query.funnelsFilter or FunnelsFilter()
         self.breakdownFilter = self.query.breakdownFilter or BreakdownFilter()
 
+        # defaults
+        self.breakdownAttributionType = (
+            self.funnelsFilter.breakdownAttributionType or BreakdownAttributionType.first_touch
+        )
         self.funnelWindowInterval = self.funnelsFilter.funnelWindowInterval or 14
         self.funnelWindowIntervalUnit = (
             self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.day
