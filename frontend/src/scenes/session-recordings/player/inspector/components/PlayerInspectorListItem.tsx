@@ -204,7 +204,7 @@ export function PlayerInspectorListItem({
                                         title="This event occured before the recording started, likely as the page was loading."
                                         placement="left"
                                     >
-                                        {colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
+                                        <span>{colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}</span>
                                     </Tooltip>
                                 ) : (
                                     colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)

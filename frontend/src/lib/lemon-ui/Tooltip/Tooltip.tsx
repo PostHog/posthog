@@ -20,7 +20,7 @@ const DEFAULT_DELAY_MS = 500
 
 export type TooltipProps = {
     title: string | React.ReactNode
-    children: React.ReactNode
+    children: JSX.Element
     open?: boolean
     delayMs?: number
     placement?: Placement
@@ -34,7 +34,7 @@ export const Tooltip = ({
     placement = 'top',
     delayMs = DEFAULT_DELAY_MS,
     className = '',
-}: TooltipProps): React.ReactNode => {
+}: TooltipProps): JSX.Element => {
     const [isOpen, setIsOpen] = useState(false)
     const caretRef = useRef(null)
 
