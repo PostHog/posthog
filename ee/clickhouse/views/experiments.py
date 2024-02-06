@@ -76,15 +76,14 @@ def _calculate_experiment_results(experiment: Experiment, refresh: bool = False)
 def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int, refresh: bool = False):
     filter = Filter(experiment.secondary_metrics[parsed_id]["filters"], team=experiment.team)
 
-    # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
     calculate_func = lambda: ClickhouseSecondaryExperimentResult(
         filter,
         experiment.team,
         experiment.feature_flag,
         experiment.start_date,
         experiment.end_date,
-    ).get_results()["result"]
-
+    ).get_results()
+    # TODO: Make sure we handle changing this cached value gracefully
     return _experiment_results_cached(experiment, "secondary", filter, calculate_func, refresh=refresh)
 
 

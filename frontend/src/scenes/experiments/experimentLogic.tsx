@@ -37,6 +37,7 @@ import {
     MultivariateFlagVariant,
     PropertyMathType,
     SecondaryExperimentMetric,
+    SecondaryMetricResults,
     SignificanceCode,
     TrendExperimentVariant,
     TrendResult,
@@ -598,7 +599,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            null as Record<string, number>[] | null,
+            null as SecondaryMetricResults[] | null,
             {
                 loadSecondaryMetricResults: async () => {
                     return await Promise.all(
@@ -609,7 +610,9 @@ export const experimentLogic = kea<experimentLogicType>([
                                 )
                                 return secResults.result
                             } catch (error) {
-                                return {}
+                                return {
+                                    result: {},
+                                }
                             }
                         })
                     )
@@ -972,7 +975,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     experiment?.secondary_metrics?.forEach((metric, idx) => {
                         metricResults.push({
                             insightType: metric.filters.insight || InsightType.TRENDS,
-                            result: secondaryMetricResults?.[idx]?.[variant.key],
+                            result: secondaryMetricResults?.[idx]?.result?.[variant.key],
                         })
                     })
 

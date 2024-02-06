@@ -1,6 +1,5 @@
 from typing import Any, Dict, List
 
-from flaky import flaky
 
 from ee.api.test.base import APILicensedTest
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -171,7 +170,7 @@ DEFAULT_EXPERIMENT_CREATION_PAYLOAD = {
 }
 
 
-@flaky(max_runs=10, min_passes=1)
+# @flaky(max_runs=10, min_passes=1)
 class ClickhouseTestExperimentSecondaryResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_basic_secondary_metric_results(self):
