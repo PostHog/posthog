@@ -91,7 +91,7 @@ function WebhookAppConfiguration(): JSX.Element {
                         <>
                             {fieldConfig.secret && (
                                 <Tooltip
-                                    placement="topLeft"
+                                    placement="top-start"
                                     title="This field is write-only. Its value won't be visible after saving."
                                 >
                                     <IconLock className="ml-1.5" />

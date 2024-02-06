@@ -49,7 +49,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
                 disabled={!setQuery}
                 onChange={onChange}
             />
-            <Tooltip title={<>{labels[target].description}</>}>
+            <Tooltip title={labels[target].description}>
                 <IconInfo className="text-2xl text-muted-alt shrink-0" />
             </Tooltip>
         </div>

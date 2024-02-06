@@ -65,7 +65,7 @@ export function DashboardReloadAction(): JSX.Element {
                                 >
                                     <Tooltip
                                         title="Auto-refresh will only work while this tab is open"
-                                        placement="topRight"
+                                        placement="top-end"
                                     >
                                         <div>
                                             <LemonSwitch

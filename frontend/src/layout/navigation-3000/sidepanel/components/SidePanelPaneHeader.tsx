@@ -18,7 +18,7 @@ export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProp
                 <h4 className="flex-1 flex items-center gap-1 font-semibold px-2 mb-0 truncate">{title}</h4>
             ) : null}
             {children}
-            <Tooltip placement="bottomRight" title="Close this side panel">
+            <Tooltip placement="bottom-end" title="Close this side panel">
                 <LemonButton size="small" sideIcon={<IconClose />} onClick={() => closeSidePanel()} />
             </Tooltip>
         </header>

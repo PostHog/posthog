@@ -69,7 +69,7 @@
         "@dnd-kit/modifiers": "^6.0.1",
         "@dnd-kit/sortable": "^7.0.2",
         "@dnd-kit/utilities": "^3.2.1",
-        "@floating-ui/react": "^0.16.0",
+        "@floating-ui/react": "^0.26.9",
         "@lottiefiles/react-lottie-player": "^3.4.7",
         "@medv/finder": "^2.1.0",
         "@microlink/react-json-view": "^1.21.3",

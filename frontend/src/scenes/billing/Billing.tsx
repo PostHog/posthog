@@ -212,7 +212,7 @@ export function Billing(): JSX.Element {
                                                                       )}`
                                                                     : null
                                                             }
-                                                            placement="bottomLeft"
+                                                            placement="bottom-start"
                                                         >
                                                             <strong>
                                                                 $

@@ -1,61 +1,81 @@
-// eslint-disable-next-line no-restricted-imports
-import { Tooltip as AntdTooltip } from 'antd'
-import { TooltipProps as AntdTooltipProps } from 'antd/lib/tooltip'
-import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import {
+    autoUpdate,
+    flip,
+    FloatingPortal,
+    offset,
+    Placement,
+    shift,
+    useDismiss,
+    useFloating,
+    useFocus,
+    useHover,
+    useInteractions,
+    useRole,
+} from '@floating-ui/react'
 import React, { useState } from 'react'
-import { useDebounce } from 'use-debounce'
 
 const DEFAULT_DELAY_MS = 500
 
-export type TooltipProps = AntdTooltipProps & {
+export type TooltipProps = {
+    title: string | React.ReactNode
+    children?: React.ReactNode
+    open?: boolean
     delayMs?: number
+    placement?: Placement
+    className?: string
 }
 
-/** Extension of Ant Design's Tooltip that enables a delay.
- *
- * Caveat: doesn't work with disabled elements due to lack of workaround that Ant Design uses.
- * See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L82-L130.
- */
-// CAUTION: Any changes here will affect tooltips across the entire app.
-export function Tooltip({ children, visible, delayMs = DEFAULT_DELAY_MS, ...props }: TooltipProps): JSX.Element {
-    const [localVisible, setVisible] = useState(false)
-    const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, delayMs)
+export const Tooltip = ({
+    title,
+    children,
+    open,
+    placement = 'top',
+    delayMs = DEFAULT_DELAY_MS,
+    className = '',
+}: TooltipProps): JSX.Element => {
+    const [isOpen, setIsOpen] = useState(false)
 
-    const floatingContainer = useFloatingContainerContext()?.current
+    const { refs, floatingStyles, context } = useFloating({
+        open: isOpen,
+        onOpenChange: setIsOpen,
+        placement: placement,
+        whileElementsMounted: autoUpdate,
+        middleware: [
+            offset(5),
+            flip({
+                fallbackAxisSideDirection: 'start',
+            }),
+            shift(),
+        ],
+    })
 
-    if (!('mouseEnterDelay' in props)) {
-        // If not preserving default behavior and mouseEnterDelay is not already provided, we use a custom default here
-        props.mouseEnterDelay = delayMs
-    }
+    const hover = useHover(context, { move: false, restMs: delayMs })
+    const focus = useFocus(context)
+    const dismiss = useDismiss(context)
+    const role = useRole(context, { role: 'tooltip' })
+    const { getReferenceProps, getFloatingProps } = useInteractions([hover, focus, dismiss, role])
 
-    // If child is not a valid element (string or string + ReactNode, Fragment), antd wraps children in a span.
-    // See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L226
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
-    const derivedVisible = typeof visible === 'undefined' ? localVisible && debouncedLocalVisible : visible
-
-    return props.title ? (
-        <AntdTooltip
-            {...props}
-            getPopupContainer={floatingContainer ? () => floatingContainer : undefined}
-            visible={derivedVisible}
-        >
+    return (
+        <>
             {React.cloneElement(child, {
-                onMouseEnter: () => {
-                    child.props.onMouseEnter?.()
-                    if (typeof visible === 'undefined') {
-                        setVisible(true)
-                    }
-                },
-                onMouseLeave: () => {
-                    child.props.onMouseLeave?.()
-                    if (typeof visible === 'undefined') {
-                        setVisible(false)
-                    }
-                },
+                ref: refs.setReference,
+                ...getReferenceProps(),
             })}
-        </AntdTooltip>
-    ) : (
-        child
+            <FloatingPortal>
+                {isOpen && (
+                    <div
+                        ref={refs.setFloating}
+                        className={className}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={floatingStyles}
+                        {...getFloatingProps()}
+                    >
+                        {title}
+                    </div>
+                )}
+            </FloatingPortal>
+        </>
     )
 }

@@ -80,7 +80,7 @@ export function TimelineSeekbar({
                                     "This data point's range hasn't been loaded yet"
                                 )
                             }
-                            placement="topLeft"
+                            placement="top-start"
                             builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
                             delayMs={0}
                         >
@@ -101,7 +101,7 @@ export function TimelineSeekbar({
                                     "This data point's range hasn't been loaded yet"
                                 )
                             }
-                            placement="topRight"
+                            placement="top-end"
                             builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
                             delayMs={0}
                         >
