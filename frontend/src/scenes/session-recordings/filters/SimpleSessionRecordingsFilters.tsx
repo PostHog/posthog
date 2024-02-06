@@ -1,12 +1,12 @@
 import { urls } from '@posthog/apps-common'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItem, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconPlus } from 'lib/lemon-ui/icons'
+import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { useMemo, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
@@ -20,6 +20,8 @@ import {
     RecordingFilters,
 } from '~/types'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+
 export const SimpleSessionRecordingsFilters = ({
     filters,
     setFilters,
@@ -31,18 +33,7 @@ export const SimpleSessionRecordingsFilters = ({
     localFilters: FilterType
     setLocalFilters: (localFilters: FilterType) => void
 }): JSX.Element => {
-    const { currentTeam } = useValues(teamLogic)
-
-    const displayNameProperties = useMemo(() => currentTeam?.person_display_name_properties ?? [], [currentTeam])
-
-    const personPropertyOptions = useMemo(() => {
-        const properties = [{ label: 'Country', key: '$geoip_country_name' }]
-        return properties.concat(
-            displayNameProperties.slice(0, 2).map((property) => {
-                return { label: property, key: property }
-            })
-        )
-    }, [displayNameProperties])
+    const { simpleFilterPersonProperties } = useValues(playerSettingsLogic)
 
     const pageviewEvent = localFilters.events?.find((event) => event.id === '$pageview')
 
@@ -52,19 +43,6 @@ export const SimpleSessionRecordingsFilters = ({
     return (
         <div className="space-y-2">
             <div className="flex flex-wrap gap-1">
-                {personPropertyOptions.map(({ label, key }) => (
-                    <SimpleSessionRecordingsFiltersInserter
-                        key={key}
-                        type={PropertyFilterType.Person}
-                        propertyKey={key}
-                        label={label}
-                        disabled={personProperties.some((property) => property.key === key)}
-                        onChange={(newProperties) => {
-                            const properties = filters.properties || []
-                            setFilters({ ...filters, properties: [...properties, ...newProperties] })
-                        }}
-                    />
-                ))}
                 <SimpleSessionRecordingsFiltersInserter
                     type={PropertyFilterType.Event}
                     propertyKey="$current_url"
@@ -86,13 +64,19 @@ export const SimpleSessionRecordingsFilters = ({
                         })
                     }}
                 />
-                {displayNameProperties.length === 0 && (
-                    <Link to={urls.settings('project', 'person-display-name')}>
-                        <LemonButton size="small" className="whitespace-nowrap" icon={<IconPlus />}>
-                            Add person properties
-                        </LemonButton>
-                    </Link>
-                )}
+                {simpleFilterPersonProperties.map(({ label, key }) => (
+                    <SimpleSessionRecordingsFiltersInserter
+                        key={key}
+                        type={PropertyFilterType.Person}
+                        propertyKey={key}
+                        label={label}
+                        disabled={personProperties.some((property) => property.key === key)}
+                        onChange={(newProperties) => {
+                            const properties = filters.properties || []
+                            setFilters({ ...filters, properties: [...properties, ...newProperties] })
+                        }}
+                    />
+                ))}
             </div>
 
             {personProperties && (
@@ -199,5 +183,43 @@ const SimpleSessionRecordingsFiltersInserter = ({
                 </LemonButton>
             </Popover>
         </BindLogic>
+    )
+}
+
+export const SimpleSessionRecordingFilterSettings = (): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+    const { simpleFilterPersonProperties } = useValues(playerSettingsLogic)
+    const { toggleSimpleFilterProperty } = useActions(playerSettingsLogic)
+
+    const displayNameProperties = useMemo(() => currentTeam?.person_display_name_properties ?? [], [currentTeam])
+
+    const personPropertyMenuOptions: LemonMenuItem[] = useMemo(() => {
+        return displayNameProperties.map((property) => {
+            return {
+                label: property,
+                value: property,
+                active: simpleFilterPersonProperties.includes(property),
+                onClick: () => toggleSimpleFilterProperty(property),
+            }
+        })
+    }, [displayNameProperties, simpleFilterPersonProperties])
+
+    return (
+        <LemonMenu
+            closeOnClickInside={false}
+            items={[
+                {
+                    title: 'Choose person properties',
+                    items: personPropertyMenuOptions,
+                },
+                {
+                    label: 'Add more properties',
+                    icon: <IconPlus />,
+                    to: urls.settings('project', 'person-display-name'),
+                },
+            ]}
+        >
+            <LemonButton size="small" icon={<IconSettings />} />
+        </LemonMenu>
     )
 }

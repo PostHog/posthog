@@ -9,7 +9,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconFilter, IconTuning, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -198,7 +198,7 @@ function RecordingsLists(): JSX.Element {
                         tooltip="Playlist settings"
                         size="small"
                         active={showSettings}
-                        icon={<IconSettings />}
+                        icon={<IconTuning />}
                         onClick={() => setShowSettings(!showSettings)}
                     />
                     <LemonTableLoader loading={sessionRecordingsResponseLoading} />
@@ -212,7 +212,7 @@ function RecordingsLists(): JSX.Element {
                             filters={filters}
                             setFilters={setFilters}
                             showPropertyFilters={!logicProps.personUUID}
-                            onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                            onReset={resetFilters}
                             hasAdvancedFilters={hasAdvancedFilters}
                             showAdvancedFilters={showAdvancedFilters}
                             setShowAdvancedFilters={setShowAdvancedFilters}

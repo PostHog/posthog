@@ -183,6 +183,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
+        toggleSimpleFilterProperty: (property: string) => ({ property }),
     }),
     reducers(() => ({
         showFilters: [
@@ -236,6 +237,20 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
+            },
+        ],
+        simpleFilterDisplayNameProperties: [
+            [],
+            { persist: true },
+            {
+                toggleSimpleFilterProperty: (state, { property }) => {
+                    const isPresent = state.includes(property)
+                    return isPresent
+                        ? state.filter((p) => {
+                              return p !== property
+                          })
+                        : [...state, property]
+                },
             },
         ],
 
@@ -336,6 +351,18 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                     acc[filter.key] = filter
                     return acc
                 }, {})
+            },
+        ],
+
+        simpleFilterPersonProperties: [
+            (s) => [s.simpleFilterDisplayNameProperties],
+            (displayNameProperties): { label: string; key: string }[] => {
+                const properties = [{ label: 'Country', key: '$geoip_country_name' }]
+                return properties.concat(
+                    displayNameProperties.map((property) => {
+                        return { label: property, key: property }
+                    })
+                )
             },
         ],
     }),

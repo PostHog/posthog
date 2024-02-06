@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
 
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
-import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
+import { SimpleSessionRecordingFilterSettings, SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -70,52 +70,41 @@ export function SessionRecordingsFilters({
     }, [filters])
 
     return (
-        <div className="relative flex flex-col gap-6 p-3">
+        <div className="relative flex flex-col gap-4 p-3">
             <div className="space-y-1">
-                {onReset && (
-                    <span className="absolute top-2 right-2">
+                <div className="flex justify-between">
+                    <LemonLabel>Find sessions by:</LemonLabel>
+                    {showAdvancedFilters ? (
                         <LemonButton size="small" onClick={onReset}>
                             Reset
                         </LemonButton>
-                    </span>
-                )}
-
-                <LemonLabel info="Show recordings where all of below filters match.">Find sessions by:</LemonLabel>
-
-                <LemonSegmentedButton
-                    size="small"
-                    value={showAdvancedFilters ? 'advanced' : 'simple'}
-                    options={[
-                        {
-                            value: 'simple',
-                            label: 'Simple filters',
-                            disabledReason: hasAdvancedFilters
-                                ? 'You are only allowed person filters and a single pageview event (filtered by current url) to switch back to simple filters'
-                                : undefined,
-                        },
-                        { value: 'advanced', label: 'Advanced filters' },
-                    ]}
-                    onChange={(newValue) => setShowAdvancedFilters(newValue === 'advanced')}
-                    data-attr={`session-recordings-show-${showAdvancedFilters ? 'simple' : 'advanced'}-filters`}
-                    fullWidth
-                />
+                    ) : (
+                        <SimpleSessionRecordingFilterSettings />
+                    )}
+                </div>
             </div>
 
             {showAdvancedFilters ? (
-                <AdvancedSessionRecordingsFilters
-                    filters={filters}
-                    setFilters={setFilters}
-                    localFilters={localFilters}
-                    setLocalFilters={setLocalFilters}
-                    showPropertyFilters={showPropertyFilters}
-                />
+                <>
+                    <AdvancedSessionRecordingsFilters
+                        filters={filters}
+                        setFilters={setFilters}
+                        localFilters={localFilters}
+                        setLocalFilters={setLocalFilters}
+                        showPropertyFilters={showPropertyFilters}
+                    />
+                    <LemonButton onClick={() => setShowAdvancedFilters(false)}>Show simple filters</LemonButton>
+                </>
             ) : (
-                <SimpleSessionRecordingsFilters
-                    filters={filters}
-                    setFilters={setFilters}
-                    localFilters={localFilters}
-                    setLocalFilters={setLocalFilters}
-                />
+                <div className="space-y-2">
+                    <SimpleSessionRecordingsFilters
+                        filters={filters}
+                        setFilters={setFilters}
+                        localFilters={localFilters}
+                        setLocalFilters={setLocalFilters}
+                    />
+                    <LemonButton onClick={() => setShowAdvancedFilters(true)}>Show advanced filters</LemonButton>
+                </div>
             )}
         </div>
     )
