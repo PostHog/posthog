@@ -969,7 +969,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             ...query,
                             source: {
                                 ...query.source,
-                                // limit: 50, // wait for https://github.com/PostHog/posthog/pull/20120
+                                limit: 50,
                             },
                         }
                     } else {
