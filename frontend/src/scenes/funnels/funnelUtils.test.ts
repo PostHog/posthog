@@ -1,12 +1,11 @@
 import { dayjs } from 'lib/dayjs'
 
-import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema'
+import { EventsNode, FunnelExclusionSteps, FunnelsQuery, NodeKind } from '~/queries/schema'
 import {
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,
     FunnelCorrelationResultsType,
     FunnelCorrelationType,
-    FunnelExclusion,
 } from '~/types'
 
 import {
@@ -174,7 +173,7 @@ describe('getIncompleteConversionWindowStartDate()', () => {
 
 describe('getClampedStepRange', () => {
     it('prefers step range to existing filters', () => {
-        const stepRange: FunnelExclusion = {
+        const stepRange: FunnelExclusionSteps = {
             funnelFromStep: 0,
             funnelToStep: 1,
         }
@@ -197,7 +196,7 @@ describe('getClampedStepRange', () => {
     })
 
     it('ensures step range is clamped to step range', () => {
-        const stepRange: FunnelExclusion = {}
+        const stepRange: FunnelExclusionSteps = {}
         const query: FunnelsQuery = {
             kind: NodeKind.FunnelsQuery,
             funnelsFilter: {
@@ -218,7 +217,7 @@ describe('getClampedStepRange', () => {
     })
 
     it('returns undefined if the incoming filters are undefined', () => {
-        const stepRange: FunnelExclusion = {}
+        const stepRange: FunnelExclusionSteps = {}
         const query: FunnelsQuery = {
             kind: NodeKind.FunnelsQuery,
             funnelsFilter: {

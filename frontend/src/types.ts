@@ -26,7 +26,7 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
+import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -588,13 +588,13 @@ export enum PipelineTab {
     AppsManagement = 'apps-management',
 }
 
-export enum PipelineAppKind {
+export enum PipelineStage {
     Filter = 'filter',
     Transformation = 'transformation',
     Destination = 'destination',
 }
 
-export enum PipelineAppTab {
+export enum PipelineNodeTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
@@ -813,6 +813,7 @@ export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
+    DOCTOR = 'doctor',
 }
 
 export enum SessionPlayerState {
@@ -890,14 +891,19 @@ export type EntityFilter = {
     order?: number
 }
 
+export interface ActionFilter extends EntityFilter {
+    math?: string
+    math_property?: string
+    math_group_type_index?: number | null
+    math_hogql?: string
+    properties?: AnyPropertyFilter[]
+    type: EntityType
+    days?: string[] // TODO: why was this added here?
+}
+
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step?: number
     funnel_to_step?: number
-}
-
-export interface FunnelExclusion extends Partial<EntityFilter> {
-    funnelFromStep?: number
-    funnelToStep?: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
@@ -1701,7 +1707,7 @@ export interface PluginConfigTypeNew {
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
 export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
-    plugin_info: PluginType | null
+    plugin_info: PluginType
 }
 
 export interface PluginErrorType {
@@ -1737,7 +1743,7 @@ export interface BatchExportLogEntry {
     batch_export_id: number
     run_id: number
     timestamp: string
-    level: PipelineAppLogLevel
+    level: PipelineLogLevel
     message: string
 }
 
@@ -2112,15 +2118,6 @@ export interface SystemStatusAnalyzeResult {
     flamegraphs: Record<string, string>
 }
 
-export interface ActionFilter extends EntityFilter {
-    days?: string[]
-    math?: string
-    math_property?: string
-    math_group_type_index?: number | null
-    math_hogql?: string
-    properties?: AnyPropertyFilter[]
-    type: EntityType
-}
 export interface TrendAPIResponse<ResultType = TrendResult[]> {
     type: 'Trends'
     is_cached: boolean

@@ -11,7 +11,6 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
@@ -61,14 +60,11 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         schemas_to_sync = await sync_to_async(get_postgres_schemas)(  # type: ignore
             host, port, database, user, password, schema
         )
-    else:
-        schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type])
-
-    await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-        schemas_to_sync,
-        source_id=inputs.external_data_source_id,
-        team_id=inputs.team_id,
-    )
+        await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
+            schemas_to_sync,
+            source_id=inputs.external_data_source_id,
+            team_id=inputs.team_id,
+        )
 
     schemas = await sync_to_async(get_active_schemas_for_source_id)(  # type: ignore
         team_id=inputs.team_id, source_id=inputs.external_data_source_id

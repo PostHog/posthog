@@ -11,8 +11,8 @@ import { AppsManagement } from './AppsManagement'
 import { Destinations } from './Destinations'
 import { NewButton } from './NewButton'
 import { Overview } from './Overview'
-import { PIPELINE_TAB_TO_APP_KIND } from './PipelineApp'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
+import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
@@ -26,13 +26,13 @@ export function Pipeline(): JSX.Element {
         [PipelineTab.AppsManagement]: <AppsManagement />,
     }
 
-    const maybeKind = PIPELINE_TAB_TO_APP_KIND[currentTab]
+    const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
 
     return (
         <div className="pipeline-scene">
             <PageHeader
                 caption="Add filters or transformations to the events sent to PostHog or export them to other tools."
-                buttons={maybeKind ? <NewButton kind={maybeKind} /> : undefined}
+                buttons={maybeKind ? <NewButton stage={maybeKind} /> : undefined}
             />
             <LemonTabs
                 activeKey={currentTab}

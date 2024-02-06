@@ -1607,7 +1607,7 @@ exports[`replay/transform transform inputs closed keyboard custom event 1`] = `
     "removes": [
       {
         "id": 10,
-        "parentId": 5,
+        "parentId": 9,
       },
     ],
     "source": 0,

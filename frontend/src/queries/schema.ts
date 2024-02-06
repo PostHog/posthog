@@ -9,7 +9,6 @@ import {
     EventPropertyFilter,
     EventType,
     FilterType,
-    FunnelExclusion,
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
@@ -188,6 +187,8 @@ export interface HogQLQueryResponse {
     timings?: QueryTiming[]
     /** Query explanation output */
     explain?: string[]
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
     hasMore?: boolean
@@ -243,7 +244,10 @@ export interface HogQLMetadata extends DataNode {
     exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
+    /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
+    /** Enable more verbose output, usually run from the /debug page */
+    debug?: boolean
     response?: HogQLMetadataResponse
 }
 
@@ -280,6 +284,8 @@ export interface ActionsNode extends EntityNode {
     /**  @asType integer */
     id: number
 }
+
+export type AnyEntityNode = EventsNode | ActionsNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -548,7 +554,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -570,6 +576,16 @@ export type FunnelsFilterLegacy = Omit<
     | 'funnel_step'
     | 'funnel_custom_steps'
 >
+
+export interface FunnelExclusionSteps {
+    /** @asType integer */
+    funnelFromStep?: number
+    /** @asType integer */
+    funnelToStep?: number
+}
+export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
+export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
+export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
     exclusions?: FunnelExclusion[]
@@ -593,7 +609,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -702,7 +718,7 @@ export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_gr
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
 }
@@ -787,7 +803,7 @@ export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_gro
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
