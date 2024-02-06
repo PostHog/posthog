@@ -919,7 +919,9 @@ class WebStatsTableQueryResponse(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[float] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[float] = None
     results: List
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
@@ -1301,7 +1303,9 @@ class QueryResponseAlternative10(BaseModel):
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[float] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[float] = None
     results: List
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None

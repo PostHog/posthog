@@ -945,6 +945,8 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     hogql?: string
     samplingRate?: SamplingRate
     hasMore?: boolean
+    limit?: number
+    offset?: number
 }
 
 export type InsightQueryNode =

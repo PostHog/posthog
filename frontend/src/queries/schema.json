@@ -3499,8 +3499,14 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "limit": {
+                            "type": "number"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
+                        },
+                        "offset": {
+                            "type": "number"
                         },
                         "results": {
                             "items": {},
@@ -4986,8 +4992,14 @@
                 "last_refresh": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "number"
+                },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "offset": {
+                    "type": "number"
                 },
                 "results": {
                     "items": {},
