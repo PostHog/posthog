@@ -1377,7 +1377,7 @@ class QueryResponseAlternative11(BaseModel):
     types: Optional[List] = None
 
 
-class QueryResponseAlternative11(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
