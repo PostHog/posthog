@@ -460,10 +460,7 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
 
 
 class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     serializer_class = BatchExportLogEntrySerializer
 
     def get_queryset(self):
