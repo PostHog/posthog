@@ -153,6 +153,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
     placement: DashboardPlacement | 'SavedInsightGrid'
+    /** Priority for loading the insight, lower is earlier. */
+    loadPriority?: number
 }
 
 function VizComponentFallback(): JSX.Element {
@@ -246,6 +248,7 @@ function InsightCardInternal(
         children,
         moreButtons,
         placement,
+        loadPriority,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -254,6 +257,7 @@ function InsightCardInternal(
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
         cachedInsight: insight,
+        loadPriority,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
