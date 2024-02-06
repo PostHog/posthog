@@ -4,20 +4,14 @@ import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { Dispatch, SetStateAction, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { PersonalAPIKeyType } from '~/types'
 
 import { CopyToClipboardInline } from '../../../lib/components/CopyToClipboard'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 
-function CreateKeyModal({
-    isOpen,
-    setIsOpen,
-}: {
-    isOpen: boolean
-    setIsOpen: Dispatch<SetStateAction<boolean>>
-}): JSX.Element {
+function EditKeyModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { createKey } = useActions(personalAPIKeysLogic)
 
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -25,8 +19,8 @@ function CreateKeyModal({
 
     const closeModal: () => void = useCallback(() => {
         setErrorMessage(null)
-        setIsOpen(false)
-    }, [setIsOpen])
+        onClose()
+    }, [onClose])
 
     return (
         <LemonModal
@@ -126,11 +120,12 @@ function PersonalAPIKeysTable(): JSX.Element {
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: `Permanently delete key "${key.label}"?`,
-                                        description: 'This action cannot be undone.',
+                                        description:
+                                            'This action cannot be undone. Make sure to have removed the key from any live integrations first.',
                                         primaryButton: {
                                             status: 'danger',
                                             children: 'Permanently delete',
-                                            onClick: () => deleteKey(key),
+                                            onClick: () => deleteKey(key.id),
                                         },
                                     })
                                 }}
@@ -146,7 +141,7 @@ function PersonalAPIKeysTable(): JSX.Element {
 }
 
 export function PersonalAPIKeys(): JSX.Element {
-    const [modalIsOpen, setModalIsOpen] = useState(false)
+    const [editingId, setEditingId] = useState<string | null>(null)
 
     return (
         <>
@@ -165,7 +160,7 @@ export function PersonalAPIKeys(): JSX.Element {
             <LemonButton
                 type="primary"
                 onClick={() => {
-                    setModalIsOpen(true)
+                    setEditingId('new')
                 }}
                 icon={<IconPlus />}
             >
@@ -174,7 +169,7 @@ export function PersonalAPIKeys(): JSX.Element {
 
             <PersonalAPIKeysTable />
 
-            <CreateKeyModal isOpen={modalIsOpen} setIsOpen={setModalIsOpen} />
+            <EditKeyModal isOpen={!!editingId} onClose={() => setEditingId(null)} id={editingId} />
         </>
     )
 }

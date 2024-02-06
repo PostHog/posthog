@@ -1,4 +1,4 @@
-import { kea, listeners, path } from 'kea'
+import { actions, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -10,23 +10,38 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
+    actions({
+        loadKeys: true,
+        createKey: (label: string) => ({ label }),
+        updateKey: (data: Partial<Pick<PersonalAPIKeyType, 'label' | 'scopes'>>) => data,
+        deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
+    }),
     loaders(({ values }) => ({
         keys: [
             [] as PersonalAPIKeyType[],
             {
                 loadKeys: async () => {
-                    const response: PersonalAPIKeyType[] = await api.get('api/personal_api_keys/')
-                    return response
+                    return await api.personalApiKeys.list()
                 },
-                createKey: async (label: string) => {
-                    const newKey: PersonalAPIKeyType = await api.create('api/personal_api_keys/', {
-                        label,
-                    })
+                createKey: async ({ label }) => {
+                    const newKey = await api.personalApiKeys.create({ label })
                     return [newKey, ...values.keys]
                 },
-                deleteKey: async (key: PersonalAPIKeyType) => {
-                    await api.delete(`api/personal_api_keys/${key.id}/`)
-                    return values.keys.filter((filteredKey) => filteredKey.id != key.id)
+
+                updateKey: async (payload) => {
+                    const updatedKey = await api.personalApiKeys.update(values.keys[0].id, payload)
+
+                    return values.keys.map((key) => {
+                        if (key.id === updatedKey.id) {
+                            return updatedKey
+                        }
+                        return key
+                    })
+                },
+                deleteKey: async ({ id }) => {
+                    await api.personalApiKeys.delete(id)
+                    await api.delete(`api/personal_api_keys/${id}/`)
+                    return values.keys.filter((filteredKey) => filteredKey.id != id)
                 },
             },
         ],

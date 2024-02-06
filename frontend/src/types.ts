@@ -270,6 +270,7 @@ export interface PersonalAPIKeyType {
     last_used_at: string
     team_id: number
     user_id: string
+    scopes: string[]
 }
 
 export interface OrganizationBasicType {
