@@ -371,6 +371,8 @@ class TeamViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, team: Team):
         team_id = team.pk
 
+        user = cast(User, self.request.user)
+
         delete_bulky_postgres_data(team_ids=[team_id])
         delete_batch_exports(team_ids=[team_id])
 
@@ -384,14 +386,14 @@ class TeamViewSet(viewsets.ModelViewSet):
                     deletion_type=DeletionType.Team,
                     team_id=team_id,
                     key=str(team_id),
-                    created_by=cast(User, self.request.user),
+                    created_by=user,
                 )
             ],
             ignore_conflicts=True,
         )
 
         # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
-        report_user_action(self.request.user, f"team deleted", team=team)
+        report_user_action(user, f"team deleted", team=team)
 
     @action(
         methods=["PATCH"],
