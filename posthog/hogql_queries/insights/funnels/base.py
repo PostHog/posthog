@@ -16,11 +16,12 @@ from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.schema import (
     ActionsNode,
     BreakdownAttributionType,
+    BreakdownType,
     EventsNode,
     FunnelExclusionActionsNode,
-    BreakdownFilter,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
+from rest_framework.exceptions import ValidationError
 
 
 class FunnelBase(ABC):
@@ -53,79 +54,36 @@ class FunnelBase(ABC):
         raise NotImplementedError()
 
     def _get_breakdown_select_prop(self) -> List[ast.Expr]:
-        breakdownFilter, breakdownAttributionType = self.context.breakdownFilter, self.context.breakdownAttributionType
-        basic_prop_selector: ast.Expr
+        breakdown, breakdownFilter, breakdownType, breakdownAttributionType = (
+            self.context.breakdown,
+            self.context.breakdownFilter,
+            self.context.breakdownType,
+            self.context.breakdownAttributionType,
+        )
 
-        if not breakdownFilter.breakdown:
+        if not breakdown:
             return []
 
-        if breakdownFilter.breakdown_type == "person":
-            # if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED:
-            #     basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
-            #         breakdownFilter.breakdown,
-            #         table="events",
-            #         query_alias="prop_basic",
-            #         column="person_properties",
-            #         allow_denormalized_props=True,
-            #         materialised_table_column="person_properties",
-            #     )
-            # else:
-            #     basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
-            #         breakdownFilter.breakdown,
-            #         table="person",
-            #         query_alias="prop_basic",
-            #         column="person_props",
-            #     )
+        # breakdown prop
+        basic_prop_selector: ast.Expr
+        if breakdownType == "person":
+            basic_prop_selector = ast.Alias(alias="prop_basic", expr=parse_expr(f"person.properties.{breakdown}"))
+        elif breakdownType == "event":
+            # TODO: implement breakdownFilter.breakdown_normalize_url,
             basic_prop_selector = ast.Alias(
-                alias="prop_basic", expr=parse_expr(f"person.properties.{breakdownFilter.breakdown}")
-            )
-        elif breakdownFilter.breakdown_type == "event":
-            # basic_prop_selector, basic_prop_params = get_single_or_multi_property_string_expr(
-            #     breakdownFilter.breakdown,
-            #     table="events",
-            #     query_alias="prop_basic",
-            #     column="properties",
-            #     normalize_url=breakdownFilter.breakdown_normalize_url,
-            # )
-            basic_prop_selector = ast.Alias(
-                alias="prop_basic", expr=parse_expr(f"properties.{breakdownFilter.breakdown}")
-            )
-        elif breakdownFilter.breakdown_type == "cohort":
+                alias="prop_basic", expr=parse_expr(f"[properties.{breakdown[0]}]")
+            )  # TODO: implement real multi-breakdown?
+        elif breakdownType == "cohort":
             basic_prop_selector = ast.Alias(alias="prop_basic", expr=ast.Field(chain=["value"]))
-        # elif breakdownFilter.breakdown_type == "group":
-        #     # :TRICKY: We only support string breakdown for group properties
-        #     assert isinstance(breakdownFilter.breakdown, str)
-
-        #     if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
-        #         properties_field = f"group{breakdownFilter.breakdown_group_type_index}_properties"
-        #         expression, _ = get_property_string_expr(
-        #             table="events",
-        #             property_name=breakdownFilter.breakdown,
-        #             var="%(breakdown)s",
-        #             column=properties_field,
-        #             allow_denormalized_props=True,
-        #             materialised_table_column=properties_field,
-        #         )
-        #     else:
-        #         properties_field = f"group_properties_{breakdownFilter.breakdown_group_type_index}"
-        #         expression, _ = get_property_string_expr(
-        #             table="groups",
-        #             property_name=breakdownFilter.breakdown,
-        #             var="%(breakdown)s",
-        #             column=properties_field,
-        #         )
-        #     basic_prop_selector = f"{expression}"
-        elif breakdownFilter.breakdown_type == "hogql":
-            #     from posthog.hogql.hogql import translate_hogql
-
-            #     breakdown = breakdownFilter.breakdown
-            #     if isinstance(breakdown, list):
-            #         expressions = [translate_hogql(exp, self._filter.hogql_context) for exp in breakdown]
-            #         expression = f"array({','.join(expressions)})"
-            #     else:
-            #         expression = translate_hogql(cast(str, breakdown), self._filter.hogql_context)
-            #     basic_prop_selector = f"{expression}"
-            basic_prop_selector = ast.Alias(alias="prop_basic", expr=breakdownFilter.breakdown)
+        elif breakdownType == "group":
+            basic_prop_selector = ast.Alias(
+                alias="prop_basic",
+                expr=parse_expr(f"group{breakdownFilter.breakdown_group_type_index}_properties.{breakdown}"),
+            )
+        elif breakdownType == "hogql":
+            basic_prop_selector = ast.Alias(alias="prop_basic", expr=breakdown)
+        else:
+            raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
         # # TODO: simplify once array and string breakdowns are sorted
         if breakdownAttributionType == BreakdownAttributionType.step:
@@ -172,12 +130,12 @@ class FunnelBase(ABC):
             ]
 
     def _format_results(self, results) -> List[Dict[str, Any]] | List[List[Dict[str, Any]]]:
-        breakdownFilter = self.context.breakdownFilter
+        breakdown = self.context.breakdown
 
         if not results or len(results) == 0:
             return []
 
-        if breakdownFilter.breakdown:
+        if breakdown:
             return [self._format_single_funnel(res, with_breakdown=True) for res in results]
         else:
             return self._format_single_funnel(results[0])
@@ -292,10 +250,11 @@ class FunnelBase(ABC):
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
-        query, funnelsFilter, breakdownFilter, breakdownAttributionType = (
+        query, funnelsFilter, breakdownFilter, breakdown, breakdownAttributionType = (
             self.context.query,
             self.context.funnelsFilter,
             self.context.breakdownFilter,
+            self.context.breakdown,
             self.context.breakdownAttributionType,
         )
         entities_to_use = entities or query.series
@@ -348,14 +307,15 @@ class FunnelBase(ABC):
         #     # step_filter="AND ({})".format(steps_conditions),
         # )
 
-        if breakdownFilter.breakdown and breakdownAttributionType != BreakdownAttributionType.all_events:
+        if breakdown and breakdownAttributionType != BreakdownAttributionType.all_events:
             # ALL_EVENTS attribution is the old default, which doesn't need the subquery
             return self._add_breakdown_attribution_subquery(funnel_events_query)
 
         return funnel_events_query
 
     def _add_breakdown_attribution_subquery(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        breakdownFilter, breakdownAttributionType = (
+        breakdown, breakdownFilter, breakdownAttributionType = (
+            self.context.breakdown,
             self.context.breakdownFilter,
             self.context.breakdownAttributionType,
         )
@@ -368,23 +328,16 @@ class FunnelBase(ABC):
             # so just select that. Except for the empty case, where we select the default.
 
             if self._query_has_array_breakdown():
-                breakdown_selector = "TODObreakdown_selectorTODO"  # TODO: implement
-                # default_breakdown_value = (
-                #     f"""[{','.join(["''" for _ in range(len(breakdownFilter.breakdown or []))])}]"""
-                # )
-                # # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
-                # breakdown_selector = (
-                #     f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
-                # )
+                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
+                # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
+                breakdown_selector = parse_expr(
+                    f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
+                )
             else:
-                breakdown_selector = "prop_vals"
+                breakdown_selector = ast.Field(chain=["prop_vals"])
 
-            # return f"""
-            #     SELECT *, {breakdown_selector} as prop
-            #     FROM ({inner_query})
-            # """
             return ast.SelectQuery(
-                select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=ast.Field(chain=[breakdown_selector]))],
+                select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=breakdown_selector)],
                 select_from=ast.JoinExpr(table=inner_query),
             )
 
@@ -397,10 +350,11 @@ class FunnelBase(ABC):
         #     ARRAY JOIN prop_vals as prop
         #     {"WHERE prop != []" if self._query_has_array_breakdown() else ''}
         # """
-        return ast.SelectQuery(
-            select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=ast.Field(chain=[breakdown_selector]))],
-            select_from=ast.JoinExpr(table=inner_query),
-        )
+        return ast.SelectQuery()  # TODO implement otehr attribution types
+        # return ast.SelectQuery(
+        #     select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=ast.Field(chain=[breakdown_selector]))],
+        #     select_from=ast.JoinExpr(table=inner_query),
+        # )
 
     # def _get_steps_conditions(self, length: int) -> str:
     #     step_conditions: List[str] = []
@@ -641,46 +595,92 @@ class FunnelBase(ABC):
 
     def _get_breakdown_expr(self, group_remaining=False) -> List[ast.Expr]:
         # SEE BELOW for a string implementation of the following
-        breakdownFilter = self.context.breakdownFilter
+        breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
 
-        if breakdownFilter.breakdown:
-            return [ast.Field(chain=["prop"])]
-        #     other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
-        #     if group_remaining and breakdownFilter.breakdown_type in [
-        #         "person",
-        #         "event",
-        #         "group",
-        #     ]:
-        #         return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
-        #     else:
-        #         # Cohorts don't have "Other" aggregation
-        #         return [ast.Field(chain=["prop"])]
-        #         # return ", prop"
+        if breakdown:
+            breakdown_values = self._get_breakdown_conditions()
+            other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
+            if group_remaining and breakdownType in [
+                BreakdownType.person,
+                BreakdownType.event,
+                BreakdownType.group,
+            ]:
+                return [parse_expr(f"if(has({breakdown_values}, prop), prop, {other_aggregation}) as prop")]
+            else:
+                # Cohorts don't have "Other" aggregation
+                return [ast.Field(chain=["prop"])]
         else:
             return []
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         # SEE ABOVE for an ast implementation of the following
-        breakdownFilter = self.context.breakdownFilter
+        breakdown = self.context.breakdown
 
-        if breakdownFilter.breakdown:
+        if breakdown:
+            # TODO: implement the below if group_remaining can ever be true
+            # breakdown_values = self._get_breakdown_conditions()
+            # other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
+            # if group_remaining and breakdownFilter.breakdown_type in [
+            #     BreakdownType.person,
+            #     BreakdownType.event,
+            #     BreakdownType.group,
+            # ]:
+            #     return f", if(has({breakdown_values}, prop), prop, {other_aggregation}) as prop"
+            # else:
+            #     # Cohorts don't have "Other" aggregation
             return ", prop"
-        #     other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
-        #     if group_remaining and self._filter.breakdown_type in [
-        #         "person",
-        #         "event",
-        #         "group",
-        #     ]:
-        #         return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
-        #     else:
-        #         # Cohorts don't have "Other" aggregation
-        #         return ", prop"
         else:
             return ""
 
+    def _get_breakdown_conditions(self) -> Optional[List[str]]:
+        """
+        For people, pagination sets the offset param, which is common across filters
+        and gives us the wrong breakdown values here, so we override it.
+        For events, depending on the attribution type, we either look at only one entity,
+        or all of them in the funnel.
+        if this is a multi property breakdown then the breakdown values are misleading
+        e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
+        so the generated list here must be [[Chrome, 95], [Safari, 15]]
+        """
+        breakdown, breakdownAttributionType = self.context.breakdown, self.context.breakdownAttributionType
+
+        if breakdown:
+            # use_all_funnel_entities = (
+            #     breakdownAttributionType
+            #     in [
+            #         BreakdownAttributionType.first_touch,
+            #         BreakdownAttributionType.last_touch,
+            #     ]
+            #     # TODO: or self._filter.funnel_order_type == FunnelOrderType.UNORDERED
+            #     or True
+            # )
+            # first_entity = self._filter.entities[0]
+
+            # target_entity = first_entity
+            # # if (
+            # #     self._filter.breakdown_attribution_value is not None
+            # #     and breakdownAttributionType == BreakdownAttributionType.STEP
+            # # ):
+            # #     target_entity = self._filter.entities[self._filter.breakdown_attribution_value]
+
+            # values, has_more_values = get_breakdown_prop_values(
+            #     self._filter,
+            #     target_entity,
+            #     "count(*)",
+            #     self._team,
+            #     extra_params={"offset": 0},
+            #     use_all_funnel_entities=use_all_funnel_entities,
+            #     person_properties_mode=get_person_properties_mode(self._team),
+            # )
+            # return values
+            return [["Safari"], ["Chrome"]]
+            # return ["Safari", "Chrome"]
+
+        return None
+
     def _query_has_array_breakdown(self) -> bool:
-        breakdown, breakdown_type = self.context.breakdownFilter.breakdown, self.context.breakdownFilter.breakdown_type
-        return not isinstance(breakdown, str) and breakdown_type != "cohort"
+        breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
+        return not isinstance(breakdown, str) and breakdownType != "cohort"
 
     def _get_exclusion_condition(self) -> List[ast.Expr]:
         funnelsFilter = self.context.funnelsFilter

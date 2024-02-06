@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models.filters.filter import Filter
 
 # from posthog.models.cohort import Cohort
 # from posthog.models.filters import Filter
@@ -35,6 +36,7 @@ class FunnelStepResult:
 def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
     class TestFunnelBreakdown(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
+            filter = Filter(data=filter, team=self.team)
             person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
             _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
 
@@ -304,11 +306,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, "Chrome"),
+                self._get_actor_ids_at_step(filters, 1, "Chrome"),
                 [people["person1"].uuid],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2, "Chrome"),
+                self._get_actor_ids_at_step(filters, 2, "Chrome"),
                 [people["person1"].uuid],
             )
             self._assert_funnel_breakdown_result_is_correct(
@@ -327,11 +329,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, "Safari"),
+                self._get_actor_ids_at_step(filters, 1, "Safari"),
                 [people["person2"].uuid, people["person3"].uuid],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2, "Safari"),
+                self._get_actor_ids_at_step(filters, 2, "Safari"),
                 [people["person2"].uuid],
             )
 
