@@ -3500,13 +3500,13 @@
                             "type": "string"
                         },
                         "limit": {
-                            "type": "number"
+                            "type": "integer"
                         },
                         "next_allowed_client_refresh": {
                             "type": "string"
                         },
                         "offset": {
-                            "type": "number"
+                            "type": "integer"
                         },
                         "results": {
                             "items": {},
@@ -4993,13 +4993,13 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
                 "offset": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "results": {
                     "items": {},

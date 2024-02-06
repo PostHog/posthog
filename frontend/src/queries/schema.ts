@@ -945,7 +945,9 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     hogql?: string
     samplingRate?: SamplingRate
     hasMore?: boolean
+    /** @asType integer */
     limit?: number
+    /** @asType integer */
     offset?: number
 }
 
