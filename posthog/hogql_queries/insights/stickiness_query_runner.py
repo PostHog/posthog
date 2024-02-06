@@ -288,6 +288,16 @@ class StickinessQueryRunner(QueryRunner):
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
 
+        # Ignore empty groups
+        if series.math == "unique_group" and series.math_group_type_index is not None:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    right=ast.Constant(value=""),
+                )
+            )
+
         if len(filters) == 0:
             return ast.Constant(value=True)
         elif len(filters) == 1:

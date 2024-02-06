@@ -20,7 +20,9 @@ class Command(BaseCommand):
             .order_by("id")
             .all()
         )
-        for insight in insights[100:200]:
+        for insight in insights[200:300]:
+            if insight.team_id in (4622):  # group analytics without paying
+                continue
             try:
                 print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")  # noqa: T201
                 insight_type = insight.filters.get("insight")
@@ -37,7 +39,6 @@ class Command(BaseCommand):
                     retention_filter = RetentionFilter(insight.filters, team=insight.team)
                     legacy_results = Retention().run(retention_filter, insight.team)
                 else:
-                    # insight.team.week_start_day = 1
                     filter = Filter(insight.filters, team=insight.team)
                     legacy_results = Trends().run(filter, insight.team)
                 for row in legacy_results:
@@ -45,7 +46,6 @@ class Command(BaseCommand):
                         del row["persons_urls"]
                 query = filter_to_query(insight.filters)
                 modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string)
-                # insight.team.week_start_day = 1
                 query_runner = get_query_runner(query, insight.team, modifiers=modifiers)
                 hogql_results = cast(HogQLQueryResponse, query_runner.calculate()).results or []
                 all_ok = True
@@ -72,7 +72,7 @@ class Command(BaseCommand):
                     for field in fields:
                         if legacy_result.get(field) != hogql_result.get(field):
                             print(  # noqa: T201
-                                f"Insight https://us.posthog.com/projects/{insight.team_id}/insights/{insight.short_id}/edit"
+                                f"Insight https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
                                 f" ({insight.id}). MISMATCH in {legacy_result.get('status')} row, field {field}"
                             )
                             print("Legacy:", legacy_result.get(field))  # noqa: T201
@@ -82,4 +82,5 @@ class Command(BaseCommand):
                 if all_ok:
                     print("ALL OK!")  # noqa: T201
             except Exception as e:
-                print(f"Insight https://app.posthog.com/insights/{insight.short_id}/edit ({insight.id}). ERROR: {e}")  # noqa: T201
+                url = f"https://us.posthog.com/project/{insight.team_id}/insights/{insight.short_id}/edit"
+                print(f"Insight {url} ({insight.id}). ERROR: {e}")  # noqa: T201
