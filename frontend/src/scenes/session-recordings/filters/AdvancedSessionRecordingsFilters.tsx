@@ -29,7 +29,7 @@ export const AdvancedSessionRecordingsFilters = ({
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-2 pt-4">
             <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
                 Events and actions
             </LemonLabel>

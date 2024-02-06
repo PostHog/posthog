@@ -45,7 +45,6 @@ export function SessionRecordingsFilters({
     setFilters,
     showPropertyFilters,
     onReset,
-    hasAdvancedFilters,
     showAdvancedFilters,
     setShowAdvancedFilters,
 }: SessionRecordingsFiltersProps): JSX.Element {
@@ -70,24 +69,35 @@ export function SessionRecordingsFilters({
     }, [filters])
 
     return (
-        <div className="relative flex flex-col gap-4 p-3">
+        <div className="relative flex flex-col p-3">
             <div className="space-y-1">
                 <div className="flex justify-between">
                     <LemonLabel>Find sessions by:</LemonLabel>
+
+                    {showAdvancedFilters && onReset && (
+                        <span className="absolute top-2 right-2">
+                            <LemonButton
+                                size="small"
+                                onClick={() => {
+                                    onReset()
+                                    setShowAdvancedFilters(false)
+                                }}
+                            >
+                                Reset
+                            </LemonButton>
+                        </span>
+                    )}
                 </div>
             </div>
 
             {showAdvancedFilters ? (
-                <>
-                    <AdvancedSessionRecordingsFilters
-                        filters={filters}
-                        setFilters={setFilters}
-                        localFilters={localFilters}
-                        setLocalFilters={setLocalFilters}
-                        showPropertyFilters={showPropertyFilters}
-                    />
-                    <LemonButton onClick={() => setShowAdvancedFilters(false)}>Show simple filters</LemonButton>
-                </>
+                <AdvancedSessionRecordingsFilters
+                    filters={filters}
+                    setFilters={setFilters}
+                    localFilters={localFilters}
+                    setLocalFilters={setLocalFilters}
+                    showPropertyFilters={showPropertyFilters}
+                />
             ) : (
                 <div className="space-y-2">
                     <SimpleSessionRecordingsFilters

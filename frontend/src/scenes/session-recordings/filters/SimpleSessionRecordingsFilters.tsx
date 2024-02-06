@@ -35,7 +35,7 @@ export const SimpleSessionRecordingsFilters = ({
             ...filters,
             properties: [
                 ...personProperties,
-                { type: PropertyFilterType.Person, key: key, operator: PropertyOperator.Exact },
+                { type: PropertyFilterType.Person, key: key, value: null, operator: PropertyOperator.Exact },
             ],
         })
     }
@@ -51,7 +51,12 @@ export const SimpleSessionRecordingsFilters = ({
                     name: '$pageview',
                     type: EntityTypes.EVENTS,
                     properties: [
-                        { type: PropertyFilterType.Event, key: '$current_url', operator: PropertyOperator.Exact },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$current_url',
+                            value: null,
+                            operator: PropertyOperator.Exact,
+                        },
                     ],
                 },
             ],
@@ -95,6 +100,7 @@ export const SimpleSessionRecordingsFilters = ({
                 propertyFilters={personProperties}
                 onChange={(properties) => setFilters({ properties })}
                 allowNew={false}
+                openOnInsert
             />
             <PropertyFilters
                 pageKey="session-recordings-$current_url"
@@ -117,6 +123,7 @@ export const SimpleSessionRecordingsFilters = ({
                     })
                 }}
                 allowNew={false}
+                openOnInsert
             />
             <LemonMenu
                 items={[
