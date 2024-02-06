@@ -37,7 +37,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ghcr.io/posthog/hook-janitor
+          images: ghcr.io/posthog/hog-rs/hook-janitor
           tags: |
             type=ref,event=pr
             type=ref,event=branch

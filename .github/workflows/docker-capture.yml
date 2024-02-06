@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     name: build and publish capture image
-    runs-on: buildjet-8vcpu-ubuntu-2204-arm
+    runs-on: buildjet-4vcpu-ubuntu-2204-arm
     steps:
       - name: Check Out Repo
         uses: actions/checkout@v3
@@ -37,7 +37,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ghcr.io/posthog/capture
+          images: ghcr.io/posthog/hog-rs/capture
           tags: |
             type=ref,event=pr
             type=ref,event=branch
