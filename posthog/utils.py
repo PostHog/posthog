@@ -79,10 +79,13 @@ logger = structlog.get_logger(__name__)
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
-def format_label_date(date: datetime.datetime, interval: str) -> str:
-    labels_format = "%-d-%b-%Y"
-    if interval == "hour":
-        labels_format += " %H:%M"
+def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
+    date_formats = {
+        "default": "%-d-%b-%Y",
+        "hour": "%-d-%b-%Y %H:%M",
+        "month": "%b %Y",
+    }
+    labels_format = date_formats.get(interval, date_formats["default"])
     return date.strftime(labels_format)
 
 
