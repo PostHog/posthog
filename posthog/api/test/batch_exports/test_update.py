@@ -333,3 +333,46 @@ def test_can_patch_hogql_query(client: HttpClient):
             "values": {"hogql_val_0": "test"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
         }
+
+
+def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient):
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+        "start_at": "2023-07-19 00:00:00",
+        "end_at": "2023-07-20 00:00:00",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        new_batch_export_data = {
+            "name": "my-production-s3-bucket-destination",
+            # toInt32 is not a supported HogQL function
+            "hogql_query": "select toInt32(1+1) as n from events",
+        }
+        response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
