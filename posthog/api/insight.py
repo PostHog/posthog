@@ -80,6 +80,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
+    APIScopePermission,
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
@@ -577,7 +578,9 @@ class InsightViewSet(
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
+        APIScopePermission,
     ]
+    required_scopes = ["insight"]
     throttle_classes = [
         ClickHouseBurstRateThrottle,
         ClickHouseSustainedRateThrottle,
@@ -1043,7 +1046,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True)  # required_scopes=["activity_log:read"]
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

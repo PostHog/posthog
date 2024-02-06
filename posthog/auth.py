@@ -15,6 +15,7 @@ from rest_framework.request import Request
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.personal_api_key import (
+    PersonalAPIKey,
     hash_key_value,
     PERSONAL_API_KEY_ITERATIONS_TO_TRY,
 )
@@ -32,6 +33,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    api_key: PersonalAPIKey
 
     @classmethod
     def find_key_with_source(
@@ -91,13 +93,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         return personal_api_key_object
 
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
-        personal_api_key_with_source = cls.find_key_with_source(request)
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+        personal_api_key_with_source = self.find_key_with_source(request)
         if not personal_api_key_with_source:
             return None
 
-        personal_api_key_object = cls.validate_key(personal_api_key_with_source)
+        personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
         now = timezone.now()
         key_last_used_at = personal_api_key_object.last_used_at
@@ -117,6 +118,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         request.using_personal_api_key = True  # type: ignore
         request.scopes = personal_api_key_object.scopes  # type: ignore
+
+        self.personal_api_key = personal_api_key_object
+
         return personal_api_key_object.user, None
 
     @classmethod

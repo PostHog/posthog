@@ -3,6 +3,7 @@ from typing import cast
 from django.db.models import Model
 from django.core.exceptions import ImproperlyConfigured
 
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -260,30 +261,54 @@ class APIScopePermission(BasePermission):
     The request is authenticated as a user and the token used has the right scope
     """
 
+    write_actions = ["create", "update", "partial_update", "destroy"]
+    read_actions = ["list", "retrieve"]
+
     def has_permission(self, request, view):
+        required_scopes = self.get_scopes(request, view)
+
         # API Scopes currently only apply to PersonalAPIKeyAuthentication
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             return True
 
-        request_scopes = (cast(str, request.scopes) or "").split(",")
+        key_scopes = request.successful_authenticator.personal_api_key.scopes
+        requester_scopes = (cast(str, key_scopes) or "").split(",")
 
         # If scopes is not set then full access is granted
         # TODO: Is this correct?
-        if not request_scopes:
+        if not requester_scopes:
             return True
 
-        required_scopes = self.get_scopes(request, view)
+        # LOGIC:
+        # 1. Derive the required scope from the action
+        # 2. Check if the required scope is in the requester's scopes
+        # - If the scope is :read then either :read or :write is enough
 
-        # required_scope can be ["resource"], ["resource:read"], ["resource:write"]
-        # we check each entry - if it is "resource" then either "resource:read" or "resource:write" is enough
-
+        # TODO: Abstract this into a method that we can reliably test
         for required_scope in required_scopes:
+            valid_scopes = []
             if ":" in required_scope:
-                if required_scope not in request_scopes:
-                    return False
+                # When specified with an action, then we just use it
+                valid_scopes.append(required_scope)
             else:
-                if f"{required_scope}:read" not in request_scopes and f"{required_scope}:write" not in request_scopes:
-                    return False
+                if view.action in self.write_actions:
+                    valid_scopes.append(f"{required_scope}:write")
+                elif view.action in self.read_actions or request.method == "OPTIONS":
+                    valid_scopes.append(f"{required_scope}:read")
+
+            # For all valid scopes with :read we also add :write
+            for scope in valid_scopes:
+                if scope.endswith(":read"):
+                    valid_scopes.append(scope.replace(":read", ":write"))
+
+            if not valid_scopes:
+                # NOTE: This will happen if an @action does not specify a scope
+                raise ImproperlyConfigured(
+                    f"Valid scopes could not be properly determined. Is this action missing `required_scopes`? Scopes on actions should be specific e.g. insights:read"
+                )
+
+            if not any(scope in requester_scopes for scope in valid_scopes):
+                raise PermissionDenied(f"API key missing required scope: {valid_scopes[0]}")
 
         return True
 
@@ -291,4 +316,4 @@ class APIScopePermission(BasePermission):
         try:
             return view.required_scopes
         except AttributeError:
-            raise ImproperlyConfigured("TokenHasScope requires the view to define the required_scopes attribute")
+            raise ImproperlyConfigured("APIScopePermission requires the view to define the required_scopes attribute")
