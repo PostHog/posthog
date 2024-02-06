@@ -1,4 +1,4 @@
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useEffect, useState } from 'react'
@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
 
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
-import { SimpleSessionRecordingFilterSettings, SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
+import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -74,13 +74,6 @@ export function SessionRecordingsFilters({
             <div className="space-y-1">
                 <div className="flex justify-between">
                     <LemonLabel>Find sessions by:</LemonLabel>
-                    {showAdvancedFilters ? (
-                        <LemonButton size="small" onClick={onReset}>
-                            Reset
-                        </LemonButton>
-                    ) : (
-                        <SimpleSessionRecordingFilterSettings />
-                    )}
                 </div>
             </div>
 
@@ -102,8 +95,8 @@ export function SessionRecordingsFilters({
                         setFilters={setFilters}
                         localFilters={localFilters}
                         setLocalFilters={setLocalFilters}
+                        onClickAdvancedFilters={() => setShowAdvancedFilters(true)}
                     />
-                    <LemonButton onClick={() => setShowAdvancedFilters(true)}>Show advanced filters</LemonButton>
                 </div>
             )}
         </div>
