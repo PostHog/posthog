@@ -28,8 +28,6 @@ pub enum WebhookCleanerError {
     AcquireConnError { error: sqlx::Error },
     #[error("failed to acquire conn and start txn: {error}")]
     StartTxnError { error: sqlx::Error },
-    #[error("failed to reschedule stuck jobs: {error}")]
-    RescheduleStuckJobsError { error: sqlx::Error },
     #[error("failed to get queue depth: {error}")]
     GetQueueDepthError { error: sqlx::Error },
     #[error("failed to get row count: {error}")]
@@ -145,7 +143,6 @@ impl From<FailedRow> for AppMetric {
 struct SerializableTxn<'a>(Transaction<'a, Postgres>);
 
 struct CleanupStats {
-    jobs_unstuck_count: u64,
     rows_processed: u64,
     completed_row_count: u64,
     completed_agg_row_count: u64,
@@ -184,45 +181,6 @@ impl WebhookCleaner {
             kafka_producer,
             app_metrics_topic,
         })
-    }
-
-    async fn reschedule_stuck_jobs(&self) -> Result<u64> {
-        let mut conn = self
-            .pg_pool
-            .acquire()
-            .await
-            .map_err(|e| WebhookCleanerError::AcquireConnError { error: e })?;
-
-        // The "non-transactional" worker runs the risk of crashing and leaving jobs permanently in
-        // the `running` state. This query will reschedule any jobs that have been in the running
-        // state for more than 2 minutes (which is *much* longer than we expect any Webhook job to
-        // take).
-        //
-        // We don't need to increment the `attempt` counter here because the worker already did that
-        // when it moved the job into `running`.
-        //
-        // If the previous worker was somehow stalled for 2 minutes and completes the task, that
-        // will mean we sent duplicate Webhooks. Success stats should not be affected, since both
-        // will update the same job row, which will only be processed once by the janitor.
-
-        let base_query = r#"
-        UPDATE
-            job_queue
-        SET
-            status = 'available'::job_status,
-            last_attempt_finished_at = NOW(),
-            scheduled_at = NOW()
-        WHERE
-            status = 'running'::job_status
-            AND attempted_at < NOW() - INTERVAL '2 minutes'
-        "#;
-
-        let result = sqlx::query(base_query)
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| WebhookCleanerError::RescheduleStuckJobsError { error: e })?;
-
-        Ok(result.rows_affected())
     }
 
     async fn get_queue_depth(&self) -> Result<QueueDepth> {
@@ -424,8 +382,6 @@ impl WebhookCleaner {
         let untried_status = [("status", "untried")];
         let retries_status = [("status", "retries")];
 
-        let jobs_unstuck_count = self.reschedule_stuck_jobs().await?;
-
         let queue_depth = self.get_queue_depth().await?;
         metrics::gauge!("queue_depth_oldest_scheduled", &untried_status)
             .set(queue_depth.oldest_scheduled_at_untried.timestamp() as f64);
@@ -479,7 +435,6 @@ impl WebhookCleaner {
         }
 
         Ok(CleanupStats {
-            jobs_unstuck_count,
             rows_processed: rows_deleted,
             completed_row_count,
             completed_agg_row_count,
@@ -500,8 +455,6 @@ impl Cleaner for WebhookCleaner {
                 metrics::counter!("webhook_cleanup_success",).increment(1);
                 metrics::gauge!("webhook_cleanup_last_success_timestamp",)
                     .set(get_current_timestamp_seconds());
-                metrics::counter!("webhook_cleanup_jobs_unstuck")
-                    .increment(stats.jobs_unstuck_count);
 
                 if stats.rows_processed > 0 {
                     let elapsed_time = start_time.elapsed().as_secs_f64();
@@ -546,7 +499,8 @@ mod tests {
     use hook_common::kafka_messages::app_metrics::{
         Error as WebhookError, ErrorDetails, ErrorType,
     };
-    use hook_common::pgqueue::{NewJob, PgJob, PgQueue, PgQueueJob};
+    use hook_common::pgqueue::PgQueueJob;
+    use hook_common::pgqueue::{NewJob, PgQueue, PgTransactionBatch};
     use hook_common::webhook::{HttpMethod, WebhookJobMetadata, WebhookJobParameters};
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::mocking::MockCluster;
@@ -623,9 +577,6 @@ mod tests {
             .cleanup_impl()
             .await
             .expect("webbook cleanup_impl failed");
-
-        // The one 'running' job is transitioned to 'available'.
-        assert_eq!(cleanup_stats.jobs_unstuck_count, 1);
 
         // Rows that are not 'completed' or 'failed' should not be processed.
         assert_eq!(cleanup_stats.rows_processed, 13);
@@ -821,7 +772,6 @@ mod tests {
             .expect("webbook cleanup_impl failed");
 
         // Reported metrics are all zeroes
-        assert_eq!(cleanup_stats.jobs_unstuck_count, 0);
         assert_eq!(cleanup_stats.rows_processed, 0);
         assert_eq!(cleanup_stats.completed_row_count, 0);
         assert_eq!(cleanup_stats.completed_agg_row_count, 0);
@@ -865,22 +815,20 @@ mod tests {
         assert_eq!(get_count_from_new_conn(&db, "completed").await, 6);
         assert_eq!(get_count_from_new_conn(&db, "failed").await, 7);
         assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
-        assert_eq!(get_count_from_new_conn(&db, "running").await, 1);
 
         {
             // The fixtures include an available job, so let's complete it while the txn is open.
-            let webhook_job: PgJob<WebhookJobParameters, WebhookJobMetadata> = queue
-                .dequeue(&"worker_id", 1)
+            let mut batch: PgTransactionBatch<'_, WebhookJobParameters, WebhookJobMetadata> = queue
+                .dequeue_tx(&"worker_id", 1)
                 .await
                 .expect("failed to dequeue job")
-                .expect("didn't find a job to dequeue")
-                .jobs
-                .pop()
-                .unwrap();
+                .expect("didn't find a job to dequeue");
+            let webhook_job = batch.jobs.pop().unwrap();
             webhook_job
                 .complete()
                 .await
                 .expect("failed to complete job");
+            batch.commit().await.expect("failed to commit batch");
         }
 
         {
@@ -898,18 +846,17 @@ mod tests {
             };
             let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
             queue.enqueue(new_job).await.expect("failed to enqueue job");
-            let webhook_job: PgJob<WebhookJobParameters, WebhookJobMetadata> = queue
-                .dequeue(&"worker_id", 1)
+            let mut batch: PgTransactionBatch<'_, WebhookJobParameters, WebhookJobMetadata> = queue
+                .dequeue_tx(&"worker_id", 1)
                 .await
                 .expect("failed to dequeue job")
-                .expect("didn't find a job to dequeue")
-                .jobs
-                .pop()
-                .unwrap();
+                .expect("didn't find a job to dequeue");
+            let webhook_job = batch.jobs.pop().unwrap();
             webhook_job
                 .complete()
                 .await
                 .expect("failed to complete job");
+            batch.commit().await.expect("failed to commit batch");
         }
 
         {
@@ -950,6 +897,5 @@ mod tests {
         assert_eq!(get_count_from_new_conn(&db, "completed").await, 2);
         assert_eq!(get_count_from_new_conn(&db, "failed").await, 0);
         assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
-        assert_eq!(get_count_from_new_conn(&db, "running").await, 1);
     }
 }

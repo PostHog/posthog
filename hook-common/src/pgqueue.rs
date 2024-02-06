@@ -60,8 +60,6 @@ pub enum JobStatus {
     Discarded,
     /// A job that was unsuccessfully completed by a worker.
     Failed,
-    /// A job that was picked up by a worker and it's currentlly being run.
-    Running,
 }
 
 /// Allow casting JobStatus from strings.
@@ -73,7 +71,6 @@ impl FromStr for JobStatus {
             "available" => Ok(JobStatus::Available),
             "completed" => Ok(JobStatus::Completed),
             "failed" => Ok(JobStatus::Failed),
-            "running" => Ok(JobStatus::Running),
             invalid => Err(PgQueueError::ParseJobStatusError(invalid.to_owned())),
         }
     }
@@ -220,95 +217,6 @@ pub trait PgQueueJob {
         retry_interval: time::Duration,
         queue: &str,
     ) -> Result<RetriedJob, PgJobError<Box<Self>>>;
-}
-
-/// A Job that can be updated in PostgreSQL.
-#[derive(Debug)]
-pub struct PgJob<J, M> {
-    pub job: Job<J, M>,
-    pub pool: PgPool,
-}
-
-// Container struct for a batch of PgJobs.
-pub struct PgBatch<J, M> {
-    pub jobs: Vec<PgJob<J, M>>,
-}
-
-impl<J: std::marker::Send, M: std::marker::Send> PgJob<J, M> {
-    async fn acquire_conn(
-        &mut self,
-    ) -> Result<sqlx::pool::PoolConnection<sqlx::postgres::Postgres>, PgJobError<Box<PgJob<J, M>>>>
-    {
-        self.pool
-            .acquire()
-            .await
-            .map_err(|error| PgJobError::ConnectionError { error })
-    }
-}
-
-#[async_trait]
-impl<J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgJob<J, M> {
-    async fn complete(mut self) -> Result<CompletedJob, PgJobError<Box<PgJob<J, M>>>> {
-        let mut connection = self.acquire_conn().await?;
-
-        let completed_job =
-            self.job
-                .complete(&mut *connection)
-                .await
-                .map_err(|error| PgJobError::QueryError {
-                    command: "UPDATE".to_owned(),
-                    error,
-                })?;
-
-        Ok(completed_job)
-    }
-
-    async fn fail<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
-        mut self,
-        error: E,
-    ) -> Result<FailedJob<E>, PgJobError<Box<PgJob<J, M>>>> {
-        let mut connection = self.acquire_conn().await?;
-
-        let failed_job = self
-            .job
-            .fail(error, &mut *connection)
-            .await
-            .map_err(|error| PgJobError::QueryError {
-                command: "UPDATE".to_owned(),
-                error,
-            })?;
-
-        Ok(failed_job)
-    }
-
-    async fn retry<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
-        mut self,
-        error: E,
-        retry_interval: time::Duration,
-        queue: &str,
-    ) -> Result<RetriedJob, PgJobError<Box<PgJob<J, M>>>> {
-        if self.job.is_gte_max_attempts() {
-            return Err(PgJobError::RetryInvalidError {
-                job: Box::new(self),
-                error: "Maximum attempts reached".to_owned(),
-            });
-        }
-
-        let mut connection = self.acquire_conn().await?;
-
-        let retried_job = self
-            .job
-            .retryable()
-            .queue(queue)
-            .retry(error, retry_interval, &mut *connection)
-            .await
-            .map_err(|error| PgJobError::QueryError {
-                command: "UPDATE".to_owned(),
-                error,
-            })?;
-
-        Ok(retried_job)
-    }
 }
 
 /// A Job within an open PostgreSQL transaction.
@@ -611,96 +519,6 @@ impl PgQueue {
         Ok(Self { name, pool })
     }
 
-    /// Dequeue up to `limit` `Job`s from this `PgQueue`.
-    /// The `Job`s will be updated to `'running'` status, so any other `dequeue` calls will skip it.
-    pub async fn dequeue<
-        J: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
-        M: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
-    >(
-        &self,
-        attempted_by: &str,
-        limit: u32,
-    ) -> PgQueueResult<Option<PgBatch<J, M>>> {
-        let mut connection = self
-            .pool
-            .acquire()
-            .await
-            .map_err(|error| PgQueueError::ConnectionError { error })?;
-
-        // The query that follows uses a FOR UPDATE SKIP LOCKED clause.
-        // For more details on this see: 2ndquadrant.com/en/blog/what-is-select-skip-locked-for-in-postgresql-9-5.
-        let base_query = r#"
-WITH available_in_queue AS (
-    SELECT
-        id
-    FROM
-        job_queue
-    WHERE
-        status = 'available'
-        AND scheduled_at <= NOW()
-        AND queue = $1
-    ORDER BY
-        attempt,
-        scheduled_at
-    LIMIT $2
-    FOR UPDATE SKIP LOCKED
-)
-UPDATE
-    job_queue
-SET
-    attempted_at = NOW(),
-    status = 'running'::job_status,
-    attempt = attempt + 1,
-    attempted_by = array_append(attempted_by, $3::text)
-FROM
-    available_in_queue
-WHERE
-    job_queue.id = available_in_queue.id
-RETURNING
-    job_queue.*
-        "#;
-
-        let query_result: Result<Vec<Job<J, M>>, sqlx::Error> = sqlx::query_as(base_query)
-            .bind(&self.name)
-            .bind(limit as i64)
-            .bind(attempted_by)
-            .fetch_all(&mut *connection)
-            .await;
-
-        match query_result {
-            Ok(jobs) => {
-                if jobs.is_empty() {
-                    return Ok(None);
-                }
-
-                let pg_jobs: Vec<PgJob<J, M>> = jobs
-                    .into_iter()
-                    .map(|job| PgJob {
-                        job,
-                        pool: self.pool.clone(),
-                    })
-                    .collect();
-
-                Ok(Some(PgBatch { jobs: pg_jobs }))
-            }
-
-            // Although connection would be closed once it goes out of scope, sqlx recommends explicitly calling close().
-            // See: https://docs.rs/sqlx/latest/sqlx/postgres/any/trait.AnyConnectionBackend.html#tymethod.close.
-            Err(sqlx::Error::RowNotFound) => {
-                let _ = connection.close().await;
-                Ok(None)
-            }
-
-            Err(e) => {
-                let _ = connection.close().await;
-                Err(PgQueueError::QueryError {
-                    command: "UPDATE".to_owned(),
-                    error: e,
-                })
-            }
-        }
-    }
-
     /// Dequeue up to `limit` `Job`s from this `PgQueue` and hold the transaction. Any other
     /// `dequeue_tx` calls will skip rows locked, so by holding a transaction we ensure only one
     /// worker can dequeue a job. Holding a transaction open can have performance implications, but
@@ -742,7 +560,6 @@ UPDATE
     job_queue
 SET
     attempted_at = NOW(),
-    status = 'running'::job_status,
     attempt = attempt + 1,
     attempted_by = array_append(attempted_by, $3::text)
 FROM
@@ -876,103 +693,6 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_can_dequeue_job(db: PgPool) {
-        let job_target = job_target();
-        let job_parameters = JobParameters::default();
-        let job_metadata = JobMetadata::default();
-        let worker_id = worker_id();
-        let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
-
-        let queue = PgQueue::new_from_pool("test_can_dequeue_job", db)
-            .await
-            .expect("failed to connect to local test postgresql database");
-
-        queue.enqueue(new_job).await.expect("failed to enqueue job");
-
-        let pg_job: PgJob<JobParameters, JobMetadata> = queue
-            .dequeue(&worker_id, 1)
-            .await
-            .expect("failed to dequeue jobs")
-            .expect("didn't find any jobs to dequeue")
-            .jobs
-            .pop()
-            .unwrap();
-
-        assert_eq!(pg_job.job.attempt, 1);
-        assert!(pg_job.job.attempted_by.contains(&worker_id));
-        assert_eq!(pg_job.job.attempted_by.len(), 1);
-        assert_eq!(pg_job.job.max_attempts, 1);
-        assert_eq!(*pg_job.job.parameters.as_ref(), JobParameters::default());
-        assert_eq!(pg_job.job.status, JobStatus::Running);
-        assert_eq!(pg_job.job.target, job_target);
-    }
-
-    #[sqlx::test(migrations = "../migrations")]
-    async fn test_dequeue_returns_none_on_no_jobs(db: PgPool) {
-        let worker_id = worker_id();
-        let queue = PgQueue::new_from_pool("test_dequeue_returns_none_on_no_jobs", db)
-            .await
-            .expect("failed to connect to local test postgresql database");
-
-        let pg_jobs: Option<PgBatch<JobParameters, JobMetadata>> = queue
-            .dequeue(&worker_id, 1)
-            .await
-            .expect("failed to dequeue jobs");
-
-        assert!(pg_jobs.is_none());
-    }
-
-    #[sqlx::test(migrations = "../migrations")]
-    async fn test_can_dequeue_multiple_jobs(db: PgPool) {
-        let job_target = job_target();
-        let job_metadata = JobMetadata::default();
-        let job_parameters = JobParameters::default();
-        let worker_id = worker_id();
-
-        let queue = PgQueue::new_from_pool("test_can_dequeue_multiple_jobs", db)
-            .await
-            .expect("failed to connect to local test postgresql database");
-
-        for _ in 0..5 {
-            queue
-                .enqueue(NewJob::new(
-                    1,
-                    job_metadata.clone(),
-                    job_parameters.clone(),
-                    &job_target,
-                ))
-                .await
-                .expect("failed to enqueue job");
-        }
-
-        // Only get 4 jobs, leaving one in the queue.
-        let limit = 4;
-        let batch: PgBatch<JobParameters, JobMetadata> = queue
-            .dequeue(&worker_id, limit)
-            .await
-            .expect("failed to dequeue job")
-            .expect("didn't find a job to dequeue");
-
-        // Complete those 4.
-        assert_eq!(batch.jobs.len(), limit as usize);
-        for job in batch.jobs {
-            job.complete().await.expect("failed to complete job");
-        }
-
-        // Try to get up to 4 jobs, but only 1 remains.
-        let batch: PgBatch<JobParameters, JobMetadata> = queue
-            .dequeue(&worker_id, limit)
-            .await
-            .expect("failed to dequeue job")
-            .expect("didn't find a job to dequeue");
-
-        assert_eq!(batch.jobs.len(), 1); // Only one job should have been left in the queue.
-        for job in batch.jobs {
-            job.complete().await.expect("failed to complete job");
-        }
-    }
-
-    #[sqlx::test(migrations = "../migrations")]
     async fn test_can_dequeue_tx_job(db: PgPool) {
         let job_target = job_target();
         let job_metadata = JobMetadata::default();
@@ -1000,7 +720,6 @@ mod tests {
         assert_eq!(tx_job.job.max_attempts, 1);
         assert_eq!(*tx_job.job.metadata.as_ref(), JobMetadata::default());
         assert_eq!(*tx_job.job.parameters.as_ref(), JobParameters::default());
-        assert_eq!(tx_job.job.status, JobStatus::Running);
         assert_eq!(tx_job.job.target, job_target);
 
         // Transactional jobs must be completed, failed or retried before being dropped. This is
@@ -1096,14 +815,12 @@ mod tests {
             .expect("failed to connect to local test postgresql database");
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
-        let job: PgJob<JobParameters, JobMetadata> = queue
-            .dequeue(&worker_id, 1)
+        let mut batch: PgTransactionBatch<'_, JobParameters, JobMetadata> = queue
+            .dequeue_tx(&worker_id, 1)
             .await
             .expect("failed to dequeue job")
-            .expect("didn't find a job to dequeue")
-            .jobs
-            .pop()
-            .unwrap();
+            .expect("didn't find a job to dequeue");
+        let job = batch.jobs.pop().unwrap();
 
         let retry_interval = retry_policy.retry_interval(job.job.attempt as u32, None);
         let retry_queue = retry_policy.retry_queue(&job.job.queue).to_owned();
@@ -1115,9 +832,10 @@ mod tests {
             )
             .await
             .expect("failed to retry job");
+        batch.commit().await.expect("failed to commit transaction");
 
-        let retried_job: PgJob<JobParameters, JobMetadata> = queue
-            .dequeue(&worker_id, 1)
+        let retried_job: PgTransactionJob<JobParameters, JobMetadata> = queue
+            .dequeue_tx(&worker_id, 1)
             .await
             .expect("failed to dequeue job")
             .expect("didn't find retried job to dequeue")
@@ -1133,7 +851,6 @@ mod tests {
             *retried_job.job.parameters.as_ref(),
             JobParameters::default()
         );
-        assert_eq!(retried_job.job.status, JobStatus::Running);
         assert_eq!(retried_job.job.target, job_target);
     }
 
@@ -1156,14 +873,12 @@ mod tests {
             .expect("failed to connect to queue in local test postgresql database");
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
-        let job: PgJob<JobParameters, JobMetadata> = queue
-            .dequeue(&worker_id, 1)
+        let mut batch: PgTransactionBatch<JobParameters, JobMetadata> = queue
+            .dequeue_tx(&worker_id, 1)
             .await
             .expect("failed to dequeue job")
-            .expect("didn't find a job to dequeue")
-            .jobs
-            .pop()
-            .unwrap();
+            .expect("didn't find a job to dequeue");
+        let job = batch.jobs.pop().unwrap();
 
         let retry_interval = retry_policy.retry_interval(job.job.attempt as u32, None);
         let retry_queue = retry_policy.retry_queue(&job.job.queue).to_owned();
@@ -1175,9 +890,10 @@ mod tests {
             )
             .await
             .expect("failed to retry job");
+        batch.commit().await.expect("failed to commit transaction");
 
-        let retried_job_not_found: Option<PgBatch<JobParameters, JobMetadata>> = queue
-            .dequeue(&worker_id, 1)
+        let retried_job_not_found: Option<PgTransactionBatch<JobParameters, JobMetadata>> = queue
+            .dequeue_tx(&worker_id, 1)
             .await
             .expect("failed to dequeue job");
 
@@ -1187,8 +903,8 @@ mod tests {
             .await
             .expect("failed to connect to retry queue in local test postgresql database");
 
-        let retried_job: PgJob<JobParameters, JobMetadata> = queue
-            .dequeue(&worker_id, 1)
+        let retried_job: PgTransactionJob<JobParameters, JobMetadata> = queue
+            .dequeue_tx(&worker_id, 1)
             .await
             .expect("failed to dequeue job")
             .expect("job not found in retry queue")
@@ -1204,7 +920,6 @@ mod tests {
             *retried_job.job.parameters.as_ref(),
             JobParameters::default()
         );
-        assert_eq!(retried_job.job.status, JobStatus::Running);
         assert_eq!(retried_job.job.target, job_target);
     }
 
@@ -1224,8 +939,8 @@ mod tests {
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 
-        let job: PgJob<JobParameters, JobMetadata> = queue
-            .dequeue(&worker_id, 1)
+        let job: PgTransactionJob<JobParameters, JobMetadata> = queue
+            .dequeue_tx(&worker_id, 1)
             .await
             .expect("failed to dequeue job")
             .expect("didn't find a job to dequeue")

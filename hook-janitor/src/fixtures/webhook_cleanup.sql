@@ -163,15 +163,4 @@ VALUES
         'webhooks',
         'available',
         'https://myhost/endpoint'
-    ),
-    -- team:1, plugin_config:2, running
-    (
-        NULL,
-        '{"team_id": 1, "plugin_id": 99, "plugin_config_id": 2}',
-        '2023-12-19 20:01:18.799371+00',
-        now() - '1 hour' :: interval,
-        '{}',
-        'webhooks',
-        'running',
-        'https://myhost/endpoint'
     );

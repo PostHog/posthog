@@ -4,9 +4,9 @@ use std::time;
 
 use futures::future::join_all;
 use hook_common::health::HealthHandle;
-use hook_common::pgqueue::{PgBatch, PgTransactionBatch};
+use hook_common::pgqueue::PgTransactionBatch;
 use hook_common::{
-    pgqueue::{Job, PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
+    pgqueue::{Job, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
     retry::RetryPolicy,
     webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters},
 };
@@ -37,20 +37,6 @@ trait WebhookJob: PgQueueJob + std::marker::Send {
 }
 
 impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata> {
-    fn parameters(&self) -> &WebhookJobParameters {
-        &self.job.parameters
-    }
-
-    fn metadata(&self) -> &WebhookJobMetadata {
-        &self.job.metadata
-    }
-
-    fn job(&self) -> &Job<WebhookJobParameters, WebhookJobMetadata> {
-        &self.job
-    }
-}
-
-impl WebhookJob for PgJob<WebhookJobParameters, WebhookJobMetadata> {
     fn parameters(&self) -> &WebhookJobParameters {
         &self.job.parameters
     }
@@ -121,29 +107,6 @@ impl<'p> WebhookWorker<'p> {
         }
     }
 
-    /// Wait until at least one job becomes available in our queue.
-    async fn wait_for_jobs<'a>(&self) -> PgBatch<WebhookJobParameters, WebhookJobMetadata> {
-        let mut interval = tokio::time::interval(self.poll_interval);
-
-        loop {
-            interval.tick().await;
-            self.liveness.report_healthy().await;
-
-            match self
-                .queue
-                .dequeue(&self.name, self.dequeue_batch_size)
-                .await
-            {
-                Ok(Some(batch)) => return batch,
-                Ok(None) => continue,
-                Err(error) => {
-                    error!("error while trying to dequeue job: {}", error);
-                    continue;
-                }
-            }
-        }
-    }
-
     /// Wait until at least one job becomes available in our queue in transactional mode.
     async fn wait_for_jobs_tx<'a>(
         &self,
@@ -170,7 +133,7 @@ impl<'p> WebhookWorker<'p> {
     }
 
     /// Run this worker to continuously process any jobs that become available.
-    pub async fn run(&self, transactional: bool) {
+    pub async fn run(&self) {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
         let report_semaphore_utilization = || {
             metrics::gauge!("webhook_worker_saturation_percent")
@@ -179,98 +142,53 @@ impl<'p> WebhookWorker<'p> {
 
         let dequeue_batch_size_histogram = metrics::histogram!("webhook_dequeue_batch_size");
 
-        if transactional {
-            loop {
-                report_semaphore_utilization();
-                // TODO: We could grab semaphore permits here using something like:
-                //   `min(semaphore.available_permits(), dequeue_batch_size)`
-                // And then dequeue only up to that many jobs. We'd then need to hand back the
-                // difference in permits based on how many jobs were dequeued.
-                let mut batch = self.wait_for_jobs_tx().await;
-                dequeue_batch_size_histogram.record(batch.jobs.len() as f64);
+        loop {
+            report_semaphore_utilization();
+            // TODO: We could grab semaphore permits here using something like:
+            //   `min(semaphore.available_permits(), dequeue_batch_size)`
+            // And then dequeue only up to that many jobs. We'd then need to hand back the
+            // difference in permits based on how many jobs were dequeued.
+            let mut batch = self.wait_for_jobs_tx().await;
+            dequeue_batch_size_histogram.record(batch.jobs.len() as f64);
 
-                // Get enough permits for the jobs before spawning a task.
-                let permits = semaphore
-                    .clone()
-                    .acquire_many_owned(batch.jobs.len() as u32)
-                    .await
-                    .expect("semaphore has been closed");
+            // Get enough permits for the jobs before spawning a task.
+            let permits = semaphore
+                .clone()
+                .acquire_many_owned(batch.jobs.len() as u32)
+                .await
+                .expect("semaphore has been closed");
 
-                let client = self.client.clone();
-                let retry_policy = self.retry_policy.clone();
+            let client = self.client.clone();
+            let retry_policy = self.retry_policy.clone();
 
-                tokio::spawn(async move {
-                    let mut futures = Vec::new();
+            tokio::spawn(async move {
+                let mut futures = Vec::new();
 
-                    // We have to `take` the Vec of jobs from the batch to avoid a borrow checker
-                    // error below when we commit.
-                    for job in std::mem::take(&mut batch.jobs) {
-                        let client = client.clone();
-                        let retry_policy = retry_policy.clone();
+                // We have to `take` the Vec of jobs from the batch to avoid a borrow checker
+                // error below when we commit.
+                for job in std::mem::take(&mut batch.jobs) {
+                    let client = client.clone();
+                    let retry_policy = retry_policy.clone();
 
-                        let future =
-                            async move { process_webhook_job(client, job, &retry_policy).await };
+                    let future =
+                        async move { process_webhook_job(client, job, &retry_policy).await };
 
-                        futures.push(future);
+                    futures.push(future);
+                }
+
+                let results = join_all(futures).await;
+                for result in results {
+                    if let Err(e) = result {
+                        error!("error processing webhook job: {}", e);
                     }
+                }
 
-                    let results = join_all(futures).await;
-                    for result in results {
-                        if let Err(e) = result {
-                            error!("error processing webhook job: {}", e);
-                        }
-                    }
-
-                    let _ = batch.commit().await.map_err(|e| {
-                        error!("error committing transactional batch: {}", e);
-                    });
-
-                    drop(permits);
+                let _ = batch.commit().await.map_err(|e| {
+                    error!("error committing transactional batch: {}", e);
                 });
-            }
-        } else {
-            loop {
-                report_semaphore_utilization();
-                // TODO: We could grab semaphore permits here using something like:
-                //   `min(semaphore.available_permits(), dequeue_batch_size)`
-                // And then dequeue only up to that many jobs. We'd then need to hand back the
-                // difference in permits based on how many jobs were dequeued.
-                let batch = self.wait_for_jobs().await;
-                dequeue_batch_size_histogram.record(batch.jobs.len() as f64);
 
-                // Get enough permits for the jobs before spawning a task.
-                let permits = semaphore
-                    .clone()
-                    .acquire_many_owned(batch.jobs.len() as u32)
-                    .await
-                    .expect("semaphore has been closed");
-
-                let client = self.client.clone();
-                let retry_policy = self.retry_policy.clone();
-
-                tokio::spawn(async move {
-                    let mut futures = Vec::new();
-
-                    for job in batch.jobs {
-                        let client = client.clone();
-                        let retry_policy = retry_policy.clone();
-
-                        let future =
-                            async move { process_webhook_job(client, job, &retry_policy).await };
-
-                        futures.push(future);
-                    }
-
-                    let results = join_all(futures).await;
-                    for result in results {
-                        if let Err(e) = result {
-                            error!("error processing webhook job: {}", e);
-                        }
-                    }
-
-                    drop(permits);
-                });
-            }
+                drop(permits);
+            });
         }
     }
 }
@@ -601,7 +519,8 @@ mod tests {
             liveness,
         );
 
-        let consumed_job = worker.wait_for_jobs().await.jobs.pop().unwrap();
+        let mut batch = worker.wait_for_jobs_tx().await;
+        let consumed_job = batch.jobs.pop().unwrap();
 
         assert_eq!(consumed_job.job.attempt, 1);
         assert!(consumed_job.job.attempted_by.contains(&worker_id));
@@ -611,13 +530,13 @@ mod tests {
             *consumed_job.job.parameters.as_ref(),
             webhook_job_parameters
         );
-        assert_eq!(consumed_job.job.status, JobStatus::Running);
         assert_eq!(consumed_job.job.target, webhook_job_parameters.url);
 
         consumed_job
             .complete()
             .await
             .expect("job not successfully completed");
+        batch.commit().await.expect("failed to commit batch");
 
         assert!(registry.get_status().healthy)
     }

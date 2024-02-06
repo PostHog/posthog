@@ -35,9 +35,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub retry_policy: RetryPolicyConfig,
 
-    #[envconfig(default = "true")]
-    pub transactional: bool,
-
     #[envconfig(default = "1")]
     pub dequeue_batch_size: u32,
 }
