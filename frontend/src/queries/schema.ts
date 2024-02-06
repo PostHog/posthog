@@ -191,6 +191,8 @@ export interface HogQLQueryResponse {
     timings?: QueryTiming[]
     /** Query explanation output */
     explain?: string[]
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
     hasMore?: boolean
@@ -301,7 +303,10 @@ export interface HogQLMetadata extends DataNode {
     exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
+    /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
+    /** Enable more verbose output, usually run from the /debug page */
+    debug?: boolean
     response?: HogQLMetadataResponse
 }
 
@@ -1008,6 +1013,8 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     response?: WebStatsTableQueryResponse
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    /** @asType integer */
+    limit?: number
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -1015,6 +1022,11 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     columns?: unknown[]
     hogql?: string
     samplingRate?: SamplingRate
+    hasMore?: boolean
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
 }
 
 export type InsightQueryNode =

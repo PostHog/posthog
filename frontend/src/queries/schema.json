@@ -1902,6 +1902,10 @@
         "HogQLMetadata": {
             "additionalProperties": false,
             "properties": {
+                "debug": {
+                    "description": "Enable more verbose output, usually run from the /debug page",
+                    "type": "boolean"
+                },
                 "expr": {
                     "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
@@ -1911,7 +1915,8 @@
                     "description": "Query within which \"expr\" is validated. Defaults to \"select * from events\""
                 },
                 "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Extra filters applied to query via {filters}"
                 },
                 "kind": {
                     "const": "HogQLMetadata",
@@ -2095,6 +2100,10 @@
                 },
                 "limit": {
                     "type": "integer"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/HogQLMetadataResponse",
+                    "description": "Query metadata output"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -3469,6 +3478,10 @@
                         "limit": {
                             "type": "integer"
                         },
+                        "metadata": {
+                            "$ref": "#/definitions/HogQLMetadataResponse",
+                            "description": "Query metadata output"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -3591,6 +3604,9 @@
                             "items": {},
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -3600,8 +3616,14 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "limit": {
+                            "type": "integer"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "results": {
                             "items": {},
@@ -5046,6 +5068,9 @@
                     "const": "WebStatsTableQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -5075,6 +5100,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -5084,8 +5112,14 @@
                 "last_refresh": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "offset": {
+                    "type": "integer"
                 },
                 "results": {
                     "items": {},

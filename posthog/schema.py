@@ -973,10 +973,13 @@ class WebStatsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: Optional[List] = None
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: List
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
@@ -1195,6 +1198,7 @@ class HogQLQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
     limit: Optional[int] = None
+    metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
@@ -1329,6 +1333,7 @@ class QueryResponseAlternative7(BaseModel):
     hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
     limit: Optional[int] = None
+    metadata: Optional[HogQLMetadataResponse] = Field(default=None, description="Query metadata output")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
@@ -1352,6 +1357,24 @@ class QueryResponseAlternative10(BaseModel):
     results: List[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    limit: Optional[int] = None
+    next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
+    results: List
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
 
 
 class QueryResponseAlternative11(BaseModel):
@@ -1527,6 +1550,7 @@ class WebStatsTableQuery(BaseModel):
     includeBounceRate: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    limit: Optional[int] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -2016,6 +2040,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative9,
             QueryResponseAlternative10,
             QueryResponseAlternative11,
+            QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
             Dict[str, List[DatabaseSchemaQueryResponseField]],
@@ -2035,6 +2060,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative9,
         QueryResponseAlternative10,
         QueryResponseAlternative11,
+        QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
         Dict[str, List[DatabaseSchemaQueryResponseField]],
@@ -2638,6 +2664,9 @@ class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    debug: Optional[bool] = Field(
+        default=None, description="Enable more verbose output, usually run from the /debug page"
+    )
     expr: Optional[str] = Field(
         default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
     )
@@ -2660,7 +2689,7 @@ class HogQLMetadata(BaseModel):
             WebTopClicksQuery,
         ]
     ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
-    filters: Optional[HogQLFilters] = None
+    filters: Optional[HogQLFilters] = Field(default=None, description="Extra filters applied to query via {filters}")
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
     select: Optional[str] = Field(

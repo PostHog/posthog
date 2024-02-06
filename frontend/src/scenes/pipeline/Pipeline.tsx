@@ -20,7 +20,6 @@ export function Pipeline(): JSX.Element {
 
     const tabToContent: Record<PipelineTab, JSX.Element> = {
         [PipelineTab.Overview]: <Overview />,
-        [PipelineTab.Filters]: <div>Coming soon</div>,
         [PipelineTab.Transformations]: <Transformations />,
         [PipelineTab.Destinations]: <Destinations />,
         [PipelineTab.AppsManagement]: <AppsManagement />,
