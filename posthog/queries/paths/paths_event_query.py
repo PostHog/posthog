@@ -105,7 +105,7 @@ class PathEventQuery(EventQuery):
 
         self.params.update(prop_params)
 
-        event_query, event_params = self._get_event_query()
+        event_query, event_params = self._get_event_query(deep_filtering=False)
         self.params.update(event_params)
 
         person_query, person_params = self._get_person_query()
@@ -126,7 +126,7 @@ class PathEventQuery(EventQuery):
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query(relevant_events_conditions=self._get_event_query(deep_filtering=True) + date_query)}
+            {self._get_person_ids_query(relevant_events_conditions=self._get_event_query(deep_filtering=True)[0] + date_query)}
             {person_query}
             {groups_query}
             {funnel_paths_join}
