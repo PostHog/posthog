@@ -68,26 +68,6 @@ class SingleTenancyOrAdmin(BasePermission):
         return not is_cloud() or request.user.is_staff
 
 
-class ProjectMembershipNecessaryPermissions(BasePermission):
-    """Require organization and project membership to access endpoint."""
-
-    message = "You don't belong to any organization that has a project."
-
-    # TODO: Remove this permission class once legacy_team_compatibility setting is removed
-    def has_object_permission(self, request: Request, view, object) -> bool:
-        return request.user.is_authenticated and request.user.team is not None
-
-
-class OrganizationMembershipNecessaryPermissions(BasePermission):
-    """Require organization membership to access endpoint."""
-
-    message = "You don't belong to any organization."
-
-    # TODO: Remove this permission class once legacy_team_compatibility setting is removed
-    def has_object_permission(self, request: Request, view, object) -> bool:
-        return request.user.is_authenticated and request.user.organization is not None
-
-
 class OrganizationMemberPermissions(BasePermission):
     """
     Require relevant organization membership to access object.
@@ -156,6 +136,10 @@ class TeamMemberAccessPermission(BasePermission):
         try:
             view.team  # noqa: B018
         except Team.DoesNotExist:
+            # Legacy compatibility for old endpoints without the team in the path
+            if view.legacy_team_compatibility:
+                return request.user.is_authenticated and request.user.team is not None
+
             return True  # This will be handled as a 404 in the viewset
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None

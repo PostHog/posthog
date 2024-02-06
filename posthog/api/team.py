@@ -33,7 +33,6 @@ from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
@@ -42,7 +41,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-class PremiumMultiprojectPermissions(permissions.BasePermission):
+class PremiumMultiProjectPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
@@ -303,18 +302,14 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
-    permission_classes = [
-        permissions.IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        PremiumMultiprojectPermissions,
-    ]
+    permission_classes = [permissions.IsAuthenticated, PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
     organization: Optional[Organization] = None
     include_in_docs = True
 
     def get_queryset(self):
-        # This is actually what ensures that a user cannot read/update a project for which they don't have permission
+        # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         return super().get_queryset().filter(id__in=visible_teams_ids)
 
@@ -400,7 +395,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         # Only ADMIN or higher users are allowed to access this project
         permission_classes=[
             permissions.IsAuthenticated,
-            ProjectMembershipNecessaryPermissions,
             TeamMemberStrictManagementPermission,
         ],
     )
@@ -415,10 +409,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     @action(
         methods=["GET"],
         detail=True,
-        permission_classes=[
-            permissions.IsAuthenticated,
-            ProjectMembershipNecessaryPermissions,
-        ],
+        permission_classes=[permissions.IsAuthenticated],
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()

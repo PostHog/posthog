@@ -16,7 +16,6 @@ from rest_framework import status
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from django.utils.text import slugify
@@ -224,11 +223,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
 class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:
         if self.request.method == "POST":
