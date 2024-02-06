@@ -626,7 +626,7 @@ def get_feature_flag_hash_key_overrides(
     if not person_id_to_distinct_id_mapping:
         person_and_distinct_ids = list(
             PersonDistinctId.objects.using(using_database)
-            .filter(distinct_id__in=distinct_ids, team_id=team_id)
+            .filter(distinct_id__in=distinct_ids, team_id=team_id, person__isnull=False)
             .values_list("person_id", "distinct_id")
         )
         person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
@@ -732,7 +732,12 @@ def get_all_feature_flags(
                     distinct_ids = [distinct_id, str(hash_key_override)]
                     query = """
                         WITH target_person_ids AS (
-                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                            SELECT team_id, person_id
+                            FROM posthog_persondistinctid
+                            WHERE
+                                team_id = %(team_id)s
+                                AND distinct_id IN %(distinct_ids)s
+                                AND person_id IS NOT NULL
                         ),
                         existing_overrides AS (
                             SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
@@ -844,7 +849,12 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
                 query = """
                     WITH target_person_ids AS (
-                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
+                        SELECT team_id, person_id
+                        FROM posthog_persondistinctid
+                        WHERE
+                            team_id = %(team_id)s
+                            AND distinct_id IN %(distinct_ids)s
+                            AND person_id IS NOT NULL
                     ),
                     existing_overrides AS (
                         SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
