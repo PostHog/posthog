@@ -17,7 +17,6 @@ import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
-    [PipelineTab.Filters]: PipelineStage.Filter,
     [PipelineTab.Transformations]: PipelineStage.Transformation,
     [PipelineTab.Destinations]: PipelineStage.Destination,
 }
