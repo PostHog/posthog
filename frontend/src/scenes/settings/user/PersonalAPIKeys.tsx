@@ -114,7 +114,7 @@ function EditKeyModal(): JSX.Element {
 
 function PersonalAPIKeysTable(): JSX.Element {
     const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
-    const { deleteKey, loadKeys } = useActions(personalAPIKeysLogic)
+    const { deleteKey, loadKeys, setEditingKeyId } = useActions(personalAPIKeysLogic)
 
     useEffect(() => loadKeys(), [])
 
@@ -127,6 +127,13 @@ function PersonalAPIKeysTable(): JSX.Element {
                     title: 'Label',
                     dataIndex: 'label',
                     key: 'label',
+                    render: function RenderLabel(label, record) {
+                        return (
+                            <Link subtle className="font-semibold" onClick={() => setEditingKeyId(record.id)}>
+                                {String(label)}
+                            </Link>
+                        )
+                    },
                 },
                 {
                     title: 'Value',

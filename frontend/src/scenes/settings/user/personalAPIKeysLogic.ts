@@ -85,21 +85,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 loadKeys: async () => {
                     return await api.personalApiKeys.list()
                 },
-                createKey: async ({ label }) => {
-                    const newKey = await api.personalApiKeys.create({ label })
-                    return [newKey, ...values.keys]
-                },
-
-                updateKey: async (payload) => {
-                    const updatedKey = await api.personalApiKeys.update(values.keys[0].id, payload)
-
-                    return values.keys.map((key) => {
-                        if (key.id === updatedKey.id) {
-                            return updatedKey
-                        }
-                        return key
-                    })
-                },
                 deleteKey: async ({ id }) => {
                     await api.personalApiKeys.delete(id)
                     await api.delete(`api/personal_api_keys/${id}/`)
@@ -108,22 +93,29 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ values, actions }) => ({
         editingKey: {
             defaults: { label: '', scopes: [] } as Pick<PersonalAPIKeyType, 'label' | 'scopes'> & { preset?: string },
             errors: ({ label, scopes }) => ({
                 label: !label ? 'Your API key needs a label' : undefined,
                 scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
             }),
-            submit: async (key, breakpoint) => {
-                const payload = {
-                    ...key,
+            submit: async (payload, breakpoint) => {
+                if (!values.editingKeyId) {
+                    return
                 }
+
+                const key =
+                    values.editingKeyId === 'new'
+                        ? await api.personalApiKeys.create(payload)
+                        : await api.personalApiKeys.update(values.editingKeyId, payload)
 
                 breakpoint()
 
-                actions.loadKeys()
                 lemonToast.success(`Personal API Key saved.`)
+
+                actions.loadKeysSuccess([key].concat(values.keys.filter((k) => k.id !== values.editingKeyId)))
+                actions.setEditingKeyId(null)
             },
         },
     })),
@@ -159,6 +151,16 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 if (preset?.scopes.join(',') !== value.join(',')) {
                     actions.setEditingKeyValue('preset', undefined)
                 }
+            }
+        },
+
+        setEditingKeyId: async ({ id }) => {
+            if (id) {
+                const key = values.keys.find((key) => key.id === id)
+                actions.resetEditingKey({
+                    label: key?.label ?? '',
+                    scopes: key?.scopes ?? [],
+                })
             }
         },
 
