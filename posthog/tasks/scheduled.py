@@ -45,6 +45,7 @@ from posthog.tasks.tasks import (
     update_event_partitions,
     update_quota_limiting,
     verify_persons_data_in_sync,
+    calculate_replay_embeddings,
 )
 from posthog.utils import get_crontab
 
@@ -221,6 +222,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         120,
         process_scheduled_changes.s(),
         name="process scheduled changes",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        86400,
+        calculate_replay_embeddings.s(),
+        name="calculate replay embeddings",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):

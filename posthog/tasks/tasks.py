@@ -720,3 +720,10 @@ def check_data_import_row_limits() -> None:
         pass
     else:
         check_synced_row_limits()
+
+
+@shared_task(ignore_result=True)
+def calculate_replay_embeddings() -> None:
+    from posthog.tasks.replay_summaries import generate_recording_embeddings
+
+    generate_recording_embeddings()
