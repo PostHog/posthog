@@ -1,4 +1,4 @@
-name: Build docker image
+name: Build capture docker image
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/posthog/capture
           tags: |
             type=ref,event=pr
             type=ref,event=branch
@@ -49,8 +49,8 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Build and push
-        id: docker_build
+      - name: Build and push capture
+        id: docker_build_capture
         uses: docker/build-push-action@v4
         with:
           context: ./
@@ -64,5 +64,5 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: RUST_BACKTRACE=1 BIN=capture-server
 
-      - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}
+      - name: Capture image digest
+        run: echo ${{ steps.docker_build_capture.outputs.digest }}

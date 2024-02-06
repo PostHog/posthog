@@ -62,7 +62,7 @@ jobs:
           platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: BIN=hook-worker
+          build-args: RUST_BACKTRACE=1 BIN=hook-worker
 
       - name: Hook-worker image digest
         run: echo ${{ steps.docker_build_hook_worker.outputs.digest }}

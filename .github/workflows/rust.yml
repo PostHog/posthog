@@ -61,8 +61,8 @@ jobs:
         with:
           path: |
             ~/.cargo/registry
-             ~/.cargo/git
-             target
+            ~/.cargo/git
+            target
           key: ${ runner.os }-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run cargo test
