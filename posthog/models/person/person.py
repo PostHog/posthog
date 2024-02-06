@@ -20,10 +20,6 @@ class PersonManager(models.Manager):
             person._add_distinct_ids(distinct_ids)
             return person
 
-    @staticmethod
-    def distinct_ids_exist(team_id: int, distinct_ids: List[str]) -> bool:
-        return PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).exists()
-
 
 class Person(models.Model):
     _distinct_ids: Optional[List[str]]
