@@ -7,6 +7,7 @@ import { FEATURE_FLAGS, RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/co
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, updateDatesWithInterval } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import {
     NodeKind,
@@ -212,6 +213,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             return { tileId, tabId }
         },
         closeModal: () => ({}),
+        openAsNewInsight: (tileId: TileId, tabId?: string) => {
+            return { tileId, tabId }
+        },
     }),
     reducers({
         webAnalyticsFilters: [
@@ -927,7 +931,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             embedded: true,
                         },
                         insightProps: createInsightProps(TileId.RETENTION),
-                        canOpenModal: true,
+                        canOpenInsight: true,
+                        canOpenModal: false,
                     },
                 ]
                 return allTiles.filter(isNotNil)
@@ -1017,6 +1022,51 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (s) => [s.webAnalyticsFilters],
             (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
                 return webAnalyticsFilters.some((filter) => filter.key === '$os')
+            },
+        ],
+        getNewInsightUrl: [
+            (s) => [s.webAnalyticsFilters, s.dateFilter, s.tiles],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters, { dateTo, dateFrom }, tiles) => {
+                return function getNewInsightUrl(tileId: TileId, tabId?: string): string {
+                    const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
+                        if (query.kind === NodeKind.InsightVizNode) {
+                            return {
+                                ...query,
+                                embedded: undefined,
+                                hidePersonsModal: undefined,
+                            }
+                        }
+                        return query
+                    }
+
+                    const tile = tiles.find((tile) => tile.tileId === tileId)
+                    if (!tile) {
+                        throw new Error('Developer Error, tile not found')
+                    }
+                    if (tabId) {
+                        if (!('tabs' in tile)) {
+                            throw new Error('Developer Error, tabId provided for non-tab tile')
+                        }
+                        const tab = tile.tabs.find((tab) => tab.id === tabId)
+                        if (!tab) {
+                            throw new Error('Developer Error, tab not found')
+                        }
+                        return urls.insightNew(
+                            { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
+                            null,
+                            formatQueryForNewInsight(tab.query)
+                        )
+                    } else {
+                        if ('tabs' in tile) {
+                            throw new Error('Developer Error, tabId not provided for tab tile')
+                        }
+                        return urls.insightNew(
+                            { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
+                            null,
+                            formatQueryForNewInsight(tile.query)
+                        )
+                    }
+                }
             },
         ],
     })),

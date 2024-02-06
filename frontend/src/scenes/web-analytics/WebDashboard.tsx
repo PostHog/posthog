@@ -8,7 +8,6 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
-import { urls } from 'scenes/urls'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { QueryTile, TabsTile, TileId, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
@@ -69,22 +68,14 @@ const Tiles = (): JSX.Element => {
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps } = tile
 
-    const {
-        webAnalyticsFilters,
-        dateFilter: { dateTo, dateFrom },
-    } = useValues(webAnalyticsLogic)
-
     const { openModal } = useActions(webAnalyticsLogic)
+    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     const buttonsRow = [
         tile.canOpenInsight ? (
             <LemonButton
                 key="open-insight-button"
-                to={urls.insightNew(
-                    { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                    null,
-                    tile.query
-                )}
+                to={getNewInsightUrl(tile.tileId)}
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"
@@ -126,6 +117,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     const { layout } = tile
 
     const { openModal } = useActions(webAnalyticsLogic)
+    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     return (
         <WebTabs
@@ -156,6 +148,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
             }))}
             tileId={tile.tileId}
             openModal={openModal}
+            getNewInsightUrl={getNewInsightUrl}
         />
     )
 }
@@ -166,6 +159,7 @@ export const WebTabs = ({
     tabs,
     setActiveTabId,
     openModal,
+    getNewInsightUrl,
     tileId,
 }: {
     className?: string
@@ -181,23 +175,16 @@ export const WebTabs = ({
     }[]
     setActiveTabId: (id: string) => void
     openModal: (tileId: TileId, tabId: string) => void
+    getNewInsightUrl: (tileId: TileId, tabId: string) => string
     tileId: TileId
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
-    const {
-        dateFilter: { dateFrom, dateTo },
-        webAnalyticsFilters,
-    } = useValues(webAnalyticsLogic)
 
     const buttonsRow = [
         activeTab?.canOpenInsight ? (
             <LemonButton
                 key="open-insight-button"
-                to={urls.insightNew(
-                    { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                    null,
-                    activeTab.query
-                )}
+                to={getNewInsightUrl(tileId, activeTabId)}
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"
