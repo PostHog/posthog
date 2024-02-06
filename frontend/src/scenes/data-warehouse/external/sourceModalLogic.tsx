@@ -220,6 +220,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                         'crm.objects.deals.read',
                         'tickets',
                         'crm.objects.quotes.read',
+                        'sales-email-read',
                     ]
 
                     const params = new URLSearchParams()

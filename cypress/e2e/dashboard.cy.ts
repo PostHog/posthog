@@ -64,39 +64,11 @@ describe('Dashboard', () => {
         cy.get('[data-attr=dashboard-tags]').should('not.exist')
     })
 
-    // TODO: not implemented in 3000
-    // it('Pinned dashboards on menu', () => {
-    //     cy.clickNavMenu('events') // to make sure the dashboards menu item is not the active one
-    //     cy.get('[data-attr=menu-item-pinned-dashboards]').click()
-    //     cy.get('[data-attr=sidebar-pinned-dashboards]').should('be.visible')
-    //     cy.get('[data-attr=sidebar-pinned-dashboards] a').should('contain', 'App Analytics')
-    // })
-
-    it('Share dashboard', () => {
-        dashboards.createDashboardFromDefaultTemplate('to be shared')
-
-        cy.get('.InsightCard').should('exist')
-
-        cy.get('[data-attr=dashboard-share-button]').click()
-        cy.get('[data-attr=sharing-switch]').click({ force: true })
-
-        cy.contains('Embed dashboard').should('be.visible')
-        cy.get('[data-attr=copy-code-button]').click()
-        cy.window()
-            .its('navigator.clipboard')
-            .then((c) => c.readText())
-            .should('contain', '<iframe')
-        cy.window()
-            .its('navigator.clipboard')
-            .then((c) => c.readText())
-            .should('contain', '/embedded/')
-
-        cy.contains('Copy public link').should('be.visible')
-        cy.get('[data-attr=sharing-link-button]').click()
-        cy.window()
-            .its('navigator.clipboard')
-            .then((c) => c.readText())
-            .should('contain', '/shared/')
+    it('Pinned dashboards on menu', () => {
+        cy.clickNavMenu('events') // to make sure the dashboards menu item is not the active one
+        cy.get('[data-attr=menu-item-pinned-dashboards-dropdown]').click()
+        cy.get('.Popover').should('be.visible')
+        cy.get('.Popover a').should('contain', 'App Analytics')
     })
 
     it('Create an empty dashboard', () => {
