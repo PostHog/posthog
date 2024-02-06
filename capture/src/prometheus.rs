@@ -7,11 +7,11 @@ use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
-    counter!("capture_events_dropped_total", quantity, "cause" => cause);
+    counter!("capture_events_dropped_total", "cause" => cause).increment(quantity);
 }
 
 pub fn report_overflow_partition(quantity: u64) {
-    counter!("capture_partition_key_capacity_exceeded_total", quantity);
+    counter!("capture_partition_key_capacity_exceeded_total").increment(quantity);
 }
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
@@ -62,8 +62,8 @@ pub async fn track_metrics<B>(req: Request<B>, next: Next<B>) -> impl IntoRespon
         ("status", status),
     ];
 
-    metrics::increment_counter!("http_requests_total", &labels);
-    metrics::histogram!("http_requests_duration_seconds", latency, &labels);
+    metrics::counter!("http_requests_total", &labels).increment(1);
+    metrics::histogram!("http_requests_duration_seconds", &labels).record(latency);
 
     response
 }

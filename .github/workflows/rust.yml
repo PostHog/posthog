@@ -3,9 +3,9 @@ name: Rust
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,95 +15,96 @@ jobs:
     runs-on: buildjet-4vcpu-ubuntu-2204
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Install rust
-      uses: dtolnay/rust-toolchain@master
-      with:
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@master
+        with:
           toolchain: stable
 
-    - uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Run cargo build
-      run: cargo build --all --locked --release && strip target/release/capture-server
+      - name: Run cargo build
+        run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
   test:
     runs-on: buildjet-4vcpu-ubuntu-2204
     timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Login to DockerHub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Setup end2end dependencies
-      run: |
-        docker compose up -d --wait
-        echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+      - name: Setup dependencies
+        run: |
+          docker compose up kafka redis db echo_server -d --wait
+          docker compose up setup_test_db
+          echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-    - name: Install rust
-      uses: dtolnay/rust-toolchain@master
-      with:
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@master
+        with:
           toolchain: stable
 
-    - uses: actions/cache@v3
-      with:
-        path: |
-         ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${ runner.os }-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+             ~/.cargo/git
+             target
+          key: ${ runner.os }-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Run cargo test
-      run: cargo test --all-features
+      - name: Run cargo test
+        run: cargo test --all-features
 
-    - name: Run cargo check
-      run: cargo check --all-features
+      - name: Run cargo check
+        run: cargo check --all-features
 
   clippy:
     runs-on: buildjet-4vcpu-ubuntu-2204
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Install latest rust
-      uses: dtolnay/rust-toolchain@master
-      with:
+      - name: Install latest rust
+        uses: dtolnay/rust-toolchain@master
+        with:
           toolchain: stable
           components: clippy
 
-    - uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Run clippy
-      run: cargo clippy -- -D warnings
-        
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
   format:
     runs-on: buildjet-4vcpu-ubuntu-2204
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Install latest rust
-      uses: dtolnay/rust-toolchain@master
-      with:
+      - name: Install latest rust
+        uses: dtolnay/rust-toolchain@master
+        with:
           toolchain: stable
           components: rustfmt
 
-    - name: Format
-      run: cargo fmt -- --check
+      - name: Format
+        run: cargo fmt -- --check

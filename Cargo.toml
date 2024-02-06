@@ -3,35 +3,63 @@ resolver = "2"
 
 members = [
   "capture",
-  "capture-server"
+  "capture-server",
+  "hook-common",
+  "hook-api",
+  "hook-worker",
+  "hook-janitor",
 ]
 
 [profile.release]
-debug = 2  # https://www.polarsignals.com/docs/rust
+debug = 2 # https://www.polarsignals.com/docs/rust
 
 [workspace.dependencies]
-assert-json-diff = "2.0.2"
-axum = "0.6.15"
-axum-client-ip = "0.4.1"
-tokio = { version = "1.0", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
-serde = { version = "1.0.160", features = ["derive"] }
-serde_json = "1.0.96"
-governor = {version = "0.5.1", features=["dashmap"]}
-tower_governor = "0.0.4"
-time = { version = "0.3.20", features = ["formatting", "macros", "parsing", "serde"] }
-tower-http = { version = "0.4.0", features = ["cors", "trace"] }
-bytes = "1"
 anyhow = "1.0"
-flate2 = "1.0"
+assert-json-diff = "2.0.2"
+async-trait = "0.1.74"
+axum = { version = "0.7.1", features = ["http2"] }
+axum-client-ip = "0.4.1"
 base64 = "0.21.1"
-uuid = { version = "1.3.3", features = ["serde"] }
-async-trait = "0.1.68"
-serde_urlencoded = "0.7.1"
-rand = "0.8.5"
-rdkafka = { version = "0.36.0", features = ["cmake-build", "ssl"] }
-metrics = "0.21.1"
-metrics-exporter-prometheus = "0.12.1"
-thiserror = "1.0.48"
+bytes = "1"
+chrono = { version = "0.4" }
 envconfig = "0.10.0"
+eyre = "0.6.9"
+flate2 = "1.0"
+futures = { version = "0.3.29" }
+governor = { version = "0.5.1", features = ["dashmap"] }
+http = { version = "0.2" }
+http-body-util = "0.1.0"
+metrics = "0.22.0"
+metrics-exporter-prometheus = "0.13.0"
+rand = "0.8.5"
+rdkafka = { version = "0.36.0", features = ["cmake-build", "ssl", "tracing"] }
+regex = "1.10.2"
+reqwest = { version = "0.11" }
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = { version = "1.0" }
+serde_json = { version = "1.0" }
+serde_urlencoded = "0.7.1"
+sqlx = { version = "0.7", features = [
+  "chrono",
+  "json",
+  "migrate",
+  "postgres",
+  "runtime-tokio",
+  "tls-native-tls",
+  "uuid",
+] }
+thiserror = { version = "1.0" }
+time = { version = "0.3.20", features = [
+  "formatting",
+  "macros",
+  "parsing",
+  "serde",
+] }
+tokio = { version = "1.34.0", features = ["full"] }
+tower = "0.4.13"
+tower_governor = "0.0.4"
+tower-http = { version = "0.4.0", features = ["cors", "trace"] }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+url = { version = "2.5.0 " }
+uuid = { version = "1.6.1", features = ["v7", "serde"] }

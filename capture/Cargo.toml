@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = { workspace = true }
+axum = { version = "0.6.15" } # TODO: Bring up to date with the workspace.
 axum-client-ip = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -29,12 +29,16 @@ rdkafka = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 thiserror = { workspace = true }
-redis = { version="0.23.3", features=["tokio-comp", "cluster", "cluster-async"] }
+redis = { version = "0.23.3", features = [
+    "tokio-comp",
+    "cluster",
+    "cluster-async",
+] }
 envconfig = { workspace = true }
 dashmap = "5.5.3"
 
 [dev-dependencies]
-assert-json-diff =  { workspace = true }
+assert-json-diff = { workspace = true }
 axum-test-helper = "0.2.0"
 mockall = "0.11.2"
 redis-test = "0.2.3"

@@ -48,7 +48,7 @@ impl OverflowLimiter {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
-            gauge!("partition_limits_key_count", self.limiter.len() as f64);
+            gauge!("partition_limits_key_count").set(self.limiter.len() as f64);
         }
     }
 

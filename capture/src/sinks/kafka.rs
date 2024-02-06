@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use metrics::{absolute_counter, counter, gauge, histogram};
+use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
@@ -28,53 +28,52 @@ impl rdkafka::ClientContext for KafkaContext {
         self.liveness.report_healthy_blocking();
 
         // Update exported metrics
-        gauge!("capture_kafka_callback_queue_depth", stats.replyq as f64);
-        gauge!("capture_kafka_producer_queue_depth", stats.msg_cnt as f64);
-        gauge!(
-            "capture_kafka_producer_queue_depth_limit",
-            stats.msg_max as f64
-        );
-        gauge!("capture_kafka_producer_queue_bytes", stats.msg_max as f64);
-        gauge!(
-            "capture_kafka_producer_queue_bytes_limit",
-            stats.msg_size_max as f64
-        );
+        gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
+        gauge!("capture_kafka_producer_queue_depth",).set(stats.msg_cnt as f64);
+        gauge!("capture_kafka_producer_queue_depth_limit",).set(stats.msg_max as f64);
+        gauge!("capture_kafka_producer_queue_bytes",).set(stats.msg_max as f64);
+        gauge!("capture_kafka_producer_queue_bytes_limit",).set(stats.msg_size_max as f64);
 
         for (topic, stats) in stats.topics {
             gauge!(
                 "capture_kafka_produce_avg_batch_size_bytes",
-                stats.batchsize.avg as f64,
-                "topic" => topic.clone()
-            );
+                               "topic" => topic.clone()
+            )
+            .set(stats.batchsize.avg as f64);
             gauge!(
                 "capture_kafka_produce_avg_batch_size_events",
-                stats.batchcnt.avg as f64,
+
                 "topic" => topic
-            );
+            )
+            .set(stats.batchcnt.avg as f64);
         }
 
         for (_, stats) in stats.brokers {
             let id_string = format!("{}", stats.nodeid);
             gauge!(
                 "capture_kafka_broker_requests_pending",
-                stats.outbuf_cnt as f64,
+
                 "broker" => id_string.clone()
-            );
+            )
+            .set(stats.outbuf_cnt as f64);
             gauge!(
                 "capture_kafka_broker_responses_awaiting",
-                stats.waitresp_cnt as f64,
+
                 "broker" => id_string.clone()
-            );
-            absolute_counter!(
+            )
+            .set(stats.waitresp_cnt as f64);
+            counter!(
                 "capture_kafka_broker_tx_errors_total",
-                stats.txerrs,
+
                 "broker" => id_string.clone()
-            );
-            absolute_counter!(
+            )
+            .absolute(stats.txerrs);
+            counter!(
                 "capture_kafka_broker_rx_errors_total",
-                stats.rxerrs,
+
                 "broker" => id_string
-            );
+            )
+            .absolute(stats.rxerrs);
         }
     }
 }
@@ -180,7 +179,7 @@ impl KafkaSink {
         match delivery.await {
             Err(_) => {
                 // Cancelled due to timeout while retrying
-                counter!("capture_kafka_produce_errors_total", 1);
+                counter!("capture_kafka_produce_errors_total").increment(1);
                 error!("failed to produce to Kafka before write timeout");
                 Err(CaptureError::RetryableSinkError)
             }
@@ -191,12 +190,12 @@ impl KafkaSink {
             }
             Ok(Err((err, _))) => {
                 // Unretriable produce error
-                counter!("capture_kafka_produce_errors_total", 1);
+                counter!("capture_kafka_produce_errors_total").increment(1);
                 error!("failed to produce to Kafka: {}", err);
                 Err(CaptureError::RetryableSinkError)
             }
             Ok(Ok(_)) => {
-                counter!("capture_events_ingested_total", 1);
+                counter!("capture_events_ingested_total").increment(1);
                 Ok(())
             }
         }
@@ -210,7 +209,7 @@ impl Event for KafkaSink {
         let limited = self.partition.is_limited(&event.key());
         let ack =
             Self::kafka_send(self.producer.clone(), self.topic.clone(), event, limited).await?;
-        histogram!("capture_event_batch_size", 1.0);
+        histogram!("capture_event_batch_size").record(1.0);
         Self::process_ack(ack)
             .instrument(info_span!("ack_wait_one"))
             .await
@@ -253,7 +252,7 @@ impl Event for KafkaSink {
         .instrument(info_span!("ack_wait_many"))
         .await?;
 
-        histogram!("capture_event_batch_size", batch_size as f64);
+        histogram!("capture_event_batch_size").record(batch_size as f64);
         Ok(())
     }
 }

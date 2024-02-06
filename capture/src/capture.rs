@@ -101,7 +101,7 @@ pub async fn event(
 
     tracing::Span::current().record("token", &token);
 
-    counter!("capture_events_received_total", events.len() as u64);
+    counter!("capture_events_received_total").increment(events.len() as u64);
 
     let sent_at = meta.sent_at.and_then(|value| {
         let value_nanos: i128 = i128::from(value) * 1_000_000; // Assuming the value is in milliseconds, latest posthog-js releases

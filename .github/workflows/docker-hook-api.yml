@@ -1,20 +1,19 @@
-name: Build docker image
+name: Build hook-api docker image
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - 'main'
+      - "main"
 
 permissions:
   packages: write
 
 jobs:
   build:
-    name: build and publish capture image
-    runs-on: buildjet-8vcpu-ubuntu-2204-arm
+    name: build and publish hook-api image
+    runs-on: buildjet-4vcpu-ubuntu-2204-arm
     steps:
-
       - name: Check Out Repo
         uses: actions/checkout@v3
 
@@ -38,7 +37,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/posthog/hook-api
           tags: |
             type=ref,event=pr
             type=ref,event=branch
@@ -50,8 +49,8 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Build and push
-        id: docker_build
+      - name: Build and push api
+        id: docker_build_hook_api
         uses: docker/build-push-action@v4
         with:
           context: ./
@@ -63,7 +62,7 @@ jobs:
           platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: RUST_BACKTRACE=1
+          build-args: BIN=hook-api
 
-      - name: Image digest
-        run: echo ${{ steps.docker_build.outputs.digest }}
+      - name: Hook-api image digest
+        run: echo ${{ steps.docker_build_hook_api.outputs.digest }}
