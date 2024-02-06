@@ -15,11 +15,11 @@ import { useEffect, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { query } from '~/queries/query'
-import { HogQLIntelliSense, HogQLQuery, IntelliSenseCompletionItem, NodeKind } from '~/queries/schema'
+import { AutocompleteCompletionItem, HogQLAutocomplete, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 
-const convertCompletionItemKind = (kind: IntelliSenseCompletionItem['kind']): languages.CompletionItemKind => {
+const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): languages.CompletionItemKind => {
     switch (kind) {
         case 'Method':
             return languages.CompletionItemKind.Method
@@ -195,7 +195,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 monaco.languages.registerCompletionItemProvider('mysql', {
                                     triggerCharacters: [' ', ',', '.'],
                                     provideCompletionItems: async (model, position) => {
-                                        if (!featureFlags[FEATURE_FLAGS.HOGQL_INTELLISENSE]) {
+                                        if (!logic.isMounted()) {
+                                            return undefined
+                                        }
+
+                                        if (!featureFlags[FEATURE_FLAGS.HOGQL_AUTOCOMPLETE]) {
                                             return undefined
                                         }
 
@@ -210,9 +214,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             column: word.endColumn,
                                         })
 
-                                        const response = await query<HogQLIntelliSense>({
-                                            kind: NodeKind.HogQLIntelliSense,
-                                            select: queryInput,
+                                        const response = await query<HogQLAutocomplete>({
+                                            kind: NodeKind.HogQLAutocomplete,
+                                            select: logic.values.queryInput,
                                             filters: props.query.filters,
                                             startPosition: startOffset,
                                             endPosition: endOffset,

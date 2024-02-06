@@ -46,7 +46,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
-    HogQLIntelliSense = 'HogQLIntelliSense',
+    HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
@@ -93,7 +93,7 @@ export type AnyDataNode =
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
-    | HogQLIntelliSense
+    | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -114,7 +114,7 @@ export type QuerySchema =
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
-    | HogQLIntelliSense
+    | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -155,7 +155,7 @@ export type AnyResponseType =
     | Record<string, any>
     | HogQLQueryResponse
     | HogQLMetadataResponse
-    | HogQLIntelliSenseResponse
+    | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
 
@@ -238,7 +238,7 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
 }
 
-export interface IntelliSenseCompletionItem {
+export interface AutocompleteCompletionItem {
     /**
      * The label of this completion item. By default
      * this is also the text that is inserted when selecting
@@ -289,8 +289,8 @@ export interface IntelliSenseCompletionItem {
         | 'Snippet'
 }
 
-export interface HogQLIntelliSenseResponse {
-    suggestions: IntelliSenseCompletionItem[]
+export interface HogQLAutocompleteResponse {
+    suggestions: AutocompleteCompletionItem[]
 }
 
 export interface HogQLMetadata extends DataNode {
@@ -310,8 +310,8 @@ export interface HogQLMetadata extends DataNode {
     response?: HogQLMetadataResponse
 }
 
-export interface HogQLIntelliSense extends DataNode {
-    kind: NodeKind.HogQLIntelliSense
+export interface HogQLAutocomplete extends DataNode {
+    kind: NodeKind.HogQLAutocomplete
     /** Full select query to validate */
     select: string
     /** Table to validate the expression against */
@@ -326,7 +326,7 @@ export interface HogQLIntelliSense extends DataNode {
      * @asType integer
      */
     endPosition: number
-    response?: HogQLIntelliSenseResponse
+    response?: HogQLAutocompleteResponse
 }
 
 export interface EntityNode extends DataNode {

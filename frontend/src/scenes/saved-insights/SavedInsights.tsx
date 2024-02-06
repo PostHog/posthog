@@ -268,9 +268,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
-    [NodeKind.HogQLIntelliSense]: {
-        name: 'HogQL IntelliSense',
-        description: 'IntelliSense for the HogQL query editor',
+    [NodeKind.HogQLAutocomplete]: {
+        name: 'HogQL Autocomplete',
+        description: 'Autocomplete for the HogQL query editor',
         icon: IconHogQL,
         inMenu: false,
     },

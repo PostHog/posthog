@@ -29,6 +29,56 @@ class AggregationAxisFormat(str, Enum):
     percentage_scaled = "percentage_scaled"
 
 
+class Kind(str, Enum):
+    Method = "Method"
+    Function = "Function"
+    Constructor = "Constructor"
+    Field = "Field"
+    Variable = "Variable"
+    Class = "Class"
+    Struct = "Struct"
+    Interface = "Interface"
+    Module = "Module"
+    Property = "Property"
+    Event = "Event"
+    Operator = "Operator"
+    Unit = "Unit"
+    Value = "Value"
+    Constant = "Constant"
+    Enum = "Enum"
+    EnumMember = "EnumMember"
+    Keyword = "Keyword"
+    Text = "Text"
+    Color = "Color"
+    File = "File"
+    Reference = "Reference"
+    Customcolor = "Customcolor"
+    Folder = "Folder"
+    TypeParameter = "TypeParameter"
+    User = "User"
+    Issue = "Issue"
+    Snippet = "Snippet"
+
+
+class AutocompleteCompletionItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    documentation: Optional[str] = Field(
+        default=None, description="A human-readable string that represents a doc-comment."
+    )
+    insertText: str = Field(
+        ..., description="A string or snippet that should be inserted in a document when selecting this completion."
+    )
+    kind: Kind = Field(
+        ..., description="The kind of this completion item. Based on the kind an icon is chosen by the editor."
+    )
+    label: str = Field(
+        ...,
+        description="The label of this completion item. By default this is also the text that is inserted when selecting this completion.",
+    )
+
+
 class BaseMathType(str, Enum):
     total = "total"
     dau = "dau"
@@ -270,6 +320,13 @@ class GoalLine(BaseModel):
     value: float
 
 
+class HogQLAutocompleteResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    suggestions: List[AutocompleteCompletionItem]
+
+
 class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -411,56 +468,6 @@ class InsightType(str, Enum):
     SQL = "SQL"
 
 
-class Kind(str, Enum):
-    Method = "Method"
-    Function = "Function"
-    Constructor = "Constructor"
-    Field = "Field"
-    Variable = "Variable"
-    Class = "Class"
-    Struct = "Struct"
-    Interface = "Interface"
-    Module = "Module"
-    Property = "Property"
-    Event = "Event"
-    Operator = "Operator"
-    Unit = "Unit"
-    Value = "Value"
-    Constant = "Constant"
-    Enum = "Enum"
-    EnumMember = "EnumMember"
-    Keyword = "Keyword"
-    Text = "Text"
-    Color = "Color"
-    File = "File"
-    Reference = "Reference"
-    Customcolor = "Customcolor"
-    Folder = "Folder"
-    TypeParameter = "TypeParameter"
-    User = "User"
-    Issue = "Issue"
-    Snippet = "Snippet"
-
-
-class IntelliSenseCompletionItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    documentation: Optional[str] = Field(
-        default=None, description="A human-readable string that represents a doc-comment."
-    )
-    insertText: str = Field(
-        ..., description="A string or snippet that should be inserted in a document when selecting this completion."
-    )
-    kind: Kind = Field(
-        ..., description="The kind of this completion item. Based on the kind an icon is chosen by the editor."
-    )
-    label: str = Field(
-        ...,
-        description="The label of this completion item. By default this is also the text that is inserted when selecting this completion.",
-    )
-
-
 class IntervalType(str, Enum):
     hour = "hour"
     day = "day"
@@ -482,7 +489,7 @@ class NodeKind(str, Enum):
     PersonsNode = "PersonsNode"
     HogQLQuery = "HogQLQuery"
     HogQLMetadata = "HogQLMetadata"
-    HogQLIntelliSense = "HogQLIntelliSense"
+    HogQLAutocomplete = "HogQLAutocomplete"
     ActorsQuery = "ActorsQuery"
     SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
@@ -656,7 +663,7 @@ class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    suggestions: List[IntelliSenseCompletionItem]
+    suggestions: List[AutocompleteCompletionItem]
 
 
 class QueryStatus(BaseModel):
@@ -1155,13 +1162,6 @@ class GroupPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class HogQLIntelliSenseResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    suggestions: List[IntelliSenseCompletionItem]
-
-
 class HogQLMetadataResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1573,7 +1573,7 @@ class AnyResponseType(
             Dict[str, Any],
             HogQLQueryResponse,
             HogQLMetadataResponse,
-            HogQLIntelliSenseResponse,
+            HogQLAutocompleteResponse,
             Union[AnyResponseType1, Any],
             EventsQueryResponse,
         ]
@@ -1583,7 +1583,7 @@ class AnyResponseType(
         Dict[str, Any],
         HogQLQueryResponse,
         HogQLMetadataResponse,
-        HogQLIntelliSenseResponse,
+        HogQLAutocompleteResponse,
         Union[AnyResponseType1, Any],
         EventsQueryResponse,
     ]
@@ -1914,18 +1914,6 @@ class HogQLFilters(BaseModel):
     ] = None
 
 
-class HogQLIntelliSense(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    endPosition: int = Field(..., description="End position of the editor word")
-    filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
-    kind: Literal["HogQLIntelliSense"] = "HogQLIntelliSense"
-    response: Optional[HogQLIntelliSenseResponse] = Field(default=None, description="Cached query response")
-    select: str = Field(..., description="Full select query to validate")
-    startPosition: int = Field(..., description="Start position of the editor word")
-
-
 class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2178,6 +2166,18 @@ class FunnelsFilter(BaseModel):
 
 class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
     root: Union[EventsNode, EventsQuery, PersonsNode]
+
+
+class HogQLAutocomplete(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    endPosition: int = Field(..., description="End position of the editor word")
+    filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
+    kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
+    response: Optional[HogQLAutocompleteResponse] = Field(default=None, description="Cached query response")
+    select: str = Field(..., description="Full select query to validate")
+    startPosition: int = Field(..., description="Start position of the editor word")
 
 
 class InsightFilter(
@@ -2683,7 +2683,7 @@ class HogQLMetadata(BaseModel):
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
-            HogQLIntelliSense,
+            HogQLAutocomplete,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,
@@ -2723,7 +2723,7 @@ class QueryRequest(BaseModel):
         SessionsTimelineQuery,
         HogQLQuery,
         HogQLMetadata,
-        HogQLIntelliSense,
+        HogQLAutocomplete,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebTopClicksQuery,
@@ -2760,7 +2760,7 @@ class QuerySchemaRoot(
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
-            HogQLIntelliSense,
+            HogQLAutocomplete,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,
@@ -2790,7 +2790,7 @@ class QuerySchemaRoot(
         SessionsTimelineQuery,
         HogQLQuery,
         HogQLMetadata,
-        HogQLIntelliSense,
+        HogQLAutocomplete,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebTopClicksQuery,
