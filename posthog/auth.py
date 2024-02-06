@@ -114,7 +114,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             team_id=personal_api_key_object.user.current_team_id,
             access_method="personal_api_key",
         )
+
         request.using_personal_api_key = True  # type: ignore
+        request.scopes = personal_api_key_object.scopes  # type: ignore
         return personal_api_key_object.user, None
 
     @classmethod

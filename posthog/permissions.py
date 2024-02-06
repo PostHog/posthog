@@ -1,10 +1,12 @@
 from typing import cast
 
 from django.db.models import Model
+from django.core.exceptions import ImproperlyConfigured
+
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
@@ -57,7 +59,7 @@ class CanCreateOrg(BasePermission):
         return get_can_create_org(request.user)
 
 
-class SingleTenancyOrAdmin(BasePermission):
+class SingleTenancyOrAdmin(BasePermission, type(BasePermission)):
     """
     Allows access to only staff users on cloud.
     """
@@ -251,3 +253,42 @@ class SharingTokenPermission(BasePermission):
             return view.action in view.sharing_enabled_actions
 
         return False
+
+
+class APIScopePermission(BasePermission):
+    """
+    The request is authenticated as a user and the token used has the right scope
+    """
+
+    def has_permission(self, request, view):
+        # API Scopes currently only apply to PersonalAPIKeyAuthentication
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return True
+
+        request_scopes = (cast(str, request.scopes) or "").split(",")
+
+        # If scopes is not set then full access is granted
+        # TODO: Is this correct?
+        if not request_scopes:
+            return True
+
+        required_scopes = self.get_scopes(request, view)
+
+        # required_scope can be ["resource"], ["resource:read"], ["resource:write"]
+        # we check each entry - if it is "resource" then either "resource:read" or "resource:write" is enough
+
+        for required_scope in required_scopes:
+            if ":" in required_scope:
+                if required_scope not in request_scopes:
+                    return False
+            else:
+                if f"{required_scope}:read" not in request_scopes and f"{required_scope}:write" not in request_scopes:
+                    return False
+
+        return True
+
+    def get_scopes(self, request, view):
+        try:
+            return view.required_scopes
+        except AttributeError:
+            raise ImproperlyConfigured("TokenHasScope requires the view to define the required_scopes attribute")

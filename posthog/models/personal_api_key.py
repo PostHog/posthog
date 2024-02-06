@@ -37,6 +37,7 @@ class PersonalAPIKey(models.Model):
     )
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    scopes: models.CharField = models.CharField(unique=True, max_length=1000, null=True, blank=True)
 
     # DEPRECATED: personal API keys are now specifically personal, without team affiliation
     team = models.ForeignKey(

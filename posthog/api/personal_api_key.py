@@ -12,8 +12,11 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PersonalAPIKey
-        fields = ["id", "label", "created_at", "last_used_at", "user_id"]
+        fields = ["id", "label", "created_at", "last_used_at", "user_id", "scopes"]
         read_only_fields = ["id", "created_at", "last_used_at", "user_id"]
+
+    def get_scopes(self, obj: PersonalAPIKey) -> list[str]:
+        return obj.scopes.split(",") if obj.scopes else []
 
 
 class PersonalAPIKeySerializerCreateOnly(serializers.ModelSerializer):
@@ -24,7 +27,7 @@ class PersonalAPIKeySerializerCreateOnly(serializers.ModelSerializer):
 
     class Meta:
         model = PersonalAPIKey
-        fields = ["id", "label", "value", "created_at", "last_used_at", "user_id"]
+        fields = ["id", "label", "value", "created_at", "last_used_at", "user_id", "scopes"]
         read_only_fields = ["id", "value", "created_at", "last_used_at", "user_id"]
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
