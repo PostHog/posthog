@@ -271,8 +271,7 @@ class APIScopePermission(BasePermission):
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             return True
 
-        key_scopes = request.successful_authenticator.personal_api_key.scopes
-        requester_scopes = (cast(str, key_scopes) or "").split(",")
+        requester_scopes = request.successful_authenticator.personal_api_key.scopes_list
 
         # If scopes is not set then full access is granted
         # TODO: Is this correct?
@@ -304,7 +303,7 @@ class APIScopePermission(BasePermission):
             if not valid_scopes:
                 # NOTE: This will happen if an @action does not specify a scope
                 raise ImproperlyConfigured(
-                    f"Valid scopes could not be properly determined. Is this action missing `required_scopes`? Scopes on actions should be specific e.g. insights:read"
+                    f"Valid scopes could not be properly determined. Please ensure the action has `required_scopes` and that it is specific e.g. insights:read"
                 )
 
             if not any(scope in requester_scopes for scope in valid_scopes):

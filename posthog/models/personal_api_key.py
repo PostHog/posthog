@@ -47,3 +47,7 @@ class PersonalAPIKey(models.Model):
         null=True,
         blank=True,
     )
+
+    @property
+    def scopes_list(self) -> list[str]:
+        return self.scopes.split(",") if self.scopes else []
