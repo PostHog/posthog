@@ -786,9 +786,7 @@ mod tests {
             WebhookCleaner::new_from_pool(db.clone(), mock_producer, APP_METRICS_TOPIC.to_owned())
                 .expect("unable to create webhook cleaner");
 
-        let queue = PgQueue::new_from_pool("webhooks", db.clone())
-            .await
-            .expect("failed to connect to local test postgresql database");
+        let queue = PgQueue::new_from_pool("webhooks", db.clone()).await;
 
         async fn get_count_from_new_conn(db: &PgPool, status: &str) -> i64 {
             let mut conn = db.acquire().await.unwrap();

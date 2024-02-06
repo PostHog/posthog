@@ -6,7 +6,7 @@ use std::str::FromStr;
 use serde::{de::Visitor, Deserialize, Serialize};
 
 use crate::kafka_messages::app_metrics;
-use crate::pgqueue::PgQueueError;
+use crate::pgqueue::ParseError;
 
 /// Supported HTTP methods for webhooks.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -20,7 +20,7 @@ pub enum HttpMethod {
 
 /// Allow casting `HttpMethod` from strings.
 impl FromStr for HttpMethod {
-    type Err = PgQueueError;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_uppercase().as_ref() {
@@ -29,7 +29,7 @@ impl FromStr for HttpMethod {
             "PATCH" => Ok(HttpMethod::PATCH),
             "POST" => Ok(HttpMethod::POST),
             "PUT" => Ok(HttpMethod::PUT),
-            invalid => Err(PgQueueError::ParseHttpMethodError(invalid.to_owned())),
+            invalid => Err(ParseError::ParseHttpMethodError(invalid.to_owned())),
         }
     }
 }

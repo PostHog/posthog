@@ -24,10 +24,10 @@ pub enum WebhookError {
 /// Enumeration of errors related to initialization and consumption of webhook jobs.
 #[derive(Error, Debug)]
 pub enum WorkerError {
+    #[error("a database error occurred when executing a job")]
+    DatabaseError(#[from] pgqueue::DatabaseError),
+    #[error("a parsing error occurred in the underlying queue")]
+    QueueParseError(#[from] pgqueue::ParseError),
     #[error("timed out while waiting for jobs to be available")]
     TimeoutError,
-    #[error("an error occurred in the underlying queue")]
-    QueueError(#[from] pgqueue::PgQueueError),
-    #[error("an error occurred in the underlying job: {0}")]
-    PgJobError(String),
 }
