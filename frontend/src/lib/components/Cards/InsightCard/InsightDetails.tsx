@@ -4,8 +4,10 @@ import {
     isAnyPropertyfilter,
     isCohortPropertyFilter,
     isPropertyFilterWithOperator,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
 } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
@@ -92,7 +94,14 @@ function CompactPropertyFiltersDisplay({
                                             's
                                             <span className="SeriesDisplay__raw-name">
                                                 {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
-                                                    <PropertyKeyInfo value={leafFilter.key} />
+                                                    <PropertyKeyInfo
+                                                        value={leafFilter.key}
+                                                        type={
+                                                            PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
+                                                                leafFilter.type
+                                                            ]
+                                                        }
+                                                    />
                                                 )}
                                             </span>
                                             {
@@ -160,7 +169,10 @@ function SeriesDisplay({
                                                 {' '}
                                                 event's
                                                 <span className="SeriesDisplay__raw-name">
-                                                    <PropertyKeyInfo value={filter.math_property} />
+                                                    <PropertyKeyInfo
+                                                        value={filter.math_property}
+                                                        type={TaxonomicFilterGroupType.EventProperties}
+                                                    />
                                                 </span>
                                             </>
                                         )}
@@ -193,7 +205,7 @@ function SeriesDisplay({
                 </Link>
             ) : (
                 <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                    <PropertyKeyInfo value={filter.name || '$pageview'} />
+                    <PropertyKeyInfo value={filter.name || '$pageview'} type={TaxonomicFilterGroupType.Events} />
                 </span>
             )}
         </LemonRow>

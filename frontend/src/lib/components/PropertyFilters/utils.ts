@@ -110,18 +110,17 @@ export function formatPropertyLabel(
         return extractExpressionComment(item.key)
     }
     const { value, key, operator, type } = item
+
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+
     return type === 'cohort'
         ? cohortsById[value]?.name || `ID ${value}`
-        : CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label ||
-              key +
-                  (isOperatorFlag(operator)
-                      ? ` ${allOperatorsMapping[operator]}`
-                      : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
-                            value && value.length === 1 && value[0] === ''
-                                ? '(empty string)'
-                                : valueFormatter(value) || ''
-                        } `)
+        : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
+              (isOperatorFlag(operator)
+                  ? ` ${allOperatorsMapping[operator]}`
+                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
+                    } `)
 }
 
 /** Make sure unverified user property filter input has at least a "type" */

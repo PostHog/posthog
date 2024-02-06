@@ -4,6 +4,7 @@ import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/compon
 import { ActionType } from '~/types'
 
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Element | null {
     if (!entity) {
@@ -17,7 +18,8 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                         <DefinitionPopover.Card
                             title={
                                 <>
-                                    Match group {index + 1}: <PropertyKeyInfo value={step.event} />
+                                    Match group {index + 1}:{' '}
+                                    <PropertyKeyInfo value={step.event} type={TaxonomicFilterGroupType.Events} />
                                 </>
                             }
                             value={

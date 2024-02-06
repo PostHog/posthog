@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
@@ -64,11 +65,16 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                 breakdown_type !== 'group'
                     ? breakdown_type
                     : context.aggregationLabel(breakdown_group_type_index, true).singular
-            return `${noun}'s ${
-                (breakdown as string) in CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
-                    ? CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[breakdown as string].label
+            const propertyLabel =
+                typeof breakdown === 'string' &&
+                breakdown_type &&
+                breakdown_type in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
+                    ? getCoreFilterDefinition(
+                          breakdown,
+                          PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdown_type]
+                      )?.label || breakdown
                     : breakdown
-            }`
+            return `${noun}'s ${propertyLabel}`
         }
     }
     return null

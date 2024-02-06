@@ -114,7 +114,10 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                     <ul>
                                         <li>
                                             <span>
-                                                <PropertyKeyInfo value={group.event_id} />
+                                                <PropertyKeyInfo
+                                                    value={group.event_id}
+                                                    type={TaxonomicFilterGroupType.Events}
+                                                />
                                                 {operatorToHumanName(group.count_operator)} in the last{' '}
                                                 {COHORT_MATCHING_DAYS[group.days as '1' | '7' | '14' | '30']}
                                             </span>

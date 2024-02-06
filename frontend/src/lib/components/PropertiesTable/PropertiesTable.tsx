@@ -20,6 +20,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
@@ -290,7 +291,10 @@ export function PropertiesTable({
                 render: function Key(_, item: any): JSX.Element {
                     return (
                         <div className="properties-table-key">
-                            <PropertyKeyInfo value={item[0]} />
+                            <PropertyKeyInfo
+                                value={item[0]}
+                                type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]}
+                            />
                         </div>
                     )
                 },
