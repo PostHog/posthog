@@ -54,7 +54,7 @@ class FunnelEventQuery:
 
         # Aggregating by group
         if query.aggregation_group_type_index is not None:
-            aggregation_target = f'{self.EVENT_TABLE_ALIAS}."$group_{query.aggregation_group_type_index}"'
+            aggregation_target = f"$group_{query.aggregation_group_type_index}"
 
         # Aggregating by HogQL
         elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
