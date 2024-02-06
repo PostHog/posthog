@@ -21,8 +21,6 @@ class Command(BaseCommand):
             .all()
         )
         for insight in insights[200:300]:
-            if insight.team_id in (4622):  # group analytics without paying
-                continue
             try:
                 print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")  # noqa: T201
                 insight_type = insight.filters.get("insight")
