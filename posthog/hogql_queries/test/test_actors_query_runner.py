@@ -1,4 +1,7 @@
+import pytest
+
 from posthog.hogql import ast
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.utils import UUIDT
@@ -136,6 +139,11 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(runner.calculate().results), 1)
         runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
         self.assertEqual(len(runner.calculate().results), 1)
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_persons_query_search_snapshot(self):
+        runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))
+        assert pretty_print_in_tests(runner.to_hogql(), self.team.pk) == self.snapshot
 
     def test_persons_query_aggregation_select_having(self):
         self.random_uuid = self._create_random_persons()
