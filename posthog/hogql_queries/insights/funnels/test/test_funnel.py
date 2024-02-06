@@ -385,11 +385,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["name"], "watched movie")
             self.assertEqual(result[1]["count"], 1)
 
-        # TODO: less than two series items are not supported in hogql funnels
-        # def test_funnel_no_events(self):
-        #     funnel = Funnel(filter=Filter(data={"some": "prop"}), team=self.team)
-        #     self.assertEqual(funnel.run(), [])
-
         def test_funnel_skipped_step(self):
             funnel = self._basic_funnel()
 
