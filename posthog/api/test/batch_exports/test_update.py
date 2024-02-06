@@ -241,3 +241,95 @@ def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval):
         args = json.loads(decoded_payload[0].data)
         assert args["bucket_name"] == "my-new-production-s3-bucket"
         assert args.get("invalid_key", None) is None
+
+
+def test_can_patch_hogql_query(client: HttpClient):
+    """Test we can patch a schema with a HogQL query."""
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        batch_export = create_batch_export_ok(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+        old_schedule = describe_schedule(temporal, batch_export["id"])
+
+        new_batch_export_data = {
+            "name": "my-production-s3-bucket-destination",
+            "hogql_query": "select toString(uuid) as uuid, 'test' as test, toInt(1+1) as n from events",
+        }
+
+        response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert batch_export["interval"] == "hour"
+        assert batch_export["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
+        assert batch_export["schema"] == {
+            "fields": [
+                {
+                    "alias": "uuid",
+                    "expression": "toString(events.uuid)",
+                },
+                {
+                    "alias": "test",
+                    "expression": "%(hogql_val_0)s",
+                },
+                {
+                    "alias": "n",
+                    "expression": "toInt64OrNull(plus(1, 1))",
+                },
+            ],
+            "values": {"hogql_val_0": "test"},
+            "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
+        }
+
+        # validate the underlying temporal schedule has been updated
+        codec = EncryptionCodec(settings=settings)
+        new_schedule = describe_schedule(temporal, batch_export["id"])
+        assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
+        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["bucket_name"] == "my-production-s3-bucket"
+        assert args["interval"] == "hour"
+        assert args["batch_export_schema"] == {
+            "fields": [
+                {
+                    "alias": "uuid",
+                    "expression": "toString(events.uuid)",
+                },
+                {
+                    "alias": "test",
+                    "expression": "%(hogql_val_0)s",
+                },
+                {
+                    "alias": "n",
+                    "expression": "toInt64OrNull(plus(1, 1))",
+                },
+            ],
+            "values": {"hogql_val_0": "test"},
+            "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
+        }

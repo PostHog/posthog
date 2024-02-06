@@ -166,7 +166,7 @@ export const makeCustomEvent = (
             }
         } else {
             removes.push({
-                parentId: BODY_ID,
+                parentId: KEYBOARD_PARENT_ID,
                 id: KEYBOARD_ID,
             })
         }
