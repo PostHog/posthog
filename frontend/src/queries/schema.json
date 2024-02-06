@@ -3487,6 +3487,9 @@
                             "items": {},
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -3496,8 +3499,14 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "limit": {
+                            "type": "integer"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "results": {
                             "items": {},
@@ -4939,6 +4948,9 @@
                     "const": "WebStatsTableQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -4968,6 +4980,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -4977,8 +4992,14 @@
                 "last_refresh": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "offset": {
+                    "type": "integer"
                 },
                 "results": {
                     "items": {},

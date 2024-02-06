@@ -35,9 +35,12 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _run_web_stats_table_query(self, date_from, date_to, breakdown_by=WebStatsBreakdown.Page):
+    def _run_web_stats_table_query(self, date_from, date_to, breakdown_by=WebStatsBreakdown.Page, limit=None):
         query = WebStatsTableQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to), properties=[], breakdownBy=breakdown_by
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            properties=[],
+            breakdownBy=breakdown_by,
+            limit=limit,
         )
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
         return runner.calculate()
@@ -111,3 +114,30 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             1,
             len(results),
         )
+
+    def test_limit(self):
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", "s1", "/"), ("2023-12-03", "s1", "/login")]),
+                ("p2", [("2023-12-10", "s2", "/")]),
+            ]
+        )
+
+        response_1 = self._run_web_stats_table_query("all", "2023-12-15", limit=1)
+        self.assertEqual(
+            [
+                ["/", 2, 2],
+            ],
+            response_1.results,
+        )
+        self.assertEqual(True, response_1.hasMore)
+
+        response_2 = self._run_web_stats_table_query("all", "2023-12-15", limit=2)
+        self.assertEqual(
+            [
+                ["/", 2, 2],
+                ["/login", 1, 1],
+            ],
+            response_2.results,
+        )
+        self.assertEqual(False, response_2.hasMore)

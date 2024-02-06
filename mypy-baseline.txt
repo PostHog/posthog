@@ -703,7 +703,6 @@ posthog/queries/trends/test/test_person.py:0: error: "str" has no attribute "get
 posthog/queries/trends/test/test_person.py:0: error: Invalid index type "int" for "HttpResponse"; expected type "str | bytes"  [index]
 posthog/queries/trends/test/test_person.py:0: error: "str" has no attribute "get"  [attr-defined]
 posthog/queries/trends/test/test_person.py:0: error: Invalid index type "int" for "HttpResponse"; expected type "str | bytes"  [index]
-posthog/management/commands/compare_hogql_insights.py:0: error: "BaseModel" has no attribute "results"  [attr-defined]
 posthog/hogql/test/test_query.py:0: error: Argument 1 to "len" has incompatible type "list[Any] | None"; expected "Sized"  [arg-type]
 posthog/hogql/test/test_query.py:0: error: Value of type "list[QueryTiming] | None" is not indexable  [index]
 posthog/hogql/test/test_query.py:0: error: Value of type "list[QueryTiming] | None" is not indexable  [index]

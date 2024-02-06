@@ -84,6 +84,9 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
         submitExternalDataSourceFailure: ({ error }) => {
             lemonToast.error(error?.message || 'Something went wrong')
         },
+        submitDatabaseSchemaFormFailure: ({ error }) => {
+            lemonToast.error(error?.message || 'Something went wrong')
+        },
         handleRedirect: async ({ kind, searchParams }) => {
             switch (kind) {
                 case 'hubspot': {
