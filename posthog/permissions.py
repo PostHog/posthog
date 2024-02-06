@@ -136,10 +136,6 @@ class TeamMemberAccessPermission(BasePermission):
         try:
             view.team  # noqa: B018
         except Team.DoesNotExist:
-            # Legacy compatibility for old endpoints without the team in the path
-            if view.legacy_team_compatibility:
-                return request.user.is_authenticated and request.user.team is not None
-
             return True  # This will be handled as a 404 in the viewset
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
