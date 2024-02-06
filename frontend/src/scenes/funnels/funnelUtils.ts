@@ -218,7 +218,7 @@ export const getBreakdownStepValues = (
     return EMPTY_BREAKDOWN_VALUES
 }
 
-export const getClampedStepRange = ({
+export const getClampedExclusionStepRange = ({
     stepRange,
     query,
 }: {
