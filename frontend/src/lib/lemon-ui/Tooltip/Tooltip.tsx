@@ -34,13 +34,13 @@ export const Tooltip = ({
     placement = 'top',
     delayMs = DEFAULT_DELAY_MS,
     className = '',
-}: TooltipProps): JSX.Element => {
+}: TooltipProps): React.ReactNode => {
     const [isOpen, setIsOpen] = useState(false)
     const caretRef = useRef(null)
 
     const { refs, floatingStyles, context, middlewareData } = useFloating({
-        open: isOpen,
-        onOpenChange: setIsOpen,
+        open: open === undefined ? isOpen : open,
+        onOpenChange: !open ? setIsOpen : undefined,
         placement: placement,
         whileElementsMounted: autoUpdate,
         middleware: [
