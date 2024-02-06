@@ -106,6 +106,7 @@ export default defineConfig({
                     })) {
                         await redisClient.del(key)
                     }
+                    await redisClient.quit()
                     return null
                 },
             })
