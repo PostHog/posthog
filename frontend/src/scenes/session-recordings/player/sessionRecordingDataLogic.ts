@@ -468,7 +468,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return values.sessionPlayerSnapshotData
                     }
 
-                    cache.snapshotsStartTime = performance.now()
+                    if (!cache.snapshotsStartTime) {
+                        cache.snapshotsStartTime = performance.now()
+                    }
 
                     const data: SessionPlayerSnapshotData = {
                         ...(values.sessionPlayerSnapshotData || {}),

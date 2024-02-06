@@ -26,7 +26,7 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
+import { PipelineLogLevel } from 'scenes/pipeline/pipelineNodeLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -588,13 +588,13 @@ export enum PipelineTab {
     AppsManagement = 'apps-management',
 }
 
-export enum PipelineAppKind {
+export enum PipelineStage {
     Filter = 'filter',
     Transformation = 'transformation',
     Destination = 'destination',
 }
 
-export enum PipelineAppTab {
+export enum PipelineNodeTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
@@ -813,6 +813,7 @@ export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
+    DOCTOR = 'doctor',
 }
 
 export enum SessionPlayerState {
@@ -1706,7 +1707,7 @@ export interface PluginConfigTypeNew {
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
 export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
-    plugin_info: PluginType | null
+    plugin_info: PluginType
 }
 
 export interface PluginErrorType {
@@ -1742,7 +1743,7 @@ export interface BatchExportLogEntry {
     batch_export_id: number
     run_id: number
     timestamp: string
-    level: PipelineAppLogLevel
+    level: PipelineLogLevel
     message: string
 }
 

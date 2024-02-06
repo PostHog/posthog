@@ -2011,12 +2011,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "count": 3.0,
                     "data": [0.0, 2.0, 0.0, 0.0, 1.0, 0.0],
                     "labels": [
-                        "1-Jun-2020",
-                        "1-Jul-2020",
-                        "1-Aug-2020",
-                        "1-Sep-2020",
-                        "1-Oct-2020",
-                        "1-Nov-2020",
+                        "Jun 2020",
+                        "Jul 2020",
+                        "Aug 2020",
+                        "Sep 2020",
+                        "Oct 2020",
+                        "Nov 2020",
                     ],
                     "days": [
                         "2020-06-01",
@@ -2087,7 +2087,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "label": "event_name",
                     "count": 2.0,
                     "data": [1.0, 1.0],
-                    "labels": ["1-Jun-2020", "1-Jul-2020"],
+                    "labels": ["Jun 2020", "Jul 2020"],
                     "days": ["2020-06-01", "2020-07-01"],
                 }
             ],
@@ -2433,7 +2433,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "label": "event_name",
                     "count": 9,
                     "data": [1, 2, 6],
-                    "labels": ["1-Sep-2020", "1-Oct-2020", "1-Nov-2020"],
+                    "labels": ["Sep 2020", "Oct 2020", "Nov 2020"],
                     "days": ["2020-09-01", "2020-10-01", "2020-11-01"],
                 }
             ],
@@ -2469,7 +2469,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "label": "event_name",
                     "count": 6,
                     "data": [6],
-                    "labels": ["1-Nov-2020"],
+                    "labels": ["Nov 2020"],
                     "days": ["2020-11-01"],
                 }
             ],
@@ -2506,7 +2506,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "label": "event_name",
                     "count": 6,
                     "data": [6],
-                    "labels": ["1-Nov-2020"],
+                    "labels": ["Nov 2020"],
                     "days": ["2020-11-01"],
                 }
             ],
@@ -2542,7 +2542,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "label": "event_name",
                     "count": 5.0,
                     "data": [2.0, 2.0, 1.0, 0.0],
-                    "labels": ["1-Jan-2020", "1-Feb-2020", "1-Mar-2020", "1-Apr-2020"],
+                    "labels": ["Jan 2020", "Feb 2020", "Mar 2020", "Apr 2020"],
                     "days": ["2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01"],
                 }
             ],
@@ -2577,7 +2577,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "label": "event_name",
                     "count": 5.0,
                     "data": [2.0, 2.0, 1.0, 0.0],
-                    "labels": ["1-Jan-2020", "1-Feb-2020", "1-Mar-2020", "1-Apr-2020"],
+                    "labels": ["Jan 2020", "Feb 2020", "Mar 2020", "Apr 2020"],
                     "days": ["2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01"],
                 }
             ],
@@ -3260,11 +3260,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][0], "1-Sep-2019")
+        self.assertEqual(response[0]["labels"][0], "Sep 2019")
         self.assertEqual(response[0]["data"][0], 0)
-        self.assertEqual(response[0]["labels"][3], "1-Dec-2019")
+        self.assertEqual(response[0]["labels"][3], "Dec 2019")
         self.assertEqual(response[0]["data"][3], 1.0)
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+        self.assertEqual(response[0]["labels"][4], "Jan 2020")
         self.assertEqual(response[0]["data"][4], 4.0)
 
     def test_interval_filtering_today_hourly(self):
@@ -4037,9 +4037,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertEqual(response[0]["labels"][3], "1-Dec-2019")
+        self.assertEqual(response[0]["labels"][3], "Dec 2019")
         self.assertEqual(response[0]["data"][3], 1.0)
-        self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+        self.assertEqual(response[0]["labels"][4], "Jan 2020")
         self.assertEqual(response[0]["data"][4], 4.0)
 
         with freeze_time("2020-01-02 23:30"):

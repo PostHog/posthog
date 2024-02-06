@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { pluralize } from 'lib/utils'
 
-import { PipelineAppLogicProps } from './pipelineAppLogic'
-import { PipelineAppLogLevel, pipelineAppLogsLogic } from './pipelineAppLogsLogic'
+import { PipelineNodeLogicProps } from './pipelineNodeLogic'
+import { PipelineLogLevel, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic'
 
-export function PipelineAppLogs({ id, kind }: PipelineAppLogicProps): JSX.Element {
-    const logic = pipelineAppLogsLogic({ id, kind })
+export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Element {
+    const logic = pipelineNodeLogsLogic({ id, stage })
 
     const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels } = useValues(logic)
     const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm } = useActions(logic)
@@ -23,7 +23,7 @@ export function PipelineAppLogs({ id, kind }: PipelineAppLogicProps): JSX.Elemen
             />
             <div className="flex items-center gap-4">
                 <span className="mr-1">Show logs of level:</span>
-                {Object.values(PipelineAppLogLevel).map((level) => {
+                {Object.values(PipelineLogLevel).map((level) => {
                     return (
                         <LemonCheckbox
                             key={level}
