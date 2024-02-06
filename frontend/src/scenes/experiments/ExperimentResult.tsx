@@ -57,7 +57,11 @@ export function ExperimentResult(): JSX.Element {
                         </div>
                         <div className="flex justify-between py-2 border-t">
                             <Col span={2 * secondaryColumnSpan}>
-                                {experimentInsightType === InsightType.TRENDS ? 'Count' : 'Conversion Rate'}
+                                {experimentInsightType === InsightType.TRENDS
+                                    ? experimentMathAggregationForTrends
+                                        ? 'Metric'
+                                        : 'Count'
+                                    : 'Conversion Rate'}
                             </Col>
                             {sortedExperimentResultVariants.map((variant, idx) => (
                                 <Col key={idx} span={secondaryColumnSpan}>
@@ -68,9 +72,7 @@ export function ExperimentResult(): JSX.Element {
                             ))}
                         </div>
                         <div className="flex justify-between py-2 border-t">
-                            <Col span={2 * secondaryColumnSpan}>
-                                {`Exposure ${experimentMathAggregationForTrends ? 'metric' : 'count'}`}
-                            </Col>
+                            <Col span={2 * secondaryColumnSpan}>Exposure</Col>
                             {sortedExperimentResultVariants.map((variant, idx) => (
                                 <Col key={idx} span={secondaryColumnSpan}>
                                     {exposureCountDataForVariant(variant)}
