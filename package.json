@@ -74,7 +74,7 @@
         "@medv/finder": "^2.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.4.6",
-        "@posthog/icons": "0.4.17",
+        "@posthog/icons": "0.5.1",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
         "@rrweb/types": "2.0.0-alpha.11",

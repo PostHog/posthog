@@ -6,7 +6,7 @@ import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/Worl
 import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { ChartDisplayType, GraphPointPayload, InsightLogicProps, PropertyFilterType } from '~/types'
 
@@ -378,4 +378,23 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
         return undefined
     }
     return breakdownValue
+}
+
+export const WebQuery = ({
+    query,
+    showIntervalSelect,
+    insightProps,
+}: {
+    query: QuerySchema
+    showIntervalSelect?: boolean
+    insightProps: InsightLogicProps
+}): JSX.Element => {
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+        return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} insightProps={insightProps} />
+    }
+    if (query.kind === NodeKind.InsightVizNode) {
+        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
+    }
+
+    return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
 }
