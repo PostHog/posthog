@@ -17,7 +17,6 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels import ClickhouseFunnelActors
-from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal
 from posthog.schema import EventsNode, FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -32,7 +31,10 @@ from posthog.test.base import (
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
-
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
+    assert_funnel_results_equal,
+    funnel_breakdown_test_factory,
+)
 from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.test.test_journeys import journeys_for
 
@@ -46,18 +48,18 @@ def _create_action(**kwargs):
     return action
 
 
-# class TestFunnelBreakdown(
-#     ClickhouseTestMixin,
-#     funnel_breakdown_test_factory(  # type: ignore
-#         ClickhouseFunnel,
-#         ClickhouseFunnelActors,
-#         _create_event,
-#         _create_action,
-#         _create_person,
-#     ),
-# ):
-#     maxDiff = None
-#     pass
+class TestFunnelBreakdown(
+    ClickhouseTestMixin,
+    funnel_breakdown_test_factory(  # type: ignore
+        Funnel,
+        ClickhouseFunnelActors,
+        _create_event,
+        _create_action,
+        _create_person,
+    ),
+):
+    maxDiff = None
+    pass
 
 
 class TestFunnelConversionTime(
