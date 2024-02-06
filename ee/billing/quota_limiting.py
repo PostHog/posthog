@@ -22,10 +22,11 @@ from posthog.tasks.usage_report import (
 from posthog.utils import get_current_day
 
 QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
-# We are updating the quota limiting behavior so we retain data for 7 days before
+# We are updating the quota limiting behavior so we retain data for DAYS_RETAIN_DATA days before
 # permanently dropping it. This will allow us to recover data in the case of incidents
 # where usage may have inadvertently exceeded a billing limit.
 # Ref: INC-144
+DAYS_RETAIN_DATA = 3
 QUOTA_OVERAGE_RETENTION_CACHE_KEY = "@posthog/quota-overage-retention/"
 
 
@@ -42,9 +43,7 @@ OVERAGE_BUFFER = {
 }
 
 
-def replace_limited_team_tokens(
-    resource: QuotaResource, tokens: Mapping[str, int], cache_key: str = QUOTA_LIMITER_CACHE_KEY
-) -> None:
+def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key) -> None:
     pipe = get_client().pipeline()
     pipe.delete(f"{cache_key}{resource.value}")
     if tokens:
@@ -52,9 +51,7 @@ def replace_limited_team_tokens(
     pipe.execute()
 
 
-def add_limited_team_tokens(
-    resource: QuotaResource, tokens: Mapping[str, int], cache_key: str = QUOTA_LIMITER_CACHE_KEY
-) -> None:
+def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key) -> None:
     redis_client = get_client()
     redis_client.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
@@ -80,9 +77,16 @@ class UsageCounters(TypedDict):
     rows_synced: int
 
 
-def org_quota_limited_until(
-    organization: Organization, resource: QuotaResource, today: datetime
-) -> Optional[Tuple[Optional[int], Optional[int], Optional[bool]]]:
+class QuotaLimitingTracker(TypedDict):
+    data_retained_until: Optional[int]  # timestamp
+    quota_limited_until: Optional[int]  # timestamp
+    needs_save: Optional[bool]
+
+
+def determine_org_quota_limit_or_data_retention(
+    organization: Organization, resource: QuotaResource
+) -> Optional[QuotaLimitingTracker]:
+    today, _ = get_current_day()
     if not organization.usage:
         return None
 
@@ -108,7 +112,7 @@ def org_quota_limited_until(
             data_retained_until = None
             del summary["retained_period_end"]
             needs_save = True
-            return None, None, True
+            return {"quota_limited_until": None, "data_retained_until": None, "needs_save": needs_save}
         return None
 
     if organization.never_drop_data:
@@ -117,14 +121,19 @@ def org_quota_limited_until(
     # Either wasn't set or was set in the previous biling period
     if (
         not data_retained_until
-        or round((datetime.fromtimestamp(data_retained_until) - timedelta(days=7)).timestamp()) < billing_period_start
+        or round((datetime.fromtimestamp(data_retained_until) - timedelta(days=DAYS_RETAIN_DATA)).timestamp())
+        < billing_period_start
     ):
-        data_retained_until = round((today + timedelta(days=7)).timestamp())
+        data_retained_until = round((today + timedelta(days=DAYS_RETAIN_DATA)).timestamp())
         summary["retained_period_end"] = data_retained_until
         needs_save = True
 
     if billing_period_end:
-        return billing_period_end, data_retained_until, needs_save
+        return {
+            "quota_limited_until": billing_period_end,
+            "data_retained_until": data_retained_until,
+            "needs_save": needs_save,
+        }
 
     return None
 
@@ -136,9 +145,11 @@ def sync_org_quota_limits(organization: Organization):
     today_start, _ = get_current_day()
     for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS, QuotaResource.ROWS_SYNCED]:
         team_attributes = get_team_attribute_by_quota_resource(organization, resource)
-        result = org_quota_limited_until(organization, resource, today_start)
+        result = determine_org_quota_limit_or_data_retention(organization, resource)
         if result:
-            quota_limited_until, data_retained_until, needs_save = result
+            quota_limited_until = result.get("quota_limited_until")
+            data_retained_until = result.get("data_retained_until")
+            needs_save = result.get("needs_save")
 
             if needs_save:
                 organization.save()
@@ -269,9 +280,11 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Tuple[Dict[str, Dict
                 org.save(update_fields=["usage"])
 
             for field in ["events", "recordings", "rows_synced"]:
-                result = org_quota_limited_until(org, QuotaResource(field), period_start)
+                result = determine_org_quota_limit_or_data_retention(org, QuotaResource(field))
                 if result:
-                    quota_limited_until, data_retained_until, needs_save = result
+                    quota_limited_until = result.get("quota_limited_until")
+                    data_retained_until = result.get("data_retained_until")
+                    needs_save = result.get("needs_save")
 
                     if needs_save:
                         org.save(update_fields=["usage"])
@@ -283,17 +296,8 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Tuple[Dict[str, Dict
 
     # Get the current quota limits so we can track to posthog if it changes
     orgs_with_changes = set()
-    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {
-        "events": {},
-        "recordings": {},
-        "rows_synced": {},
-    }
-
-    previously_data_retained_teams: Dict[str, Dict[str, int]] = {
-        "events": {},
-        "recordings": {},
-        "rows_synced": {},
-    }
+    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {key.value: {} for key in QuotaResource}
+    previously_data_retained_teams: Dict[str, Dict[str, int]] = {key.value: {} for key in QuotaResource}
 
     for field in quota_limited_orgs:
         previously_quota_limited_team_tokens[field] = list_limited_team_attributes(QuotaResource(field))
@@ -301,8 +305,8 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Tuple[Dict[str, Dict
             QuotaResource(field), QUOTA_OVERAGE_RETENTION_CACHE_KEY
         )
 
-    quota_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
-    data_retained_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
+    quota_limited_teams: Dict[str, Dict[str, int]] = {key.value: {} for key in QuotaResource}
+    data_retained_teams: Dict[str, Dict[str, int]] = {key.value: {} for key in QuotaResource}
 
     # Convert the org ids to team tokens
     for team in teams:
@@ -344,6 +348,6 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Tuple[Dict[str, Dict
                 QuotaResource(field), data_retained_teams[field], QUOTA_OVERAGE_RETENTION_CACHE_KEY
             )
         for field in quota_limited_teams:
-            replace_limited_team_tokens(QuotaResource(field), quota_limited_teams[field])
+            replace_limited_team_tokens(QuotaResource(field), quota_limited_teams[field], QUOTA_LIMITER_CACHE_KEY)
 
     return quota_limited_orgs, data_retained_orgs
