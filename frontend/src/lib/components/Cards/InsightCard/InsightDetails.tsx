@@ -11,7 +11,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { KEY_MAPPING } from 'lib/taxonomy'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
@@ -79,7 +78,6 @@ function CompactPropertyFiltersDisplay({
                                                 {formatPropertyLabel(
                                                     leafFilter,
                                                     cohortsById,
-                                                    KEY_MAPPING,
                                                     (s) =>
                                                         formatPropertyValueForDisplay(leafFilter.key, s)?.toString() ||
                                                         '?'

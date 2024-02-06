@@ -251,7 +251,7 @@ const SelectedColumn = ({
                     <SortableDragIcon />
                 </span>
                 {columnType && <PropertyFilterIcon type={columnType} />}
-                <PropertyKeyInfo className="ml-1" value={columnKey} filterGroupType={filterGroupType} />
+                <PropertyKeyInfo className="ml-1" value={columnKey} type={filterGroupType} />
                 <div className="flex-1" />
                 <Tooltip title="Edit">
                     <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">

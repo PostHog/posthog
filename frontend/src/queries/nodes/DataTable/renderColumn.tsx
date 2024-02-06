@@ -109,7 +109,7 @@ export function renderColumn(
         if (value === '$autocapture' && eventRecord) {
             return autoCaptureEventToDescription(eventRecord)
         } else {
-            const content = <PropertyKeyInfo value={value} type="event" />
+            const content = <PropertyKeyInfo value={value} />
             const $sentry_url = eventRecord?.properties?.$sentry_url
             return $sentry_url ? (
                 <Link to={$sentry_url} target="_blank">

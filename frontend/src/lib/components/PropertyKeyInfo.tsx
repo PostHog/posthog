@@ -3,37 +3,35 @@ import './PropertyKeyInfo.scss'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { getKeyMapping, PropertyKey, PropertyType } from 'lib/taxonomy'
+import { getCoreFilterDefinition, PropertyKey } from 'lib/taxonomy'
 import React, { useState } from 'react'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
 interface PropertyKeyInfoProps {
     value: PropertyKey
-    type?: PropertyType
+    type?: TaxonomicFilterGroupType
     tooltipPlacement?: TooltipProps['placement']
     disablePopover?: boolean
     disableIcon?: boolean
     /** @default true */
     ellipsis?: boolean
     className?: string
-    filterGroupType?: TaxonomicFilterGroupType
 }
 
 export function PropertyKeyInfo({
     value,
-    type = 'event',
+    type = TaxonomicFilterGroupType.EventProperties,
     disablePopover = false,
     disableIcon = false,
     ellipsis = true,
     className = '',
-    filterGroupType,
 }: PropertyKeyInfoProps): JSX.Element {
     const [popoverVisible, setPopoverVisible] = useState(false)
 
     value = value?.toString() ?? '' // convert to string
 
-    const data = getKeyMapping(value, type, filterGroupType)
+    const data = getCoreFilterDefinition(value, type)
     const valueDisplayText = (data ? data.label : value)?.trim() ?? ''
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 

@@ -1,6 +1,6 @@
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
@@ -48,8 +48,8 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in KEY_MAPPING.event) {
-        name = KEY_MAPPING.event[name].label
+    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
@@ -63,8 +63,8 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in KEY_MAPPING.event) {
-        name = KEY_MAPPING.event[name].label
+    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'

@@ -2,7 +2,8 @@ import { actions, afterMount, connect, kea, key, path, props, reducers, selector
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { getPropertyLabel } from 'lib/taxonomy'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getFilterLabel } from 'lib/taxonomy'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -134,7 +135,15 @@ export const definitionLogic = kea<definitionLogicType>([
                     },
                     {
                         key: [isEvent ? Scene.EventDefinition : Scene.PropertyDefinition, definition?.id || 'new'],
-                        name: definition?.id !== 'new' ? getPropertyLabel(definition?.name) || 'Untitled' : 'Untitled',
+                        name:
+                            definition?.id !== 'new'
+                                ? getFilterLabel(
+                                      definition?.name,
+                                      isEvent
+                                          ? TaxonomicFilterGroupType.Events
+                                          : TaxonomicFilterGroupType.EventProperties
+                                  ) || 'Untitled'
+                                : 'Untitled',
                     },
                 ]
             },

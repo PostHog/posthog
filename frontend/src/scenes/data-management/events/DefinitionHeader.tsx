@@ -8,13 +8,13 @@ import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/T
 import { IconSelectAll } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getKeyMapping, KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { urls } from 'scenes/urls'
 
 import { EventDefinition, PropertyDefinition } from '~/types'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (KEY_MAPPING.event[definition.name]) {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[definition.name]) {
         return (
             <Tooltip title="PostHog event property">
                 <IconList className="taxonomy-icon taxonomy-icon-muted" />
@@ -61,7 +61,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
             </Tooltip>
         )
     }
-    if (definition.name && !!KEY_MAPPING.event[definition.name]) {
+    if (definition.name && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]) {
         return (
             <Tooltip title="PostHog event">
                 <IconLogomark className="taxonomy-icon taxonomy-icon-muted" />
@@ -104,7 +104,7 @@ function RawDefinitionHeader({
 
     const innerContent = (
         <span className={asLink ? 'text-link cursor-pointer' : ''}>
-            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon filterGroupType={group.type} />
+            <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon type={group.type} />
         </span>
     )
     const linkedInnerContent = isLink ? (
@@ -115,7 +115,7 @@ function RawDefinitionHeader({
         innerContent
     )
 
-    const description = definition.description || getKeyMapping(definition.name, 'event', group.type)?.description
+    const description = definition.description || getCoreFilterDefinition(definition.name, group.type)?.description
 
     return (
         <>
@@ -126,7 +126,13 @@ function RawDefinitionHeader({
                         {linkedInnerContent}
                         {definition.verified && (
                             <>
-                                <Tooltip title={`${KEY_MAPPING.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
+                                <Tooltip
+                                    title={`${
+                                        CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]
+                                            ? 'PostHog'
+                                            : 'Verified'
+                                    } event`}
+                                >
                                     <IconBadge
                                         className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
                                         style={{ width: '1.25rem' }}
@@ -134,7 +140,7 @@ function RawDefinitionHeader({
                                 </Tooltip>
                             </>
                         )}
-                        {!!KEY_MAPPING.event[definition.name] && (
+                        {!!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name] && (
                             <Tooltip title="PostHog event">
                                 <IconBadge
                                     className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"

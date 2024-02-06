@@ -115,7 +115,7 @@ const renderItemContents = ({
                     disablePopover
                     disableIcon
                     className="w-full"
-                    filterGroupType={listGroupType}
+                    type={listGroupType}
                 />
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
@@ -124,13 +124,7 @@ const renderItemContents = ({
     ) : (
         <div className="taxonomic-list-row-contents">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
-                <PropertyKeyInfo
-                    type="element"
-                    value={item.name ?? ''}
-                    disablePopover
-                    className="w-full"
-                    filterGroupType={listGroupType}
-                />
+                <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
             ) : (
                 <>
                     {group.getIcon ? icon : null}

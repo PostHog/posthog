@@ -183,7 +183,7 @@ export function TaxonomicPropertyFilter({
                                         value={filter.key}
                                         disablePopover
                                         ellipsis
-                                        filterGroupType={activeTaxonomicGroup?.type}
+                                        type={activeTaxonomicGroup?.type}
                                     />
                                 ) : (
                                     addText || 'Add filter'

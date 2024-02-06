@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { getKeyMapping } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { ActionFilter, EntityFilter } from '~/types'
@@ -30,7 +30,8 @@ export function EntityFilterInfo({
     }
 
     const title = getDisplayNameFromEntityFilter(filter, false)
-    const titleToDisplay = getKeyMapping(title, 'event', filterGroupType)?.label?.trim() ?? title ?? undefined
+    const titleToDisplay =
+        (filterGroupType ? getCoreFilterDefinition(title, filterGroupType)?.label?.trim() : null) ?? title ?? undefined
 
     // No custom name
     if (!filter?.custom_name) {

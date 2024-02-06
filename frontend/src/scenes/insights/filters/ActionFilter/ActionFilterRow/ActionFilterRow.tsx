@@ -402,10 +402,8 @@ export function ActionFilterRow({
                                                         <div /* <div> needed for <Tooltip /> to work */>
                                                             <PropertyKeyInfo
                                                                 value={currentValue}
-                                                                disablePopover={true}
-                                                                filterGroupType={
-                                                                    filter.type as TaxonomicFilterGroupType
-                                                                }
+                                                                disablePopover
+                                                                type={filter.type as TaxonomicFilterGroupType}
                                                             />
                                                         </div>
                                                     </Tooltip>
