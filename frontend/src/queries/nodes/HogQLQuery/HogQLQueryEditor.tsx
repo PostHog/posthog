@@ -193,7 +193,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             height="100%"
                             onMount={(editor, monaco) => {
                                 monaco.languages.registerCompletionItemProvider('mysql', {
-                                    triggerCharacters: [' ', ','],
+                                    triggerCharacters: [' ', ',', '.'],
                                     provideCompletionItems: async (model, position) => {
                                         if (!featureFlags[FEATURE_FLAGS.HOGQL_INTELLISENSE]) {
                                             return undefined
