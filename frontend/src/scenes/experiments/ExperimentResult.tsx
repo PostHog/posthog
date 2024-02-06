@@ -68,7 +68,9 @@ export function ExperimentResult(): JSX.Element {
                             ))}
                         </div>
                         <div className="flex justify-between py-2 border-t">
-                            <Col span={2 * secondaryColumnSpan}>Exposure</Col>
+                            <Col span={2 * secondaryColumnSpan}>
+                                {`Exposure ${experimentMathAggregationForTrends ? 'metric' : 'count'}`}
+                            </Col>
                             {sortedExperimentResultVariants.map((variant, idx) => (
                                 <Col key={idx} span={secondaryColumnSpan}>
                                     {exposureCountDataForVariant(variant)}
