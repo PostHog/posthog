@@ -12,6 +12,7 @@ import {
     useInteractions,
     useRole,
 } from '@floating-ui/react'
+import clsx from 'clsx'
 import React, { useState } from 'react'
 
 const DEFAULT_DELAY_MS = 500
@@ -67,7 +68,7 @@ export const Tooltip = ({
                 {isOpen && (
                     <div
                         ref={refs.setFloating}
-                        className={className}
+                        className={clsx('bg-tooltip-bg py-1 px-2 break-words rounded text-start', className)}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={floatingStyles}
                         {...getFloatingProps()}
