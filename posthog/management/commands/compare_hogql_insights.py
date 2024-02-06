@@ -16,11 +16,11 @@ class Command(BaseCommand):
         from posthog.hogql_queries.query_runner import get_query_runner
 
         insights = (
-            Insight.objects.filter(filters__contains={"insight": "RETENTION"}, saved=True, deleted=False)
+            Insight.objects.filter(filters__contains={"insight": "STICKINESS"}, saved=True, deleted=False)
             .order_by("id")
             .all()
         )
-        for insight in insights[0:30]:
+        for insight in insights[100:200]:
             try:
                 print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")  # noqa: T201
                 insight_type = insight.filters.get("insight")
@@ -65,12 +65,14 @@ class Command(BaseCommand):
                             all_ok = False
                             print("Values: ", legacy_values, hogql_values)  # noqa: T201
                         continue
+                    elif insight_type == "STICKINESS":
+                        fields = ["label", "count", "data", "days"]
                     else:
                         fields = ["label", "count", "data", "labels", "days"]
                     for field in fields:
                         if legacy_result.get(field) != hogql_result.get(field):
                             print(  # noqa: T201
-                                f"Insight https://app.posthog.com/insights/{insight.short_id}/edit"
+                                f"Insight https://us.posthog.com/projects/{insight.team_id}/insights/{insight.short_id}/edit"
                                 f" ({insight.id}). MISMATCH in {legacy_result.get('status')} row, field {field}"
                             )
                             print("Legacy:", legacy_result.get(field))  # noqa: T201
