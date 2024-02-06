@@ -12,10 +12,10 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     FunnelSingleStepState,
-    FunnelValidationError,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
+    InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -207,7 +207,7 @@ export function FilterBasedCardContent({
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
                 ) : validationError ? (
-                    <FunnelValidationError detail={validationError} />
+                    <InsightValidationError detail={validationError} />
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
