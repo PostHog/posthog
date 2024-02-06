@@ -364,7 +364,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
-    Starting from the common defualt fields, we add and tweak some fields for
+    Starting from the common default fields, we add and tweak some fields for
     backwards compatibility.
     """
     batch_export_fields = default_fields()
