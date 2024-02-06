@@ -55,7 +55,7 @@
                (SELECT distinct_id
                 FROM events
                 WHERE team_id = 2
-                  AND ((event = 'sign up'))
+                  AND event IN ['sign up']
                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC'))
            GROUP BY distinct_id
