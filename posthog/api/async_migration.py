@@ -1,9 +1,9 @@
 import structlog
-from rest_framework import permissions, response, serializers, viewsets
+from rest_framework import response, serializers, viewsets
 from rest_framework.decorators import action
 from semantic_version.base import Version
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.async_migrations.runner import (
     MAX_CONCURRENT_ASYNC_MIGRATIONS,
     is_posthog_version_compatible,
@@ -96,9 +96,10 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
         )
 
 
-class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
+# Does this still work??
+class AsyncMigrationsViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = AsyncMigration.objects.all().order_by("name")
-    permission_classes = [permissions.IsAuthenticated, IsStaffUser]
+    permission_classes = [IsStaffUser]
     serializer_class = AsyncMigrationSerializer
     include_in_docs = False
 

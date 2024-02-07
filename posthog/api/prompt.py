@@ -8,7 +8,7 @@ from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
 from posthog.models.prompt import Prompt, PromptSequence, UserPromptState
@@ -62,10 +62,12 @@ class UserPromptStateSerializer(serializers.ModelSerializer):
         fields = ["last_updated_at", "step", "completed", "dismissed"]
 
 
-class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+class PromptSequenceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
     Create, read, update and delete prompt sequences state for a person.
     """
+
+    derive_current_team_from_user_only = True
 
     @action(methods=["PATCH"], detail=False)
     def my_prompts(self, request: request.Request, **kwargs):

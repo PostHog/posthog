@@ -27,7 +27,6 @@ from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -36,7 +35,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.client import sync_execute
@@ -64,10 +63,6 @@ from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.person.sql import (
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     PERSON_STATIC_COHORT_TABLE,
-)
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
 )
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
@@ -287,14 +282,9 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
-class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -443,7 +433,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user_only = True
 
 
 def will_create_loops(cohort: Cohort) -> bool:

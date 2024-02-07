@@ -6,6 +6,7 @@ from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
 from posthog import settings
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -18,7 +19,6 @@ from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -123,13 +123,9 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         }
 
 
-class OrganizationViewSet(viewsets.ModelViewSet):
+class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        OrganizationMemberPermissions,
-        OrganizationPermissionsWithDelete,
-    ]
+    permission_classes = [OrganizationPermissionsWithDelete]
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
@@ -146,7 +142,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
         if self.action == "create":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
-            # because they require an existing org, unneded anyways because permissions are organization-based
+            # because they require an existing org, unneeded anyways because permissions are organization-based
             return [
                 permission()
                 for permission in [

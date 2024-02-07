@@ -1,7 +1,6 @@
 from typing import Dict
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework import (
     mixins,
@@ -9,26 +8,25 @@ from rest_framework import (
     status,
 )
 from posthog.api.cohort import CohortSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
-from posthog.permissions import OrganizationMemberPermissions
 
 
+# TODO: Does this still work?
 class OrganizationFeatureFlagView(
+    TeamAndOrgViewSetMixin,
     viewsets.ViewSet,
-    StructuredViewSetMixin,
     mixins.RetrieveModelMixin,
 ):
     """
     Retrieves all feature flags for a given organization and key.
     """
 
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "feature_flag_key"
 
     def retrieve(self, request, *args, **kwargs):

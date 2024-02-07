@@ -4,7 +4,6 @@ from django.utils.timezone import now
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
@@ -20,7 +19,7 @@ from ee.clickhouse.queries.experiments.trend_experiment_result import (
 )
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
@@ -29,8 +28,6 @@ from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
 from posthog.permissions import (
     PremiumFeaturePermission,
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -286,15 +283,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
 
 
-class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
-    permission_classes = [
-        IsAuthenticated,
-        PremiumFeaturePermission,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [PremiumFeaturePermission]
     premium_feature = AvailableFeature.EXPERIMENTATION
     ordering = "-created_at"
 
