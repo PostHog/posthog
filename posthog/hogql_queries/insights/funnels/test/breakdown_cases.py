@@ -694,92 +694,90 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 [people["person2"].uuid],
             )
 
-    #     @also_test_with_materialized_columns(person_properties=["$browser"])
-    #     def test_funnel_step_breakdown_person(self):
-    #         filters = {
-    #             "events": [
-    #                 {"id": "sign up", "order": 0},
-    #                 {"id": "play movie", "order": 1},
-    #                 {"id": "buy", "order": 2},
-    #             ],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-08",
-    #             "funnel_window_days": 7,
-    #             "breakdown_type": "person",
-    #             "breakdown": ["$browser"],
-    #         }
+        @also_test_with_materialized_columns(person_properties=["$browser"])
+        def test_funnel_step_breakdown_person(self):
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "person",
+                "breakdown": ["$browser"],
+            }
 
-    #         filter = Filter(data=filters)
-    #         funnel = Funnel(filter, self.team)
+            person1 = _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                properties={"$browser": "Chrome"},
+            )
+            person2 = _create_person(
+                distinct_ids=["person2"],
+                team_id=self.team.pk,
+                properties={"$browser": "Safari"},
+            )
 
-    #         person1 = _create_person(
-    #             distinct_ids=["person1"],
-    #             team_id=self.team.pk,
-    #             properties={"$browser": "Chrome"},
-    #         )
-    #         person2 = _create_person(
-    #             distinct_ids=["person2"],
-    #             team_id=self.team.pk,
-    #             properties={"$browser": "Safari"},
-    #         )
+            peoples_journeys = {
+                "person1": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                    {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                    {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
+                ],
+                "person2": [
+                    {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14)},
+                    {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
+                ],
+            }
+            journeys_for(peoples_journeys, self.team, create_people=False)
 
-    #         peoples_journeys = {
-    #             "person1": [
-    #                 {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
-    #                 {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
-    #                 {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
-    #             ],
-    #             "person2": [
-    #                 {"event": "sign up", "timestamp": datetime(2020, 1, 2, 14)},
-    #                 {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
-    #             ],
-    #         }
-    #         journeys_for(peoples_journeys, self.team, create_people=False)
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #         result = funnel.run()
+            self._assert_funnel_breakdown_result_is_correct(
+                results[0],
+                [
+                    FunnelStepResult(name="sign up", breakdown=["Chrome"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=3600.0,
+                        median_conversion_time=3600.0,
+                    ),
+                    FunnelStepResult(
+                        name="buy",
+                        breakdown=["Chrome"],
+                        count=1,
+                        average_conversion_time=7200,
+                        median_conversion_time=7200,
+                    ),
+                ],
+            )
 
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[0],
-    #             [
-    #                 FunnelStepResult(name="sign up", breakdown=["Chrome"], count=1),
-    #                 FunnelStepResult(
-    #                     name="play movie",
-    #                     breakdown=["Chrome"],
-    #                     count=1,
-    #                     average_conversion_time=3600.0,
-    #                     median_conversion_time=3600.0,
-    #                 ),
-    #                 FunnelStepResult(
-    #                     name="buy",
-    #                     breakdown=["Chrome"],
-    #                     count=1,
-    #                     average_conversion_time=7200,
-    #                     median_conversion_time=7200,
-    #                 ),
-    #             ],
-    #         )
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Chrome"), [person1.uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, "Chrome"), [person1.uuid])
 
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Chrome"), [person1.uuid])
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Chrome"), [person1.uuid])
+            self._assert_funnel_breakdown_result_is_correct(
+                results[1],
+                [
+                    FunnelStepResult(name="sign up", breakdown=["Safari"], count=1),
+                    FunnelStepResult(
+                        name="play movie",
+                        breakdown=["Safari"],
+                        count=1,
+                        average_conversion_time=7200.0,
+                        median_conversion_time=7200.0,
+                    ),
+                    FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
+                ],
+            )
 
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[1],
-    #             [
-    #                 FunnelStepResult(name="sign up", breakdown=["Safari"], count=1),
-    #                 FunnelStepResult(
-    #                     name="play movie",
-    #                     breakdown=["Safari"],
-    #                     count=1,
-    #                     average_conversion_time=7200.0,
-    #                     median_conversion_time=7200.0,
-    #                 ),
-    #                 FunnelStepResult(name="buy", breakdown=["Safari"], count=0),
-    #             ],
-    #         )
-
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Safari"), [person2.uuid])
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 3, "Safari"), [])
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Safari"), [person2.uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 3, "Safari"), [])
 
     #     @also_test_with_materialized_columns(["some_breakdown_val"])
     #     def test_funnel_step_breakdown_limit(self):
