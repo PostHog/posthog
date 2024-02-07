@@ -49,7 +49,6 @@ class TestQuotaLimiting(BaseTest):
             distinct_id = str(uuid4())
 
             # add a bunch of events so that the organization is over the limit
-            # Because the feature flag is enabled
             for _ in range(0, 10):
                 _create_event(
                     distinct_id=distinct_id,
@@ -72,6 +71,7 @@ class TestQuotaLimiting(BaseTest):
             properties={"current_usage": 109},
             groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
         )
+        # Not limited because the feature flag is enabled.
         assert data_retained_orgs["events"] == {}
         assert data_retained_orgs["recordings"] == {}
         assert data_retained_orgs["rows_synced"] == {}
@@ -141,8 +141,7 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
-    @patch("posthoganalytics.capture")
-    def test_billing_rate_limit(self, patch_capture) -> None:
+    def test_billing_rate_limit(self) -> None:
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T22:09:14.252Z"):
             self.organization.usage = {
                 "events": {"usage": 99, "limit": 100},

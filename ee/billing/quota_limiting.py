@@ -289,8 +289,8 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Tuple[Dict[str, Dict
             for field in team_report:
                 org_report[field] += team_report[field]  # type: ignore
 
-    quota_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
-    data_retained_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}, "rows_synced": {}}
+    quota_limited_orgs: Dict[str, Dict[str, int]] = {key.value: {} for key in QuotaResource}
+    data_retained_orgs: Dict[str, Dict[str, int]] = {key.value: {} for key in QuotaResource}
 
     # We find all orgs that should be rate limited
     for org_id, todays_report in todays_usage_report.items():
