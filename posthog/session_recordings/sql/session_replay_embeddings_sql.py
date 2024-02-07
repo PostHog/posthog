@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     team_id Int64,
     embeddings Array(Float32),
     -- if only so we can partition on disk
-    generation_timestamp DateTime64(6, 'UTC'),
+    generation_timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
     -- we will insert directly for the first test of this
     -- so no _timestamp or _offset column
     --_timestamp SimpleAggregateFunction(max, DateTime)

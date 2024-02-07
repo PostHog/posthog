@@ -96,7 +96,7 @@ def generate_recording_embeddings(recording: SessionRecording, user: User):
         )
 
     with timer("openai_completion"):
-        _ = (
+        embeddings = (
             client.embeddings.create(
                 input=input,
                 model="text-embedding-3-small",
@@ -106,7 +106,7 @@ def generate_recording_embeddings(recording: SessionRecording, user: User):
             .embedding
         )
 
-    # TODO: push embeddings to Kafka topic / ClickHouse
+    return embeddings
 
 
 def compact_result(event_name: str, event_count: int, elements_chain: Dict[str, str]):
