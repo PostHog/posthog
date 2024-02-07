@@ -3,16 +3,12 @@ from typing import Any, Dict, cast
 
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.cloud_utils import is_cloud
 from posthog.models import OrganizationDomain
-from posthog.permissions import (
-    OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
-)
+from posthog.permissions import OrganizationAdminWritePermissions
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
 
@@ -74,11 +70,10 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return attrs
 
 
+# TODO: Does this still work??
 class OrganizationDomainViewset(StructuredViewSetMixin, ModelViewSet):
     serializer_class = OrganizationDomainSerializer
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
+    additional_permission_classes = [
         OrganizationAdminWritePermissions,
     ]
     queryset = OrganizationDomain.objects.all()

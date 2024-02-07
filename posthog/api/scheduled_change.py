@@ -46,6 +46,7 @@ class ScheduledChangeViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     Create, read, update and delete scheduled changes.
     """
 
+    serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
 
     def get_queryset(self):
@@ -60,14 +61,3 @@ class ScheduledChangeViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(record_id=record_id)
 
         return queryset
-
-    serializer_class = ScheduledChangeSerializer
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission,
-    ]
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
-    ]

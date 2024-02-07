@@ -82,10 +82,10 @@ def download(request, *args, **kwargs) -> HttpResponse:
     )
 
 
+# TODO: What do about permissions...
 class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
-    permission_classes = [IsAuthenticatedOrReadOnly, TeamMemberAccessPermission]
 
     @extend_schema(
         description="""

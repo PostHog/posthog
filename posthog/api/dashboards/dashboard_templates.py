@@ -9,13 +9,12 @@ from django.views.decorators.cache import cache_page
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.permissions import TeamMemberAccessPermission
 
 logger = structlog.get_logger(__name__)
 
@@ -71,11 +70,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
 
 
 class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission,
-        OnlyStaffCanEditDashboardTemplate,
-    ]
+    additional_permission_classes = [OnlyStaffCanEditDashboardTemplate]
     serializer_class = DashboardTemplateSerializer
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes

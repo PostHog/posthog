@@ -4,7 +4,6 @@ from django.utils.timezone import now
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
@@ -29,7 +28,6 @@ from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
 from posthog.permissions import (
     PremiumFeaturePermission,
-    TeamMemberAccessPermission,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -288,11 +286,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
-    permission_classes = [
-        IsAuthenticated,
-        PremiumFeaturePermission,
-        TeamMemberAccessPermission,
-    ]
+    additional_permission_classes = [PremiumFeaturePermission]
     premium_feature = AvailableFeature.EXPERIMENTATION
     ordering = "-created_at"
 

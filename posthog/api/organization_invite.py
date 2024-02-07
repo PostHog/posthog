@@ -10,7 +10,6 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -19,7 +18,6 @@ from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
 
 
@@ -86,7 +84,6 @@ class OrganizationInviteViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = OrganizationInviteSerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
     ordering = "-created_at"

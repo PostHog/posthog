@@ -1,5 +1,5 @@
 from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from ee.api.role import RoleSerializer
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
@@ -73,7 +73,7 @@ class FeatureFlagRoleAccessViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    permission_classes = [IsAuthenticated, FeatureFlagRoleAccessPermissions]
+    additional_permission_classes = [FeatureFlagRoleAccessPermissions]
     serializer_class = FeatureFlagRoleAccessSerializer
     queryset = FeatureFlagRoleAccess.objects.select_related("feature_flag")
     filter_rewrite_rules = {"team_id": "feature_flag__team_id"}

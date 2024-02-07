@@ -5,7 +5,6 @@ from datetime import datetime
 from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
 from rest_framework import (
-    authentication,
     exceptions,
     request,
     serializers,
@@ -13,7 +12,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
@@ -24,7 +23,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.dashboards.dashboard import Dashboard
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
 from posthog.helpers.dashboard_templates import (
@@ -50,9 +49,6 @@ from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
-from posthog.permissions import (
-    TeamMemberAccessPermission,
-)
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
@@ -362,8 +358,8 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
 
 class FeatureFlagViewSet(
-    TaggedItemViewSetMixin,
     StructuredViewSetMixin,
+    TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
@@ -375,16 +371,9 @@ class FeatureFlagViewSet(
 
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission,
-        CanEditFeatureFlag,
-    ]
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
+    additional_permission_classes = [CanEditFeatureFlag]
+    additional_authentication_classes = [
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
     ]
 
     def get_queryset(self) -> QuerySet:

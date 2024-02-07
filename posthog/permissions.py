@@ -133,6 +133,10 @@ class TeamMemberAccessPermission(BasePermission):
     message = "You don't have access to the project."
 
     def has_permission(self, request, view) -> bool:
+        # We only want to check this for "project" views (simplifies usage elsewhere)
+        if view.basename != "project" and not view.legacy_team_compatibility:
+            return True
+
         try:
             view.team  # noqa: B018
         except Team.DoesNotExist:

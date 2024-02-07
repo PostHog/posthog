@@ -1,18 +1,14 @@
 from typing import Any
 
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.permissions import TeamMemberAccessPermission
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -54,13 +50,6 @@ class IntegrationViewSet(
 ):
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
-
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        SessionAuthentication,
-        BasicAuthentication,
-    ]
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     @action(methods=["GET"], detail=True, url_path="channels")
     def content(self, request: Request, *args: Any, **kwargs: Any) -> Response:

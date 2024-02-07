@@ -17,7 +17,7 @@ from loginas.utils import is_impersonated_session
 from rest_framework import renderers, request, serializers, status, viewsets
 from rest_framework.decorators import action, renderer_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -40,10 +40,6 @@ from posthog.models.plugin import (
     validate_plugin_job_payload,
 )
 from posthog.models.utils import UUIDT, generate_random_token
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    TeamMemberAccessPermission,
-)
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
@@ -303,9 +299,7 @@ class PluginSerializer(serializers.ModelSerializer):
 class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
+    additional_permission_classes = [
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
     ]
@@ -716,11 +710,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        TeamMemberAccessPermission,
-    ]
 
     def get_queryset(self):
         if not can_configure_plugins(self.team.organization_id):

@@ -1,5 +1,5 @@
 import structlog
-from rest_framework import permissions, response, serializers, viewsets
+from rest_framework import response, serializers, viewsets
 from rest_framework.decorators import action
 from semantic_version.base import Version
 
@@ -96,9 +96,10 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
         )
 
 
+# Does this still work??
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = AsyncMigration.objects.all().order_by("name")
-    permission_classes = [permissions.IsAuthenticated, IsStaffUser]
+    additional_permission_classes = [IsStaffUser]
     serializer_class = AsyncMigrationSerializer
     include_in_docs = False
 

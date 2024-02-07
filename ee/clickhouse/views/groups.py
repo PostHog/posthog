@@ -8,7 +8,6 @@ from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
-from rest_framework.permissions import IsAuthenticated
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from posthog.api.documentation import extend_schema
@@ -20,7 +19,6 @@ from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.permissions import (
     SharingTokenPermission,
-    TeamMemberAccessPermission,
 )
 
 
@@ -35,8 +33,6 @@ class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, v
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
-
     sharing_enabled_actions = ["list"]
 
     def get_permissions(self):
@@ -73,7 +69,6 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     def get_queryset(self):
         return (

@@ -3,7 +3,6 @@ from typing import Any, List
 from django.conf import settings
 from rest_framework import exceptions, filters, serializers, viewsets
 from rest_framework.exceptions import NotAuthenticated
-from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -14,7 +13,6 @@ from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.models import User
-from posthog.permissions import OrganizationMemberPermissions
 from posthog.warehouse.models import DataWarehouseSavedQuery
 
 
@@ -99,7 +97,6 @@ class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewS
 
     queryset = DataWarehouseSavedQuery.objects.all()
     serializer_class = DataWarehouseSavedQuerySerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"

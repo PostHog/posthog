@@ -81,10 +81,6 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 
 
 class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission,
-    ]
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
@@ -202,7 +198,8 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         return response.Response(serializer.data)
 
 
-class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin, viewsets.GenericViewSet):
+# TODO: Does this still work?
+class SharingViewerPageViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """
     NOTE: This ViewSet takes care of multiple rendering cases:
     1. Shared Resources like Shared Dashboard or Insight

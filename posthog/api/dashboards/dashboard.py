@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
@@ -31,7 +31,6 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
-from posthog.permissions import TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
 logger = structlog.get_logger(__name__)
@@ -409,11 +408,7 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     queryset = Dashboard.objects.order_by("name")
-    permission_classes = [
-        IsAuthenticated,
-        TeamMemberAccessPermission,
-        CanEditDashboard,
-    ]
+    additional_permission_classes = [CanEditDashboard]
 
     def get_serializer_class(self) -> Type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer

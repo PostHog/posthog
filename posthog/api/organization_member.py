@@ -4,7 +4,7 @@ from django.db.models import Model, Prefetch
 from django.shortcuts import get_object_or_404
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import exceptions, mixins, serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
 from social_django.admin import UserSocialAuth
@@ -14,7 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions, extract_organization
+from posthog.permissions import extract_organization
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -86,11 +86,7 @@ class OrganizationMemberViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = OrganizationMemberSerializer
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        OrganizationMemberObjectPermissions,
-    ]
+    additional_permission_classes = [OrganizationMemberObjectPermissions]
     queryset = (
         OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
         .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)

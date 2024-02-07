@@ -1,8 +1,10 @@
 from functools import cached_property, lru_cache
-from typing import TYPE_CHECKING, Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 from rest_framework import authentication
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
@@ -12,6 +14,7 @@ from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -43,8 +46,21 @@ class StructuredViewSetMixin(_GenericViewSet):
         JwtAuthentication,
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
     ]
+    additional_authentication_classes = []
+
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
+    additional_permission_classes = []
+    required_scopes = []
+
+    def get_permissions(self):
+        # We want to try and ensure that the base permission classes are always used
+        # so we offer a way to add additional permission classes
+
+        return [permission() for permission in (self.permission_classes + self.additional_permission_classes)]
+
+    def get_authenticators(self) -> List[BaseAuthentication]:
+        return [auth() for auth in (self.authentication_classes + self.additional_authentication_classes)]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -120,7 +136,7 @@ class StructuredViewSetMixin(_GenericViewSet):
                 raise ValidationError("This endpoint requires a project.")
             return {"team_id": project.id}
         result = {}
-        # process URL paremetrs (here called kwargs), such as organization_id in /api/organizations/:organization_id/
+        # process URL parameters (here called kwargs), such as organization_id in /api/organizations/:organization_id/
         for kwarg_name, kwarg_value in self.kwargs.items():
             # drf-extensions nested parameters are prefixed
             if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):

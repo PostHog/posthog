@@ -71,6 +71,7 @@ class ServerTimingsGathered:
         return cls.timings_dict
 
 
+# TODO: Check this still works happily
 class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer

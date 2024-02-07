@@ -4,16 +4,12 @@ from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework import filters, serializers, viewsets, pagination
-from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation
-from posthog.permissions import (
-    TeamMemberAccessPermission,
-)
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -71,7 +67,6 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     queryset = Annotation.objects.select_related("dashboard_item")
     serializer_class = AnnotationSerializer
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     filter_backends = [filters.SearchFilter]
     pagination_class = AnnotationsLimitOffsetPagination
     search_fields = ["content"]

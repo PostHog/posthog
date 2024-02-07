@@ -7,21 +7,15 @@ import structlog
 from django.http import HttpResponse
 from django.utils.timezone import now
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
-from posthog.permissions import (
-    TeamMemberAccessPermission,
-)
 from posthog.tasks import exporter
 from loginas.utils import is_impersonated_session
 
@@ -147,20 +141,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
 
 class ExportedAssetViewSet(
+    StructuredViewSetMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
-    StructuredViewSetMixin,
     viewsets.GenericViewSet,
 ):
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
-
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        SessionAuthentication,
-        BasicAuthentication,
-    ]
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True)

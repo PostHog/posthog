@@ -22,7 +22,6 @@ from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -58,7 +57,6 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.util import delete_person
-from posthog.permissions import TeamMemberAccessPermission
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
     get_people,
@@ -229,7 +227,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
     retention_class = Retention

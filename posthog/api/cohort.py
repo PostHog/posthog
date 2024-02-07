@@ -27,7 +27,6 @@ from django.utils import timezone
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -65,7 +64,6 @@ from posthog.models.person.sql import (
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     PERSON_STATIC_COHORT_TABLE,
 )
-from posthog.permissions import TeamMemberAccessPermission
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
     get_people,
@@ -287,7 +285,6 @@ class CohortSerializer(serializers.ModelSerializer):
 class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

@@ -94,11 +94,7 @@ class RoleViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    permission_classes = [
-        IsAuthenticated,
-        OrganizationMemberPermissions,
-        RolePermissions,
-    ]
+    additional_permission_classes = [RolePermissions]
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
 
@@ -138,10 +134,7 @@ class RoleMembershipViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    permission_classes = [
-        IsAuthenticated,
-        RolePermissions,
-    ]
+    additional_permission_classes = [RolePermissions]
     serializer_class = RoleMembershipSerializer
     queryset = RoleMembership.objects.select_related("role")
     filter_rewrite_rules = {"organization_id": "role__organization_id"}

@@ -1,20 +1,18 @@
 from typing import Literal, Tuple
 
-from rest_framework import authentication, request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.permissions import TeamMemberAccessPermission
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
 
@@ -40,13 +38,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
-    authentication_classes = [
-        TemporaryTokenAuthentication,
-        PersonalAPIKeyAuthentication,
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
-    ]
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
+    additional_authentication_classes = [TemporaryTokenAuthentication]
     include_in_docs = False
 
     @action(methods=["GET"], detail=False)
