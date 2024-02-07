@@ -197,8 +197,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         return response.Response(serializer.data)
 
 
-# TODO: Does this still work?
-class SharingViewerPageViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """
     NOTE: This ViewSet takes care of multiple rendering cases:
     1. Shared Resources like Shared Dashboard or Insight
