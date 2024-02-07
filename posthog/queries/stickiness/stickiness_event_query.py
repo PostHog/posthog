@@ -18,6 +18,7 @@ class StickinessEventsQuery(EventQuery):
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
         super().__init__(*args, **kwargs)
+        self._should_round_interval = True
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         prop_query, prop_params = self._get_prop_groups(
