@@ -2,9 +2,8 @@ from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 from rest_framework import authentication
-from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
-from rest_framework.permissions import IsAuthenticated, BasePermission
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
@@ -47,17 +46,17 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
     ]
-    additional_authentication_classes = []
+    additional_authentication_classes: List = []
 
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
-    additional_permission_classes = []
+    additional_permission_classes: list = []
 
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
-    def get_permissions(self) -> List[BasePermission]:
+    def get_permissions(self):
         return [permission() for permission in (self.permission_classes + self.additional_permission_classes)]
 
-    def get_authenticators(self) -> List[BaseAuthentication]:
+    def get_authenticators(self):
         return [auth() for auth in (self.authentication_classes + self.additional_authentication_classes)]
 
     def get_queryset(self):
