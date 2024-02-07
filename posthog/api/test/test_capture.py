@@ -58,7 +58,7 @@ parser = ResolvingParser(
 openapi_spec = cast(Dict[str, Any], parser.specification)
 
 large_data_array = [
-    {"key": random.choice(string.ascii_letters) for _ in range(512 * 1024)}
+    {"key": random.choice(string.ascii_letters)} for _ in range(512 * 1024)
 ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
 
 android_json = {

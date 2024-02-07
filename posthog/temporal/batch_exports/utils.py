@@ -5,7 +5,7 @@ T = typing.TypeVar("T")
 
 
 def peek_first_and_rewind(
-    gen: collections.abc.Generator[T, None, None]
+    gen: collections.abc.Generator[T, None, None],
 ) -> tuple[T, collections.abc.Generator[T, None, None]]:
     """Peek into the first element in a generator and rewind the advance.
 

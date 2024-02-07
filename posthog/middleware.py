@@ -456,7 +456,7 @@ class CaptureMiddleware:
 
 
 def per_request_logging_context_middleware(
-    get_response: Callable[[HttpRequest], HttpResponse]
+    get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     We get some default logging context from the django-structlog middleware,
@@ -487,7 +487,7 @@ def per_request_logging_context_middleware(
 
 
 def user_logging_context_middleware(
-    get_response: Callable[[HttpRequest], HttpResponse]
+    get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     This middleware adds the team_id to the logging context if it exists. Note

@@ -502,9 +502,7 @@ def social_create_user(
             user=user.id if user else None,
         )
         if user:
-            backend_processor = (
-                "domain_whitelist"
-            )  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
+            backend_processor = "domain_whitelist"  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
             from_invite = True  # jit_provisioning means they're definitely not organization_first_user
 
         if not user:
