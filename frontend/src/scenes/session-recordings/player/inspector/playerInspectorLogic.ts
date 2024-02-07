@@ -1,4 +1,4 @@
-import { customEvent, eventWithTime } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@rrweb/types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -75,11 +75,19 @@ export type InspectorListOfflineStatusChange = InspectorListItemBase & {
     offline: boolean
 }
 
+export type InspectorListItemDoctor = InspectorListItemBase & {
+    type: SessionRecordingPlayerTab.DOCTOR
+    tag: string
+    data?: Record<string, any>
+    window_id?: string
+}
+
 export type InspectorListItem =
     | InspectorListItemEvent
     | InspectorListItemConsole
     | InspectorListItemPerformance
     | InspectorListOfflineStatusChange
+    | InspectorListItemDoctor
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -96,6 +104,30 @@ const PostHogMobileEvents = [
 
 function isPostHogEvent(item: InspectorListItemEvent): boolean {
     return item.data.event.startsWith('$') || PostHogMobileEvents.includes(item.data.event)
+}
+
+function _isCustomSnapshot(x: unknown): x is customEvent {
+    return (x as customEvent).type === 5
+}
+
+function _isPluginSnapshot(x: unknown): x is pluginEvent {
+    return (x as pluginEvent).type === 6
+}
+
+function isFullSnapshotEvent(x: unknown): x is fullSnapshotEvent {
+    return (x as fullSnapshotEvent).type === 2
+}
+
+function snapshotDescription(snapshot: eventWithTime): string {
+    const snapshotTypeName = EventType[snapshot.type]
+    let suffix = ''
+    if (_isCustomSnapshot(snapshot)) {
+        suffix = ': ' + (snapshot as customEvent).data.tag
+    }
+    if (_isPluginSnapshot(snapshot)) {
+        suffix = ': ' + (snapshot as pluginEvent).data.plugin
+    }
+    return snapshotTypeName + suffix
 }
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
@@ -238,6 +270,76 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        doctorEvents: [
+            (s) => [s.start, s.sessionPlayerData],
+            (start, sessionPlayerData): InspectorListItemDoctor[] => {
+                if (!start) {
+                    return []
+                }
+
+                const items: InspectorListItemDoctor[] = []
+
+                const snapshotCounts: Record<string, Record<string, number>> = {}
+
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
+                    if (!snapshotCounts[windowId]) {
+                        snapshotCounts[windowId] = {}
+                    }
+
+                    snapshots.forEach((snapshot: eventWithTime) => {
+                        const description = snapshotDescription(snapshot)
+                        snapshotCounts[windowId][description] = (snapshotCounts[windowId][description] || 0) + 1
+
+                        if (_isCustomSnapshot(snapshot)) {
+                            const customEvent = snapshot as customEvent
+                            const tag = customEvent.data.tag
+
+                            if (tag === '$pageview') {
+                                return
+                            }
+
+                            const timestamp = dayjs(snapshot.timestamp)
+                            const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
+
+                            items.push({
+                                type: SessionRecordingPlayerTab.DOCTOR,
+                                timestamp,
+                                timeInRecording,
+                                tag,
+                                search: tag,
+                                window_id: windowId,
+                                data: customEvent.data.payload as Record<string, any>,
+                            })
+                        }
+                        if (isFullSnapshotEvent(snapshot)) {
+                            const timestamp = dayjs(snapshot.timestamp)
+                            const timeInRecording = timestamp.valueOf() - (start?.valueOf() ?? 0)
+
+                            items.push({
+                                type: SessionRecordingPlayerTab.DOCTOR,
+                                timestamp,
+                                timeInRecording,
+                                tag: 'fullSnapshotEvent',
+                                search: 'fullSnapshotEvent',
+                                window_id: windowId,
+                                data: {},
+                            })
+                        }
+                    })
+                })
+
+                items.push({
+                    type: SessionRecordingPlayerTab.DOCTOR,
+                    timestamp: start,
+                    timeInRecording: 0,
+                    tag: 'count of snapshot types by window',
+                    search: 'count of snapshot types by window',
+                    data: snapshotCounts,
+                })
+
+                return items
+            },
+        ],
         consoleLogs: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData): RecordingConsoleLogV2[] => {
@@ -246,10 +348,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
                     snapshots.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
-                        ) {
+                        if (_isPluginSnapshot(snapshot) && snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME) {
                             const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
                             const { level, payload, trace } = data
                             const lines = (Array.isArray(payload) ? payload : [payload]).filter((x) => !!x) as string[]
@@ -307,6 +406,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.sessionEventsData,
                 s.matchingEventUUIDs,
                 s.offlineStatusChanges,
+                s.doctorEvents,
             ],
             (
                 start,
@@ -314,7 +414,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 consoleLogs,
                 eventsData,
                 matchingEventUUIDs,
-                offlineStatusChanges
+                offlineStatusChanges,
+                doctorEvents
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -326,6 +427,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // no conversion needed for offlineStatusChanges, they're ready to roll
                 for (const event of offlineStatusChanges || []) {
+                    items.push(event)
+                }
+
+                // no conversion needed fordoctorEvents, they're ready to roll
+                for (const event of doctorEvents || []) {
                     items.push(event)
                 }
 
@@ -440,12 +546,24 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 for (const item of allItems) {
                     let include = false
 
+                    // always show offline status changes
                     if (item.type === 'offline-status') {
+                        include = true
+                    }
+
+                    if (item.type === SessionRecordingPlayerTab.DOCTOR && tab === SessionRecordingPlayerTab.DOCTOR) {
                         include = true
                     }
 
                     // EVENTS
                     if (item.type === SessionRecordingPlayerTab.EVENTS) {
+                        if (
+                            tab === SessionRecordingPlayerTab.DOCTOR &&
+                            (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error'))
+                        ) {
+                            include = true
+                        }
+
                         if (tab !== SessionRecordingPlayerTab.EVENTS && tab !== SessionRecordingPlayerTab.ALL) {
                             continue
                         }
@@ -498,6 +616,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                     // CONSOLE LOGS
                     if (item.type === SessionRecordingPlayerTab.CONSOLE) {
+                        if (tab === SessionRecordingPlayerTab.DOCTOR && item.data.level === 'error') {
+                            include = true
+                        }
+
                         if (tab !== SessionRecordingPlayerTab.CONSOLE && tab !== SessionRecordingPlayerTab.ALL) {
                             continue
                         }
@@ -670,6 +792,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.sessionEventsData,
                 s.consoleLogs,
                 s.allPerformanceEvents,
+                s.doctorEvents,
             ],
             (
                 sessionEventsDataLoading,
@@ -677,7 +800,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 sessionPlayerSnapshotDataLoading,
                 events,
                 logs,
-                performanceEvents
+                performanceEvents,
+                doctorEvents
             ): Record<SessionRecordingPlayerTab, 'loading' | 'ready' | 'empty'> => {
                 const tabEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
                 const tabConsoleState =
@@ -692,7 +816,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         : performanceEvents.length
                         ? 'ready'
                         : 'empty'
-
+                const tabDoctorState =
+                    sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !performanceEvents
+                        ? 'loading'
+                        : doctorEvents.length
+                        ? 'ready'
+                        : 'empty'
                 return {
                     [SessionRecordingPlayerTab.ALL]: [tabEventsState, tabConsoleState, tabNetworkState].every(
                         (x) => x === 'loading'
@@ -702,6 +831,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     [SessionRecordingPlayerTab.EVENTS]: tabEventsState,
                     [SessionRecordingPlayerTab.CONSOLE]: tabConsoleState,
                     [SessionRecordingPlayerTab.NETWORK]: tabNetworkState,
+                    [SessionRecordingPlayerTab.DOCTOR]: tabDoctorState,
                 }
             },
         ],
