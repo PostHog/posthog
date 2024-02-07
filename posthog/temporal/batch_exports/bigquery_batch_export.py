@@ -172,7 +172,7 @@ def bigquery_client(inputs: BigQueryInsertInputs):
 def bigquery_default_fields() -> list[BatchExportField]:
     """Default fields for a BigQuery batch export.
 
-    Starting from the common defualt fields, we add and tweak some fields for
+    Starting from the common default fields, we add and tweak some fields for
     backwards compatibility.
     """
     batch_export_fields = default_fields()
