@@ -135,7 +135,16 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     ordering = "-created_by"
 
     def get_permissions(self):
-        if self.request.method == "POST":
+        # When listing there is no individual object to check for
+        if self.action == "list":
+            return [
+                permission()
+                for permission in [
+                    permissions.IsAuthenticated,
+                ]
+            ]
+
+        if self.action == "create":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
             # because they require an existing org, unneded anyways because permissions are organization-based
             return [

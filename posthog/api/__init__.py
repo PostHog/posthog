@@ -190,6 +190,7 @@ projects_router.register(r"warehouse_view_link", view_link.ViewLinkViewSet, "war
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+organizations_router.register(r"projects", team.TeamViewSet, "projects", ["organization_id"])
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
 )
