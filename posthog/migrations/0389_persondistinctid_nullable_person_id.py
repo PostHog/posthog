@@ -12,6 +12,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             "ALTER TABLE posthog_persondistinctid ALTER COLUMN person_id DROP NOT NULL",
+            reverse_sql="ALTER TABLE posthog_persondistinctid ALTER COLUMN person_id SET NOT NULL",
             state_operations=[
                 migrations.AlterField(
                     model_name="persondistinctid",
