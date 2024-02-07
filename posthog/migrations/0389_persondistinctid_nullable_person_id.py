@@ -12,6 +12,10 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             "ALTER TABLE posthog_persondistinctid ALTER COLUMN person_id DROP NOT NULL",
+            # XXX: This reverse migration really only exists for backwards
+            # compatibility within tests and local development: ``SET NOT NULL``
+            # would be far too expensive to apply on this column in production,
+            # (and liable to fail anyway if a ``NULL`` value has been written.)
             reverse_sql="ALTER TABLE posthog_persondistinctid ALTER COLUMN person_id SET NOT NULL",
             state_operations=[
                 migrations.AlterField(
