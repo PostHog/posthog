@@ -34,7 +34,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
-    derive_current_team_from_user: bool = False
+    derive_current_team_from_user_only: bool = False
 
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
@@ -70,7 +70,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if team_from_token:
             return team_from_token.id
 
-        if self.derive_current_team_from_user:
+        if self.derive_current_team_from_user_only:
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -83,7 +83,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if team_from_token:
             return team_from_token
 
-        if self.derive_current_team_from_user:
+        if self.derive_current_team_from_user_only:
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -126,7 +126,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # used to override the last visited project if there's a token in the request
         team_from_request = self._get_team_from_request()
 
-        if self.derive_current_team_from_user:
+        if self.derive_current_team_from_user_only:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
             project = team_from_request or self.request.user.team
@@ -196,30 +196,30 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     # def create(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.derive_current_team_from_user:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (create)")
     #     return super_cls.create(*args, **kwargs)
 
     # def retrieve(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.derive_current_team_from_user:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (retrieve)")
     #     return super_cls.retrieve(*args, **kwargs)
 
     # def list(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.derive_current_team_from_user:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (list)")
     #     return super_cls.list(*args, **kwargs)
 
     # def update(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.derive_current_team_from_user:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (update)")
     #     return super_cls.update(*args, **kwargs)
 
     # def delete(self, *args, **kwargs):
     #     super_cls = super()
-    #     if self.derive_current_team_from_user:
+    #     if self.derive_current_team_from_user_only:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (delete)")
     #     return super_cls.delete(*args, **kwargs)

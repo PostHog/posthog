@@ -179,4 +179,4 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 class LegacyElementViewSet(ElementViewSet):
-    derive_current_team_from_user = True
+    derive_current_team_from_user_only = True

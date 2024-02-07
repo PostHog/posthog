@@ -62,4 +62,4 @@ class EnterprisePersonViewSet(PersonViewSet):
 
 
 class LegacyEnterprisePersonViewSet(EnterprisePersonViewSet):
-    derive_current_team_from_user = True
+    derive_current_team_from_user_only = True

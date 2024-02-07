@@ -1080,4 +1080,4 @@ Using the correct cache and enriching the response with dashboard specific confi
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    derive_current_team_from_user = True
+    derive_current_team_from_user_only = True

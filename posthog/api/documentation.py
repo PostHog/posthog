@@ -170,7 +170,10 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     """
     result = []
     for path, path_regex, method, callback in endpoints:
-        if hasattr(callback.cls, "derive_current_team_from_user") and callback.cls.derive_current_team_from_user:
+        if (
+            hasattr(callback.cls, "derive_current_team_from_user_only")
+            and callback.cls.derive_current_team_from_user_only
+        ):
             pass
         elif hasattr(callback.cls, "include_in_docs") and callback.cls.include_in_docs:
             path = path.replace("{parent_lookup_team_id}", "{project_id}")

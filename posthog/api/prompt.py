@@ -67,7 +67,7 @@ class PromptSequenceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     Create, read, update and delete prompt sequences state for a person.
     """
 
-    derive_current_team_from_user = True
+    derive_current_team_from_user_only = True
 
     @action(methods=["PATCH"], detail=False)
     def my_prompts(self, request: request.Request, **kwargs):

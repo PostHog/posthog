@@ -35,7 +35,7 @@ class LicenseKeySerializer(serializers.Serializer):
 
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
-    derive_current_team_from_user = True
+    derive_current_team_from_user_only = True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()

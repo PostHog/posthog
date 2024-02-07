@@ -134,7 +134,7 @@ class TeamMemberAccessPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         # We only want to check this for "project" views (simplifies usage elsewhere)
-        if view.basename != "project" and not view.derive_current_team_from_user:
+        if view.basename != "project" and not view.derive_current_team_from_user_only:
             return True
 
         try:
