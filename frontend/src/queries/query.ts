@@ -24,7 +24,6 @@ import {
     isActorsQuery,
     isDataTableNode,
     isDataVisualizationNode,
-    isEventsQuery,
     isFunnelsQuery,
     isHogQLQuery,
     isInsightQueryNode,
@@ -49,18 +48,8 @@ export function queryExportContext<N extends DataNode = DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean
 ): OnlineExportContext | QueryExportContext {
-    if (isInsightVizNode(query)) {
+    if (isInsightVizNode(query) || isDataTableNode(query) || isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isDataTableNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isDataVisualizationNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isEventsQuery(query) || isActorsQuery(query)) {
-        return {
-            source: query,
-        }
-    } else if (isHogQLQuery(query)) {
-        return { source: query }
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
     } else if (isInsightQueryNode(query)) {
@@ -99,8 +88,9 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 session_end: query.source.sessionEnd ?? now().toISOString(),
             },
         }
+    } else {
+        return { source: query }
     }
-    throw new Error(`Unsupported query: ${query.kind}`)
 }
 
 /**
@@ -113,7 +103,7 @@ async function executeQuery<N extends DataNode = DataNode>(
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
     const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata', 'EventsQuery']
+    const excludedKinds = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete']
     const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
     const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
 

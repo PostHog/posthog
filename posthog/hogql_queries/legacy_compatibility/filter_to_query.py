@@ -1,3 +1,4 @@
+import copy
 from enum import Enum
 import json
 from typing import List, Dict, Literal
@@ -257,7 +258,7 @@ def _series(filter: Dict):
         "series": [
             legacy_entity_to_node(entity, include_properties, math_availability)
             for entity in _entities(filter)
-            if entity.id is not None
+            if not (entity.type == "actions" and entity.id is None)
         ]
     }
 
@@ -474,6 +475,8 @@ def _insight_type(filter: Dict) -> INSIGHT_TYPE:
 
 
 def filter_to_query(filter: Dict) -> InsightQueryNode:
+    filter = copy.deepcopy(filter)  # duplicate to prevent accidental filter alterations
+
     Query = insight_to_query_type[_insight_type(filter)]
 
     data = {

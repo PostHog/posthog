@@ -99,6 +99,9 @@ export function DashboardItems(): JSX.Element {
             >
                 {tiles?.map((tile: DashboardTile) => {
                     const { insight, text } = tile
+                    const smLayout = layouts['sm']?.find((l) => {
+                        return l.i == tile.id.toString()
+                    })
 
                     const commonTileProps = {
                         dashboardId: dashboard?.id,
@@ -140,6 +143,7 @@ export function DashboardItems(): JSX.Element {
                                 duplicate={() => duplicateInsight(insight)}
                                 showDetailsControls={placement != DashboardPlacement.Export}
                                 placement={placement}
+                                loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                 {...commonTileProps}
                             />
                         )

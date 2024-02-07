@@ -54,7 +54,6 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import cached_by_filters
-from posthog.errors import ExposedCHQueryError
 from posthog.helpers.multi_property_breakdown import (
     protect_old_clients_from_multi_property_default,
 )
@@ -826,7 +825,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         try:
             with timings.measure("calculate"):
                 result = self.calculate_trends(request)
-        except (HogQLException, ExposedCHQueryError) as e:
+        except HogQLException as e:
             raise ValidationError(str(e))
         filter = Filter(request=request, team=self.team)
 
@@ -917,7 +916,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         try:
             with timings.measure("calculate"):
                 funnel = self.calculate_funnel(request)
-        except (HogQLException, ExposedCHQueryError) as e:
+        except HogQLException as e:
             raise ValidationError(str(e))
 
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
@@ -959,7 +958,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         try:
             with timings.measure("calculate"):
                 result = self.calculate_retention(request)
-        except (HogQLException, ExposedCHQueryError) as e:
+        except HogQLException as e:
             raise ValidationError(str(e))
 
         result["timings"] = [val.model_dump() for val in timings.to_list()]
@@ -989,7 +988,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         try:
             with timings.measure("calculate"):
                 result = self.calculate_path(request)
-        except (HogQLException, ExposedCHQueryError) as e:
+        except HogQLException as e:
             raise ValidationError(str(e))
 
         result["timings"] = [val.model_dump() for val in timings.to_list()]

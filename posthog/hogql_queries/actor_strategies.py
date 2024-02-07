@@ -4,6 +4,7 @@ from django.db.models import Prefetch
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings import RecordingsHelper
 from posthog.models import Team, Person, Group
@@ -88,10 +89,9 @@ class PersonStrategy(ActorStrategy):
                             left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["pdi", "distinct_id"]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
+                        parse_expr(
+                            "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
+                            {"search": ast.Constant(value=f"%{self.query.search}%")},
                         ),
                     ]
                 )
