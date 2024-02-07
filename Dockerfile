@@ -29,10 +29,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 ARG BIN
-ENV ENTRYPOINT=/usr/local/bin/$BIN
 WORKDIR /app
 
 USER nobody
 
 COPY --from=builder /app/target/release/$BIN /usr/local/bin
-ENTRYPOINT [ $ENTRYPOINT ]
+ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
