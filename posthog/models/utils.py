@@ -280,3 +280,27 @@ def execute_with_timeout(timeout: int, database: str = "default") -> Iterator[Cu
         with connections[database].cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
             yield cursor
+
+
+def LOGGED_CASCADE(collector, field, sub_objs, using):
+    """
+    Similar to ``django.db.models.CASCADE``, but intended for cases where we
+    don't actually intend for the cascade to actually occur (except within tests
+    for convenience.)
+
+    This also differs from the default ``CASCADE`` implementation in that it
+    does not try to get clever with nullable foreign keys -- this just treats
+    nullable foreign keys in the same way as non-nullable (i.e. it makes sure to
+    delete child instances _before_ parent objects, allowing them to be
+    referenced safely in post-deletion hooks.)
+    """
+    if sub_objs.count() > 0:
+        # TODO: Log a warning so that we can try to track down where these are coming from...
+        pass
+
+    collector.collect(
+        sub_objs,
+        source=field.remote_field.model,
+        source_attr=field.name,
+        fail_on_restricted=False,
+    )

@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 from django.db import models, transaction
 from django.db.models import F, Q
 
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, LOGGED_CASCADE
 
 from ..team import Team
 
@@ -103,22 +103,6 @@ class Person(models.Model):
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
 
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
-
-
-def LOGGED_CASCADE(collector, field, sub_objs, using):
-    # XXX: This differs from the default ``CASCADE`` implementation in that it
-    # does not try to get clever with nullable foreign keys -- this just treats
-    # nullable foreign keys in the same way as non-nullable (i.e. it makes sure
-    # to delete child instances _before_ parent objects, allowing them to be
-    # referenced safely in post-deletion hooks.)
-    collector.collect(
-        sub_objs,
-        source=field.remote_field.model,
-        source_attr=field.name,
-        fail_on_restricted=False,
-    )
-
-    # TODO: Actually log the deletion...
 
 
 class PersonDistinctId(models.Model):
