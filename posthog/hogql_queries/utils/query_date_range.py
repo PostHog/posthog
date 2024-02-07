@@ -74,6 +74,8 @@ class QueryDateRange:
                 self._date_range.date_from,
                 self._team.timezone_info,
                 now=self.now_with_timezone,
+                # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
+                always_truncate=True,
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
