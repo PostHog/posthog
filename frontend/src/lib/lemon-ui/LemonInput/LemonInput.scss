@@ -28,11 +28,7 @@
     }
 
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--primary-3000);
-
-        .posthog-3000 & {
-            border-color: var(--border-active);
-        }
+        border-color: var(--border-active);
     }
 
     &.LemonInput--transparent-background {
