@@ -450,6 +450,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             properties_data_type=inputs.properties_data_type,
+            batch_export_schema=inputs.batch_export_schema,
         )
 
         await execute_batch_export_insert_activity(
