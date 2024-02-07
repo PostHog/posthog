@@ -589,9 +589,9 @@ def list_recordings(
     with timer("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings])
-        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-            "person"
-        )
+        person_distinct_ids = PersonDistinctId.objects.filter(
+            distinct_id__in=distinct_ids, person__isnull=False, team=team
+        ).select_related("person")
 
     with timer("process_persons"):
         distinct_id_to_person = {}
