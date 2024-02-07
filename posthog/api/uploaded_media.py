@@ -80,7 +80,6 @@ def download(request, *args, **kwargs) -> HttpResponse:
     )
 
 
-# TODO: What do about permissions...
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
