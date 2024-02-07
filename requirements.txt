@@ -345,7 +345,7 @@ kombu==5.3.5
     #   celery
 lazy-object-proxy==1.10.0
     # via openapi-spec-validator
-lxml==5.1.0
+lxml==4.6.5
     # via
     #   python3-saml
     #   toronado
