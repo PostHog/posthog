@@ -7,7 +7,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
+from posthog.hogql_queries.insights.funnels.utils import (
+    funnel_window_interval_unit_to_sql,
+    get_breakdown_expr,
+)
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
@@ -65,27 +68,27 @@ class FunnelBase(ABC):
             return []
 
         # breakdown prop
-        basic_prop_selector: ast.Expr
+        breakdown_expr: ast.Expr
         if breakdownType == "person":
-            basic_prop_selector = ast.Alias(alias="prop_basic", expr=parse_expr(f"person.properties.{breakdown}"))
+            properties_column = "person.properties"
+            breakdown_expr = get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "event":
-            # TODO: implement breakdownFilter.breakdown_normalize_url,
-            basic_prop_selector = ast.Alias(
-                alias="prop_basic", expr=parse_expr(f"[properties.{breakdown[0]}]")
-            )  # TODO: implement real multi-breakdown?
+            properties_column = "properties"
+            normalize_url = breakdownFilter.breakdown_normalize_url
+            breakdown_expr = get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
         elif breakdownType == "cohort":
-            basic_prop_selector = ast.Alias(alias="prop_basic", expr=ast.Field(chain=["value"]))
+            breakdown_expr = ast.Field(chain=["value"])
         elif breakdownType == "group":
-            basic_prop_selector = ast.Alias(
-                alias="prop_basic",
-                expr=parse_expr(f"group{breakdownFilter.breakdown_group_type_index}_properties.{breakdown}"),
-            )
+            properties_column = f"group{breakdownFilter.breakdown_group_type_index}_properties"
+            breakdown_expr = get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql":
-            basic_prop_selector = ast.Alias(alias="prop_basic", expr=breakdown)
+            breakdown_expr = breakdown
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
-        # # TODO: simplify once array and string breakdowns are sorted
+        prop_basic = ast.Alias(alias="prop_basic", expr=breakdown_expr)
+
+        # breakdown attribution
         if breakdownAttributionType == BreakdownAttributionType.step:
             return []
         #     select_columns = []
@@ -118,14 +121,14 @@ class FunnelBase(ABC):
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
             prop_window = parse_expr(f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals")
             return [
-                basic_prop_selector,
+                prop_basic,
                 ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
                 prop_window,
             ]
         else:
             # all_events
             return [
-                basic_prop_selector,
+                prop_basic,
                 ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
             ]
 
