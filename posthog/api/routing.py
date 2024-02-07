@@ -51,7 +51,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     additional_permission_classes = []
-    required_scopes = []
 
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
