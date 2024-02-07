@@ -1108,34 +1108,6 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 209272202,
-            "style": "width: 406px;height: 62px;position: fixed;left: 2px;top: 540px;overflow:hidden;white-space:nowrap;",
-          },
-          "childNodes": [],
-          "id": 209272202,
-          "tagName": "div",
-          "type": 2,
-        },
-        "parentId": 142908405,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 52129787,
-            "style": "color: #000000;width: 368px;height: 19px;position: fixed;left: 66px;top: 556px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
-          },
-          "childNodes": [],
-          "id": 52129787,
-          "tagName": "div",
-          "type": 2,
-        },
-        "parentId": 209272202,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 52129787,
             "style": "color: #000000;width: 368px;height: 19px;position: fixed;left: 66px;top: 556px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
           },
@@ -1172,39 +1144,11 @@ exports[`replay/transform transform incremental mutations de-duplicate the tree 
       {
         "nextId": null,
         "node": {
-          "attributes": {
-            "data-rrweb-id": 99571736,
-            "style": "color: #000000;width: 150px;height: 19px;position: fixed;left: 10px;top: 584px;align-items: flex-start;justify-content: flex-start;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
-          },
-          "childNodes": [],
-          "id": 99571736,
-          "tagName": "div",
-          "type": 2,
-        },
-        "parentId": 209272202,
-      },
-      {
-        "nextId": null,
-        "node": {
           "id": 104,
           "textContent": "PostHog iOS integration",
           "type": 3,
         },
         "parentId": 99571736,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 240124529,
-            "style": "color: #000000;width: 48px;height: 32px;position: fixed;left: 10px;top: 548px;align-items: center;justify-content: center;display: flex;font-size: 14px;font-family: sans-serif;overflow:hidden;white-space:nowrap;",
-          },
-          "childNodes": [],
-          "id": 240124529,
-          "tagName": "div",
-          "type": 2,
-        },
-        "parentId": 209272202,
       },
       {
         "nextId": null,
@@ -4357,20 +4301,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 199,
-            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
-          },
-          "childNodes": [],
-          "id": 199,
-          "tagName": "div",
-          "type": 2,
-        },
-        "parentId": 12365,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 151,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
@@ -4383,37 +4313,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "type": 2,
         },
         "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 151,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 151,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 152,
-          },
-          "childNodes": [],
-          "id": 152,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 151,
       },
       {
         "nextId": null,
@@ -4457,38 +4356,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 153,
-          },
-          "childNodes": [],
-          "id": 153,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 151,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 155,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 155,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 155,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
@@ -4512,44 +4379,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "id": 156,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 155,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 156,
-          },
-          "childNodes": [],
-          "id": 156,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 155,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 158,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 156,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 157,
-          },
-          "childNodes": [],
-          "id": 157,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 155,
@@ -4590,67 +4419,12 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 159,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 159,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 160,
           },
           "childNodes": [],
           "id": 160,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 159,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 160,
-          },
-          "childNodes": [],
-          "id": 160,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 159,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 162,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 160,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 161,
-          },
-          "childNodes": [],
-          "id": 161,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 159,
@@ -4691,67 +4465,12 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 163,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 163,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 164,
           },
           "childNodes": [],
           "id": 164,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 163,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 164,
-          },
-          "childNodes": [],
-          "id": 164,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 163,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 166,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 164,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 165,
-          },
-          "childNodes": [],
-          "id": 165,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 163,
@@ -4792,67 +4511,12 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 167,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 167,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 168,
           },
           "childNodes": [],
           "id": 168,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 167,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 168,
-          },
-          "childNodes": [],
-          "id": 168,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 167,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 170,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 168,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 169,
-          },
-          "childNodes": [],
-          "id": 169,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 167,
@@ -4893,67 +4557,12 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 171,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 171,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 172,
           },
           "childNodes": [],
           "id": 172,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 171,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 172,
-          },
-          "childNodes": [],
-          "id": 172,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 171,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 174,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 172,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 173,
-          },
-          "childNodes": [],
-          "id": 173,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 171,
@@ -4989,37 +4598,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "type": 2,
         },
         "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 175,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 175,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 176,
-          },
-          "childNodes": [],
-          "id": 176,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 175,
       },
       {
         "nextId": null,
@@ -5063,21 +4641,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 177,
-          },
-          "childNodes": [],
-          "id": 177,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 175,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 179,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
@@ -5090,37 +4653,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "type": 2,
         },
         "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 179,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 179,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 180,
-          },
-          "childNodes": [],
-          "id": 180,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 179,
       },
       {
         "nextId": null,
@@ -5164,38 +4696,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 181,
-          },
-          "childNodes": [],
-          "id": 181,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 179,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 183,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 183,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 183,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
@@ -5219,44 +4719,6 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "id": 184,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 183,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 184,
-          },
-          "childNodes": [],
-          "id": 184,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 183,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 186,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 184,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 185,
-          },
-          "childNodes": [],
-          "id": 185,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 183,
@@ -5297,67 +4759,12 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 187,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 187,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 188,
           },
           "childNodes": [],
           "id": 188,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 187,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 188,
-          },
-          "childNodes": [],
-          "id": 188,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 187,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 190,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 188,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 189,
-          },
-          "childNodes": [],
-          "id": 189,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 187,
@@ -5398,67 +4805,12 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 191,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 191,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 192,
           },
           "childNodes": [],
           "id": 192,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 191,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 192,
-          },
-          "childNodes": [],
-          "id": 192,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 191,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 194,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 192,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 193,
-          },
-          "childNodes": [],
-          "id": 193,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 191,
@@ -5499,67 +4851,12 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 195,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 195,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 199,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 196,
           },
           "childNodes": [],
           "id": 196,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 195,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 196,
-          },
-          "childNodes": [],
-          "id": 196,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 195,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 198,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 196,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 197,
-          },
-          "childNodes": [],
-          "id": 197,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 195,
@@ -5642,20 +4939,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 248,
-            "style": "position: relative;display: flex;flex-direction: row;padding: 2px 4px;",
-          },
-          "childNodes": [],
-          "id": 248,
-          "tagName": "div",
-          "type": 2,
-        },
-        "parentId": 12365,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 200,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
@@ -5668,37 +4951,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "type": 2,
         },
         "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 200,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 200,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 201,
-          },
-          "childNodes": [],
-          "id": 201,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 200,
       },
       {
         "nextId": null,
@@ -5742,38 +4994,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 202,
-          },
-          "childNodes": [],
-          "id": 202,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 200,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 204,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 204,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 204,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
@@ -5797,44 +5017,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "id": 205,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 204,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 205,
-          },
-          "childNodes": [],
-          "id": 205,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 204,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 207,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 205,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 206,
-          },
-          "childNodes": [],
-          "id": 206,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 204,
@@ -5875,67 +5057,12 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 208,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 208,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 209,
           },
           "childNodes": [],
           "id": 209,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 208,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 209,
-          },
-          "childNodes": [],
-          "id": 209,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 208,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 211,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 209,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 210,
-          },
-          "childNodes": [],
-          "id": 210,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 208,
@@ -5976,67 +5103,12 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 212,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 212,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 213,
           },
           "childNodes": [],
           "id": 213,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 212,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 213,
-          },
-          "childNodes": [],
-          "id": 213,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 212,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 215,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 213,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 214,
-          },
-          "childNodes": [],
-          "id": 214,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 212,
@@ -6077,67 +5149,12 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 216,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 216,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 217,
           },
           "childNodes": [],
           "id": 217,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 216,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 217,
-          },
-          "childNodes": [],
-          "id": 217,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 216,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 219,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 217,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 218,
-          },
-          "childNodes": [],
-          "id": 218,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 216,
@@ -6178,67 +5195,12 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 220,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 220,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 221,
           },
           "childNodes": [],
           "id": 221,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 220,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 221,
-          },
-          "childNodes": [],
-          "id": 221,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 220,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 223,
-          "textContent": "filled star",
-          "type": 3,
-        },
-        "parentId": 221,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-            "data-rrweb-id": 222,
-          },
-          "childNodes": [],
-          "id": 222,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 220,
@@ -6274,37 +5236,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "type": 2,
         },
         "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 224,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 224,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 225,
-          },
-          "childNodes": [],
-          "id": 225,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 224,
       },
       {
         "nextId": null,
@@ -6348,21 +5279,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 226,
-          },
-          "childNodes": [],
-          "id": 226,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 224,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 228,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
@@ -6375,37 +5291,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "type": 2,
         },
         "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 228,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 228,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 229,
-          },
-          "childNodes": [],
-          "id": 229,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 228,
       },
       {
         "nextId": null,
@@ -6449,38 +5334,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 230,
-          },
-          "childNodes": [],
-          "id": 230,
-          "isSVG": true,
-          "tagName": "path",
-          "type": 2,
-        },
-        "parentId": 228,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 232,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 232,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 232,
             "fill": "currentColor",
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
@@ -6504,44 +5357,6 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "id": 233,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 232,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 233,
-          },
-          "childNodes": [],
-          "id": 233,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 232,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 235,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 233,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 234,
-          },
-          "childNodes": [],
-          "id": 234,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 232,
@@ -6582,67 +5397,12 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 236,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 236,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 237,
           },
           "childNodes": [],
           "id": 237,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 236,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 237,
-          },
-          "childNodes": [],
-          "id": 237,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 236,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 239,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 237,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 238,
-          },
-          "childNodes": [],
-          "id": 238,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 236,
@@ -6683,67 +5443,12 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 240,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 240,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 241,
           },
           "childNodes": [],
           "id": 241,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 240,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 241,
-          },
-          "childNodes": [],
-          "id": 241,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 240,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 243,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 241,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 242,
-          },
-          "childNodes": [],
-          "id": 242,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 240,
@@ -6784,67 +5489,12 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "data-rrweb-id": 244,
-            "fill": "currentColor",
-            "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden;",
-            "viewBox": "0 0 24 24",
-          },
-          "childNodes": [],
-          "id": 244,
-          "isSVG": true,
-          "tagName": "svg",
-          "type": 2,
-        },
-        "parentId": 248,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
             "data-rrweb-id": 245,
           },
           "childNodes": [],
           "id": 245,
           "isSVG": true,
           "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 244,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "data-rrweb-id": 245,
-          },
-          "childNodes": [],
-          "id": 245,
-          "isSVG": true,
-          "tagName": "title",
-          "type": 2,
-        },
-        "parentId": 244,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "id": 247,
-          "textContent": "empty star",
-          "type": 3,
-        },
-        "parentId": 245,
-      },
-      {
-        "nextId": null,
-        "node": {
-          "attributes": {
-            "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-            "data-rrweb-id": 246,
-          },
-          "childNodes": [],
-          "id": 246,
-          "isSVG": true,
-          "tagName": "path",
           "type": 2,
         },
         "parentId": 244,
