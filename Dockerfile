@@ -29,6 +29,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 ARG BIN
+ENV BIN=$BIN
 WORKDIR /app
 
 USER nobody
