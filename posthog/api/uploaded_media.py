@@ -13,14 +13,12 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
-from posthog.permissions import TeamMemberAccessPermission
 from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024

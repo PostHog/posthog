@@ -62,4 +62,4 @@ class EnterprisePersonViewSet(PersonViewSet):
 
 
 class LegacyEnterprisePersonViewSet(EnterprisePersonViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user = True

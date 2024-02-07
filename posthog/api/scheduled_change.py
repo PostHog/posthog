@@ -1,16 +1,12 @@
 from typing import Any, Dict
 from rest_framework import (
-    authentication,
     serializers,
     viewsets,
 )
 
-from rest_framework.permissions import IsAuthenticated
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import ScheduledChange
-from posthog.permissions import TeamMemberAccessPermission
 
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):

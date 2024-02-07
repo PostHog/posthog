@@ -433,7 +433,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 
 class LegacyCohortViewSet(CohortViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user = True
 
 
 def will_create_loops(cohort: Cohort) -> bool:

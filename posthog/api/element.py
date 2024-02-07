@@ -179,4 +179,4 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 
 class LegacyElementViewSet(ElementViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user = True

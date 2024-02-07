@@ -517,7 +517,7 @@ class DashboardsViewSet(
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user = True
 
     def get_parents_query_dict(self) -> Dict[str, Any]:
         if not self.request.user.is_authenticated or "share_token" in self.request.GET:
@@ -526,4 +526,4 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 
 class LegacyInsightViewSet(InsightViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user = True

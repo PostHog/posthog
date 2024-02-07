@@ -2,7 +2,7 @@ from typing import List, cast
 
 from django.db import IntegrityError
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.organization_resource_access import OrganizationResourceAccess
@@ -12,7 +12,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions
 
 
 class RolePermissions(BasePermission):

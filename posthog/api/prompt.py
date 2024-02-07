@@ -67,6 +67,8 @@ class PromptSequenceViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     Create, read, update and delete prompt sequences state for a person.
     """
 
+    derive_current_team_from_user = True
+
     @action(methods=["PATCH"], detail=False)
     def my_prompts(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy otherwise check on distict_id below fails

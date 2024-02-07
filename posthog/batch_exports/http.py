@@ -14,7 +14,6 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 from rest_framework.pagination import CursorPagination
-from rest_framework.permissions import IsAuthenticated
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -49,7 +48,6 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.permissions import OrganizationMemberPermissions
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 

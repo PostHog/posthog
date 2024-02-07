@@ -957,4 +957,4 @@ def prepare_actor_query_filter(filter: T) -> T:
 
 
 class LegacyPersonViewSet(PersonViewSet):
-    legacy_team_compatibility = True
+    derive_current_team_from_user = True
