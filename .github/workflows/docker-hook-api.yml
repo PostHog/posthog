@@ -69,9 +69,7 @@ jobs:
           platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            "RUST_BACKTRACE=1"
-            "BIN=hook-api"
+          build-args: BIN=hook-api
 
       - name: Hook-api image digest
         run: echo ${{ steps.docker_build_hook_api.outputs.digest }}

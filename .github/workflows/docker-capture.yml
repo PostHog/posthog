@@ -69,9 +69,7 @@ jobs:
           platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            "RUST_BACKTRACE=1"
-            "BIN=capture-server"
+          build-args: BIN=capture-server
 
       - name: Capture image digest
         run: echo ${{ steps.docker_build_capture.outputs.digest }}

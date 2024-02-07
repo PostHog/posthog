@@ -69,9 +69,7 @@ jobs:
           platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            "RUST_BACKTRACE=1"
-            "BIN=hook-janitor"
+          build-args: BIN=hook-janitor
 
       - name: Hook-janitor image digest
         run: echo ${{ steps.docker_build_hook_janitor.outputs.digest }}
