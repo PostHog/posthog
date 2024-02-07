@@ -522,6 +522,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = sort_breakdown_funnel_results(results)
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[1],
@@ -2640,8 +2641,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
     return TestFunnelBreakdown
 
 
-# def sort_breakdown_funnel_results(results: List[Dict[int, Any]]):
-#     return list(sorted(results, key=lambda r: r[0]["breakdown_value"]))
+def sort_breakdown_funnel_results(results: List[Dict[int, Any]]):
+    return list(sorted(results, key=lambda r: r[0]["breakdown_value"]))
 
 
 def assert_funnel_results_equal(left: List[Dict[str, Any]], right: List[Dict[str, Any]]):
