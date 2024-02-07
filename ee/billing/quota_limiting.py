@@ -170,7 +170,9 @@ def sync_org_quota_limits(organization: Organization):
             if needs_save:
                 organization.save()
             if quota_limited_until and (data_retained_until and data_retained_until < round(today_start.timestamp())):
-                add_limited_team_tokens(resource, {x: quota_limited_until for x in team_attributes})
+                add_limited_team_tokens(
+                    resource, {x: quota_limited_until for x in team_attributes}, QUOTA_LIMITER_CACHE_KEY
+                )
                 continue
             elif data_retained_until and data_retained_until >= today_start.timestamp():
                 add_limited_team_tokens(

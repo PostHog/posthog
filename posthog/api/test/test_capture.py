@@ -12,11 +12,12 @@ from typing import Any, Dict, List, Union, cast
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import quote
+
 import lzstring
 import pytest
 import structlog
 from django.http import HttpResponse
-from django.test.client import Client, MULTIPART_CONTENT
+from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
 from freezegun import freeze_time
 from kafka.errors import KafkaError
@@ -27,6 +28,7 @@ from prance import ResolvingParser
 from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
 
+from ee.billing.quota_limiting import QUOTA_LIMITER_CACHE_KEY
 from posthog.api import capture
 from posthog.api.capture import (
     LIKELY_ANONYMOUS_IDS,
@@ -1719,12 +1721,10 @@ class TestCapture(BaseTest):
         from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
 
         replace_limited_team_tokens(
-            QuotaResource.RECORDINGS,
-            {self.team.api_token: timezone.now().timestamp() + 10000},
+            QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000}, QUOTA_LIMITER_CACHE_KEY
         )
         replace_limited_team_tokens(
-            QuotaResource.EVENTS,
-            {self.team.api_token: timezone.now().timestamp() + 10000},
+            QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000}, QUOTA_LIMITER_CACHE_KEY
         )
         self._send_august_2023_version_session_recording_event()
         self.assertEqual(kafka_produce.call_count, 1)
@@ -1774,8 +1774,7 @@ class TestCapture(BaseTest):
             )
 
             replace_limited_team_tokens(
-                QuotaResource.EVENTS,
-                {self.team.api_token: timezone.now().timestamp() + 10000},
+                QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000}, QUOTA_LIMITER_CACHE_KEY
             )
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 1)  # Only the recording event
@@ -1783,6 +1782,7 @@ class TestCapture(BaseTest):
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS,
                 {self.team.api_token: timezone.now().timestamp() + 10000},
+                QUOTA_LIMITER_CACHE_KEY,
             )
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 0)  # No events
@@ -1790,10 +1790,10 @@ class TestCapture(BaseTest):
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS,
                 {self.team.api_token: timezone.now().timestamp() - 10000},
+                QUOTA_LIMITER_CACHE_KEY,
             )
             replace_limited_team_tokens(
-                QuotaResource.EVENTS,
-                {self.team.api_token: timezone.now().timestamp() - 10000},
+                QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() - 10000}, QUOTA_LIMITER_CACHE_KEY
             )
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past
