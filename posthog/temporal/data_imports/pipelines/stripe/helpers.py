@@ -8,6 +8,8 @@ from dlt.common import pendulum
 from dlt.sources import DltResource
 from pendulum import DateTime
 from asgiref.sync import sync_to_async
+from posthog.temporal.data_imports.pipelines.helpers import check_limit
+from posthog.warehouse.models import ExternalDataJob
 
 stripe.api_version = "2022-11-15"
 
@@ -52,6 +54,8 @@ async def stripe_get_data(
 async def stripe_pagination(
     api_key: str,
     endpoint: str,
+    team_id: int,
+    job_id: str,
     starting_after: Optional[str] = None,
 ):
     """
@@ -67,6 +71,8 @@ async def stripe_pagination(
     """
 
     while True:
+        count = 0
+
         response = await stripe_get_data(
             api_key,
             endpoint,
@@ -77,13 +83,19 @@ async def stripe_pagination(
             starting_after = response["data"][-1]["id"]
         yield response["data"]
 
-        if not response["has_more"]:
+        count, status = await check_limit(
+            team_id=team_id,
+            job_id=job_id,
+            new_count=count + len(response["data"]),
+        )
+
+        if not response["has_more"] or status == ExternalDataJob.Status.CANCELLED:
             break
 
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str, endpoints: Tuple[str, ...], starting_after: Optional[str] = None
+    api_key: str, endpoints: Tuple[str, ...], team_id, job_id, starting_after: Optional[str] = None
 ) -> Iterable[DltResource]:
     for endpoint in endpoints:
         yield dlt.resource(
@@ -93,5 +105,7 @@ def stripe_source(
         )(
             api_key=api_key,
             endpoint=endpoint,
+            team_id=team_id,
+            job_id=job_id,
             starting_after=starting_after,
         )
