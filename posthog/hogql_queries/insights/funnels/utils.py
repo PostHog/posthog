@@ -53,7 +53,7 @@ def get_breakdown_expr(
     else:
         exprs = []
         for b in breakdown:
-            expr = parse_expr(normalize_url_breakdown(f"{properties_column}.{b}", normalize_url))
+            expr = parse_expr(normalize_url_breakdown(f"ifNull({properties_column}.{b}, '')", normalize_url))
             exprs.append(expr)
         expression = ast.Array(exprs=exprs)
 

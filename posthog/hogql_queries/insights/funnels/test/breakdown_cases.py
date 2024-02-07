@@ -944,7 +944,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}],
+                "events": [{"id": "sign up", "order": 0}, {"id": "sign up", "order": 0}],
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
