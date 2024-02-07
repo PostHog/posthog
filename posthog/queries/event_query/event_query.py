@@ -242,7 +242,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_params = {}
-        query_date_range = QueryDateRange(filter=self._filter, team=self._team, should_round=False)
+        query_date_range = QueryDateRange(filter=self._filter, team=self._team, should_round=True)
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
