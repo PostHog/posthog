@@ -579,9 +579,9 @@ export type FunnelsFilterLegacy = Omit<
 
 export interface FunnelExclusionSteps {
     /** @asType integer */
-    funnelFromStep?: number
+    funnelFromStep: number
     /** @asType integer */
-    funnelToStep?: number
+    funnelToStep: number
 }
 export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
 export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
@@ -592,12 +592,16 @@ export type FunnelsFilter = {
     layout?: FunnelsFilterLegacy['layout']
     binCount?: FunnelsFilterLegacy['bin_count']
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    /** @asType integer */
     breakdownAttributionValue?: FunnelsFilterLegacy['breakdown_attribution_value']
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    /** @asType integer */
     funnelToStep?: FunnelsFilterLegacy['funnel_to_step']
+    /** @asType integer */
     funnelFromStep?: FunnelsFilterLegacy['funnel_from_step']
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    /** @asType integer */
     funnelWindowInterval?: FunnelsFilterLegacy['funnel_window_interval']
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
     hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
@@ -617,7 +621,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
 }
 
 export interface FunnelsQueryResponse extends QueryResponse {
-    results: Record<string, any>[]
+    results: Record<string, any>[] | Record<string, any>[][]
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */

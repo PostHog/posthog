@@ -901,8 +901,8 @@ export interface ActionFilter extends EntityFilter {
 }
 
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
-    funnel_from_step?: number
-    funnel_to_step?: number
+    funnel_from_step: number
+    funnel_to_step: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null

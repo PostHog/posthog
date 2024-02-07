@@ -1412,7 +1412,7 @@
                     "type": "object"
                 }
             },
-            "required": ["id", "kind"],
+            "required": ["funnelFromStep", "funnelToStep", "id", "kind"],
             "type": "object"
         },
         "FunnelExclusionEventsNode": {
@@ -1509,7 +1509,7 @@
                     "type": "object"
                 }
             },
-            "required": ["kind"],
+            "required": ["funnelFromStep", "funnelToStep", "kind"],
             "type": "object"
         },
         "FunnelExclusionLegacy": {
@@ -1540,6 +1540,7 @@
                     "$ref": "#/definitions/EntityType"
                 }
             },
+            "required": ["funnel_from_step", "funnel_to_step"],
             "type": "object"
         },
         "FunnelExclusionSteps": {
@@ -1552,6 +1553,7 @@
                     "type": "integer"
                 }
             },
+            "required": ["funnelFromStep", "funnelToStep"],
             "type": "object"
         },
         "FunnelLayout": {
@@ -1580,7 +1582,7 @@
                     "$ref": "#/definitions/BreakdownAttributionType"
                 },
                 "breakdownAttributionValue": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "exclusions": {
                     "items": {
@@ -1592,7 +1594,7 @@
                     "type": "string"
                 },
                 "funnelFromStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelOrderType": {
                     "$ref": "#/definitions/StepOrderValue"
@@ -1601,13 +1603,13 @@
                     "$ref": "#/definitions/FunnelStepReference"
                 },
                 "funnelToStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelVizType": {
                     "$ref": "#/definitions/FunnelVizType"
                 },
                 "funnelWindowInterval": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelWindowIntervalUnit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
@@ -1755,10 +1757,23 @@
                     "type": "string"
                 },
                 "results": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "items": {
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "timings": {
                     "items": {

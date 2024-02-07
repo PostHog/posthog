@@ -218,28 +218,19 @@ export const getBreakdownStepValues = (
     return EMPTY_BREAKDOWN_VALUES
 }
 
-const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
-    candidates.find((s) => typeof s === 'number')
-
-export const getClampedStepRange = ({
+export const getClampedExclusionStepRange = ({
     stepRange,
     query,
 }: {
-    stepRange?: FunnelExclusionSteps
+    stepRange: FunnelExclusionSteps
     query: FunnelsQuery
 }): FunnelExclusionSteps => {
     const maxStepIndex = Math.max((query.series.length || 0) - 1, 1)
 
-    let funnelFromStep = findFirstNumber([stepRange?.funnelFromStep, query.funnelsFilter?.funnelFromStep])
-    let funnelToStep = findFirstNumber([stepRange?.funnelToStep, query.funnelsFilter?.funnelToStep])
+    let { funnelFromStep, funnelToStep } = stepRange
 
-    const funnelFromStepIsSet = typeof funnelFromStep === 'number'
-    const funnelToStepIsSet = typeof funnelToStep === 'number'
-
-    if (funnelFromStepIsSet && funnelToStepIsSet) {
-        funnelFromStep = clamp(funnelFromStep ?? 0, 0, maxStepIndex)
-        funnelToStep = clamp(funnelToStep ?? maxStepIndex, funnelFromStep + 1, maxStepIndex)
-    }
+    funnelFromStep = clamp(funnelFromStep ?? 0, 0, maxStepIndex)
+    funnelToStep = clamp(funnelToStep ?? maxStepIndex, funnelFromStep + 1, maxStepIndex)
 
     return {
         ...(stepRange || {}),
