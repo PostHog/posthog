@@ -103,7 +103,7 @@ async function executeQuery<N extends DataNode = DataNode>(
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
     const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata', 'EventsQuery']
+    const excludedKinds = ['HogQLMetadata', 'EventsQuery', 'HogQLAutocomplete']
     const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
     const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
 
