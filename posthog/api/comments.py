@@ -64,7 +64,6 @@ class CommentPagination(pagination.CursorPagination):
     page_size = 100
 
 
-# TODO: Check permissions of this
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
