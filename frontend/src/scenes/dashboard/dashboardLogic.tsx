@@ -1076,8 +1076,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (values.autoRefresh.enabled) {
+                // Refresh right now after enabling if we haven't refreshed recently
+                if (
+                    values.lastRefreshed &&
+                    values.lastRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
+                ) {
+                    actions.refreshAllDashboardItems({ action: 'refresh_manual' })
+                }
                 cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.refreshAllDashboardItems({ action: 'refresh_automatic' })
+                    actions.refreshAllDashboardItems({ action: 'refresh_manual' })
                 }, values.autoRefresh.interval * 1000)
             }
         },
