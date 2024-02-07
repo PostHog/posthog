@@ -53,7 +53,7 @@ import {
     TileLayout,
 } from '~/types'
 
-import { getResponseBytes, sortDates } from '../insights/utils'
+import { getResponseBytes, sortDates, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import type { dashboardLogicType } from './dashboardLogicType'
 
@@ -670,9 +670,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 }
 
-                const oldest = sortDates(insightTiles.map((i) => i.last_refresh))
-                const candidateShortest = oldest.length > 0 ? dayjs(oldest[0]) : null
-                return candidateShortest?.isValid() ? candidateShortest : null
+                const validDates = insightTiles.map((i) => dayjs(i.last_refresh)).filter((date) => date.isValid())
+                const oldest = sortDayJsDates(validDates)
+                return oldest.length > 0 ? oldest[0] : null
             },
         ],
         blockRefresh: [
