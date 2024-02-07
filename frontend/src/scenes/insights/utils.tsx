@@ -298,6 +298,10 @@ export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
 }
 
+export function sortDayJsDates(dates: Array<dayjs.Dayjs>): Array<dayjs.Dayjs> {
+    return dates.sort((a, b) => (a.isAfter(b) ? 1 : -1))
+}
+
 // Gets content-length header from a fetch Response
 export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')

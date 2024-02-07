@@ -11,12 +11,7 @@ import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/d
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
-    return (
-        <span>
-            Last updated{' '}
-            <span className="font-medium">{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
-        </span>
-    )
+    return <span>Last updated {lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
 }
 
 // in seconds
@@ -49,6 +44,8 @@ export function DashboardReloadAction(): JSX.Element {
                 disabledReason={
                     blockRefresh
                         ? `Dashboards can only be refreshed every ${DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES} minutes.`
+                        : itemsLoading
+                        ? 'Refreshing...'
                         : ''
                 }
                 sideAction={{

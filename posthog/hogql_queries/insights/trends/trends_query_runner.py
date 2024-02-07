@@ -100,7 +100,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:  # type: ignore
+    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
             for series in self.series:
@@ -121,7 +121,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(  # type: ignore
+    def to_actors_query(
         self,
         time_frame: Optional[str | int],
         series_index: int,
@@ -136,7 +136,7 @@ class TrendsQueryRunner(QueryRunner):
 
                 delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
                 if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
-                    relative_delta = relativedelta(**delta_mappings)  # type: ignore
+                    relative_delta = relativedelta(**delta_mappings)
                     parsed_dt = parser.isoparse(time_frame)
                     parse_dt_with_relative_delta = parsed_dt - relative_delta
                     time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
@@ -532,12 +532,12 @@ class TrendsQueryRunner(QueryRunner):
             if isinstance(self.query.breakdownFilter.breakdown, List):
                 cohort_ids = self.query.breakdownFilter.breakdown
             else:
-                cohort_ids = [self.query.breakdownFilter.breakdown]  # type: ignore
+                cohort_ids = [self.query.breakdownFilter.breakdown]
 
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
-                    copied_query.breakdownFilter.breakdown = cohort_id  # type: ignore
+                    copied_query.breakdownFilter.breakdown = cohort_id
 
                     updated_series.append(
                         SeriesWithExtras(
