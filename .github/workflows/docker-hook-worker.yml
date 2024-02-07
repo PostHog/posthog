@@ -17,6 +17,9 @@ jobs:
       - name: Check Out Repo
         uses: actions/checkout@v3
 
+      - name: Set up Depot CLI
+        uses: depot/setup-action@v1
+
       - name: Login to DockerHub
         uses: docker/login-action@v2
         with:
@@ -51,7 +54,7 @@ jobs:
 
       - name: Build and push worker
         id: docker_build_hook_worker
-        uses: docker/build-push-action@v4
+        uses: depot/build-push-action@v4
         with:
           context: ./
           file: ./Dockerfile
