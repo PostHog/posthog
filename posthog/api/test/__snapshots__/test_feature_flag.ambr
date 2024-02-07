@@ -1969,7 +1969,8 @@
      FROM posthog_persondistinctid
      WHERE team_id = 2
        AND distinct_id IN ('example_id',
-                           'random') ),
+                           'random')
+       AND person_id IS NOT NULL ),
        existing_overrides AS
     (SELECT team_id,
             person_id,
@@ -1999,7 +2000,8 @@
      FROM posthog_persondistinctid
      WHERE team_id = 2
        AND distinct_id IN ('example_id',
-                           'random') ),
+                           'random')
+       AND person_id IS NOT NULL ),
        existing_overrides AS
     (SELECT team_id,
             person_id,
@@ -2041,6 +2043,7 @@
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id',
                                                       'random')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2)
   '''
 # ---
@@ -2081,7 +2084,8 @@
      FROM posthog_persondistinctid
      WHERE team_id = 2
        AND distinct_id IN ('example_id',
-                           'random') ),
+                           'random')
+       AND person_id IS NOT NULL ),
        existing_overrides AS
     (SELECT team_id,
             person_id,
@@ -2112,6 +2116,7 @@
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id',
                                                       'random')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2)
   '''
 # ---
@@ -2123,6 +2128,7 @@
          "posthog_persondistinctid"."distinct_id"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('random')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2)
   '''
 # ---
