@@ -126,7 +126,7 @@ async def assert_clickhouse_records_in_redshfit(
                         remove_escaped_whitespace_recursive(json.loads(v)), ensure_ascii=False
                     )
                 elif isinstance(v, dt.datetime):
-                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc)
+                    expected_record[k] = v.replace(tzinfo=dt.timezone.utc)  # type: ignore
                 else:
                     expected_record[k] = v
 
