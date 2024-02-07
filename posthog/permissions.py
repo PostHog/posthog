@@ -133,14 +133,13 @@ class TeamMemberAccessPermission(BasePermission):
     message = "You don't have access to the project."
 
     def has_permission(self, request, view) -> bool:
-        # We only want to check this for "project" views (simplifies usage elsewhere)
-        if view.basename != "project" and not view.derive_current_team_from_user_only:
-            return True
-
         try:
             view.team  # noqa: B018
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
+
+        # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
+        # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
 

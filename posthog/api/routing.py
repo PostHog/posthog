@@ -48,13 +48,20 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     ]
     additional_authentication_classes: List = []
 
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated]
     additional_permission_classes: list = []
 
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
     def get_permissions(self):
-        return [permission() for permission in (self.permission_classes + self.additional_permission_classes)]
+        permission_classes = self.permission_classes
+
+        if self.is_team_view:
+            permission_classes = permission_classes + [TeamMemberAccessPermission]
+        else:
+            permission_classes = permission_classes + [OrganizationMemberPermissions]
+
+        return [permission() for permission in permission_classes]
 
     def get_authenticators(self):
         return [auth() for auth in (self.authentication_classes + self.additional_authentication_classes)]
@@ -62,6 +69,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         return self.filter_queryset_by_parents_lookups(queryset)
+
+    @property
+    def is_team_view(self):
+        return "team_id" in self.parents_query_dict or self.derive_current_team_from_user_only
 
     @property
     def team_id(self) -> int:
