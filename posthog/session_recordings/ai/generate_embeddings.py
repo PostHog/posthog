@@ -14,15 +14,55 @@ from posthog.session_recordings.ai.utils import (
     collapse_sequence_of_events,
 )
 
+from posthog.clickhouse.client import sync_execute
+
+BATCH_FLUSH_SIZE = 10
+
 
 def generate_team_embeddings(team: Team):
-    recordings = []  # TODO: Query for unembedded recordings
+    recordings = fetch_recordings(team=team)
 
-    for recording in recordings:
-        update_embedding(recording=recording)
+    while len(recordings) > 0:
+        batched_embeddings = []
+        for recording in recordings:
+            embeddings = generate_recording_embeddings(recording=recording)
+            batched_embeddings.append(
+                {
+                    "session_id": recording.id,
+                    "team_id": team.pk,
+                    "embeddings": embeddings,
+                    "generation_timestamp": "now()",
+                }
+            )
+
+        flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
+
+        recordings = fetch_recordings(team=team)
 
 
-def update_embedding(recording: SessionRecording, user: User):
+def fetch_recordings(team: Team):
+    query = """
+            SELECT
+                *
+            FROM
+                session_replay_embeddings
+            PREWHERE
+                team_id = %(team_id)s
+                AND empty(embeddings)
+            LIMIT %(batch_flush_size)s
+        """
+
+    return sync_execute(
+        query,
+        {"team_id": team.pk, "batch_flush_size": BATCH_FLUSH_SIZE},
+    )
+
+
+def flush_embeddings_to_clickhouse(embeddings):
+    sync_execute("INSERT INTO session_replay_embeddings (*) VALUES", embeddings)
+
+
+def generate_recording_embeddings(recording: SessionRecording, user: User):
     timer = ServerTimingsGathered()
     client = OpenAI()
 
