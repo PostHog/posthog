@@ -45,6 +45,7 @@ class ClickhouseSecondaryExperimentResult:
             variants = self.get_trend_count_data_for_variants(significance_results["insight"])
 
         elif self.filter.insight == INSIGHT_FUNNELS:
+            # TODO: Catch validation errors, don't need them here, even if not significant
             significance_results = ClickhouseFunnelExperimentResult(
                 self.filter, self.team, self.feature_flag, self.experiment_start_date, self.experiment_end_date
             ).get_results()
