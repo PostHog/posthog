@@ -165,10 +165,10 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, ["Safari", "14"]),
+                self._get_actor_ids_at_step(filters, 1, ["Safari", "14"]),
                 [people["person3"].uuid],
             )
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari", "14"]), [])
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari", "14"]), [])
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[1],
@@ -185,11 +185,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, ["Safari", "15"]),
+                self._get_actor_ids_at_step(filters, 1, ["Safari", "15"]),
                 [people["person2"].uuid],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2, ["Safari", "15"]),
+                self._get_actor_ids_at_step(filters, 2, ["Safari", "15"]),
                 [people["person2"].uuid],
             )
 
@@ -214,11 +214,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, ["Chrome", "95"]),
+                self._get_actor_ids_at_step(filters, 1, ["Chrome", "95"]),
                 [people["person1"].uuid],
             )
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2, ["Chrome", "95"]),
+                self._get_actor_ids_at_step(filters, 2, ["Chrome", "95"]),
                 [people["person1"].uuid],
             )
 
