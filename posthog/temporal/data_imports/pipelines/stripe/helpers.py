@@ -7,6 +7,7 @@ import dlt
 from dlt.common import pendulum
 from dlt.sources import DltResource
 from pendulum import DateTime
+from asgiref.sync import sync_to_async
 
 stripe.api_version = "2022-11-15"
 
@@ -20,7 +21,7 @@ def transform_date(date: Union[str, DateTime, int]) -> int:
     return date
 
 
-def stripe_get_data(
+async def stripe_get_data(
     api_key: str,
     resource: str,
     start_date: Optional[Any] = None,
@@ -37,7 +38,7 @@ def stripe_get_data(
 
     _resource = getattr(stripe, resource)
 
-    resource_dict = _resource.list(
+    resource_dict = await sync_to_async(_resource.list)(
         api_key=api_key,
         created={"gte": start_date, "lt": end_date},
         limit=100,
@@ -48,7 +49,7 @@ def stripe_get_data(
     return response
 
 
-def stripe_pagination(
+async def stripe_pagination(
     api_key: str,
     endpoint: str,
     starting_after: Optional[str] = None,
@@ -66,7 +67,7 @@ def stripe_pagination(
     """
 
     while True:
-        response = stripe_get_data(
+        response = await stripe_get_data(
             api_key,
             endpoint,
             starting_after=starting_after,
