@@ -54,11 +54,10 @@ jobs:
 
       - name: Build and push worker
         id: docker_build_hook_worker
-        uses: depot/build-push-action@v4
+        uses: depot/build-push-action@v1
         with:
           context: ./
           file: ./Dockerfile
-          builder: ${{ steps.buildx.outputs.name }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
