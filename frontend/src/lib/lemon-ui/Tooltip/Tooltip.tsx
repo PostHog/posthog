@@ -40,7 +40,13 @@ export const Tooltip = ({
     const [isOpen, setIsOpen] = useState(false)
     const caretRef = useRef(null)
 
-    const { refs, floatingStyles, context, middlewareData } = useFloating({
+    const {
+        refs,
+        floatingStyles,
+        context,
+        middlewareData,
+        placement: renderedPlacement,
+    } = useFloating({
         open: open === undefined ? isOpen : open,
         onOpenChange: !open ? setIsOpen : undefined,
         placement: placement,
@@ -63,14 +69,13 @@ export const Tooltip = ({
 
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
-    const placementSide = placement.split('-')[0]
-    const staticSide =
-        {
-            top: 'bottom',
-            right: 'left',
-            bottom: 'top',
-            left: 'right',
-        }[placementSide] || 'top'
+    const placementSide = renderedPlacement.split('-')[0]
+    const staticSide = {
+        top: 'bottom',
+        right: 'left',
+        bottom: 'top',
+        left: 'right',
+    }[placementSide]
 
     return title ? (
         <>
@@ -92,20 +97,22 @@ export const Tooltip = ({
                             {...getFloatingProps()}
                         >
                             {typeof title === 'function' ? title() : title}
-                            <div
-                                ref={caretRef}
-                                className="absolute w-1.5 h-1.5 bg-tooltip-bg rotate-45"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    left: middlewareData.arrow?.x != null ? `${middlewareData.arrow.x}px` : '',
-                                    top: middlewareData.arrow?.y != null ? `${middlewareData.arrow.y}px` : '',
-                                    // Ensure the static side gets unset when
-                                    // flipping to other placements' axes.
-                                    right: '',
-                                    bottom: '',
-                                    [staticSide]: `-3px`,
-                                }}
-                            />
+                            {staticSide && (
+                                <div
+                                    ref={caretRef}
+                                    className="absolute w-1.5 h-1.5 bg-tooltip-bg rotate-45"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        left: middlewareData.arrow?.x != null ? `${middlewareData.arrow.x}px` : '',
+                                        top: middlewareData.arrow?.y != null ? `${middlewareData.arrow.y}px` : '',
+                                        // Ensure the static side gets unset when
+                                        // flipping to other placements' axes.
+                                        right: '',
+                                        bottom: '',
+                                        [staticSide]: `-3px`,
+                                    }}
+                                />
+                            )}
                         </div>
                     </>
                 )}
