@@ -460,9 +460,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         }amount you have been billed for this ${
                                                             billing?.billing_period?.interval
                                                         } so far.`}
-                                                        className="flex flex-col items-center"
                                                     >
-                                                        <>
+                                                        <div className="flex flex-col items-center">
                                                             <div className="font-bold text-3xl leading-7">
                                                                 $
                                                                 {(
@@ -479,7 +478,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 )}
                                                                 -to-date
                                                             </span>
-                                                        </>
+                                                        </div>
                                                     </Tooltip>
                                                     {product.tiers && (
                                                         <Tooltip
@@ -488,9 +487,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     ? ', discounts on your account,'
                                                                     : ''
                                                             } and the remaining time left in this billing period.`}
-                                                            className="flex flex-col items-center justify-end"
                                                         >
-                                                            <>
+                                                            <div className="flex flex-col items-center justify-end">
                                                                 <div className="font-bold text-muted text-lg leading-5">
                                                                     $
                                                                     {(
@@ -502,7 +500,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     ).toFixed(2) || '0.00'}
                                                                 </div>
                                                                 <span className="text-xs text-muted">Projected</span>
-                                                            </>
+                                                            </div>
                                                         </Tooltip>
                                                     )}
                                                 </div>
@@ -512,16 +510,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="my-8">
                                             <Tooltip
                                                 title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
-                                                className="flex flex-col items-center"
                                             >
-                                                <>
+                                                <div className="flex flex-col items-center">
                                                     <div className="font-bold text-3xl leading-7">
                                                         ${product.current_amount_usd}
                                                     </div>
                                                     <span className="text-xs text-muted">
                                                         per {billing?.billing_period?.interval || 'period'}
                                                     </span>
-                                                </>
+                                                </div>
                                             </Tooltip>
                                         </div>
                                     )}

@@ -94,7 +94,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                                 ${customLimitUsd}
                             </div>
                             <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working if your usage exceeds your billing cap.">
-                                <>{billing?.billing_period?.interval}ly billing limit</>
+                                <span>{billing?.billing_period?.interval}ly billing limit</span>
                             </Tooltip>
                         </>
                     ) : (
