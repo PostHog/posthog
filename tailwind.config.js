@@ -7,6 +7,7 @@ const config = {
             // TODO: Move all colors over to Tailwind
             // Currently color utility classes are still generated with SCSS in colors.scss due to relying on our color
             // CSS vars in lots of stylesheets
+
         },
         fontFamily: {
             sans: [
@@ -56,6 +57,16 @@ const config = {
             full: '9999px',
         },
         extend: {
+            colors: {
+                'light': '#EEEFE9',
+                'dark': '#1D1F27',
+                'accent': '#E5E7E0',
+                'accent-dark': '#232429',
+                'border': '#D0D1C9',
+                'border-dark': '#4A4C52',
+                'primary': '#151515',
+                'primary-dark': '#EEEFE9',
+            },
             fontSize: {
                 xxs: ['0.625rem', '0.75rem'], // 10px (12px of line height)
             },
@@ -83,6 +94,15 @@ const config = {
             },
             maxWidth: {
                 '1/2': '50%',
+            },
+            borderColor: {
+                light: '#D0D1C9',
+                dark: '#4A4C52',
+                'bg-light': '#EEEFE9',
+                'bg-dark': '#1D1F27',
+                button: '#B17816',
+                'button-dark': '#835C19',
+                'button-secondary-dark': '#C78617',
             },
             boxShadow: {
                 DEFAULT: 'var(--shadow-elevation)',

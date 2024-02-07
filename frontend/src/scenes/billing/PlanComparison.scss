@@ -1,3 +1,15 @@
+.BridgePage {
+    body[theme='light'] & {
+        // @apply text-primary;
+        color: #151515;
+    }
+
+    body[theme='dark'] & {
+        // @apply text-primary-dark;
+        color: #eeefe9;
+    }
+}
+
 .PlanComparisonModal {
     max-width: 900px;
 }

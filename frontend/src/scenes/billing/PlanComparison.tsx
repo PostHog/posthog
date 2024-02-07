@@ -5,6 +5,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+// import { IconCheck } from '@posthog/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -148,206 +150,240 @@ export const PlanComparison = ({
     })
 
     return (
-        <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
-            <thead>
-                <tr>
-                    <td />
+        <>
+            <div
+                className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 text-primary dark:text-primary-dark"
+                ref={planComparisonRef}
+            >
+                <div className="grid grid-cols-12 mb-1">
+                    <div className="col-span-4 px-3 py-1">&nbsp;</div>
                     {plans?.map((plan) => (
-                        <td key={`plan-type-${plan.plan_key}`}>
-                            <h3 className="font-bold">{plan.free_allocation && !plan.tiers ? 'Free' : 'Paid'}</h3>
-                        </td>
-                    ))}
-                </tr>
-            </thead>
-            <tbody>
-                {/* Pricing section */}
-                <tr>
-                    <th
-                        colSpan={3}
-                        className="PlanTable__th__section bg-side text-muted justify-left rounded text-left mb-2"
-                    >
-                        <span>Pricing</span>
-                    </th>
-                </tr>
-                <tr className="PlanTable__tr__border">
-                    <td className="font-bold">Monthly base price</td>
-                    {plans?.map((plan) => (
-                        <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
-                            {plan.free_allocation && !plan.tiers ? 'Free forever' : '$0 per month'}
-                        </td>
-                    ))}
-                </tr>
-
-                <tr className="PlanTable__tr__border">
-                    <th scope="row">
-                        {includeAddons && product.addons?.length > 0 && (
-                            <p className="ml-0">
-                                <span className="font-bold">{product.name}</span>
-                            </p>
-                        )}
-                        <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
-                    </th>
-                    {plans?.map((plan) => (
-                        <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
-                    ))}
-                </tr>
-
-                {includeAddons &&
-                    product.addons?.map((addon) => {
-                        return addon.tiered ? (
-                            <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
-                                <th scope="row">
-                                    <p className="ml-0">
-                                        <span className="font-bold">{addon.name}</span>
-                                        <LemonTag type="completion" className="ml-2">
-                                            addon
-                                        </LemonTag>
-                                    </p>
-                                    <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
-                                </th>
-                                {plans?.map((plan) =>
-                                    // If the plan is free, the addon isn't available
-                                    plan.free_allocation && !plan.tiers ? (
-                                        <td key={`${addon.name}-free-tiers-td`}>
-                                            <p className="text-muted text-xs">Not available on this plan.</p>
-                                        </td>
-                                    ) : (
-                                        <td key={`${addon.type}-tiers-td`}>
-                                            {getProductTiers(addon.plans?.[0], addon)}
-                                        </td>
-                                    )
-                                )}
-                            </tr>
-                        ) : null
-                    })}
-
-                <tr>
-                    <td />
-                    {upgradeButtons}
-                </tr>
-                <tr>
-                    <th colSpan={3} className="PlanTable__th__section bg-side justify-left rounded text-left mb-2">
-                        <div className="flex items-center gap-x-2 my-2">
-                            {getProductIcon(product.icon_key, 'text-2xl')}
-                            <Tooltip title={product.description}>
-                                <span className="font-bold">{product.name}</span>
-                            </Tooltip>
+                        <div className="col-span-4 px-3 py-1" key={`plan-type-${plan.plan_key}`}>
+                            <strong>{plan.free_allocation && !plan.tiers ? 'Free' : 'Paid'}</strong>
                         </div>
-                    </th>
-                </tr>
+                    ))}
+                </div>
 
-                {fullyFeaturedPlan?.features?.map((feature, i) => (
-                    <tr
-                        key={`tr-${feature.key}`}
-                        className={
-                            i == fullyFeaturedPlan?.features?.length - 1 && !billing?.has_active_subscription
-                                ? 'PlanTable__tr__border'
-                                : ''
-                        }
-                    >
-                        <th
-                            className={clsx(
-                                'PlanTable__th__feature',
-                                width && width < 600 && 'PlanTable__th__feature--reduced_padding',
-                                i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
-                            )}
-                        >
-                            <Tooltip title={feature.description}>{feature.name}</Tooltip>
-                        </th>
+                <div className="grid grid-cols-12 mb-1">
+                    <div className="col-span-full bg-accent dark:bg-accent-dark font-bold px-3 py-1 text-sm">
+                        Pricing
+                    </div>
+
+                    <div className="col-span-4 bg-accent/50 dark:bg-black/75 px-3 py-2 text-sm">
+                        {/* {row.tooltip ? ( */}
+                        <Tooltip title="Title goes here">
+                            <strong className="border-b border-dashed border-light dark:border-dark cursor-help text-primary/75 dark:text-primary-dark/75">
+                                Monthly base price
+                            </strong>
+                        </Tooltip>
+                        {/*
+                  ) : (
+                      <strong className="text-primary/75 dark:text-primary-dark/75">
+                          {row.key}
+                      </strong>
+                  )}
+                  */}
+                    </div>
+
+                    {plans?.map((plan) => (
+                        <div className="col-span-4 px-3 py-2 text-sm" key={`${plan.plan_key}-basePrice`}>
+                            {plan.free_allocation && !plan.tiers ? 'Free forever' : '$0 per month'}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <br />
+            <hr />
+            <hr />
+            <hr />
+            <br />
+            <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
+                <tbody>
+                    {/* Pricing section */}
+                    <tr className="PlanTable__tr__border">
+                        <td className="font-bold">Monthly base price</td>
                         {plans?.map((plan) => (
-                            <td key={`${plan.plan_key}-${feature.key}`}>
-                                <PlanIcon
-                                    feature={plan.features?.find(
-                                        (thisPlanFeature) => feature.key === thisPlanFeature.key
-                                    )}
-                                    className="text-base"
-                                />
+                            <td key={`${plan.plan_key}-basePrice`} className="text-sm font-bold">
+                                {plan.free_allocation && !plan.tiers ? 'Free forever' : '$0 per month'}
                             </td>
                         ))}
                     </tr>
-                ))}
 
-                {!billing?.has_active_subscription && (
-                    <>
-                        <tr>
-                            <th colSpan={3} className="PlanTable__th__section rounded text-left">
-                                <p className="mt-6 mb-2 italic text-center text-muted">
-                                    <Tooltip title="Organizations with any paid subscription get access to additional features.">
-                                        Included platform features:
-                                    </Tooltip>
+                    <tr className="PlanTable__tr__border">
+                        <th scope="row">
+                            {includeAddons && product.addons?.length > 0 && (
+                                <p className="ml-0">
+                                    <span className="font-bold">{product.name}</span>
                                 </p>
+                            )}
+                            <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
+                        </th>
+                        {plans?.map((plan) => (
+                            <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
+                        ))}
+                    </tr>
+
+                    {includeAddons &&
+                        product.addons?.map((addon) => {
+                            return addon.tiered ? (
+                                <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
+                                    <th scope="row">
+                                        <p className="ml-0">
+                                            <span className="font-bold">{addon.name}</span>
+                                            <LemonTag type="completion" className="ml-2">
+                                                addon
+                                            </LemonTag>
+                                        </p>
+                                        <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
+                                    </th>
+                                    {plans?.map((plan) =>
+                                        // If the plan is free, the addon isn't available
+                                        plan.free_allocation && !plan.tiers ? (
+                                            <td key={`${addon.name}-free-tiers-td`}>
+                                                <p className="text-muted text-xs">Not available on this plan.</p>
+                                            </td>
+                                        ) : (
+                                            <td key={`${addon.type}-tiers-td`}>
+                                                {getProductTiers(addon.plans?.[0], addon)}
+                                            </td>
+                                        )
+                                    )}
+                                </tr>
+                            ) : null
+                        })}
+
+                    <tr>
+                        <td />
+                        {upgradeButtons}
+                    </tr>
+                    <tr>
+                        <th colSpan={3} className="PlanTable__th__section bg-side justify-left rounded text-left mb-2">
+                            <div className="flex items-center gap-x-2 my-2">
+                                {getProductIcon(product.icon_key, 'text-2xl')}
+                                <Tooltip title={product.description}>
+                                    <span className="font-bold">{product.name}</span>
+                                </Tooltip>
+                            </div>
+                        </th>
+                    </tr>
+
+                    {fullyFeaturedPlan?.features?.map((feature, i) => (
+                        <tr
+                            key={`tr-${feature.key}`}
+                            className={
+                                i == fullyFeaturedPlan?.features?.length - 1 && !billing?.has_active_subscription
+                                    ? 'PlanTable__tr__border'
+                                    : ''
+                            }
+                        >
+                            <th
+                                className={clsx(
+                                    'PlanTable__th__feature',
+                                    width && width < 600 && 'PlanTable__th__feature--reduced_padding',
+                                    i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
+                                )}
+                            >
+                                <Tooltip title={feature.description}>{feature.name}</Tooltip>
                             </th>
+                            {plans?.map((plan) => (
+                                <td key={`${plan.plan_key}-${feature.key}`}>
+                                    <PlanIcon
+                                        feature={plan.features?.find(
+                                            (thisPlanFeature) => feature.key === thisPlanFeature.key
+                                        )}
+                                        className="text-base"
+                                    />
+                                </td>
+                            ))}
                         </tr>
-                        {billing?.products
-                            .filter((product) => product.inclusion_only)
-                            .map((includedProduct) => (
-                                <React.Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
-                                    <tr>
-                                        <th
-                                            colSpan={3}
-                                            className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
-                                        >
-                                            <div className="flex items-center gap-x-2 my-2">
-                                                {getProductIcon(includedProduct.icon_key, 'text-2xl')}
-                                                <Tooltip title={includedProduct.description}>
-                                                    <span className="font-bold">{includedProduct.name}</span>
-                                                </Tooltip>
-                                            </div>
-                                        </th>
-                                    </tr>
-                                    {includedProduct.plans
-                                        .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
-                                        ?.features?.map((feature, i) => (
-                                            <tr key={`tr-${feature.key}`}>
-                                                <th
-                                                    className={clsx(
-                                                        'text-muted PlanTable__th__feature',
-                                                        width &&
-                                                            width < 600 &&
-                                                            'PlanTable__th__feature--reduced_padding',
-                                                        // If this is the last feature in the list, add a class to add padding to the bottom of
-                                                        // the cell (which makes the whole row have the padding)
-                                                        i ==
-                                                            (includedProduct.plans.find(
-                                                                (plan) => plan.included_if == 'has_subscription'
-                                                            )?.features?.length || 0) -
-                                                                1
-                                                            ? 'PlanTable__th__last-feature'
-                                                            : ''
-                                                    )}
-                                                >
-                                                    <Tooltip title={feature.description}>{feature.name}</Tooltip>
-                                                </th>
-                                                {includedProduct.plans?.map((plan) => (
-                                                    <React.Fragment key={`${plan.plan_key}-${feature.key}`}>
-                                                        {/* Some products don't have a free plan, so we need to pretend there is one 
+                    ))}
+
+                    {!billing?.has_active_subscription && (
+                        <>
+                            <tr>
+                                <th colSpan={3} className="PlanTable__th__section rounded text-left">
+                                    <p className="mt-6 mb-2 italic text-center text-muted">
+                                        <Tooltip title="Organizations with any paid subscription get access to additional features.">
+                                            Included platform features:
+                                        </Tooltip>
+                                    </p>
+                                </th>
+                            </tr>
+                            {billing?.products
+                                .filter((product) => product.inclusion_only)
+                                .map((includedProduct) => (
+                                    <React.Fragment key={`inclusion-only-product-features-${includedProduct.type}`}>
+                                        <tr>
+                                            <th
+                                                colSpan={3}
+                                                className="PlanTable__th__section bg-side justify-left rounded text-left mb-2"
+                                            >
+                                                <div className="flex items-center gap-x-2 my-2">
+                                                    {getProductIcon(includedProduct.icon_key, 'text-2xl')}
+                                                    <Tooltip title={includedProduct.description}>
+                                                        <span className="font-bold">{includedProduct.name}</span>
+                                                    </Tooltip>
+                                                </div>
+                                            </th>
+                                        </tr>
+                                        {includedProduct.plans
+                                            .find((plan: BillingV2PlanType) => plan.included_if == 'has_subscription')
+                                            ?.features?.map((feature, i) => (
+                                                <tr key={`tr-${feature.key}`}>
+                                                    <th
+                                                        className={clsx(
+                                                            'text-muted PlanTable__th__feature',
+                                                            width &&
+                                                                width < 600 &&
+                                                                'PlanTable__th__feature--reduced_padding',
+                                                            // If this is the last feature in the list, add a class to add padding to the bottom of
+                                                            // the cell (which makes the whole row have the padding)
+                                                            i ==
+                                                                (includedProduct.plans.find(
+                                                                    (plan) => plan.included_if == 'has_subscription'
+                                                                )?.features?.length || 0) -
+                                                                    1
+                                                                ? 'PlanTable__th__last-feature'
+                                                                : ''
+                                                        )}
+                                                    >
+                                                        <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                                                    </th>
+                                                    {includedProduct.plans?.map((plan) => (
+                                                        <React.Fragment key={`${plan.plan_key}-${feature.key}`}>
+                                                            {/* Some products don't have a free plan, so we need to pretend there is one 
                                                                         so the features line up in the correct columns in the UI. This is kind of 
                                                                         hacky because it assumes we only have 2 plans total, but it works for now.
                                                                     */}
-                                                        {includedProduct.plans?.length === 1 && (
+                                                            {includedProduct.plans?.length === 1 && (
+                                                                <td>
+                                                                    <PlanIcon
+                                                                        feature={undefined}
+                                                                        className="text-base"
+                                                                    />
+                                                                </td>
+                                                            )}
                                                             <td>
-                                                                <PlanIcon feature={undefined} className="text-base" />
+                                                                <PlanIcon
+                                                                    feature={plan.features?.find(
+                                                                        (thisPlanFeature) =>
+                                                                            feature.key === thisPlanFeature.key
+                                                                    )}
+                                                                    className="text-base"
+                                                                />
                                                             </td>
-                                                        )}
-                                                        <td>
-                                                            <PlanIcon
-                                                                feature={plan.features?.find(
-                                                                    (thisPlanFeature) =>
-                                                                        feature.key === thisPlanFeature.key
-                                                                )}
-                                                                className="text-base"
-                                                            />
-                                                        </td>
-                                                    </React.Fragment>
-                                                ))}
-                                            </tr>
-                                        ))}
-                                </React.Fragment>
-                            ))}
-                    </>
-                )}
-            </tbody>
-        </table>
+                                                        </React.Fragment>
+                                                    ))}
+                                                </tr>
+                                            ))}
+                                    </React.Fragment>
+                                ))}
+                        </>
+                    )}
+                </tbody>
+            </table>
+        </>
     )
 }
 
