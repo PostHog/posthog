@@ -260,6 +260,8 @@ def test_create_batch_export_with_custom_schema(client: HttpClient):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
         data = response.json()
+        expected_hogql_query = " ".join(TEST_HOGQL_QUERY.split())  # Don't care about whitespace
+        assert data["schema"]["hogql_query"] == expected_hogql_query
 
         codec = EncryptionCodec(settings=settings)
         schedule = describe_schedule(temporal, data["id"])
@@ -288,6 +290,7 @@ def test_create_batch_export_with_custom_schema(client: HttpClient):
                 "hogql_val_0": "$browser",
                 "hogql_val_1": "custom",
             },
+            "hogql_query": expected_hogql_query,
         }
 
         assert batch_export.schema == expected_schema

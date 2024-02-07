@@ -2,7 +2,7 @@ import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconDelete } from 'lib/lemon-ui/icons'
-import { getClampedStepRange } from 'scenes/funnels/funnelUtils'
+import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -33,11 +33,8 @@ export function ExclusionRowSuffix({
         funnelToStep: exclusions?.[index]?.funnelToStep ?? exclusionDefaultStepRange.funnelToStep,
     }
 
-    const onChange = (
-        funnelFromStep: number | undefined = stepRange.funnelFromStep,
-        funnelToStep: number | undefined = stepRange.funnelToStep
-    ): void => {
-        const newStepRange = getClampedStepRange({
+    const onChange = (funnelFromStep = stepRange.funnelFromStep, funnelToStep = stepRange.funnelToStep): void => {
+        const newStepRange = getClampedExclusionStepRange({
             stepRange: { funnelFromStep, funnelToStep },
             query: querySource as FunnelsQuery,
         })

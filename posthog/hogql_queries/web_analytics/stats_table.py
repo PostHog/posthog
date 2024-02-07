@@ -1,6 +1,7 @@
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.ctes import (
     COUNTS_CTE,
     BOUNCE_RATE_CTE,
@@ -19,6 +20,13 @@ from posthog.schema import (
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
     query_type = WebStatsTableQuery
+    paginator: HogQLHasMorePaginator
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
+        )
 
     def _bounce_rate_subquery(self):
         with self.timings.measure("bounce_rate_query"):
@@ -57,13 +65,12 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 },
             )
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery:
         # special case for channel, as some hogql features to use the general code are still being worked on
         if self.query.breakdownBy == WebStatsBreakdown.InitialChannelType:
-            return self.to_channel_query()
-
-        if self.query.includeScrollDepth:
-            return parse_select(
+            query = self.to_channel_query()
+        elif self.query.includeScrollDepth:
+            query = parse_select(
                 """
 SELECT
     counts.breakdown_value as "context.columns.breakdown_value",
@@ -87,7 +94,6 @@ WHERE
 ORDER BY
     "context.columns.views" DESC,
     "context.columns.breakdown_value" DESC
-LIMIT 10
                 """,
                 timings=self.timings,
                 placeholders={
@@ -100,7 +106,7 @@ LIMIT 10
             )
         elif self.query.includeBounceRate:
             with self.timings.measure("stats_table_query"):
-                return parse_select(
+                query = parse_select(
                     """
     SELECT
         counts.breakdown_value as "context.columns.breakdown_value",
@@ -118,7 +124,6 @@ LIMIT 10
     ORDER BY
         "context.columns.views" DESC,
         "context.columns.breakdown_value" DESC
-    LIMIT 10
                     """,
                     timings=self.timings,
                     placeholders={
@@ -129,7 +134,7 @@ LIMIT 10
                 )
         else:
             with self.timings.measure("stats_table_query"):
-                return parse_select(
+                query = parse_select(
                     """
     SELECT
         counts.breakdown_value as "context.columns.breakdown_value",
@@ -142,7 +147,6 @@ LIMIT 10
     ORDER BY
         "context.columns.views" DESC,
         "context.columns.breakdown_value" DESC
-    LIMIT 10
                     """,
                     timings=self.timings,
                     placeholders={
@@ -150,16 +154,20 @@ LIMIT 10
                         "where_breakdown": self.where_breakdown(),
                     },
                 )
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
     def calculate(self):
-        response = execute_hogql_query(
+        response = self.paginator.execute_hogql_query(
             query_type="top_sources_query",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
         )
-        assert response.results is not None
+        results = self.paginator.results
+
+        assert results is not None
 
         def to_data(col_val, col_idx):
             if col_idx == 0:  # breakdown_value
@@ -173,14 +181,15 @@ LIMIT 10
             else:
                 return col_val
 
-        results = [[to_data(c, i) for (i, c) in enumerate(r)] for r in response.results]
+        results_mapped = [[to_data(c, i) for (i, c) in enumerate(r)] for r in results]
 
         return WebStatsTableQueryResponse(
             columns=response.columns,
-            results=results,
+            results=results_mapped,
             timings=response.timings,
             types=response.types,
             hogql=response.hogql,
+            **self.paginator.response_params(),
         )
 
     def counts_breakdown(self):
@@ -344,7 +353,6 @@ WHERE
 ORDER BY
     "context.columns.views" DESC,
     "context.columns.breakdown_value" DESC
-LIMIT 10
                 """,
                 timings=self.timings,
                 backend="cpp",
