@@ -64,7 +64,7 @@ export function DashboardReloadAction(): JSX.Element {
                                     id="auto-refresh-picker"
                                 >
                                     <Tooltip
-                                        title="Auto-refresh will only work while this tab is open"
+                                        title="Auto refresh will only work while this tab is open"
                                         placement="topRight"
                                     >
                                         <div>
