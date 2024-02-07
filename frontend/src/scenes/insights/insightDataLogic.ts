@@ -64,7 +64,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'saveInsight as insightLogicSaveInsight',
                 'saveAsNamingSuccess as insightLogicSaveAsNamingSuccess',
             ],
-            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
+            dataNodeLogic({
+                key: insightVizDataNodeKey(props),
+                loadPriority: props.loadPriority,
+            } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
         logic: [insightDataTimingLogic(props), promptLogic({ key: `save-as-insight` })],
