@@ -9,7 +9,7 @@ from rest_framework import viewsets, serializers
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
@@ -76,7 +76,7 @@ class QuerySerializer(serializers.Serializer):
         return process_query(value)
 
 
-class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, **kw) -> HttpResponse:
         # parse query params
         query_serializer = QuerySerializer(data=self.request.query_params)

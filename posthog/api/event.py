@@ -15,7 +15,7 @@ from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.models import Element, Filter, Person
@@ -79,7 +79,7 @@ class UncountedLimitOffsetPagination(LimitOffsetPagination):
 
 
 class EventViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
     viewsets.GenericViewSet,

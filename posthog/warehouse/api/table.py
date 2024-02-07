@@ -3,7 +3,7 @@ from typing import Any, List
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.database.database import SerializedField, serialize_fields
 from posthog.models import User
@@ -91,7 +91,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         return serialize_fields(table.hogql_definition().fields)
 
 
-class TableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """

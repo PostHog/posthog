@@ -31,7 +31,7 @@ from posthog.api.insight_serializers import (
     TrendSerializer,
 )
 from posthog.clickhouse.cancel import cancel_query_on_cluster
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
@@ -562,7 +562,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
 class InsightViewSet(
     TaggedItemViewSetMixin,
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):

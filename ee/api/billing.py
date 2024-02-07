@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from ee.billing.billing_manager import BillingManager, build_billing_token
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
 
@@ -33,7 +33,7 @@ class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
 
 
-class BillingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):
+class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
     derive_current_team_from_user = True
 

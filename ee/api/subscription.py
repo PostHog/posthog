@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.tasks import subscriptions
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.subscription import Subscription, unsubscribe_using_token
@@ -91,7 +91,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
-class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
     additional_permission_classes = [PremiumFeaturePermission]

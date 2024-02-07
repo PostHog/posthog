@@ -4,7 +4,7 @@ from rest_framework import (
     viewsets,
 )
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import ScheduledChange
 
@@ -37,7 +37,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-class ScheduledChangeViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete scheduled changes.
     """

@@ -3,7 +3,7 @@ from rest_framework import response, serializers, viewsets
 from rest_framework.decorators import action
 from semantic_version.base import Version
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.async_migrations.runner import (
     MAX_CONCURRENT_ASYNC_MIGRATIONS,
     is_posthog_version_compatible,
@@ -97,7 +97,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
 
 
 # Does this still work??
-class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
+class AsyncMigrationsViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = AsyncMigration.objects.all().order_by("name")
     additional_permission_classes = [IsStaffUser]
     serializer_class = AsyncMigrationSerializer

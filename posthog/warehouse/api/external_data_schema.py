@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from posthog.warehouse.models import ExternalDataSchema
 from typing import Optional
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters
 from rest_framework.exceptions import NotAuthenticated
 from posthog.models import User
@@ -27,7 +27,7 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "should_sync", "last_synced_at"]
 
 
-class ExternalDataSchemaViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]

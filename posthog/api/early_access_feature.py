@@ -3,7 +3,7 @@ from typing import Type
 from django.http import JsonResponse
 from rest_framework.response import Response
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
 from posthog.models.early_access_feature import EarlyAccessFeature
@@ -217,7 +217,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         return feature
 
 
-class EarlyAccessFeatureViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:

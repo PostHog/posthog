@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, serializers, viewsets
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -99,7 +99,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
         return attrs
 
 
-class ExplicitTeamMemberViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = None
     queryset = ExplicitTeamMembership.objects.filter(parent_membership__user__is_active=True).select_related(
         "team", "parent_membership", "parent_membership__user"

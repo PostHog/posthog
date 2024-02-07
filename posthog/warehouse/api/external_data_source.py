@@ -8,7 +8,7 @@ from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
@@ -85,7 +85,7 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
-class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.
     """

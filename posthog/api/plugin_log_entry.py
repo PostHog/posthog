@@ -5,7 +5,7 @@ from rest_framework import exceptions, mixins, viewsets
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.plugin import PluginOwnershipPermission, PluginsAccessLevelPermission
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.plugin import (
     PluginLogEntry,
     PluginLogEntryType,
@@ -18,7 +18,7 @@ class PluginLogEntrySerializer(DataclassSerializer):
         dataclass = PluginLogEntry
 
 
-class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = PluginLogEntrySerializer
     additional_permission_classes = [PluginsAccessLevelPermission, PluginOwnershipPermission]
 

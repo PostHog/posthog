@@ -5,7 +5,7 @@ from rest_framework import exceptions, request, response, serializers
 from rest_framework.decorators import action
 from rest_framework.viewsets import ModelViewSet
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import is_cloud
 from posthog.models import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions
@@ -71,7 +71,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 
 
 # TODO: Does this still work??
-class OrganizationDomainViewset(StructuredViewSetMixin, ModelViewSet):
+class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     serializer_class = OrganizationDomainSerializer
     additional_permission_classes = [
         OrganizationAdminWritePermissions,

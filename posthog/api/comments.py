@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.comment import Comment
 
@@ -65,7 +65,7 @@ class CommentPagination(pagination.CursorPagination):
 
 
 # TODO: Check permissions of this
-class CommentViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     pagination_class = CommentPagination

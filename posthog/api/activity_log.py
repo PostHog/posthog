@@ -9,7 +9,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User
 from posthog.models.comment import Comment
@@ -72,7 +72,7 @@ class ServerTimingsGathered:
 
 
 # TODO: Check this still works happily
-class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
+class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination

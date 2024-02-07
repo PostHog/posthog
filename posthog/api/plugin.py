@@ -20,7 +20,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -296,7 +296,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return super().update(plugin, validated_data)
 
 
-class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
     additional_permission_classes = [
@@ -707,7 +707,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return response
 
 
-class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 

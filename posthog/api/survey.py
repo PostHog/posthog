@@ -10,7 +10,7 @@ from posthog.models.feedback.survey import Survey
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import serializers, viewsets, request
 from rest_framework.request import Request
 from rest_framework import status
@@ -252,7 +252,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return targeting_feature_flag
 
 
-class SurveyViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
 
     def get_serializer_class(self) -> Type[serializers.Serializer]:

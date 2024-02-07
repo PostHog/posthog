@@ -29,7 +29,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import (
     CSV_EXPORT_LIMIT,
@@ -218,7 +218,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
-class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
     """

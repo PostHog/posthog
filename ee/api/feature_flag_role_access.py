@@ -6,7 +6,7 @@ from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role
 from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 
@@ -66,7 +66,7 @@ class FeatureFlagRoleAccessSerializer(serializers.ModelSerializer):
 
 
 class FeatureFlagRoleAccessViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.DestroyModelMixin,

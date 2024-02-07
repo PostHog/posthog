@@ -14,7 +14,7 @@ from rest_framework.request import Request
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change
 from posthog.models.dashboard import Dashboard
@@ -79,7 +79,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         read_only_fields = ["created_at", "access_token"]
 
 
-class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
@@ -198,7 +198,7 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
 
 
 # TODO: Does this still work?
-class SharingViewerPageViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class SharingViewerPageViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """
     NOTE: This ViewSet takes care of multiple rendering cases:
     1. Shared Resources like Shared Dashboard or Insight

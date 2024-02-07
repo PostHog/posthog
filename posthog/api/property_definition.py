@@ -17,7 +17,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.documentation import extend_schema
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
@@ -439,7 +439,7 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
 
 
 class PropertyDefinitionViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,

@@ -16,7 +16,7 @@ from rest_framework.exceptions import (
 from rest_framework.pagination import CursorPagination
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import (
     BATCH_EXPORT_INTERVALS,
     BatchExportLogEntry,
@@ -92,7 +92,7 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
-class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = BatchExportRun.objects.all()
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
@@ -337,7 +337,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return batch_export
 
 
-class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = BatchExport.objects.all()
     serializer_class = BatchExportSerializer
 
@@ -458,7 +458,7 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
         dataclass = BatchExportLogEntry
 
 
-class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class BatchExportLogViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = BatchExportLogEntrySerializer
 
     def get_queryset(self):

@@ -2,7 +2,7 @@ from rest_framework import mixins, serializers, viewsets
 
 from ee.api.role import RolePermissions
 from ee.models.organization_resource_access import OrganizationResourceAccess
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 
 
 class OrganizationResourceAccessSerializer(serializers.ModelSerializer):
@@ -33,7 +33,7 @@ class OrganizationResourceAccessSerializer(serializers.ModelSerializer):
 
 
 class OrganizationResourceAccessViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,

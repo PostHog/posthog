@@ -4,7 +4,7 @@ from django.conf import settings
 from rest_framework import exceptions, filters, serializers, viewsets
 from rest_framework.exceptions import NotAuthenticated
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, serialize_fields
@@ -90,7 +90,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return query
 
 
-class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """

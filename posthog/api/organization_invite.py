@@ -11,7 +11,7 @@ from rest_framework import (
 )
 from rest_framework.decorators import action
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
@@ -77,7 +77,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
 
 class OrganizationInviteViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,

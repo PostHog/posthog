@@ -13,7 +13,7 @@ from sentry_sdk import capture_exception
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
@@ -38,7 +38,7 @@ class QueryThrottle(TeamRateThrottle):
     rate = "120/hour"
 
 
-class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet):
+class QueryViewSet(PydanticModelMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]

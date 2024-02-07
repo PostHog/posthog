@@ -8,7 +8,7 @@ from rest_framework import (
     status,
 )
 from posthog.api.cohort import CohortSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.shared import UserBasicSerializer
@@ -19,7 +19,7 @@ from posthog.models.filters.filter import Filter
 
 # TODO: Does this still work?
 class OrganizationFeatureFlagView(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     viewsets.ViewSet,
     mixins.RetrieveModelMixin,
 ):

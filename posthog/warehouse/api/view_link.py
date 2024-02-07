@@ -3,7 +3,7 @@ from typing import Optional
 from rest_framework import filters, serializers, viewsets
 from rest_framework.exceptions import NotAuthenticated
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models import User
@@ -82,7 +82,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         return
 
 
-class ViewLinkViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete View Columns.
     """

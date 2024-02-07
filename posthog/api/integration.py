@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration, SlackIntegration
 
@@ -45,7 +45,7 @@ class IntegrationViewSet(
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
     mixins.DestroyModelMixin,
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     viewsets.GenericViewSet,
 ):
     queryset = Integration.objects.all()

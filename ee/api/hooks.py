@@ -5,7 +5,7 @@ from django.conf import settings
 from rest_framework import exceptions, serializers, viewsets
 
 from ee.models.hook import Hook
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
 
@@ -26,7 +26,7 @@ class HookSerializer(serializers.ModelSerializer):
         return target
 
 
-class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class HookViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Retrieve, create, update or destroy REST hooks.
     """

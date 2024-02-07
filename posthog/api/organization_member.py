@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
 from social_django.admin import UserSocialAuth
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
@@ -79,7 +79,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
 
 
 class OrganizationMemberViewSet(
-    StructuredViewSetMixin,
+    TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,

@@ -5,7 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.client import sync_execute
 from posthog.models import Element, Filter
@@ -33,7 +33,7 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
