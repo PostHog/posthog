@@ -13,6 +13,11 @@ jobs:
   build:
     name: build and publish hook-api image
     runs-on: buildjet-4vcpu-ubuntu-2204-arm
+    permissions:
+      id-token: write # allow issuing OIDC tokens for this workflow run
+      contents: read # allow reading the repo contents
+      packages: write # allow push to ghcr.io
+
     steps:
       - name: Check Out Repo
         uses: actions/checkout@v3
