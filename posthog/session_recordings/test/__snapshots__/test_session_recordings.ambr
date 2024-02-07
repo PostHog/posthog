@@ -644,6 +644,7 @@
   INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
                                                       'user_one_2')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -1512,6 +1513,7 @@
                                                       'user4',
                                                       'user5',
                                                       'user6')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -1886,6 +1888,7 @@
                                                       'user5',
                                                       'user6',
                                                       'user7')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -2307,6 +2310,7 @@
                                                       'user6',
                                                       'user7',
                                                       'user8')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -2694,6 +2698,7 @@
                                                       'user7',
                                                       'user8',
                                                       'user9')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -3134,6 +3139,7 @@
                                                       'user7',
                                                       'user8',
                                                       'user9')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -3343,6 +3349,7 @@
   FROM "posthog_persondistinctid"
   INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -3696,6 +3703,7 @@
   INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -4062,6 +4070,7 @@
   WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
                                                       'user2',
                                                       'user3')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -4430,6 +4439,7 @@
                                                       'user2',
                                                       'user3',
                                                       'user4')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
@@ -4789,6 +4799,7 @@
                                                       'user3',
                                                       'user4',
                                                       'user5')
+         AND "posthog_persondistinctid"."person_id" IS NOT NULL
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '''
 # ---
