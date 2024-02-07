@@ -679,7 +679,7 @@ class FunnelBase(ABC):
             # # ):
             # #     target_entity = self._filter.entities[self._filter.breakdown_attribution_value]
 
-            # values, has_more_values = get_breakdown_prop_values(
+            # values = get_breakdown_prop_values(
             #     self._filter,
             #     target_entity,
             #     "count(*)",
@@ -688,10 +688,7 @@ class FunnelBase(ABC):
             #     use_all_funnel_entities=use_all_funnel_entities,
             #     person_properties_mode=get_person_properties_mode(self._team),
             # )
-            # return values
-            # return [["Safari"], ["Chrome"]]
             return self._get_breakdown_prop_values()
-            # return ["Safari", "Chrome"]
 
         return None
 

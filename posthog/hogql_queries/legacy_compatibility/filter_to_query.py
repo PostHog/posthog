@@ -337,9 +337,10 @@ def _breakdown_filter(_filter: Dict):
         "breakdown_normalize_url": _filter.get("breakdown_normalize_url"),
         "breakdown_group_type_index": _filter.get("breakdown_group_type_index"),
         "breakdown_hide_other_aggregation": _filter.get("breakdown_hide_other_aggregation"),
-        "breakdown_histogram_bin_count": _filter.get("breakdown_histogram_bin_count")
-        if _insight_type(_filter) == "TRENDS"
-        else None,
+        "breakdown_histogram_bin_count": (
+            _filter.get("breakdown_histogram_bin_count") if _insight_type(_filter) == "TRENDS" else None
+        ),
+        "breakdown_limit": _filter.get("breakdown_limit"),
     }
 
     # fix breakdown typo
