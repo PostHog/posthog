@@ -104,9 +104,13 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                 bordered
                 filters={queryNodeToFilter(querySource as InsightQueryNode)}
                 setFilters={(payload: Partial<FilterType>): void => {
-                    updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as
-                        | TrendsQuery
-                        | FunnelsQuery)
+                    updateQuerySource({
+                        series: actionsAndEventsToSeries(
+                            payload as any,
+                            true,
+                            isTrends ? MathAvailability.All : MathAvailability.None
+                        ),
+                    } as TrendsQuery | FunnelsQuery)
                 }}
                 typeKey={`experiment-${isTrends ? InsightType.TRENDS : InsightType.FUNNELS}-secondary-metric`}
                 mathAvailability={isTrends ? undefined : MathAvailability.None}

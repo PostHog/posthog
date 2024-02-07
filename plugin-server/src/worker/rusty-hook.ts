@@ -18,6 +18,7 @@ interface RustyWebhookPayload {
         team_id: number
         plugin_id: number
         plugin_config_id: number
+        created_at: string
     }
 }
 
@@ -60,6 +61,7 @@ export class RustyHook {
                 team_id: teamId,
                 plugin_id: pluginId,
                 plugin_config_id: pluginConfigId,
+                created_at: new Date().toISOString(),
             },
         }
         const body = JSON.stringify(rustyWebhookPayload, undefined, 4)

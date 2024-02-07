@@ -354,7 +354,7 @@
 # ---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date
   '''
-  SELECT (1) AS "a"
+  SELECT 1 AS "a"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
@@ -365,7 +365,7 @@
 # ---
 # name: TestDjangoPropertiesToQ.test_person_relative_date_parsing_with_invalid_date.1
   '''
-  SELECT (1) AS "a"
+  SELECT 1 AS "a"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'

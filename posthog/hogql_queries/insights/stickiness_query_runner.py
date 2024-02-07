@@ -136,7 +136,7 @@ class StickinessQueryRunner(QueryRunner):
 
             interval_addition = ast.Call(
                 name=f"toInterval{date_range.interval_name.capitalize()}",
-                args=[ast.Constant(value=1)],
+                args=[ast.Constant(value=0 if date_range.interval_name == "week" else 1)],
             )
 
             select_query = parse_select(
@@ -288,6 +288,16 @@ class StickinessQueryRunner(QueryRunner):
         if series.properties is not None and series.properties != []:
             filters.append(property_to_expr(series.properties, self.team))
 
+        # Ignore empty groups
+        if series.math == "unique_group" and series.math_group_type_index is not None:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    right=ast.Constant(value=""),
+                )
+            )
+
         if len(filters) == 0:
             return ast.Constant(value=True)
         elif len(filters) == 1:
@@ -311,7 +321,10 @@ class StickinessQueryRunner(QueryRunner):
 
     def intervals_num(self):
         delta = self.query_date_range.date_to() - self.query_date_range.date_from()
-        return delta.days + 1
+        if self.query_date_range.interval_name == "day":
+            return delta.days + 1
+        else:
+            return delta.days
 
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [

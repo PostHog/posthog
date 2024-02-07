@@ -200,8 +200,15 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
     )
 
     teams: Sequence[Team] = list(
-        Team.objects.select_related("organization").exclude(
-            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
+        Team.objects.select_related("organization")
+        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .only(
+            "id",
+            "api_token",
+            "organization__id",
+            "organization__usage",
+            "organization__created_at",
+            "organization__never_drop_data",
         )
     )
 

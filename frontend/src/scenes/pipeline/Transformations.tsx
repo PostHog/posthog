@@ -24,16 +24,11 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import {
-    PipelineAppKind,
-    PipelineAppTab,
-    PluginConfigTypeNew,
-    PluginConfigWithPluginInfoNew,
-    ProductKey,
-} from '~/types'
+import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
+import { Transformation } from './types'
 import { RenderApp } from './utils'
 
 export function Transformations(): JSX.Element {
@@ -43,15 +38,14 @@ export function Transformations(): JSX.Element {
     }
     const {
         loading,
-        sortedEnabledPluginConfigs,
-        disabledPluginConfigs,
-        displayablePluginConfigs,
+        transformations,
+        sortedEnabledTransformations,
         canConfigurePlugins,
         shouldShowProductIntroduction,
     } = useValues(pipelineTransformationsLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
-    const shouldShowEmptyState = sortedEnabledPluginConfigs.length === 0 && disabledPluginConfigs.length === 0
+    const shouldShowEmptyState = sortedEnabledTransformations.length === 0
 
     return (
         <>
@@ -62,13 +56,13 @@ export function Transformations(): JSX.Element {
                     productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
                     description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton kind={PipelineAppKind.Transformation} />}
+                    actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
                     isEmpty={true}
                 />
             )}
             {!shouldShowEmptyState && (
                 <>
-                    {sortedEnabledPluginConfigs.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
+                    {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
                         <>
                             <ReorderModal />
                             <div className="flex items-center gap-2">
@@ -89,7 +83,7 @@ export function Transformations(): JSX.Element {
                         </>
                     )}
                     <LemonTable
-                        dataSource={displayablePluginConfigs}
+                        dataSource={transformations}
                         size="xs"
                         loading={loading}
                         columns={[
@@ -97,35 +91,35 @@ export function Transformations(): JSX.Element {
                                 title: 'Order',
                                 key: 'order',
                                 sticky: true,
-                                render: function RenderOrdering(_, pluginConfig) {
-                                    if (!pluginConfig.enabled) {
+                                render: function RenderOrdering(_, transformation) {
+                                    if (!transformation.enabled) {
                                         return null
                                     }
                                     // We can't use pluginConfig.order directly as it's not nicely set for everything,
                                     // e.g. geoIP, disabled plugins, especially if we disable them via django admin
-                                    return sortedEnabledPluginConfigs.findIndex((pc) => pc.id === pluginConfig.id) + 1
+                                    return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
                                 },
                             },
                             {
                                 title: 'Name',
                                 sticky: true,
-                                render: function RenderPluginName(_, pluginConfig) {
+                                render: function RenderPluginName(_, transformation) {
                                     return (
                                         <>
                                             <Tooltip title="Click to update configuration, view metrics, and more">
                                                 <Link
-                                                    to={urls.pipelineApp(
-                                                        PipelineAppKind.Transformation,
-                                                        pluginConfig.id,
-                                                        PipelineAppTab.Configuration
+                                                    to={urls.pipelineNode(
+                                                        PipelineStage.Transformation,
+                                                        transformation.id,
+                                                        PipelineNodeTab.Configuration
                                                     )}
                                                 >
-                                                    <span className="row-name">{pluginConfig.name}</span>
+                                                    <span className="row-name">{transformation.name}</span>
                                                 </Link>
                                             </Tooltip>
-                                            {pluginConfig.description && (
+                                            {transformation.description && (
                                                 <LemonMarkdown className="row-description" lowKeyHeadings>
-                                                    {pluginConfig.description}
+                                                    {transformation.description}
                                                 </LemonMarkdown>
                                             )}
                                         </>
@@ -134,11 +128,11 @@ export function Transformations(): JSX.Element {
                             },
                             {
                                 title: 'App',
-                                render: function RenderAppInfo(_, pluginConfig) {
-                                    return <RenderApp plugin={pluginConfig.plugin_info} />
+                                render: function RenderAppInfo(_, transformation) {
+                                    return <RenderApp plugin={transformation.plugin} />
                                 },
                             },
-                            updatedAtColumn() as LemonTableColumn<PluginConfigWithPluginInfoNew, any>,
+                            updatedAtColumn() as LemonTableColumn<Transformation, any>,
                             {
                                 title: 'Status',
                                 render: function RenderStatus(_, pluginConfig) {
@@ -159,8 +153,12 @@ export function Transformations(): JSX.Element {
                             },
                             {
                                 width: 0,
-                                render: function Render(_, pluginConfig) {
-                                    return <More overlay={<TransformationsMoreOverlay pluginConfig={pluginConfig} />} />
+                                render: function Render(_, transformation) {
+                                    return (
+                                        <More
+                                            overlay={<TransformationsMoreOverlay transformation={transformation} />}
+                                        />
+                                    )
                                 },
                             },
                         ]}
@@ -172,10 +170,10 @@ export function Transformations(): JSX.Element {
 }
 
 export const TransformationsMoreOverlay = ({
-    pluginConfig,
+    transformation,
     inOverview = false,
 }: {
-    pluginConfig: PluginConfigWithPluginInfoNew
+    transformation: Transformation
     inOverview?: boolean
 }): JSX.Element => {
     const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
@@ -187,20 +185,20 @@ export const TransformationsMoreOverlay = ({
                 <LemonButton
                     onClick={() => {
                         toggleEnabled({
-                            enabled: !pluginConfig.enabled,
-                            id: pluginConfig.id,
+                            enabled: !transformation.enabled,
+                            id: transformation.id,
                         })
                     }}
-                    id={`app-${pluginConfig.id}-enable-switch`}
+                    id={`app-${transformation.id}-enable-switch`}
                     disabledReason={
                         canConfigurePlugins ? undefined : 'You do not have permission to enable/disable apps.'
                     }
                     fullWidth
                 >
-                    {pluginConfig.enabled ? 'Disable' : 'Enable'} app
+                    {transformation.enabled ? 'Disable' : 'Enable'} app
                 </LemonButton>
             )}
-            {!inOverview && pluginConfig.enabled && (
+            {!inOverview && transformation.enabled && (
                 <LemonButton
                     onClick={openReorderModal}
                     id="app-reorder"
@@ -211,31 +209,31 @@ export const TransformationsMoreOverlay = ({
                 </LemonButton>
             )}
             <LemonButton
-                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Configuration)}
-                id={`app-${pluginConfig.id}-configuration`}
+                to={urls.pipelineNode(PipelineStage.Transformation, transformation.id, PipelineNodeTab.Configuration)}
+                id={`app-${transformation.id}-configuration`}
                 fullWidth
             >
                 {canConfigurePlugins ? 'Edit' : 'View'} app configuration
             </LemonButton>
             <LemonButton
-                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Metrics)}
-                id={`app-${pluginConfig.id}-metrics`}
+                to={urls.pipelineNode(PipelineStage.Transformation, transformation.id, PipelineNodeTab.Metrics)}
+                id={`app-${transformation.id}-metrics`}
                 fullWidth
             >
                 View app metrics
             </LemonButton>
             <LemonButton
-                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Logs)}
-                id={`app-${pluginConfig.id}-logs`}
+                to={urls.pipelineNode(PipelineStage.Transformation, transformation.id, PipelineNodeTab.Logs)}
+                id={`app-${transformation.id}-logs`}
                 fullWidth
             >
                 View app logs
             </LemonButton>
             <LemonButton
-                to={pluginConfig.plugin_info?.url}
+                to={transformation.plugin?.url}
                 targetBlank={true}
-                loading={!pluginConfig.plugin_info?.url}
-                id={`app-${pluginConfig.id}-source-code`}
+                loading={!transformation.plugin?.url}
+                id={`app-${transformation.id}-source-code`}
                 fullWidth
             >
                 View app source code
@@ -249,8 +247,8 @@ export const TransformationsMoreOverlay = ({
                             void deleteWithUndo({
                                 endpoint: `plugin_config`,
                                 object: {
-                                    id: pluginConfig.id,
-                                    name: pluginConfig.name,
+                                    id: transformation.id,
+                                    name: transformation.name,
                                 },
                                 callback: loadPluginConfigs,
                             })
@@ -268,19 +266,19 @@ export const TransformationsMoreOverlay = ({
 }
 
 function ReorderModal(): JSX.Element {
-    const { reorderModalOpen, sortedEnabledPluginConfigs, temporaryOrder, pluginConfigsLoading } =
+    const { reorderModalOpen, sortedEnabledTransformations, temporaryOrder, pluginConfigsLoading } =
         useValues(pipelineTransformationsLogic)
     const { closeReorderModal, setTemporaryOrder, savePluginConfigsOrder } = useActions(pipelineTransformationsLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (active.id && over && active.id !== over.id) {
             // Create new sortedEnabledPluginConfigs in the order after the move
-            const from = sortedEnabledPluginConfigs.findIndex((config) => config.id === active.id)
-            const to = sortedEnabledPluginConfigs.findIndex((config) => config.id === over.id)
-            const newSortedEnabledPluginConfigs = arrayMove(sortedEnabledPluginConfigs, from, to)
+            const from = sortedEnabledTransformations.findIndex((t) => t.id === active.id)
+            const to = sortedEnabledTransformations.findIndex((t) => t.id === over.id)
+            const newSortedEnabledTransformations = arrayMove(sortedEnabledTransformations, from, to)
             // Create new temporaryOrder by assinging pluginConfigIds to the index in the map of newSortedEnabledPluginConfigs
             // See comment in savePluginConfigsOrder about races
-            const newTemporaryOrder = newSortedEnabledPluginConfigs.reduce((acc, pluginConfig, index) => {
+            const newTemporaryOrder = newSortedEnabledTransformations.reduce((acc, pluginConfig, index) => {
                 return {
                     ...acc,
                     [pluginConfig.id]: index + 1,
@@ -319,9 +317,9 @@ function ReorderModal(): JSX.Element {
         >
             <div className="flex flex-col gap-2">
                 <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
-                    <SortableContext items={sortedEnabledPluginConfigs} strategy={verticalListSortingStrategy}>
-                        {sortedEnabledPluginConfigs.map((item, index) => (
-                            <MinimalAppView key={item.id} pluginConfig={item} order={index} />
+                    <SortableContext items={sortedEnabledTransformations} strategy={verticalListSortingStrategy}>
+                        {sortedEnabledTransformations.map((t, index) => (
+                            <MinimalAppView key={t.id} transformation={t} order={index} />
                         ))}
                     </SortableContext>
                 </DndContext>
@@ -330,13 +328,11 @@ function ReorderModal(): JSX.Element {
     )
 }
 
-const MinimalAppView = ({ pluginConfig, order }: { pluginConfig: PluginConfigTypeNew; order: number }): JSX.Element => {
-    const { plugins } = useValues(pipelineTransformationsLogic)
+const MinimalAppView = ({ transformation, order }: { transformation: Transformation; order: number }): JSX.Element => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-        id: pluginConfig.id,
+        id: transformation.id,
     })
 
-    const plugin = plugins[pluginConfig.plugin]
     return (
         <div
             ref={setNodeRef}
@@ -352,8 +348,8 @@ const MinimalAppView = ({ pluginConfig, order }: { pluginConfig: PluginConfigTyp
             {...listeners}
         >
             <LemonBadge.Number count={order + 1} maxDigits={3} />
-            <PluginImage plugin={plugin} size="small" />
-            <span className="font-semibold">{pluginConfig.name}</span>
+            <PluginImage plugin={transformation.plugin} size="small" />
+            <span className="font-semibold">{transformation.name}</span>
         </div>
     )
 }

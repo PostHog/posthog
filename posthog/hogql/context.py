@@ -46,6 +46,8 @@ class HogQLContext:
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client
     modifiers: HogQLQueryModifiers = field(default_factory=HogQLQueryModifiers)
+    # Enables more verbose output for debugging
+    debug: bool = False
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

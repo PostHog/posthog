@@ -41,31 +41,31 @@ describe('LemonCalendarRange', () => {
 
         // click on 15
         await clickOn('15')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-28')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-28T23:59:59.999Z')])
 
         // click on 27
         await clickOn('27')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-27')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-27T23:59:59.999Z')])
 
         // click on 16
         await clickOn('16')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-16'), dayjs('2022-02-27')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-16'), dayjs('2022-02-27T23:59:59.999Z')])
 
         // click on 26
         await clickOn('26')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-16'), dayjs('2022-02-26')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-16'), dayjs('2022-02-26T23:59:59.999Z')])
 
         // click on 10
         await clickOn('10')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-10'), dayjs('2022-02-26')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-10'), dayjs('2022-02-26T23:59:59.999Z')])
 
         // click on 28
         await clickOn('28')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-10'), dayjs('2022-02-28')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-10'), dayjs('2022-02-28T23:59:59.999Z')])
 
         // click on 20
         await clickOn('20')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-20'), dayjs('2022-02-28')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-20'), dayjs('2022-02-28T23:59:59.999Z')])
 
         userEvent.click(getByDataAttr(container, 'lemon-calendar-range-cancel'))
         expect(onClose).toHaveBeenCalled()

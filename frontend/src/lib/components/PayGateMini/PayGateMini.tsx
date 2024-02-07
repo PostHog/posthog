@@ -88,7 +88,7 @@ const FEATURE_SUMMARIES: Record<
     [AvailableFeature.DATA_PIPELINES]: {
         description: 'Create export workflows to send your data to a destination of your choice.',
         umbrella: 'data pipelines',
-        docsHref: 'https://posthog.com/docs/data-pipelines',
+        docsHref: 'https://posthog.com/docs/cdp',
     },
 }
 

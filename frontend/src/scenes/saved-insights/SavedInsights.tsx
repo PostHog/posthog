@@ -268,6 +268,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.HogQLAutocomplete]: {
+        name: 'HogQL Autocomplete',
+        description: 'Autocomplete for the HogQL query editor',
+        icon: IconHogQL,
+        inMenu: false,
+    },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema',

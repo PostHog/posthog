@@ -2,6 +2,7 @@ import { JSONContent } from '@tiptap/core'
 
 import {
     breakdownFilterToQuery,
+    exlusionEntityToNode,
     funnelsFilterToQuery,
     lifecycleFilterToQuery,
     pathsFilterToQuery,
@@ -10,6 +11,7 @@ import {
     trendsFilterToQuery,
 } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
+    isLegacyFunnelsExclusion,
     isLegacyFunnelsFilter,
     isLegacyLifecycleFilter,
     isLegacyPathsFilter,
@@ -18,7 +20,7 @@ import {
     isLegacyTrendsFilter,
 } from '~/queries/nodes/InsightQuery/utils/legacy'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
-import { NotebookNodeType, NotebookType } from '~/types'
+import { FunnelExclusionLegacy, NotebookNodeType, NotebookType } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
 // It will bust the cache on the localContent in the notebookLogic
@@ -103,8 +105,17 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             query.trendsFilter = trendsFilterToQuery(query.trendsFilter as any)
         }
 
-        if (query.kind === NodeKind.FunnelsQuery && isLegacyFunnelsFilter(query.funnelsFilter as any)) {
-            query.funnelsFilter = funnelsFilterToQuery(query.funnelsFilter as any)
+        if (query.kind === NodeKind.FunnelsQuery) {
+            if (isLegacyFunnelsFilter(query.funnelsFilter as any)) {
+                query.funnelsFilter = funnelsFilterToQuery(query.funnelsFilter as any)
+            } else if (isLegacyFunnelsExclusion(query.funnelsFilter as any)) {
+                query.funnelsFilter = {
+                    ...query.funnelsFilter,
+                    exclusions: query.funnelsFilter!.exclusions!.map((entity) =>
+                        exlusionEntityToNode(entity as unknown as FunnelExclusionLegacy)
+                    ),
+                }
+            }
         }
 
         if (query.kind === NodeKind.RetentionQuery && isLegacyRetentionFilter(query.retentionFilter as any)) {

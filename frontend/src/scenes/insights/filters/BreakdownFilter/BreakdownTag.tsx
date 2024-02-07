@@ -1,7 +1,9 @@
 import { LemonTag, LemonTagProps } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { HoqQLPropertyInfo } from 'lib/components/HoqQLPropertyInfo'
+import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -87,7 +89,15 @@ export function BreakdownTag({
             {breakdownType === 'hogql' ? (
                 <HoqQLPropertyInfo value={propertyName as string} />
             ) : (
-                <PropertyKeyInfo value={propertyName as string} disablePopover={disablePropertyInfo} />
+                <PropertyKeyInfo
+                    value={propertyName as string}
+                    disablePopover={disablePropertyInfo}
+                    type={
+                        breakdownType
+                            ? PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType]
+                            : TaxonomicFilterGroupType.EventProperties
+                    }
+                />
             )}
         </LemonTag>
     )
