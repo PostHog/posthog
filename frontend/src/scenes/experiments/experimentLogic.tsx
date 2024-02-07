@@ -608,7 +608,11 @@ export const experimentLogic = kea<experimentLogicType>([
                                 const secResults = await api.get(
                                     `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${index}`
                                 )
-                                return secResults.result
+                                return {
+                                    ...secResults.result,
+                                    fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                    last_refresh: secResults.last_refresh,
+                                }
                             } catch (error) {
                                 return {
                                     result: {},
@@ -638,12 +642,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return !!experiment?.start_date
             },
         ],
-        secondaryColumnSpan: [
-            (s) => [s.variants],
-            (variants): number => {
-                return Math.floor(24 / (variants.length + 2)) // +2 for the names column
-            },
-        ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment, experimentId): Breadcrumb[] => [
@@ -666,34 +664,31 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         experimentMathAggregationForTrends: [
-            (s) => [s.experiment],
-            (experiment): PropertyMathType | CountPerActorMathType | undefined => {
-                // Find out if we're using count per actor math aggregates averages per user
-                const userMathValue = (
-                    [
-                        ...(experiment?.filters?.events || []),
-                        ...(experiment?.filters?.actions || []),
-                    ] as ActionFilterType[]
-                ).filter((entity) =>
-                    Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
-                )[0]?.math
+            () => [],
+            () =>
+                (filters?: FilterType): PropertyMathType | CountPerActorMathType | undefined => {
+                    // Find out if we're using count per actor math aggregates averages per user
+                    const userMathValue = (
+                        [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
+                    ).filter((entity) =>
+                        Object.values(CountPerActorMathType).includes(entity?.math as CountPerActorMathType)
+                    )[0]?.math
 
-                // alternatively, if we're using property math
-                // remove 'sum' property math from the list of math types
-                // since we can handle that as a regular case
-                const targetValues = Object.values(PropertyMathType).filter((value) => value !== PropertyMathType.Sum)
-                // sync with the backend at https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/trend_experiment_result.py#L44
-                // the function uses_math_aggregation_by_user_or_property_value
+                    // alternatively, if we're using property math
+                    // remove 'sum' property math from the list of math types
+                    // since we can handle that as a regular case
+                    const targetValues = Object.values(PropertyMathType).filter(
+                        (value) => value !== PropertyMathType.Sum
+                    )
+                    // sync with the backend at https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/experiments/trend_experiment_result.py#L44
+                    // the function uses_math_aggregation_by_user_or_property_value
 
-                const propertyMathValue = (
-                    [
-                        ...(experiment?.filters?.events || []),
-                        ...(experiment?.filters?.actions || []),
-                    ] as ActionFilterType[]
-                ).filter((entity) => targetValues.includes(entity?.math as PropertyMathType))[0]?.math
+                    const propertyMathValue = (
+                        [...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[]
+                    ).filter((entity) => targetValues.includes(entity?.math as PropertyMathType))[0]?.math
 
-                return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
-            },
+                    return (userMathValue ?? propertyMathValue) as PropertyMathType | CountPerActorMathType | undefined
+                },
         ],
         minimumDetectableChange: [
             (s) => [s.experiment],
@@ -790,9 +785,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         conversionRateForVariant: [
-            (s) => [s.experimentResults],
-            (experimentResults) =>
-                (variant: string): string => {
+            () => [],
+            () =>
+                (experimentResults: ExperimentResults['result'] | null, variant: string): string => {
                     const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
@@ -809,9 +804,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         getIndexForVariant: [
-            (s) => [s.experimentResults],
-            (experimentResults) =>
-                (variant: string, insightType: InsightType): number => {
+            () => [],
+            () =>
+                (experimentResults: ExperimentResults['result'] | null, variant: string): number => {
+                    // TODO: Would be nice for every secondary metric to have the same colour for variants
+                    const insightType = experimentResults?.filters?.insight
                     let result: number
                     // Ensures we get the right index from results, so the UI can
                     // display the right colour for the variant
@@ -840,9 +837,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         countDataForVariant: [
-            (s) => [s.experimentResults, s.experimentMathAggregationForTrends],
-            (experimentResults, experimentMathAggregationForTrends) =>
-                (variant: string): string => {
+            (s) => [s.experimentMathAggregationForTrends],
+            (experimentMathAggregationForTrends) =>
+                (experimentResults: ExperimentResults['result'] | null, variant: string): string => {
+                    const usingMathAggregationType = experimentMathAggregationForTrends(
+                        experimentResults?.filters || {}
+                    )
                     const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
@@ -856,7 +856,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     let result = variantResults.count
 
-                    if (experimentMathAggregationForTrends) {
+                    if (usingMathAggregationType) {
                         // TODO: Aggregate end result appropriately for nth percentile
                         if (
                             [
@@ -864,19 +864,15 @@ export const experimentLogic = kea<experimentLogicType>([
                                 CountPerActorMathType.Median,
                                 PropertyMathType.Average,
                                 PropertyMathType.Median,
-                            ].includes(experimentMathAggregationForTrends)
+                            ].includes(usingMathAggregationType)
                         ) {
                             result = variantResults.count / variantResults.data.length
                         } else if (
-                            [CountPerActorMathType.Maximum, PropertyMathType.Maximum].includes(
-                                experimentMathAggregationForTrends
-                            )
+                            [CountPerActorMathType.Maximum, PropertyMathType.Maximum].includes(usingMathAggregationType)
                         ) {
                             result = Math.max(...variantResults.data)
                         } else if (
-                            [CountPerActorMathType.Minimum, PropertyMathType.Minimum].includes(
-                                experimentMathAggregationForTrends
-                            )
+                            [CountPerActorMathType.Minimum, PropertyMathType.Minimum].includes(usingMathAggregationType)
                         ) {
                             result = Math.min(...variantResults.data)
                         }
@@ -891,9 +887,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         exposureCountDataForVariant: [
-            (s) => [s.experimentResults],
-            (experimentResults) =>
-                (variant: string): string => {
+            () => [],
+            () =>
+                (experimentResults: ExperimentResults['result'] | null, variant: string): string => {
                     const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult

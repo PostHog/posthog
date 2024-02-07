@@ -44,6 +44,7 @@ export function SecondaryMetrics({
         isExperimentRunning,
         getIndexForVariant,
         experiment,
+        experimentResults,
         editingExistingExperiment,
         tabularSecondaryMetricResults,
     } = useValues(experimentLogic({ experimentId }))
@@ -58,9 +59,7 @@ export function SecondaryMetrics({
                         className="flex items-center w-fit h-5 px-1 rounded text-white text-xs"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            background: getSeriesColor(
-                                getIndexForVariant(item.variant, experiment.filters?.insight || InsightType.TRENDS)
-                            ),
+                            background: getSeriesColor(getIndexForVariant(experimentResults, item.variant)),
                         }}
                     >
                         {capitalizeFirstLetter(item.variant)}

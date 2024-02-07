@@ -837,7 +837,23 @@ export function Experiment(): JSX.Element {
                             </div>
                         )}
                     </div>
+                    <h2 className="font-semibold text-lg m-0 mt-4">Experiment result</h2>
                     <ExperimentResult />
+                    <div className="mt-4">
+                        <h2 className="font-semibold text-lg m-0">Secondary metrics</h2>
+                        <LemonCollapse
+                            className="w-full mt-4"
+                            panels={
+                                experiment.secondary_metrics?.map((metric, index) => {
+                                    return {
+                                        key: `secondary-metric-results-${index}`,
+                                        header: metric.name || `Metric ${index + 1}`,
+                                        content: <ExperimentResult secondaryMetricId={index} />,
+                                    }
+                                }) || []
+                            }
+                        />
+                    </div>
                 </div>
             ) : (
                 <LoadingState />
