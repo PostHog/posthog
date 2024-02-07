@@ -912,7 +912,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            actions.refreshAllDashboardItems({ action: 'refresh_manual' })
+            actions.refreshAllDashboardItems({ action: 'refresh' })
         },
         refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             if (!props.id) {
@@ -949,9 +949,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
-            const hardRefreshWithoutCache = ['refresh_manual', 'refresh_above_threshold', 'load_missing'].includes(
-                action
-            )
+            const hardRefreshWithoutCache = ['refresh', 'load_missing'].includes(action)
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
@@ -1081,10 +1079,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     values.lastRefreshed &&
                     values.lastRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
-                    actions.refreshAllDashboardItems({ action: 'refresh_manual' })
+                    actions.refreshAllDashboardItems({ action: 'refresh' })
                 }
                 cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.refreshAllDashboardItems({ action: 'refresh_manual' })
+                    actions.refreshAllDashboardItems({ action: 'refresh' })
                 }, values.autoRefresh.interval * 1000)
             }
         },
@@ -1104,7 +1102,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
                 !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
             ) {
-                actions.refreshAllDashboardItems({ action: 'refresh_above_threshold', initialLoad, dashboardQueryId })
+                actions.refreshAllDashboardItems({ action: 'refresh', initialLoad, dashboardQueryId })
                 allLoaded = false
             } else {
                 const tilesWithNoResults = values.tiles?.filter((t) => !!t.insight && !t.insight.result) || []
