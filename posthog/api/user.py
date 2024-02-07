@@ -495,7 +495,6 @@ def redirect_to_website(request):
             request.user.strapi_id = strapi_id
             request.user.save()
         else:
-            print("Strapi account creation failed")
             error_message = response.json()['error']['message']
             if (response.text and error_message == 'Email or Username are already taken'):
                 return redirect("https://posthog.com/auth?error=emailIsTaken")
