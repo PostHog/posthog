@@ -59,10 +59,8 @@ class FunnelBase(ABC):
         raise NotImplementedError()
 
     def _get_breakdown_select_prop(self) -> List[ast.Expr]:
-        breakdown, breakdownFilter, breakdownType, breakdownAttributionType, funnelsFilter = (
+        breakdown, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
-            self.context.breakdownFilter,
-            self.context.breakdownType,
             self.context.breakdownAttributionType,
             self.context.funnelsFilter,
         )
