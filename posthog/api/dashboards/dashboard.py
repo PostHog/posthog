@@ -408,7 +408,7 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     queryset = Dashboard.objects.order_by("name")
-    additional_permission_classes = [CanEditDashboard]
+    permission_classes = [CanEditDashboard]
 
     def get_serializer_class(self) -> Type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer

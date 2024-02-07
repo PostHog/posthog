@@ -99,7 +99,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
 # Does this still work??
 class AsyncMigrationsViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = AsyncMigration.objects.all().order_by("name")
-    additional_permission_classes = [IsStaffUser]
+    permission_classes = [IsStaffUser]
     serializer_class = AsyncMigrationSerializer
     include_in_docs = False
 

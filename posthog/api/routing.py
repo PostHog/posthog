@@ -41,30 +41,30 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     include_in_docs = True
 
-    authentication_classes = [
-        JwtAuthentication,
-        PersonalAPIKeyAuthentication,
-        authentication.SessionAuthentication,
-    ]
-    additional_authentication_classes: List = []
-
-    permission_classes = [IsAuthenticated]
-    additional_permission_classes: list = []
-
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
     def get_permissions(self):
-        permission_classes = self.permission_classes
+        # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
+        # override the entire method.
+        permission_classes = [IsAuthenticated]
 
         if self.is_team_view:
             permission_classes = permission_classes + [TeamMemberAccessPermission]
         else:
             permission_classes = permission_classes + [OrganizationMemberPermissions]
 
+        permission_classes = permission_classes + self.permission_classes
+
         return [permission() for permission in permission_classes]
 
     def get_authenticators(self):
-        return [auth() for auth in (self.authentication_classes + self.additional_authentication_classes)]
+        authentication_classes = [
+            JwtAuthentication,
+            PersonalAPIKeyAuthentication,
+            authentication.SessionAuthentication,
+        ] + self.authentication_classes
+
+        return [auth() for auth in authentication_classes]
 
     def get_queryset(self):
         queryset = super().get_queryset()

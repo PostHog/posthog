@@ -299,7 +299,7 @@ class PluginSerializer(serializers.ModelSerializer):
 class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
-    additional_permission_classes = [
+    permission_classes = [
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
     ]

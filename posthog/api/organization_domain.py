@@ -73,7 +73,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 # TODO: Does this still work??
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     serializer_class = OrganizationDomainSerializer
-    additional_permission_classes = [
+    permission_classes = [
         OrganizationAdminWritePermissions,
     ]
     queryset = OrganizationDomain.objects.all()

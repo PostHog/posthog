@@ -94,7 +94,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
-    additional_permission_classes = [PremiumFeaturePermission]
+    permission_classes = [PremiumFeaturePermission]
     premium_feature = AvailableFeature.SUBSCRIPTIONS
 
     def get_queryset(self) -> QuerySet:

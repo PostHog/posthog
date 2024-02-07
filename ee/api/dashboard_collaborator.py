@@ -88,7 +88,7 @@ class DashboardCollaboratorViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    additional_permission_classes = [CanEditDashboardCollaborator]
+    permission_classes = [CanEditDashboardCollaborator]
     pagination_class = None
     queryset = DashboardPrivilege.objects.select_related("dashboard").filter(user__is_active=True)
     lookup_field = "user__uuid"

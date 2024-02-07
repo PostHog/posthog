@@ -20,7 +20,7 @@ class PluginLogEntrySerializer(DataclassSerializer):
 
 class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = PluginLogEntrySerializer
-    additional_permission_classes = [PluginsAccessLevelPermission, PluginOwnershipPermission]
+    permission_classes = [PluginsAccessLevelPermission, PluginOwnershipPermission]
 
     def get_queryset(self):
         limit_raw = self.request.GET.get("limit")

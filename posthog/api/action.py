@@ -176,7 +176,7 @@ class ActionViewSet(
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
-    additional_authentication_classes = [TemporaryTokenAuthentication]
+    authentication_classes = [TemporaryTokenAuthentication]
     ordering = ["-last_calculated_at", "name"]
 
     def get_queryset(self):

@@ -286,7 +286,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.all()
-    additional_permission_classes = [PremiumFeaturePermission]
+    permission_classes = [PremiumFeaturePermission]
     premium_feature = AvailableFeature.EXPERIMENTATION
     ordering = "-created_at"
 

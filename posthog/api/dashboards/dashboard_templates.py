@@ -70,7 +70,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
 
 
 class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    additional_permission_classes = [OnlyStaffCanEditDashboardTemplate]
+    permission_classes = [OnlyStaffCanEditDashboardTemplate]
     serializer_class = DashboardTemplateSerializer
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes

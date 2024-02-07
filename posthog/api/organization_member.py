@@ -86,7 +86,7 @@ class OrganizationMemberViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = OrganizationMemberSerializer
-    additional_permission_classes = [OrganizationMemberObjectPermissions]
+    permission_classes = [OrganizationMemberObjectPermissions]
     queryset = (
         OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
         .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)

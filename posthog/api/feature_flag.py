@@ -371,8 +371,8 @@ class FeatureFlagViewSet(
 
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    additional_permission_classes = [CanEditFeatureFlag]
-    additional_authentication_classes = [
+    permission_classes = [CanEditFeatureFlag]
+    authentication_classes = [
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
 
