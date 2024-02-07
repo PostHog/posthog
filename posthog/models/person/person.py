@@ -105,12 +105,28 @@ class Person(models.Model):
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
 
+def LOGGED_CASCADE(collector, field, sub_objs, using):
+    # XXX: This differs from the default ``CASCADE`` implementation in that it
+    # does not try to get clever with nullable foreign keys -- this just treats
+    # nullable foreign keys in the same way as non-nullable (i.e. it makes sure
+    # to delete child instances _before_ parent objects, allowing them to be
+    # referenced safely in post-deletion hooks.)
+    collector.collect(
+        sub_objs,
+        source=field.remote_field.model,
+        source_attr=field.name,
+        fail_on_restricted=False,
+    )
+
+    # TODO: Actually log the deletion...
+
+
 class PersonDistinctId(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
-    person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE, null=True)
+    person: models.ForeignKey = models.ForeignKey(Person, on_delete=LOGGED_CASCADE, null=True)
     distinct_id: models.CharField = models.CharField(max_length=400)
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
