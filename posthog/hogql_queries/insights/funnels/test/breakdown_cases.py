@@ -1,17 +1,16 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-# from string import ascii_lowercase
+from string import ascii_lowercase
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.filters.filter import Filter
 
-# from posthog.models.cohort import Cohort
-# from posthog.models.filters import Filter
-# from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.models.cohort import Cohort
+from posthog.models.filters import Filter
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.schema import FunnelsQuery
 from posthog.test.base import (
@@ -780,499 +779,491 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Safari"), [person2.uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 3, "Safari"), [])
 
-    #     @also_test_with_materialized_columns(["some_breakdown_val"])
-    #     def test_funnel_step_breakdown_limit(self):
-    #         filters = {
-    #             "events": [
-    #                 {"id": "sign up", "order": 0},
-    #                 {"id": "play movie", "order": 1},
-    #                 {"id": "buy", "order": 2},
-    #             ],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-08",
-    #             "funnel_window_days": 7,
-    #             "breakdown_type": "event",
-    #             "breakdown": ["some_breakdown_val"],
-    #             "breakdown_limit": 5,
-    #         }
+        @also_test_with_materialized_columns(["some_breakdown_val"])
+        def test_funnel_step_breakdown_limit(self):
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": ["some_breakdown_val"],
+                "breakdown_limit": 5,
+            }
 
-    #         filter = Filter(data=filters)
-    #         funnel = Funnel(filter, self.team)
+            events_by_person = {}
+            for num in range(10):
+                for i in range(num):
+                    person_id = f"person_{num}_{i}"
+                    events_by_person[person_id] = [
+                        {
+                            "event": "sign up",
+                            "timestamp": datetime(2020, 1, 1, 12),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                        {
+                            "event": "play movie",
+                            "timestamp": datetime(2020, 1, 1, 13),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                        {
+                            "event": "buy",
+                            "timestamp": datetime(2020, 1, 1, 15),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                    ]
+            journeys_for(events_by_person, self.team)
 
-    #         events_by_person = {}
-    #         for num in range(10):
-    #             for i in range(num):
-    #                 person_id = f"person_{num}_{i}"
-    #                 events_by_person[person_id] = [
-    #                     {
-    #                         "event": "sign up",
-    #                         "timestamp": datetime(2020, 1, 1, 12),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                     {
-    #                         "event": "play movie",
-    #                         "timestamp": datetime(2020, 1, 1, 13),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                     {
-    #                         "event": "buy",
-    #                         "timestamp": datetime(2020, 1, 1, 15),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                 ]
-    #         journeys_for(events_by_person, self.team)
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #         result = funnel.run()
+            # assert that we give 5 at a time at most and that those values are the most popular ones
+            breakdown_vals = sorted([res[0]["breakdown"] for res in results])
+            self.assertEqual([["5"], ["6"], ["7"], ["8"], ["9"], ["Other"]], breakdown_vals)
 
-    #         # assert that we give 5 at a time at most and that those values are the most popular ones
-    #         breakdown_vals = sorted([res[0]["breakdown"] for res in result])
-    #         self.assertEqual([["5"], ["6"], ["7"], ["8"], ["9"], ["Other"]], breakdown_vals)
+        @also_test_with_materialized_columns(["some_breakdown_val"])
+        def test_funnel_step_custom_breakdown_limit_with_nulls(self):
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown_limit": 3,
+                "breakdown": ["some_breakdown_val"],
+            }
 
-    #     @also_test_with_materialized_columns(["some_breakdown_val"])
-    #     def test_funnel_step_custom_breakdown_limit_with_nulls(self):
-    #         filters = {
-    #             "events": [
-    #                 {"id": "sign up", "order": 0},
-    #                 {"id": "play movie", "order": 1},
-    #                 {"id": "buy", "order": 2},
-    #             ],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-08",
-    #             "funnel_window_days": 7,
-    #             "breakdown_type": "event",
-    #             "breakdown_limit": 3,
-    #             "breakdown": ["some_breakdown_val"],
-    #         }
+            events_by_person = {}
+            for num in range(5):
+                for i in range(num):
+                    person_id = f"person_{num}_{i}"
+                    events_by_person[person_id] = [
+                        {
+                            "event": "sign up",
+                            "timestamp": datetime(2020, 1, 1, 12),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                        {
+                            "event": "play movie",
+                            "timestamp": datetime(2020, 1, 1, 13),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                        {
+                            "event": "buy",
+                            "timestamp": datetime(2020, 1, 1, 15),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                    ]
 
-    #         filter = Filter(data=filters)
-    #         funnel = Funnel(filter, self.team)
+                    # no breakdown value for this guy
+            events_by_person["person_null"] = [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
+            ]
+            people = journeys_for(events_by_person, self.team)
 
-    #         events_by_person = {}
-    #         for num in range(5):
-    #             for i in range(num):
-    #                 person_id = f"person_{num}_{i}"
-    #                 events_by_person[person_id] = [
-    #                     {
-    #                         "event": "sign up",
-    #                         "timestamp": datetime(2020, 1, 1, 12),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                     {
-    #                         "event": "play movie",
-    #                         "timestamp": datetime(2020, 1, 1, 13),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                     {
-    #                         "event": "buy",
-    #                         "timestamp": datetime(2020, 1, 1, 15),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                 ]
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #                 # no breakdown value for this guy
-    #         events_by_person["person_null"] = [
-    #             {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
-    #             {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
-    #             {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
-    #         ]
-    #         people = journeys_for(events_by_person, self.team)
+            breakdown_vals = sorted([res[0]["breakdown"] for res in results])
+            self.assertEqual([["2"], ["3"], ["4"], ["Other"]], breakdown_vals)
+            # skipped 1 and '' because the limit was 3.
+            self.assertTrue(people["person_null"].uuid in self._get_actor_ids_at_step(filters, 1, "Other"))
 
-    #         result = funnel.run()
+        @also_test_with_materialized_columns(["some_breakdown_val"])
+        def test_funnel_step_custom_breakdown_limit_with_nulls_included(self):
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown_limit": 6,
+                "breakdown": ["some_breakdown_val"],
+            }
 
-    #         breakdown_vals = sorted([res[0]["breakdown"] for res in result])
-    #         self.assertEqual([["2"], ["3"], ["4"], ["Other"]], breakdown_vals)
-    #         # skipped 1 and '' because the limit was 3.
-    #         self.assertTrue(people["person_null"].uuid in self._get_actor_ids_at_step(filter, 1, "Other"))
+            events_by_person = {}
+            for num in range(5):
+                for i in range(num):
+                    person_id = f"person_{num}_{i}"
+                    events_by_person[person_id] = [
+                        {
+                            "event": "sign up",
+                            "timestamp": datetime(2020, 1, 1, 12),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                        {
+                            "event": "play movie",
+                            "timestamp": datetime(2020, 1, 1, 13),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                        {
+                            "event": "buy",
+                            "timestamp": datetime(2020, 1, 1, 15),
+                            "properties": {"some_breakdown_val": str(num)},
+                        },
+                    ]
 
-    #     @also_test_with_materialized_columns(["some_breakdown_val"])
-    #     def test_funnel_step_custom_breakdown_limit_with_nulls_included(self):
-    #         filters = {
-    #             "events": [
-    #                 {"id": "sign up", "order": 0},
-    #                 {"id": "play movie", "order": 1},
-    #                 {"id": "buy", "order": 2},
-    #             ],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-08",
-    #             "funnel_window_days": 7,
-    #             "breakdown_type": "event",
-    #             "breakdown_limit": 6,
-    #             "breakdown": ["some_breakdown_val"],
-    #         }
+                    # no breakdown value for this guy
+            events_by_person["person_null"] = [
+                {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
+                {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
+                {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
+            ]
+            people = journeys_for(events_by_person, self.team)
 
-    #         filter = Filter(data=filters)
-    #         funnel = Funnel(filter, self.team)
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #         events_by_person = {}
-    #         for num in range(5):
-    #             for i in range(num):
-    #                 person_id = f"person_{num}_{i}"
-    #                 events_by_person[person_id] = [
-    #                     {
-    #                         "event": "sign up",
-    #                         "timestamp": datetime(2020, 1, 1, 12),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                     {
-    #                         "event": "play movie",
-    #                         "timestamp": datetime(2020, 1, 1, 13),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                     {
-    #                         "event": "buy",
-    #                         "timestamp": datetime(2020, 1, 1, 15),
-    #                         "properties": {"some_breakdown_val": str(num)},
-    #                     },
-    #                 ]
+            breakdown_vals = sorted([res[0]["breakdown"] for res in results])
+            self.assertEqual([[""], ["1"], ["2"], ["3"], ["4"]], breakdown_vals)
+            # included 1 and '' because the limit was 6.
 
-    #                 # no breakdown value for this guy
-    #         events_by_person["person_null"] = [
-    #             {"event": "sign up", "timestamp": datetime(2020, 1, 1, 12)},
-    #             {"event": "play movie", "timestamp": datetime(2020, 1, 1, 13)},
-    #             {"event": "buy", "timestamp": datetime(2020, 1, 1, 15)},
-    #         ]
-    #         people = journeys_for(events_by_person, self.team)
+            for i in range(1, 5):
+                self.assertEqual(len(self._get_actor_ids_at_step(filters, 3, str(i))), i)
 
-    #         result = funnel.run()
+            self.assertEqual([people["person_null"].uuid], self._get_actor_ids_at_step(filters, 1, ""))
+            self.assertEqual([people["person_null"].uuid], self._get_actor_ids_at_step(filters, 3, ""))
 
-    #         breakdown_vals = sorted([res[0]["breakdown"] for res in result])
-    #         self.assertEqual([[""], ["1"], ["2"], ["3"], ["4"]], breakdown_vals)
-    #         # included 1 and '' because the limit was 6.
+        @also_test_with_materialized_columns(["$browser"])
+        def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
+            filters = {
+                "events": [{"id": "sign up", "order": 0}],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": ["$browser"],
+                "breakdown_attribution_type": "step",
+                "breakdown_attribution_value": "0",
+            }
 
-    #         for i in range(1, 5):
-    #             self.assertEqual(len(self._get_actor_ids_at_step(filter, 3, str(i))), i)
+            # event
+            events_by_person = {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$browser": "Mac"},
+                    },
+                    # mixed property type!
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 2, 15),
+                        "properties": {"$browser": 0},
+                    },
+                ]
+            }
+            people = journeys_for(events_by_person, self.team)
 
-    #         self.assertEqual([people["person_null"].uuid], self._get_actor_ids_at_step(filter, 1, ""))
-    #         self.assertEqual([people["person_null"].uuid], self._get_actor_ids_at_step(filter, 3, ""))
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-    #     @also_test_with_materialized_columns(["$browser"])
-    #     def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
-    #         filters = {
-    #             "events": [{"id": "sign up", "order": 0}],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-08",
-    #             "funnel_window_days": 7,
-    #             "breakdown_type": "event",
-    #             "breakdown": ["$browser"],
-    #             "breakdown_attribution_type": "step",
-    #             "breakdown_attribution_value": "0",
-    #         }
+            self._assert_funnel_breakdown_result_is_correct(
+                results[0], [FunnelStepResult(name="sign up", breakdown=["0"], count=1)]
+            )
 
-    #         filter = Filter(data=filters)
-    #         funnel = Funnel(filter, self.team)
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person1"].uuid])
 
-    #         # event
-    #         events_by_person = {
-    #             "person1": [
-    #                 {
-    #                     "event": "sign up",
-    #                     "timestamp": datetime(2020, 1, 1, 12),
-    #                     "properties": {"$browser": "Chrome"},
-    #                 },
-    #                 {
-    #                     "event": "sign up",
-    #                     "timestamp": datetime(2020, 1, 1, 13),
-    #                     "properties": {"$browser": "Safari"},
-    #                 },
-    #                 {
-    #                     "event": "sign up",
-    #                     "timestamp": datetime(2020, 1, 2, 14),
-    #                     "properties": {"$browser": "Mac"},
-    #                 },
-    #                 # mixed property type!
-    #                 {
-    #                     "event": "sign up",
-    #                     "timestamp": datetime(2020, 1, 2, 15),
-    #                     "properties": {"$browser": 0},
-    #                 },
-    #             ]
-    #         }
-    #         people = journeys_for(events_by_person, self.team)
+            self._assert_funnel_breakdown_result_is_correct(
+                results[1],
+                [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"])],
+            )
 
-    #         result = funnel.run()
-    #         result = sorted(result, key=lambda res: res[0]["breakdown"])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, "Chrome"),
+                [people["person1"].uuid],
+            )
 
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[0], [FunnelStepResult(name="sign up", breakdown=["0"], count=1)]
-    #         )
+            self._assert_funnel_breakdown_result_is_correct(
+                results[2],
+                [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"])],
+            )
 
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "0"), [people["person1"].uuid])
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Mac"), [people["person1"].uuid])
 
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[1],
-    #             [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"])],
-    #         )
+            self._assert_funnel_breakdown_result_is_correct(
+                results[3],
+                [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"])],
+            )
 
-    #         self.assertCountEqual(
-    #             self._get_actor_ids_at_step(filter, 1, "Chrome"),
-    #             [people["person1"].uuid],
-    #         )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, "Safari"),
+                [people["person1"].uuid],
+            )
 
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[2],
-    #             [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"])],
-    #         )
+        def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown": ["$browser"],
+                "breakdown_attribution_type": "all_events",
+            }
 
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Mac"), [people["person1"].uuid])
+            people = journeys_for(
+                {
+                    "person1": [
+                        {
+                            "event": "sign up",
+                            "timestamp": datetime(2020, 1, 1, 12),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "play movie",
+                            "timestamp": datetime(2020, 1, 2, 12, 30),
+                            "properties": {"$browser": "Safari"},
+                        },
+                        {
+                            "event": "sign up",
+                            "timestamp": datetime(2020, 1, 2, 13),
+                            "properties": {"$browser": "Safari"},
+                        },
+                        {
+                            "event": "play movie",
+                            "timestamp": datetime(2020, 1, 2, 14),
+                            "properties": {"$browser": "Safari"},
+                        },
+                    ]
+                },
+                self.team,
+            )
 
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[3],
-    #             [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"])],
-    #         )
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #         self.assertCountEqual(
-    #             self._get_actor_ids_at_step(filter, 1, "Safari"),
-    #             [people["person1"].uuid],
-    #         )
+            self.assertEqual(len(results), 2)
 
-    #     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
-    #         filters = {
-    #             "events": [
-    #                 {"id": "sign up", "order": 0},
-    #                 {"id": "play movie", "order": 1},
-    #             ],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-08",
-    #             "funnel_window_days": 7,
-    #             "breakdown_type": "event",
-    #             "breakdown": ["$browser"],
-    #             "breakdown_attribution_type": "all_events",
-    #         }
+            self._assert_funnel_breakdown_result_is_correct(
+                results[0],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),
+                    FunnelStepResult(name="play movie", count=0, breakdown=["Chrome"]),
+                ],
+            )
 
-    #         filter = Filter(data=filters)
-    #         funnel = Funnel(filter, self.team)
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, "Chrome"),
+                [people["person1"].uuid],
+            )
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, "Chrome"), [])
 
-    #         people = journeys_for(
-    #             {
-    #                 "person1": [
-    #                     {
-    #                         "event": "sign up",
-    #                         "timestamp": datetime(2020, 1, 1, 12),
-    #                         "properties": {"$browser": "Chrome"},
-    #                     },
-    #                     {
-    #                         "event": "play movie",
-    #                         "timestamp": datetime(2020, 1, 2, 12, 30),
-    #                         "properties": {"$browser": "Safari"},
-    #                     },
-    #                     {
-    #                         "event": "sign up",
-    #                         "timestamp": datetime(2020, 1, 2, 13),
-    #                         "properties": {"$browser": "Safari"},
-    #                     },
-    #                     {
-    #                         "event": "play movie",
-    #                         "timestamp": datetime(2020, 1, 2, 14),
-    #                         "properties": {"$browser": "Safari"},
-    #                     },
-    #                 ]
-    #             },
-    #             self.team,
-    #         )
-    #         result = funnel.run()
+            self._assert_funnel_breakdown_result_is_correct(
+                results[1],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),
+                    FunnelStepResult(
+                        name="play movie",
+                        count=1,
+                        average_conversion_time=3600,
+                        median_conversion_time=3600,
+                        breakdown=["Safari"],
+                    ),
+                ],
+            )
 
-    #         self.assertEqual(len(result), 2)
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, "Safari"),
+                [people["person1"].uuid],
+            )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 2, "Safari"),
+                [people["person1"].uuid],
+            )
 
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[0],
-    #             [
-    #                 FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),
-    #                 FunnelStepResult(name="play movie", count=0, breakdown=["Chrome"]),
-    #             ],
-    #         )
+        @also_test_with_materialized_columns(person_properties=["key"], verify_no_jsonextract=False)
+        def test_funnel_cohort_breakdown(self):
+            # This caused some issues with SQL parsing
+            _create_person(
+                distinct_ids=[f"person1"],
+                team_id=self.team.pk,
+                properties={"key": "value"},
+            )
+            people = journeys_for(
+                {"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)}]},
+                self.team,
+                create_people=False,
+            )
 
-    #         self.assertCountEqual(
-    #             self._get_actor_ids_at_step(filter, 1, "Chrome"),
-    #             [people["person1"].uuid],
-    #         )
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Chrome"), [])
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="test_cohort",
+                groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+            )
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": ["all", cohort.pk],
+                "breakdown_attribution_type": "step",
+                "breakdown_attribution_value": 0,
+                # first touch means same user can't be in 'all' and the other cohort both
+            }
 
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[1],
-    #             [
-    #                 FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),
-    #                 FunnelStepResult(
-    #                     name="play movie",
-    #                     count=1,
-    #                     average_conversion_time=3600,
-    #                     median_conversion_time=3600,
-    #                     breakdown=["Safari"],
-    #                 ),
-    #             ],
-    #         )
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #         self.assertCountEqual(
-    #             self._get_actor_ids_at_step(filter, 1, "Safari"),
-    #             [people["person1"].uuid],
-    #         )
-    #         self.assertCountEqual(
-    #             self._get_actor_ids_at_step(filter, 2, "Safari"),
-    #             [people["person1"].uuid],
-    #         )
+            self.assertEqual(len(results[0]), 3)
+            self.assertEqual(results[0][0]["breakdown"], "all users")
+            self.assertEqual(len(results[1]), 3)
+            self.assertEqual(results[1][0]["breakdown"], "test_cohort")
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, cohort.pk),
+                [people["person1"].uuid],
+            )
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, cohort.pk), [])
 
-    #     @also_test_with_materialized_columns(person_properties=["key"], verify_no_jsonextract=False)
-    #     def test_funnel_cohort_breakdown(self):
-    #         # This caused some issues with SQL parsing
-    #         _create_person(
-    #             distinct_ids=[f"person1"],
-    #             team_id=self.team.pk,
-    #             properties={"key": "value"},
-    #         )
-    #         people = journeys_for(
-    #             {"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)}]},
-    #             self.team,
-    #             create_people=False,
-    #         )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, ALL_USERS_COHORT_ID),
+                [people["person1"].uuid],
+            )
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ALL_USERS_COHORT_ID), [])
 
-    #         cohort = Cohort.objects.create(
-    #             team=self.team,
-    #             name="test_cohort",
-    #             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
-    #         )
-    #         filters = {
-    #             "events": [
-    #                 {"id": "sign up", "order": 0},
-    #                 {"id": "play movie", "order": 1},
-    #                 {"id": "buy", "order": 2},
-    #             ],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-08",
-    #             "funnel_window_days": 7,
-    #             "breakdown_type": "cohort",
-    #             "breakdown": ["all", cohort.pk],
-    #             "breakdown_attribution_type": "step",
-    #             "breakdown_attribution_value": 0,
-    #             # first touch means same user can't be in 'all' and the other cohort both
-    #         }
-    #         filter = Filter(data=filters)
-    #         funnel = Funnel(filter, self.team)
+            # non array
+            filters = {
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": cohort.pk,
+            }
 
-    #         result = funnel.run()
-    #         self.assertEqual(len(result[0]), 3)
-    #         self.assertEqual(result[0][0]["breakdown"], "all users")
-    #         self.assertEqual(len(result[1]), 3)
-    #         self.assertEqual(result[1][0]["breakdown"], "test_cohort")
-    #         self.assertCountEqual(
-    #             self._get_actor_ids_at_step(filter, 1, cohort.pk),
-    #             [people["person1"].uuid],
-    #         )
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, cohort.pk), [])
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #         self.assertCountEqual(
-    #             self._get_actor_ids_at_step(filter, 1, ALL_USERS_COHORT_ID),
-    #             [people["person1"].uuid],
-    #         )
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ALL_USERS_COHORT_ID), [])
+            self.assertEqual(len(results[0]), 3)
+            self.assertEqual(results[0][0]["breakdown"], "test_cohort")
+            self.assertEqual(results[0][0]["breakdown_value"], cohort.pk)
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, cohort.pk),
+                [people["person1"].uuid],
+            )
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, cohort.pk), [])
 
-    #         # non array
-    #         filters = {
-    #             "events": [
-    #                 {"id": "sign up", "order": 0},
-    #                 {"id": "play movie", "order": 1},
-    #                 {"id": "buy", "order": 2},
-    #             ],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-08",
-    #             "funnel_window_days": 7,
-    #             "breakdown_type": "cohort",
-    #             "breakdown": cohort.pk,
-    #         }
-    #         filter = Filter(data=filters)
-    #         funnel = Funnel(filter, self.team)
+        def test_basic_funnel_default_funnel_days_breakdown_event(self):
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$current_url": "https://posthog.com/docs/x"},
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 10, 14),
+                        "properties": {"$current_url": "https://posthog.com/docs/x"},
+                    },
+                ]
+            }
+            # Dummy events to make sure that breakdown is not confused
+            # It was confused before due to the nature of fetching breakdown values with a LIMIT based on value popularity
+            # See https://github.com/PostHog/posthog/pull/5496
+            for current_url_letter in ascii_lowercase[:20]:
+                # Twenty dummy breakdown values
+                for _ in range(2):
+                    # Each twice, so that the breakdown values from dummy events rank higher in raw order
+                    # This test makes sure that events are prefiltered properly to avoid problems with this raw order
+                    events_by_person["user_1"].append(
+                        {
+                            "event": "user signed up",
+                            "timestamp": datetime(2020, 1, 2, 14),
+                            "properties": {"$current_url": f"https://posthog.com/blog/{current_url_letter}"},
+                        }
+                    )
 
-    #         result = funnel.run()
-    #         self.assertEqual(len(result[0]), 3)
-    #         self.assertEqual(result[0][0]["breakdown"], "test_cohort")
-    #         self.assertEqual(result[0][0]["breakdown_value"], cohort.pk)
-    #         self.assertCountEqual(
-    #             self._get_actor_ids_at_step(filter, 1, cohort.pk),
-    #             [people["person1"].uuid],
-    #         )
-    #         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, cohort.pk), [])
+            journeys_for(events_by_person, self.team)
 
-    #     def test_basic_funnel_default_funnel_days_breakdown_event(self):
-    #         events_by_person = {
-    #             "user_1": [
-    #                 {
-    #                     "event": "user signed up",
-    #                     "timestamp": datetime(2020, 1, 2, 14),
-    #                     "properties": {"$current_url": "https://posthog.com/docs/x"},
-    #                 },
-    #                 {
-    #                     "event": "paid",
-    #                     "timestamp": datetime(2020, 1, 10, 14),
-    #                     "properties": {"$current_url": "https://posthog.com/docs/x"},
-    #                 },
-    #             ]
-    #         }
-    #         # Dummy events to make sure that breakdown is not confused
-    #         # It was confused before due to the nature of fetching breakdown values with a LIMIT based on value popularity
-    #         # See https://github.com/PostHog/posthog/pull/5496
-    #         for current_url_letter in ascii_lowercase[:20]:
-    #             # Twenty dummy breakdown values
-    #             for _ in range(2):
-    #                 # Each twice, so that the breakdown values from dummy events rank higher in raw order
-    #                 # This test makes sure that events are prefiltered properly to avoid problems with this raw order
-    #                 events_by_person["user_1"].append(
-    #                     {
-    #                         "event": "user signed up",
-    #                         "timestamp": datetime(2020, 1, 2, 14),
-    #                         "properties": {"$current_url": f"https://posthog.com/blog/{current_url_letter}"},
-    #                     }
-    #                 )
+            filters = {
+                "events": [
+                    {
+                        "id": "user signed up",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [
+                            {
+                                "key": "$current_url",
+                                "operator": "icontains",
+                                "type": "event",
+                                "value": "https://posthog.com/docs",
+                            }
+                        ],
+                    },
+                    {"id": "paid", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-14",
+                "breakdown": ["$current_url"],
+                "breakdown_type": "event",
+            }
 
-    #         journeys_for(events_by_person, self.team)
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-    #         filters = {
-    #             "events": [
-    #                 {
-    #                     "id": "user signed up",
-    #                     "type": "events",
-    #                     "order": 0,
-    #                     "properties": [
-    #                         {
-    #                             "key": "$current_url",
-    #                             "operator": "icontains",
-    #                             "type": "event",
-    #                             "value": "https://posthog.com/docs",
-    #                         }
-    #                     ],
-    #                 },
-    #                 {"id": "paid", "type": "events", "order": 1},
-    #             ],
-    #             "insight": INSIGHT_FUNNELS,
-    #             "date_from": "2020-01-01",
-    #             "date_to": "2020-01-14",
-    #             "breakdown": ["$current_url"],
-    #             "breakdown_type": "event",
-    #         }
-
-    #         result = Funnel(Filter(data=filters), self.team).run()
-
-    #         self._assert_funnel_breakdown_result_is_correct(
-    #             result[0],
-    #             [
-    #                 FunnelStepResult(
-    #                     name="user signed up",
-    #                     count=1,
-    #                     breakdown=["https://posthog.com/docs/x"],
-    #                 ),
-    #                 FunnelStepResult(
-    #                     name="paid",
-    #                     count=1,
-    #                     average_conversion_time=691200.0,
-    #                     median_conversion_time=691200.0,
-    #                     breakdown=["https://posthog.com/docs/x"],
-    #                 ),
-    #             ],
-    #         )
+            self._assert_funnel_breakdown_result_is_correct(
+                results[0],
+                [
+                    FunnelStepResult(
+                        name="user signed up",
+                        count=1,
+                        breakdown=["https://posthog.com/docs/x"],
+                    ),
+                    FunnelStepResult(
+                        name="paid",
+                        count=1,
+                        average_conversion_time=691200.0,
+                        median_conversion_time=691200.0,
+                        breakdown=["https://posthog.com/docs/x"],
+                    ),
+                ],
+            )
 
     #     @also_test_with_materialized_columns(["$current_url"])
     #     def test_basic_funnel_default_funnel_days_breakdown_action(self):
