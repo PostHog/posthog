@@ -1576,26 +1576,6 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.10
   '''
-  SELECT "posthog_persondistinctid"."id",
-         "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
-         "posthog_persondistinctid"."distinct_id",
-         "posthog_persondistinctid"."version"
-  FROM "posthog_persondistinctid"
-  WHERE ("posthog_persondistinctid"."id" IN
-           (SELECT U0."id"
-            FROM "posthog_persondistinctid" U0
-            WHERE U0."person_id" = ("posthog_persondistinctid"."person_id")
-            LIMIT 3)
-         AND "posthog_persondistinctid"."person_id" IN (1,
-                                                        2,
-                                                        3,
-                                                        4,
-                                                        5 /* ... */)) /*controller='project_feature_flags-create-static-cohort-for-flag',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/create_static_cohort_for_flag/%3F%24'*/
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.11
-  '''
   SELECT "posthog_person"."id",
          "posthog_person"."created_at",
          "posthog_person"."properties_last_updated_at",
@@ -1972,7 +1952,7 @@
   WHERE ("posthog_persondistinctid"."id" IN
            (SELECT U0."id"
             FROM "posthog_persondistinctid" U0
-            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            WHERE U0."person_id" = ("posthog_persondistinctid"."person_id")
             LIMIT 3)
          AND "posthog_persondistinctid"."person_id" IN (1,
                                                         2,
