@@ -14,7 +14,7 @@ boto3-stubs[s3]
 brotli~=1.1.0
 celery~=5.3.4
 celery-redbeat~=2.1.1
-clickhouse-driver~=0.2.4
+clickhouse-driver==0.2.4
 clickhouse-pool~=0.5.3
 cryptography~=37.0.2
 defusedxml~=0.6.0
