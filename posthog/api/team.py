@@ -14,6 +14,7 @@ from rest_framework import (
 )
 from rest_framework.decorators import action
 from posthog.api.geoip import get_geoip_properties
+from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
@@ -295,14 +296,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return updated_team
 
 
-class TeamViewSet(viewsets.ModelViewSet):
+class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
 
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
-    permission_classes = [permissions.IsAuthenticated, PremiumMultiProjectPermissions]
+    permission_classes = [PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
     organization: Optional[Organization] = None

@@ -1,5 +1,5 @@
 from functools import cached_property, lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
