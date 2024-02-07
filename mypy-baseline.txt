@@ -111,12 +111,6 @@ posthog/models/feature_flag/flag_matching.py:0: error: Statement is unreachable 
 posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible return value type (got "str", expected "Literal['hour', 'day', 'week', 'month']")  [return-value]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "dict[str, int] | None" has no attribute "get"  [union-attr]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql_queries/utils/query_date_range.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql_queries/utils/query_date_range.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/utils/query_date_range.py:0: note: Consider using "Sequence" instead, which is covariant
-posthog/hogql_queries/utils/query_date_range.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
-posthog/hogql_queries/utils/query_date_range.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
-posthog/hogql_queries/utils/query_date_range.py:0: note: Consider using "Sequence" instead, which is covariant
 posthog/hogql_queries/utils/query_date_range.py:0: error: Unsupported operand types for * ("object" and "int")  [operator]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible return value type (got "int", expected "timedelta")  [return-value]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "IntervalType | None" has no attribute "name"  [union-attr]
