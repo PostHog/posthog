@@ -37,9 +37,12 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
-import { InsightLogicProps, InsightType } from '~/types'
+import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {
@@ -64,6 +67,34 @@ export interface QueryPropertyCache
         Omit<Partial<StickinessQuery>, 'kind'>,
         Omit<Partial<LifecycleQuery>, 'kind'> {
     commonFilter: CommonInsightFilter
+}
+
+const cleanSeriesEntityMath = (
+    entity: EventsNode | ActionsNode,
+    mathAvailability: MathAvailability
+): EventsNode | ActionsNode => {
+    const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
+
+    // TODO: This should be improved to keep a math that differs from the default.
+    // For this we need to know wether the math was actively changed e.g.
+    // On which insight type the math properties have been set.
+    if (mathAvailability === MathAvailability.All) {
+        // return entity with default all availability math set
+        return { ...baseEntity, math: BaseMathType.TotalCount }
+    } else if (mathAvailability === MathAvailability.ActorsOnly) {
+        // return entity with default actors only availability math set
+        return { ...baseEntity, math: BaseMathType.UniqueUsers }
+    } else {
+        // return entity without math properties for insights that don't support it
+        return baseEntity
+    }
+}
+
+const cleanSeriesMath = (
+    series: (EventsNode | ActionsNode)[],
+    mathAvailability: MathAvailability
+): (EventsNode | ActionsNode)[] => {
+    return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
 export const insightNavLogic = kea<insightNavLogicType>([
@@ -297,26 +328,32 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     if (isInsightQueryWithSeries(mergedQuery)) {
         if (cache.series) {
             if (isLifecycleQuery(mergedQuery)) {
-                mergedQuery.series = cache.series.slice(0, 1)
+                mergedQuery.series = cleanSeriesMath(cache.series.slice(0, 1), MathAvailability.None)
             } else {
-                mergedQuery.series = cache.series
+                const mathAvailability = isTrendsQuery(mergedQuery)
+                    ? MathAvailability.All
+                    : isStickinessQuery(mergedQuery)
+                    ? MathAvailability.ActorsOnly
+                    : MathAvailability.None
+                mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
-        } else if (cache.retentionFilter?.targetEntity || cache.retentionFilter?.returningEntity) {
-            mergedQuery.series = [
-                ...(cache.retentionFilter.targetEntity
-                    ? [cache.retentionFilter.targetEntity as EventsNode | ActionsNode]
-                    : []),
-                ...(cache.retentionFilter.returningEntity
-                    ? [cache.retentionFilter.returningEntity as EventsNode | ActionsNode]
-                    : []),
-            ]
         }
+        // else if (cache.retentionFilter?.targetEntity || cache.retentionFilter?.returningEntity) {
+        //     mergedQuery.series = [
+        //         ...(cache.retentionFilter.targetEntity
+        //             ? [cache.retentionFilter.targetEntity as EventsNode | ActionsNode]
+        //             : []),
+        //         ...(cache.retentionFilter.returningEntity
+        //             ? [cache.retentionFilter.returningEntity as EventsNode | ActionsNode]
+        //             : []),
+        //     ]
+        // }
     } else if (isRetentionQuery(mergedQuery) && cache.series) {
-        mergedQuery.retentionFilter = {
-            ...mergedQuery.retentionFilter,
-            ...(cache.series.length > 0 ? { targetEntity: cache.series[0] } : {}),
-            ...(cache.series.length > 1 ? { returningEntity: cache.series[1] } : {}),
-        }
+        // mergedQuery.retentionFilter = {
+        //     ...mergedQuery.retentionFilter,
+        //     ...(cache.series.length > 0 ? { targetEntity: cache.series[0] } : {}),
+        //     ...(cache.series.length > 1 ? { returningEntity: cache.series[1] } : {}),
+        // }
     }
 
     // interval

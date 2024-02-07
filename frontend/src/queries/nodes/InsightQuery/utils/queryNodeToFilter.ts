@@ -182,10 +182,11 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.showValuesOnSeries
     } else if (isFunnelsQuery(queryCopy)) {
         camelCasedFunnelsProps.exclusions = queryCopy.funnelsFilter?.exclusions
-            ? queryCopy.funnelsFilter.exclusions.map(({ funnelFromStep, funnelToStep, ...rest }) => ({
+            ? queryCopy.funnelsFilter.exclusions.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
                   funnel_from_step: funnelFromStep,
                   funnel_to_step: funnelToStep,
-                  ...rest,
+                  order: index,
+                  ...seriesNodeToFilter(rest),
               }))
             : undefined
         camelCasedFunnelsProps.bin_count = queryCopy.funnelsFilter?.binCount

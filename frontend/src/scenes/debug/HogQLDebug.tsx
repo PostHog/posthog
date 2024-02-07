@@ -3,6 +3,7 @@ import { CodeEditor } from 'lib/components/CodeEditors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
@@ -17,10 +18,40 @@ interface HogQLDebugProps {
     query: HogQLQuery
     setQuery: (query: DataNode) => void
 }
+
+function toLineColumn(hogql: string, position: number): { line: number; column: number } {
+    const lines = hogql.split('\n')
+    let line = 0
+    let column = 0
+    for (let i = 0; i < lines.length; i++) {
+        if (position < lines[i].length) {
+            line = i + 1
+            column = position + 1
+            break
+        }
+        position -= lines[i].length + 1
+    }
+    return { line, column }
+}
+
+function toLine(hogql: string, position: number): number {
+    return toLineColumn(hogql, position).line
+}
+
+function toColumn(hogql: string, position: number): number {
+    return toLineColumn(hogql, position).column
+}
+
 export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.Element {
     const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey }
-    const { dataLoading, response, responseErrorObject, elapsedTime } = useValues(dataNodeLogic(dataNodeLogicProps))
-    const clickHouseTime = (response as HogQLQueryResponse)?.timings?.find(({ k }) => k === './clickhouse_execute')?.t
+    const {
+        dataLoading,
+        response: _response,
+        responseErrorObject,
+        elapsedTime,
+    } = useValues(dataNodeLogic(dataNodeLogicProps))
+    const response = _response as HogQLQueryResponse | null
+    const clickHouseTime = response?.timings?.find(({ k }) => k === './clickhouse_execute')?.t
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -139,6 +170,39 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                                 <CodeSnippet language={Language.SQL} wrap>
                                     {response.clickhouse}
                                 </CodeSnippet>
+                            </>
+                        ) : null}
+                        {response?.metadata ? (
+                            <>
+                                <h2>Metadata</h2>
+                                <LemonTable
+                                    dataSource={[
+                                        ...response.metadata.errors.map((error) => ({
+                                            type: 'error',
+                                            line: toLine(response.hogql ?? '', error.start ?? 0),
+                                            column: toColumn(response.hogql ?? '', error.start ?? 0),
+                                            ...error,
+                                        })),
+                                        ...response.metadata.warnings.map((warn) => ({
+                                            type: 'warning',
+                                            line: toLine(response.hogql ?? '', warn.start ?? 0),
+                                            column: toColumn(response.hogql ?? '', warn.start ?? 0),
+                                            ...warn,
+                                        })),
+                                        ...response.metadata.notices.map((notice) => ({
+                                            type: 'notice',
+                                            line: toLine(response.hogql ?? '', notice.start ?? 0),
+                                            column: toColumn(response.hogql ?? '', notice.start ?? 0),
+                                            ...notice,
+                                        })),
+                                    ].sort((a, b) => (a.start ?? 0) - (b.start ?? 0))}
+                                    columns={[
+                                        { title: 'Line', dataIndex: 'line', key: 'line', width: '40px' },
+                                        { title: 'Column', dataIndex: 'column', key: 'column', width: '40px' },
+                                        { title: 'Type', dataIndex: 'type', key: 'type', width: '80px' },
+                                        { title: 'Message', dataIndex: 'message', key: 'message' },
+                                    ]}
+                                />
                             </>
                         ) : null}
                         {response?.explain ? (

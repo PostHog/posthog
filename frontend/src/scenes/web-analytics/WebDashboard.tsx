@@ -1,22 +1,22 @@
+import { IconExpand45 } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { isNotNil } from 'lib/utils'
+import React from 'react'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { QueryTile, TabsTile, TileId, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
-import {
-    webAnalyticsDataTableQueryContext,
-    WebStatsTableTile,
-    WebStatsTrendTile,
-} from 'scenes/web-analytics/WebAnalyticsTile'
-import { WebTabs } from 'scenes/web-analytics/WebTabs'
+import { WebQuery } from 'scenes/web-analytics/WebAnalyticsTile'
+import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
-import { Query } from '~/queries/Query/Query'
-import { NodeKind, QuerySchema } from '~/queries/schema'
-import { InsightLogicProps } from '~/types'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { QuerySchema } from '~/queries/schema'
 
 const Filters = (): JSX.Element => {
     const {
@@ -24,6 +24,7 @@ const Filters = (): JSX.Element => {
         dateFilter: { dateTo, dateFrom },
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+    const { mobileLayout } = useValues(navigationLogic)
 
     return (
         <div
@@ -31,52 +32,15 @@ const Filters = (): JSX.Element => {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: 'var(--bg-3000)',
-                top: 'var(--breadcrumbs-height)',
+                top: mobileLayout ? 'var(--breadcrumbs-height-full)' : 'var(--breadcrumbs-height-compact)',
             }}
         >
             <div className="flex flex-row flex-wrap gap-2">
-                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                <PropertyFilters
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                    ]}
-                    onChange={(filters) =>
-                        setWebAnalyticsFilters(filters.filter(isEventPropertyOrPersonPropertyFilter))
-                    }
-                    propertyFilters={webAnalyticsFilters}
-                    pageKey="web-analytics"
-                    eventNames={['$pageview', '$pageleave', '$autocapture']}
-                    propertyAllowList={{
-                        [TaxonomicFilterGroupType.EventProperties]: [
-                            '$pathname',
-                            '$host',
-                            '$browser',
-                            '$os',
-                            '$device_type',
-                            '$geoip_country_code',
-                            '$geoip_subdivision_1_code',
-                            '$geoip_city_name',
-                            // re-enable after https://github.com/PostHog/posthog-js/pull/875 is merged
-                            // '$client_session_initial_pathname',
-                            // '$client_session_initial_referring_host',
-                            // '$client_session_initial_utm_source',
-                            // '$client_session_initial_utm_campaign',
-                            // '$client_session_initial_utm_medium',
-                            // '$client_session_initial_utm_content',
-                            // '$client_session_initial_utm_term',
-                        ],
-                        [TaxonomicFilterGroupType.PersonProperties]: [
-                            '$initial_pathname',
-                            '$initial_referring_domain',
-                            '$initial_utm_source',
-                            '$initial_utm_campaign',
-                            '$initial_utm_medium',
-                            '$initial_utm_content',
-                            '$initial_utm_term',
-                        ],
-                    }}
+                <WebPropertyFilters
+                    setWebAnalyticsFilters={setWebAnalyticsFilters}
+                    webAnalyticsFilters={webAnalyticsFilters}
                 />
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             </div>
             <div className="bg-border h-px w-full mt-2" />
         </div>
@@ -87,25 +51,10 @@ const Tiles = (): JSX.Element => {
     const { tiles } = useValues(webAnalyticsLogic)
 
     return (
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-10">
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
             {tiles.map((tile, i) => {
                 if ('query' in tile) {
-                    const { query, title, layout, insightProps } = tile
-                    return (
-                        <div
-                            key={i}
-                            className={clsx(
-                                'col-span-1 row-span-1 flex flex-col',
-                                layout.colSpanClassName ?? 'md:col-span-6',
-                                layout.rowSpanClassName ?? 'md:row-span-1',
-                                layout.orderWhenLargeClassName ?? 'xxl:order-12',
-                                layout.className
-                            )}
-                        >
-                            {title && <h2 className="m-0 mb-3">{title}</h2>}
-                            <WebQuery query={query} insightProps={insightProps} />
-                        </div>
-                    )
+                    return <QueryTileItem key={i} tile={tile} />
                 } else if ('tabs' in tile) {
                     return <TabsTileItem key={i} tile={tile} />
                 } else {
@@ -116,8 +65,59 @@ const Tiles = (): JSX.Element => {
     )
 }
 
+const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
+    const { query, title, layout, insightProps } = tile
+
+    const { openModal } = useActions(webAnalyticsLogic)
+    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
+
+    const buttonsRow = [
+        tile.canOpenInsight ? (
+            <LemonButton
+                key="open-insight-button"
+                to={getNewInsightUrl(tile.tileId)}
+                icon={<IconOpenInNew />}
+                size="small"
+                type="secondary"
+            >
+                Open as new Insight
+            </LemonButton>
+        ) : null,
+        tile.canOpenModal ? (
+            <LemonButton
+                key="open-modal-button"
+                onClick={() => openModal(tile.tileId)}
+                icon={<IconExpand45 />}
+                size="small"
+                type="secondary"
+            >
+                Open in modal
+            </LemonButton>
+        ) : null,
+    ].filter(isNotNil)
+
+    return (
+        <div
+            className={clsx(
+                'col-span-1 row-span-1 flex flex-col',
+                layout.colSpanClassName ?? 'md:col-span-6',
+                layout.rowSpanClassName ?? 'md:row-span-1',
+                layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                layout.className
+            )}
+        >
+            {title && <h2 className="m-0 mb-3">{title}</h2>}
+            <WebQuery query={query} insightProps={insightProps} />
+            {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
+        </div>
+    )
+}
+
 const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     const { layout } = tile
+
+    const { openModal } = useActions(webAnalyticsLogic)
+    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     return (
         <WebTabs
@@ -142,33 +142,102 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 ),
                 linkText: tab.linkText,
                 title: tab.title,
+                canOpenModal: !!tab.canOpenModal,
+                canOpenInsight: !!tab.canOpenInsight,
+                query: tab.query,
             }))}
+            tileId={tile.tileId}
+            openModal={openModal}
+            getNewInsightUrl={getNewInsightUrl}
         />
     )
 }
 
-const WebQuery = ({
-    query,
-    showIntervalSelect,
-    insightProps,
+export const WebTabs = ({
+    className,
+    activeTabId,
+    tabs,
+    setActiveTabId,
+    openModal,
+    getNewInsightUrl,
+    tileId,
 }: {
-    query: QuerySchema
-    showIntervalSelect?: boolean
-    insightProps: InsightLogicProps
+    className?: string
+    activeTabId: string
+    tabs: {
+        id: string
+        title: string
+        linkText: string
+        content: React.ReactNode
+        canOpenModal: boolean
+        canOpenInsight: boolean
+        query: QuerySchema
+    }[]
+    setActiveTabId: (id: string) => void
+    openModal: (tileId: TileId, tabId: string) => void
+    getNewInsightUrl: (tileId: TileId, tabId: string) => string
+    tileId: TileId
 }): JSX.Element => {
-    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
-        return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} insightProps={insightProps} />
-    }
-    if (query.kind === NodeKind.InsightVizNode) {
-        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
-    }
+    const activeTab = tabs.find((t) => t.id === activeTabId)
 
-    return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
+    const buttonsRow = [
+        activeTab?.canOpenInsight ? (
+            <LemonButton
+                key="open-insight-button"
+                to={getNewInsightUrl(tileId, activeTabId)}
+                icon={<IconOpenInNew />}
+                size="small"
+                type="secondary"
+            >
+                Open as new Insight
+            </LemonButton>
+        ) : null,
+        activeTab?.canOpenModal ? (
+            <LemonButton
+                key="open-modal-button"
+                onClick={() => openModal(tileId, activeTabId)}
+                icon={<IconExpand45 />}
+                size="small"
+                type="secondary"
+            >
+                Open in modal
+            </LemonButton>
+        ) : null,
+    ].filter(isNotNil)
+
+    return (
+        <div className={clsx(className, 'flex flex-col')}>
+            <div className="flex flex-row items-center self-stretch mb-3">
+                <h2 className="flex-1 m-0">{activeTab?.title}</h2>
+
+                {tabs.length > 3 ? (
+                    <LemonSelect
+                        size="small"
+                        disabled={false}
+                        value={activeTabId}
+                        dropdownMatchSelectWidth={false}
+                        onChange={setActiveTabId}
+                        options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
+                    />
+                ) : (
+                    <LemonSegmentedButton
+                        size="small"
+                        options={tabs.map(({ id, linkText }) => ({ label: linkText, value: id }))}
+                        onChange={(value) => setActiveTabId(value)}
+                        value={activeTabId}
+                    />
+                )}
+            </div>
+            <div className="flex-1 flex flex-col">{activeTab?.content}</div>
+            {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
+        </div>
+    )
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <>
+            <WebAnalyticsModal />
             <WebAnalyticsNotice />
             <div className="WebAnalyticsDashboard w-full flex flex-col">
                 <Filters />

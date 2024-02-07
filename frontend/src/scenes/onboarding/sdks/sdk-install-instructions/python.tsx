@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 function PythonInstallSnippet(): JSX.Element {
@@ -13,7 +14,7 @@ function PythonSetupSnippet(): JSX.Element {
         <CodeSnippet language={Language.Python}>
             {`from posthog import Posthog
 
-posthog = Posthog(project_api_key='${currentTeam?.api_token}', host='${window.location.origin}')
+posthog = Posthog(project_api_key='${currentTeam?.api_token}', host='${apiHostOrigin()}')
 
             `}
         </CodeSnippet>

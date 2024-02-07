@@ -1,4 +1,5 @@
 import time
+from unittest.mock import patch
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -7,6 +8,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from ee.billing.quota_limiting import (
+    QUOTA_LIMIT_DATA_RETENTION_FLAG,
     QUOTA_LIMITER_CACHE_KEY,
     QUOTA_OVERAGE_RETENTION_CACHE_KEY,
     QuotaResource,
@@ -139,7 +141,8 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
         assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
-    def test_billing_rate_limit(self) -> None:
+    @patch("posthoganalytics.capture")
+    def test_billing_rate_limit(self, patch_capture) -> None:
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T22:09:14.252Z"):
             self.organization.usage = {
                 "events": {"usage": 99, "limit": 100},

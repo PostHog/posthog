@@ -5,6 +5,7 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
 import psycopg
 from django.conf import settings
+from posthog.warehouse.util import database_sync_to_async
 
 
 class ExternalDataSchema(CreatedMetaFields, UUIDModel):
@@ -25,9 +26,19 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     __repr__ = sane_repr("name")
 
 
+@database_sync_to_async
+def asave_external_data_schema(schema: ExternalDataSchema) -> None:
+    schema.save()
+
+
 def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
     schema = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema_name).first()
     return schema
+
+
+@database_sync_to_async
+def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
+    return get_schema_if_exists(schema_name=schema_name, team_id=team_id, source_id=source_id)
 
 
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):

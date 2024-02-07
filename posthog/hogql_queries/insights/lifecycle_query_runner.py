@@ -25,6 +25,7 @@ from posthog.schema import (
     LifecycleQueryResponse,
     InsightActorsQueryOptionsResponse,
 )
+from posthog.utils import format_label_date
 
 
 class LifecycleQueryRunner(QueryRunner):
@@ -168,10 +169,7 @@ class LifecycleQueryRunner(QueryRunner):
         res = []
         for val in results:
             counts = val[1]
-            labels = [
-                item.strftime("%-d-%b-%Y{}".format(" %H:%M" if self.query_date_range.interval_name == "hour" else ""))
-                for item in val[0]
-            ]
+            labels = [format_label_date(item, self.query_date_range.interval_name) for item in val[0]]
             days = [
                 item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
                 for item in val[0]

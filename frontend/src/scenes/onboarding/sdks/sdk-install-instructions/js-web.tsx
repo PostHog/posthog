@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function JSInstallSnippet(): JSX.Element {
@@ -18,7 +19,7 @@ export function JSSetupSnippet(): JSX.Element {
             {[
                 "import posthog from 'posthog-js'",
                 '',
-                `posthog.init('${currentTeam?.api_token}', { api_host: '${window.location.origin}' })`,
+                `posthog.init('${currentTeam?.api_token}', { api_host: '${apiHostOrigin()}' })`,
             ].join('\n')}
         </CodeSnippet>
     )

@@ -11,11 +11,9 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
-    get_external_data_job,
     update_external_job_status,
 )
 from posthog.warehouse.models import (
@@ -23,6 +21,7 @@ from posthog.warehouse.models import (
     get_active_schemas_for_source_id,
     sync_old_schemas_with_new_schemas,
     ExternalDataSource,
+    get_external_data_job,
 )
 from posthog.warehouse.models.external_data_schema import get_postgres_schemas
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -61,14 +60,11 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         schemas_to_sync = await sync_to_async(get_postgres_schemas)(  # type: ignore
             host, port, database, user, password, schema
         )
-    else:
-        schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type])
-
-    await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-        schemas_to_sync,
-        source_id=inputs.external_data_source_id,
-        team_id=inputs.team_id,
-    )
+        await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
+            schemas_to_sync,
+            source_id=inputs.external_data_source_id,
+            team_id=inputs.team_id,
+        )
 
     schemas = await sync_to_async(get_active_schemas_for_source_id)(  # type: ignore
         team_id=inputs.team_id, source_id=inputs.external_data_source_id
@@ -116,7 +112,7 @@ class ValidateSchemaInputs:
 
 @activity.defn
 async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
-    await sync_to_async(validate_schema_and_update_table)(  # type: ignore
+    await validate_schema_and_update_table(
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         schemas=inputs.schemas,
@@ -144,9 +140,8 @@ class ExternalDataJobInputs:
 
 @activity.defn
 async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
-    model: ExternalDataJob = await sync_to_async(get_external_data_job)(  # type: ignore
-        team_id=inputs.team_id,
-        run_id=inputs.run_id,
+    model: ExternalDataJob = await get_external_data_job(
+        job_id=inputs.run_id,
     )
 
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)

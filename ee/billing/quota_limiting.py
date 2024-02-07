@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple, TypedDict, cast
 
 import dateutil.parser
+import posthoganalytics
 from django.db.models import Q
 from django.utils import timezone
 from sentry_sdk import capture_exception
@@ -28,6 +29,8 @@ QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
 # Ref: INC-144
 DAYS_RETAIN_DATA = 3
 QUOTA_OVERAGE_RETENTION_CACHE_KEY = "@posthog/quota-overage-retention/"
+
+QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
 
 class QuotaResource(Enum):
@@ -116,6 +119,19 @@ def determine_org_quota_limit_or_data_retention(
         return None
 
     if organization.never_drop_data:
+        return None
+
+    if posthoganalytics.feature_enabled(
+        QUOTA_LIMIT_DATA_RETENTION_FLAG,
+        organization.id,
+        groups={"organization": str(organization.id)},
+        group_properties={"organization": {"id": str(organization.id)}},
+    ):
+        # Don't drop data for this org but record that they __would have__ been
+        # limited.
+        report_organization_action(
+            organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
+        )
         return None
 
     # Either wasn't set or was set in the previous biling period
@@ -240,8 +256,15 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Tuple[Dict[str, Dict
     )
 
     teams: Sequence[Team] = list(
-        Team.objects.select_related("organization").exclude(
-            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
+        Team.objects.select_related("organization")
+        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .only(
+            "id",
+            "api_token",
+            "organization__id",
+            "organization__usage",
+            "organization__created_at",
+            "organization__never_drop_data",
         )
     )
 

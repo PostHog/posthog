@@ -1,4 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
+import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -16,6 +17,7 @@ import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
+import { ItemDoctor } from './ItemDoctor'
 import { ItemEvent } from './ItemEvent'
 import { ItemPerformanceEvent } from './ItemPerformanceEvent'
 
@@ -39,6 +41,14 @@ const typeToIconAndDescription = {
     ['offline-status']: {
         Icon: IconOffline,
         tooltip: 'browser went offline or returned online',
+    },
+    ['$session_config']: {
+        Icon: IconGear,
+        tooltip: 'Session recording config',
+    },
+    ['doctor']: {
+        Icon: undefined,
+        tooltip: 'Doctor event',
     },
 }
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
@@ -165,6 +175,8 @@ export function PlayerInspectorListItem({
                     <div className="flex items-start p-2 text-xs">
                         {item.offline ? 'Browser went offline' : 'Browser returned online'}
                     </div>
+                ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
+                    <ItemDoctor item={item} {...itemProps} />
                 ) : null}
 
                 {isExpanded ? (

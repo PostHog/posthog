@@ -192,7 +192,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
 
     return (
@@ -248,7 +248,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                 <FeaturePreviewsButton />
                 {user?.is_staff && <InstanceSettings />}
             </AccountPopoverSection>
-            {!isCloudOrDev && (
+            {!isCloud && (
                 <AccountPopoverSection>
                     <LemonButton
                         onClick={closeAccountPopover}

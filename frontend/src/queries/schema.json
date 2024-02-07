@@ -221,6 +221,16 @@
                 }
             ]
         },
+        "AnyEntityNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ]
+        },
         "AnyPropertyFilter": {
             "anyOf": [
                 {
@@ -392,6 +402,9 @@
         "BreakdownType": {
             "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
+        },
+        "BreakdownValueInt": {
+            "type": "integer"
         },
         "ChartAxis": {
             "additionalProperties": false,
@@ -1320,33 +1333,183 @@
             "type": "string"
         },
         "FunnelExclusion": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/FunnelExclusionEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelExclusionActionsNode"
+                }
+            ]
+        },
+        "FunnelExclusionActionsNode": {
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
-                    "type": ["string", "null"]
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "funnelFromStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "funnelToStep": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "id": {
-                    "type": ["string", "number", "null"]
+                    "type": "integer"
                 },
-                "index": {
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
                     "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
                 },
                 "name": {
-                    "type": ["string", "null"]
+                    "type": "string"
                 },
-                "order": {
-                    "type": "number"
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
                 }
             },
+            "required": ["id", "kind"],
+            "type": "object"
+        },
+        "FunnelExclusionEventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "description": "The event or `null` for all events.",
+                    "type": ["string", "null"]
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "funnelFromStep": {
+                    "type": "integer"
+                },
+                "funnelToStep": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "additionalProperties": false,
+                    "description": "Return a limited set of data",
+                    "properties": {
+                        "next": {
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/EventType"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "FunnelExclusionLegacy": {
@@ -1375,6 +1538,18 @@
                 },
                 "type": {
                     "$ref": "#/definitions/EntityType"
+                }
+            },
+            "type": "object"
+        },
+        "FunnelExclusionSteps": {
+            "additionalProperties": false,
+            "properties": {
+                "funnelFromStep": {
+                    "type": "integer"
+                },
+                "funnelToStep": {
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -1556,14 +1731,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 }
@@ -1684,6 +1852,10 @@
         "HogQLMetadata": {
             "additionalProperties": false,
             "properties": {
+                "debug": {
+                    "description": "Enable more verbose output, usually run from the /debug page",
+                    "type": "boolean"
+                },
                 "expr": {
                     "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
@@ -1693,7 +1865,8 @@
                     "description": "Query within which \"expr\" is validated. Defaults to \"select * from events\""
                 },
                 "filters": {
-                    "$ref": "#/definitions/HogQLFilters"
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Extra filters applied to query via {filters}"
                 },
                 "kind": {
                     "const": "HogQLMetadata",
@@ -1878,6 +2051,10 @@
                 "limit": {
                     "type": "integer"
                 },
+                "metadata": {
+                    "$ref": "#/definitions/HogQLMetadataResponse",
+                    "description": "Query metadata output"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -1912,6 +2089,20 @@
         "InsightActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "breakdown": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/BreakdownValueInt"
+                        }
+                    ]
+                },
+                "compare": {
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
                 "day": {
                     "anyOf": [
                         {
@@ -1932,6 +2123,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "series": {
+                    "type": "integer"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQuerySource"
@@ -1963,6 +2157,45 @@
         "InsightActorsQueryOptionsResponse": {
             "additionalProperties": false,
             "properties": {
+                "breakdown": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/BreakdownValueInt"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "compare": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "day": {
                     "items": {
                         "additionalProperties": false,
@@ -1995,6 +2228,22 @@
                             },
                             "value": {
                                 "description": "An interval selected out of available intervals in source query",
+                                "type": "integer"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "series": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
                                 "type": "integer"
                             }
                         },
@@ -2278,14 +2527,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 }
@@ -2438,9 +2680,11 @@
                     "type": "integer"
                 },
                 "pathDropoffKey": {
+                    "description": "Relevant only within actors query",
                     "type": "string"
                 },
                 "pathEndKey": {
+                    "description": "Relevant only within actors query",
                     "type": "string"
                 },
                 "pathGroupings": {
@@ -2453,6 +2697,7 @@
                     "type": "boolean"
                 },
                 "pathStartKey": {
+                    "description": "Relevant only within actors query",
                     "type": "string"
                 },
                 "pathsHogQLExpression": {
@@ -2957,6 +3202,45 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "breakdown": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/BreakdownValueInt"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "compare": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
                         "day": {
                             "items": {
                                 "additionalProperties": false,
@@ -2989,6 +3273,22 @@
                                     },
                                     "value": {
                                         "description": "An interval selected out of available intervals in source query",
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": ["label", "value"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "series": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "label": {
+                                        "type": "string"
+                                    },
+                                    "value": {
                                         "type": "integer"
                                     }
                                 },
@@ -3073,6 +3373,10 @@
                         },
                         "limit": {
                             "type": "integer"
+                        },
+                        "metadata": {
+                            "$ref": "#/definitions/HogQLMetadataResponse",
+                            "description": "Query metadata output"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -3183,6 +3487,9 @@
                             "items": {},
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -3192,8 +3499,14 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "limit": {
+                            "type": "integer"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
+                        },
+                        "offset": {
+                            "type": "integer"
                         },
                         "results": {
                             "items": {},
@@ -4064,14 +4377,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -4393,14 +4699,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -4649,6 +4948,9 @@
                     "const": "WebStatsTableQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -4678,6 +4980,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -4687,8 +4992,14 @@
                 "last_refresh": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "next_allowed_client_refresh": {
                     "type": "string"
+                },
+                "offset": {
+                    "type": "integer"
                 },
                 "results": {
                     "items": {},
