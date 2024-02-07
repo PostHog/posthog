@@ -1,6 +1,6 @@
 import { Tooltip } from '@posthog/lemon-ui'
 import { IconAdsClick, IconCode, IconExclamation, IconEyeHidden, IconEyeVisible } from 'lib/lemon-ui/icons'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 
 import { EventType } from '~/types'
 
@@ -25,7 +25,7 @@ export const EventIcon = ({ event }: EventIconProps): JSX.Element => {
             Component = IconCode
     }
     return (
-        <Tooltip title={`${KEY_MAPPING.event[event.event]?.label || 'Custom'} event`}>
+        <Tooltip title={`${CORE_FILTER_DEFINITIONS_BY_GROUP.events[event.event]?.label || 'Custom'} event`}>
             <Component className="text-2xl text-muted" />
         </Tooltip>
     )
