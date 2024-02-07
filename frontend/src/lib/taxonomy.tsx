@@ -894,6 +894,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['01:04:12'],
         },
     },
+    groups: {
+        $group_key: {
+            label: 'Group Key',
+            description: 'Specified group key',
+        },
+    },
 } satisfies Partial<Record<TaxonomicFilterGroupType, Record<string, CoreFilterDefinition>>>
 CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
     Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties).flatMap(([key, value]) =>
@@ -948,8 +954,14 @@ export function getCoreFilterDefinition(
     }
 
     value = value.toString()
+    const isGroupTaxonomicFilterType = type.startsWith('groups_')
     if (type in CORE_FILTER_DEFINITIONS_BY_GROUP && value in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
         return { ...CORE_FILTER_DEFINITIONS_BY_GROUP[type][value] }
+    } else if (
+        isGroupTaxonomicFilterType &&
+        value in CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.GroupsPrefix]
+    ) {
+        return { ...CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.GroupsPrefix][value] }
     } else if (value.startsWith('$survey_responded/')) {
         const surveyId = value.replace(/^\$survey_responded\//, '')
         if (surveyId) {
