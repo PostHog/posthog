@@ -1,3 +1,4 @@
+import logging
 import secrets
 import string
 import uuid
@@ -14,6 +15,8 @@ from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -282,21 +285,26 @@ def execute_with_timeout(timeout: int, database: str = "default") -> Iterator[Cu
             yield cursor
 
 
-def LOGGED_CASCADE(collector, field, sub_objs, using):
+def WARN_ON_CASCADE(collector, field, sub_objs, using):
     """
-    Similar to ``django.db.models.CASCADE``, but intended for cases where we
-    don't actually intend for the cascade to actually occur (except within tests
-    for convenience.)
+    Similar to ``django.db.models.CASCADE``, but intended for cases where we are
+    planning to change an existing ``CASCADE`` to a more restrictive replacement
+    and want to verify that doing so will not cause any issues before making
+    that change.
 
     This also differs from the default ``CASCADE`` implementation in that it
     does not try to get clever with nullable foreign keys -- this just treats
-    nullable foreign keys in the same way as non-nullable (i.e. it makes sure to
-    delete child instances _before_ parent objects, allowing them to be
+    nullable foreign keys in the same way as non-nullable ones (i.e. it makes
+    sure to delete child instances _before_ parent objects, allowing them to be
     referenced safely in post-deletion hooks.)
     """
-    if sub_objs.count() > 0:
-        # TODO: Log a warning so that we can try to track down where these are coming from...
-        pass
+    if sub_objs.exists():
+        logger.warn(
+            "cascading deletion of %r via %r is not side-effect free",
+            field.model,
+            field,
+            stack_info=True,
+        )
 
     collector.collect(
         sub_objs,

@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 from django.db import models, transaction
 from django.db.models import F, Q
 
-from posthog.models.utils import UUIDT, LOGGED_CASCADE
+from posthog.models.utils import UUIDT, WARN_ON_CASCADE
 
 from ..team import Team
 
@@ -110,7 +110,7 @@ class PersonDistinctId(models.Model):
         constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
-    person: models.ForeignKey = models.ForeignKey(Person, on_delete=LOGGED_CASCADE, null=True)
+    person: models.ForeignKey = models.ForeignKey(Person, on_delete=WARN_ON_CASCADE, null=True)
     distinct_id: models.CharField = models.CharField(max_length=400)
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
