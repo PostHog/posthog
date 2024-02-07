@@ -582,7 +582,6 @@ export enum ExperimentsTabs {
 
 export enum PipelineTab {
     Overview = 'overview',
-    Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
     AppsManagement = 'apps-management',
@@ -813,6 +812,7 @@ export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
     NETWORK = 'network',
+    DOCTOR = 'doctor',
 }
 
 export enum SessionPlayerState {
@@ -901,8 +901,8 @@ export interface ActionFilter extends EntityFilter {
 }
 
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
-    funnel_from_step?: number
-    funnel_to_step?: number
+    funnel_from_step: number
+    funnel_to_step: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null

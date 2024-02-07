@@ -34,7 +34,7 @@ anyio==4.2.0
     # via
     #   httpx
     #   openai
-asgiref==3.3.2
+asgiref==3.7.2
     # via django
 asn1crypto==1.5.1
     # via
@@ -146,7 +146,7 @@ distro==1.9.0
     # via openai
 dj-database-url==0.5.0
     # via -r requirements.in
-django==3.2.23
+django==4.1.13
     # via
     #   -r requirements.in
     #   django-axes
@@ -496,7 +496,6 @@ pytz==2023.3
     # via
     #   -r requirements.in
     #   clickhouse-driver
-    #   django
     #   djangorestframework
     #   dlt
     #   infi-clickhouse-orm
@@ -650,6 +649,7 @@ types-setuptools==69.0.0.0
 typing-extensions==4.7.1
     # via
     #   anyio
+    #   asgiref
     #   dlt
     #   openai
     #   psycopg

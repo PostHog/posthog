@@ -46,6 +46,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
+    HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
@@ -92,6 +93,7 @@ export type AnyDataNode =
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
+    | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -112,6 +114,7 @@ export type QuerySchema =
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
+    | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -152,6 +155,7 @@ export type AnyResponseType =
     | Record<string, any>
     | HogQLQueryResponse
     | HogQLMetadataResponse
+    | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
 
@@ -187,6 +191,8 @@ export interface HogQLQueryResponse {
     timings?: QueryTiming[]
     /** Query explanation output */
     explain?: string[]
+    /** Query metadata output */
+    metadata?: HogQLMetadataResponse
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
     hasMore?: boolean
@@ -232,6 +238,61 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
 }
 
+export interface AutocompleteCompletionItem {
+    /**
+     * The label of this completion item. By default
+     * this is also the text that is inserted when selecting
+     * this completion.
+     */
+    label: string
+    /**
+     * A human-readable string that represents a doc-comment.
+     */
+    documentation?: string
+    /**
+     * A string or snippet that should be inserted in a document when selecting
+     * this completion.
+     */
+    insertText: string
+    /**
+     * The kind of this completion item. Based on the kind
+     * an icon is chosen by the editor.
+     */
+    kind:
+        | 'Method'
+        | 'Function'
+        | 'Constructor'
+        | 'Field'
+        | 'Variable'
+        | 'Class'
+        | 'Struct'
+        | 'Interface'
+        | 'Module'
+        | 'Property'
+        | 'Event'
+        | 'Operator'
+        | 'Unit'
+        | 'Value'
+        | 'Constant'
+        | 'Enum'
+        | 'EnumMember'
+        | 'Keyword'
+        | 'Text'
+        | 'Color'
+        | 'File'
+        | 'Reference'
+        | 'Customcolor'
+        | 'Folder'
+        | 'TypeParameter'
+        | 'User'
+        | 'Issue'
+        | 'Snippet'
+}
+
+export interface HogQLAutocompleteResponse {
+    suggestions: AutocompleteCompletionItem[]
+}
+
 export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
     /** Full select query to validate (use `select` or `expr`, but not both) */
@@ -242,8 +303,30 @@ export interface HogQLMetadata extends DataNode {
     exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
+    /** Extra filters applied to query via {filters} */
     filters?: HogQLFilters
+    /** Enable more verbose output, usually run from the /debug page */
+    debug?: boolean
     response?: HogQLMetadataResponse
+}
+
+export interface HogQLAutocomplete extends DataNode {
+    kind: NodeKind.HogQLAutocomplete
+    /** Full select query to validate */
+    select: string
+    /** Table to validate the expression against */
+    filters?: HogQLFilters
+    /**
+     * Start position of the editor word
+     * @asType integer
+     */
+    startPosition: number
+    /**
+     * End position of the editor word
+     * @asType integer
+     */
+    endPosition: number
+    response?: HogQLAutocompleteResponse
 }
 
 export interface EntityNode extends DataNode {
@@ -574,9 +657,9 @@ export type FunnelsFilterLegacy = Omit<
 
 export interface FunnelExclusionSteps {
     /** @asType integer */
-    funnelFromStep?: number
+    funnelFromStep: number
     /** @asType integer */
-    funnelToStep?: number
+    funnelToStep: number
 }
 export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
 export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
@@ -587,12 +670,16 @@ export type FunnelsFilter = {
     layout?: FunnelsFilterLegacy['layout']
     binCount?: FunnelsFilterLegacy['bin_count']
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    /** @asType integer */
     breakdownAttributionValue?: FunnelsFilterLegacy['breakdown_attribution_value']
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    /** @asType integer */
     funnelToStep?: FunnelsFilterLegacy['funnel_to_step']
+    /** @asType integer */
     funnelFromStep?: FunnelsFilterLegacy['funnel_from_step']
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    /** @asType integer */
     funnelWindowInterval?: FunnelsFilterLegacy['funnel_window_interval']
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
     hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
@@ -612,7 +699,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
 }
 
 export interface FunnelsQueryResponse extends QueryResponse {
-    results: Record<string, any>[]
+    results: Record<string, any>[] | Record<string, any>[][]
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
@@ -930,6 +1017,8 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     response?: WebStatsTableQueryResponse
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    /** @asType integer */
+    limit?: number
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -937,6 +1026,11 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     columns?: unknown[]
     hogql?: string
     samplingRate?: SamplingRate
+    hasMore?: boolean
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
 }
 
 export type InsightQueryNode =

@@ -338,7 +338,15 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Cannot use internal Postgres database"},
             )
 
-        result = get_postgres_schemas(host, port, database, user, password, schema)
+        try:
+            result = get_postgres_schemas(host, port, database, user, password, schema)
+        except Exception as e:
+            logger.exception("Could not fetch Postgres schemas", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not fetch Postgres schemas. Please check all connection details are valid."},
+            )
+
         result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
         return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 

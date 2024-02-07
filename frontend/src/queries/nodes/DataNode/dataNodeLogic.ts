@@ -151,6 +151,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const response = await concurrencyController.run({
                             debugTag: props.query.kind,
                             abortController,
+                            priority: props.loadPriority,
                             fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
                                 const now = performance.now()
                                 try {
