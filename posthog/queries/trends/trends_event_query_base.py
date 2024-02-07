@@ -45,11 +45,8 @@ class TrendsEventQueryBase(EventQuery):
 
         self.params.update(prop_params)
 
-        entity_query, entity_params = self._get_entity_query(deep_filtering=False)
+        entity_query, entity_params = self._get_entity_query()
         self.params.update(entity_params)
-
-        deep_entity_query, deep_entity_params = self._get_entity_query(deep_filtering=True)
-        self.params.update(deep_entity_params)
 
         person_query, person_params = self._get_person_query()
         self.params.update(person_params)
@@ -66,7 +63,7 @@ class TrendsEventQueryBase(EventQuery):
         query = f"""
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query(relevant_events_conditions=deep_entity_query + date_query)}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             {session_query}
@@ -145,7 +142,7 @@ class TrendsEventQueryBase(EventQuery):
 
         return date_query, date_params
 
-    def _get_entity_query(self, *, deep_filtering: bool) -> Tuple[str, Dict]:
+    def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
             allowed_entities=[self._entity],
             team_id=self._team_id,
@@ -153,7 +150,6 @@ class TrendsEventQueryBase(EventQuery):
             person_properties_mode=get_person_properties_mode(self._team),
             hogql_context=self._filter.hogql_context,
             person_id_joined_alias=self._person_id_alias,
-            deep_filtering=deep_filtering,
         )
 
         return entity_format_params["entity_query"], entity_params

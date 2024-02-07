@@ -28,8 +28,8 @@ class StickinessEventsQuery(EventQuery):
 
         self.params.update(prop_params)
 
-        entity_query, entity_params = self.get_entity_query()
-        self.params.update(entity_params)
+        actions_query, actions_params = self.get_actions_query()
+        self.params.update(actions_params)
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
@@ -57,12 +57,12 @@ class StickinessEventsQuery(EventQuery):
                 ) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query(relevant_events_conditions=entity_query + date_query)}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s
             {date_query}
-            {entity_query}
+            AND {actions_query}
             {prop_query}
             {null_person_filter}
             GROUP BY aggregation_target
@@ -94,9 +94,9 @@ class StickinessEventsQuery(EventQuery):
     def aggregation_target(self):
         return self._person_id_alias
 
-    def get_entity_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_actions_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
-            condition, params = format_action_filter(
+            return format_action_filter(
                 team_id=self._team_id,
                 action=self._entity.get_action(),
                 person_properties_mode=get_person_properties_mode(self._team),
@@ -104,8 +104,6 @@ class StickinessEventsQuery(EventQuery):
                 hogql_context=self._filter.hogql_context,
             )
         elif self._entity.id is None:
-            condition, params = None, {}
+            return "1 = 1", {}
         else:
-            condition, params = "event = %(event)s", {"event": self._entity.id}
-
-        return f"AND {condition}" if condition else "", params
+            return "event = %(event)s", {"event": self._entity.id}

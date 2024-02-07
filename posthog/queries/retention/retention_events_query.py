@@ -217,6 +217,7 @@ class RetentionEventsQuery(EventQuery):
                 team_id=self._team_id,
                 action=action,
                 prepend=prepend,
+                use_loop=False,
                 person_properties_mode=get_person_properties_mode(self._team),
                 person_id_joined_alias=self._person_id_alias,
                 hogql_context=self._filter.hogql_context,
