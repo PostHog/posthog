@@ -170,6 +170,16 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             return csv_rows
         else:
             return items
+    elif data.get("result") and isinstance(data.get("result"), dict):
+        result = data["result"]
+
+        if "bins" not in result:
+            return []
+
+        csv_rows = []
+        for key, value in result["bins"]:
+            csv_rows.append({"bin": key, "value": value})
+        return csv_rows
 
     return []
 
@@ -238,6 +248,10 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
     render_context = {}
     if columns:
         render_context["header"] = columns
+
+    # Fallback if empty to produce any CSV at all to distinguish from a failed export
+    if not all_csv_rows:
+        all_csv_rows = [{}]
 
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
