@@ -11,7 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
@@ -79,7 +79,7 @@ class QuerySerializer(serializers.Serializer):
 
 
 class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     def list(self, request: Request, **kw) -> HttpResponse:
         # parse query params

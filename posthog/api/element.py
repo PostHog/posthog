@@ -14,10 +14,7 @@ from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
 
@@ -49,11 +46,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     include_in_docs = False
 
     @action(methods=["GET"], detail=False)
