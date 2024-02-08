@@ -1,18 +1,17 @@
 import './PlanComparison.scss'
 
-import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonModal, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 
-import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
+import { convertLargeNumberToWords } from './billing-utils'
 import { billingLogic } from './billingLogic'
 
 export function PlanIcon({
@@ -109,43 +108,8 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const { redirectPath, billing } = useValues(billingLogic)
+    const { billing } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
-
-    const upgradeButtons = plans?.map((plan) => {
-        return (
-            <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
-                <LemonButton
-                    to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
-                    type={plan.current_plan ? 'secondary' : 'primary'}
-                    status={plan.current_plan ? 'default' : 'alt'}
-                    fullWidth
-                    center
-                    disableClientSideRouting
-                    disabled={plan.current_plan}
-                    onClick={() => {
-                        if (!plan.current_plan) {
-                            reportBillingUpgradeClicked(product.type)
-                        }
-                    }}
-                >
-                    {plan.current_plan ? 'Current plan' : 'Subscribe'}
-                </LemonButton>
-                {!plan.current_plan && includeAddons && product.addons?.length > 0 && (
-                    <p className="text-center ml-0 mt-2 mb-0">
-                        <Link
-                            to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
-                            className="text-muted text-xs"
-                            disableClientSideRouting
-                        >
-                            or subscribe without addons
-                        </Link>
-                    </p>
-                )}
-            </td>
-        )
-    })
 
     return (
         <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
@@ -160,15 +124,6 @@ export const PlanComparison = ({
                 </tr>
             </thead>
             <tbody>
-                {/* Pricing section */}
-                <tr>
-                    <th
-                        colSpan={3}
-                        className="PlanTable__th__section bg-side text-muted justify-left rounded text-left mb-2"
-                    >
-                        <span>Pricing</span>
-                    </th>
-                </tr>
                 <tr className="PlanTable__tr__border">
                     <td className="font-bold">Monthly base price</td>
                     {plans?.map((plan) => (
@@ -220,21 +175,6 @@ export const PlanComparison = ({
                             </tr>
                         ) : null
                     })}
-
-                <tr>
-                    <td />
-                    {upgradeButtons}
-                </tr>
-                <tr>
-                    <th colSpan={3} className="PlanTable__th__section bg-side justify-left rounded text-left mb-2">
-                        <div className="flex items-center gap-x-2 my-2">
-                            {getProductIcon(product.icon_key, 'text-2xl')}
-                            <Tooltip title={product.description}>
-                                <span className="font-bold">{product.name}</span>
-                            </Tooltip>
-                        </div>
-                    </th>
-                </tr>
 
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
                     <tr

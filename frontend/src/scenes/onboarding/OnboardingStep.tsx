@@ -82,6 +82,7 @@ export const OnboardingStep = ({
                     )}
                     {showSkip && (
                         <LemonButton
+                            type="secondary"
                             onClick={() => {
                                 onSkip && onSkip()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
