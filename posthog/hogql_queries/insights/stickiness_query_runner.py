@@ -136,7 +136,7 @@ class StickinessQueryRunner(QueryRunner):
 
             interval_addition = ast.Call(
                 name=f"toInterval{date_range.interval_name.capitalize()}",
-                args=[ast.Constant(value=0 if date_range.interval_name == "week" else 1)],
+                args=[ast.Constant(value=1)],
             )
 
             select_query = parse_select(
@@ -146,7 +146,7 @@ class StickinessQueryRunner(QueryRunner):
                         SELECT sum(aggregation_target) as aggregation_target, num_intervals
                         FROM (
                             SELECT 0 as aggregation_target, (number + 1) as num_intervals
-                            FROM numbers(dateDiff({interval}, {date_from}, {date_to} + {interval_addition}))
+                            FROM numbers(dateDiff({interval}, {date_from_start_of_interval}, {date_to_start_of_interval} + {interval_addition}))
                             UNION ALL
                             {events_query}
                         )
