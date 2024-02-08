@@ -65,7 +65,7 @@ where
     serializer.serialize_str(type_str)
 }
 
-fn serialize_message<S>(msg: &String, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_message<S>(msg: &str, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
