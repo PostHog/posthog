@@ -84,7 +84,7 @@ jobs:
             - name: Trigger PostHog Cloud deployment
               # TODO: switch to https://github.com/marketplace/actions/repository-dispatch
               # as this action is now deprecated.
-              uses: mvasigh/dispatch-action@main
+              uses: mvasigh/dispatch-action@deploy-posthog-from-charts
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repo: posthog-cloud-infra
@@ -96,6 +96,18 @@ jobs:
                         "image_tag_unit": "${{ steps.build.outputs.digest }}",
                         "context": ${{ toJson(github) }}
                       }
+
+            - name: Trigger PostHog Cloud deployment from Charts
+              uses: mvasigh/dispatch-action@deploy-posthog-from-charts
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repo: charts
+                  owner: PostHog
+                  event_type: posthog_deploy
+                  message: |
+                      {
+                        "image_tag": "${{ steps.build.outputs.digest }}"
+                      }                      
 
             - name: Check for changes in plugins directory
               id: check_changes_plugins
