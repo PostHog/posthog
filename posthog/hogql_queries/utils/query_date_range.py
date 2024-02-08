@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
@@ -75,6 +74,8 @@ class QueryDateRange:
                 self._date_range.date_from,
                 self._team.timezone_info,
                 now=self.now_with_timezone,
+                # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
+                always_truncate=True,
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -249,22 +250,6 @@ class QueryDateRange:
             if self.use_start_of_interval()
             else self.date_from_as_hogql(),
         }
-
-    def to_properties(self, field: Optional[List[str]] = None) -> List[ast.Expr]:
-        if not field:
-            field = ["timestamp"]
-        return [
-            ast.CompareOperation(
-                left=ast.Field(chain=field),
-                op=CompareOperationOp.LtEq,
-                right=self.date_to_as_hogql(),
-            ),
-            ast.CompareOperation(
-                left=ast.Field(chain=field),
-                op=CompareOperationOp.Gt,
-                right=self.date_to_as_hogql(),
-            ),
-        ]
 
 
 class QueryDateRangeWithIntervals(QueryDateRange):

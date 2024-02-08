@@ -46,6 +46,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
+    HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
@@ -92,6 +93,7 @@ export type AnyDataNode =
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
+    | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -112,6 +114,7 @@ export type QuerySchema =
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
+    | HogQLAutocomplete
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -152,6 +155,7 @@ export type AnyResponseType =
     | Record<string, any>
     | HogQLQueryResponse
     | HogQLMetadataResponse
+    | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
 
@@ -234,6 +238,61 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
 }
 
+export interface AutocompleteCompletionItem {
+    /**
+     * The label of this completion item. By default
+     * this is also the text that is inserted when selecting
+     * this completion.
+     */
+    label: string
+    /**
+     * A human-readable string that represents a doc-comment.
+     */
+    documentation?: string
+    /**
+     * A string or snippet that should be inserted in a document when selecting
+     * this completion.
+     */
+    insertText: string
+    /**
+     * The kind of this completion item. Based on the kind
+     * an icon is chosen by the editor.
+     */
+    kind:
+        | 'Method'
+        | 'Function'
+        | 'Constructor'
+        | 'Field'
+        | 'Variable'
+        | 'Class'
+        | 'Struct'
+        | 'Interface'
+        | 'Module'
+        | 'Property'
+        | 'Event'
+        | 'Operator'
+        | 'Unit'
+        | 'Value'
+        | 'Constant'
+        | 'Enum'
+        | 'EnumMember'
+        | 'Keyword'
+        | 'Text'
+        | 'Color'
+        | 'File'
+        | 'Reference'
+        | 'Customcolor'
+        | 'Folder'
+        | 'TypeParameter'
+        | 'User'
+        | 'Issue'
+        | 'Snippet'
+}
+
+export interface HogQLAutocompleteResponse {
+    suggestions: AutocompleteCompletionItem[]
+}
+
 export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
     /** Full select query to validate (use `select` or `expr`, but not both) */
@@ -249,6 +308,25 @@ export interface HogQLMetadata extends DataNode {
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
     response?: HogQLMetadataResponse
+}
+
+export interface HogQLAutocomplete extends DataNode {
+    kind: NodeKind.HogQLAutocomplete
+    /** Full select query to validate */
+    select: string
+    /** Table to validate the expression against */
+    filters?: HogQLFilters
+    /**
+     * Start position of the editor word
+     * @asType integer
+     */
+    startPosition: number
+    /**
+     * End position of the editor word
+     * @asType integer
+     */
+    endPosition: number
+    response?: HogQLAutocompleteResponse
 }
 
 export interface EntityNode extends DataNode {

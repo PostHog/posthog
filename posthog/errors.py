@@ -339,7 +339,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     255: ErrorCodeMeta("TOO_MANY_RETRIES_TO_FETCH_PARTS"),
     256: ErrorCodeMeta("PARTITION_ALREADY_EXISTS"),
     257: ErrorCodeMeta("PARTITION_DOESNT_EXIST"),
-    258: ErrorCodeMeta("UNION_ALL_RESULT_STRUCTURES_MISMATCH"),
+    258: ErrorCodeMeta("UNION_ALL_RESULT_STRUCTURES_MISMATCH", user_safe="Mismatched number of columns in UNION ALL."),
     260: ErrorCodeMeta("CLIENT_OUTPUT_FORMAT_SPECIFIED"),
     261: ErrorCodeMeta("UNKNOWN_BLOCK_INFO_FIELD"),
     262: ErrorCodeMeta("BAD_COLLATION"),

@@ -11,19 +11,17 @@ import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/d
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
-    return (
-        <span>
-            Last updated{' '}
-            <span className="font-medium">{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
-        </span>
-    )
+    return <span>Last updated {lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
 }
 
-// in seconds
+const refreshIntervalSeconds = [1800, 3600]
+if (process.env.NODE_ENV === 'development') {
+    refreshIntervalSeconds.push(10)
+}
 const intervalOptions = [
-    ...Array.from([1800, 3600], (v) => ({
-        label: humanFriendlyDuration(v),
-        value: v,
+    ...Array.from(refreshIntervalSeconds, (value) => ({
+        label: humanFriendlyDuration(value),
+        value: value,
     })),
 ]
 
@@ -49,6 +47,8 @@ export function DashboardReloadAction(): JSX.Element {
                 disabledReason={
                     blockRefresh
                         ? `Dashboards can only be refreshed every ${DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES} minutes.`
+                        : itemsLoading
+                        ? 'Refreshing...'
                         : ''
                 }
                 sideAction={{
@@ -64,7 +64,7 @@ export function DashboardReloadAction(): JSX.Element {
                                     id="auto-refresh-picker"
                                 >
                                     <Tooltip
-                                        title="Auto-refresh will only work while this tab is open"
+                                        title="Auto refresh will only work while this tab is open"
                                         placement="topRight"
                                     >
                                         <div>
