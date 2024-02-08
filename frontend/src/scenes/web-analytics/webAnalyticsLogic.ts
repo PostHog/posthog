@@ -594,7 +594,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             {
                                 id: SourceTab.REFERRING_DOMAIN,
                                 title: 'Top referrers',
-                                linkText: 'Referrering domain',
+                                linkText: 'Referring domain',
                                 query: {
                                     full: true,
                                     kind: NodeKind.DataTableNode,
