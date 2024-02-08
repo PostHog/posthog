@@ -289,6 +289,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
+
+        log_activity(
+            organization_id=organization.id,
+            team_id=team.pk,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            scope="Team",
+            item_id=team.pk,
+            activity="created",
+            detail=Detail(name=str(team.name)),
+        )
+
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:

@@ -1,5 +1,6 @@
 import json
-from typing import List, cast, Dict
+import uuid
+from typing import List, cast, Dict, Optional
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 
@@ -25,8 +26,11 @@ from posthog.test.base import APIBaseTest
 
 
 class TestTeamAPI(APIBaseTest):
-    def _assert_activity_log(self, expected: List[Dict]) -> None:
-        starting_log_response = self.client.get(f"/api/projects/{self.team.id}/activity")
+    def _assert_activity_log(self, expected: List[Dict], team_id: Optional[int] = None) -> None:
+        if not team_id:
+            team_id = self.team.pk
+
+        starting_log_response = self.client.get(f"/api/projects/{team_id}/activity")
         assert starting_log_response.status_code == 200
         assert starting_log_response.json()["results"] == expected
 
@@ -490,6 +494,41 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         mock_create_data_for_demo_team.assert_called_once()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @freeze_time("2022-02-08")
+    def test_team_creation_is_in_activity_log(self):
+        Team.objects.all().delete()
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team_name = str(uuid.uuid4())
+        response = self.client.post("/api/projects/", {"name": team_name, "is_demo": False})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        team_id = response.json()["id"]
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "created",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": None,
+                        "name": team_name,
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(team_id),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ],
+            team_id=team_id,
+        )
 
     def test_team_is_cached_on_create_and_update(self):
         Team.objects.all().delete()
