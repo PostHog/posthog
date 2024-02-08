@@ -211,6 +211,9 @@
                     "$ref": "#/definitions/HogQLMetadata"
                 },
                 {
+                    "$ref": "#/definitions/HogQLAutocomplete"
+                },
+                {
                     "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
@@ -277,6 +280,9 @@
                     "$ref": "#/definitions/HogQLMetadataResponse"
                 },
                 {
+                    "$ref": "#/definitions/HogQLAutocompleteResponse"
+                },
+                {
                     "anyOf": [
                         {
                             "additionalProperties": false,
@@ -304,6 +310,59 @@
                     "$ref": "#/definitions/EventsQueryResponse"
                 }
             ]
+        },
+        "AutocompleteCompletionItem": {
+            "additionalProperties": false,
+            "properties": {
+                "documentation": {
+                    "description": "A human-readable string that represents a doc-comment.",
+                    "type": "string"
+                },
+                "insertText": {
+                    "description": "A string or snippet that should be inserted in a document when selecting this completion.",
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "The kind of this completion item. Based on the kind an icon is chosen by the editor.",
+                    "enum": [
+                        "Method",
+                        "Function",
+                        "Constructor",
+                        "Field",
+                        "Variable",
+                        "Class",
+                        "Struct",
+                        "Interface",
+                        "Module",
+                        "Property",
+                        "Event",
+                        "Operator",
+                        "Unit",
+                        "Value",
+                        "Constant",
+                        "Enum",
+                        "EnumMember",
+                        "Keyword",
+                        "Text",
+                        "Color",
+                        "File",
+                        "Reference",
+                        "Customcolor",
+                        "Folder",
+                        "TypeParameter",
+                        "User",
+                        "Issue",
+                        "Snippet"
+                    ],
+                    "type": "string"
+                },
+                "label": {
+                    "description": "The label of this completion item. By default this is also the text that is inserted when selecting this completion.",
+                    "type": "string"
+                }
+            },
+            "required": ["label", "insertText", "kind"],
+            "type": "object"
         },
         "BaseMathType": {
             "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session"],
@@ -1841,6 +1900,50 @@
                 }
             ]
         },
+        "HogQLAutocomplete": {
+            "additionalProperties": false,
+            "properties": {
+                "endPosition": {
+                    "description": "End position of the editor word",
+                    "type": "integer"
+                },
+                "filters": {
+                    "$ref": "#/definitions/HogQLFilters",
+                    "description": "Table to validate the expression against"
+                },
+                "kind": {
+                    "const": "HogQLAutocomplete",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLAutocompleteResponse",
+                    "description": "Cached query response"
+                },
+                "select": {
+                    "description": "Full select query to validate",
+                    "type": "string"
+                },
+                "startPosition": {
+                    "description": "Start position of the editor word",
+                    "type": "integer"
+                }
+            },
+            "required": ["endPosition", "kind", "select", "startPosition"],
+            "type": "object"
+        },
+        "HogQLAutocompleteResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "suggestions": {
+                    "items": {
+                        "$ref": "#/definitions/AutocompleteCompletionItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["suggestions"],
+            "type": "object"
+        },
         "HogQLExpression": {
             "type": "string"
         },
@@ -2614,6 +2717,7 @@
                 "PersonsNode",
                 "HogQLQuery",
                 "HogQLMetadata",
+                "HogQLAutocomplete",
                 "ActorsQuery",
                 "SessionsTimelineQuery",
                 "DataTableNode",
@@ -3464,6 +3568,19 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "suggestions": {
+                            "items": {
+                                "$ref": "#/definitions/AutocompleteCompletionItem"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["suggestions"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "hogql": {
                             "type": "string"
                         },
@@ -3756,6 +3873,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLMetadata"
+                },
+                {
+                    "$ref": "#/definitions/HogQLAutocomplete"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewQuery"

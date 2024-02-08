@@ -1091,26 +1091,32 @@ function dedupeMutations<T extends addedNodeMutation | removedNodeMutation>(muta
     // introduce a new id, we can't just compare the id
     const seen = new Set<string>()
 
-    return mutations.filter((mutation: addedNodeMutation | removedNodeMutation) => {
-        let toCompare: string
-        if (isRemovedNodeMutation(mutation)) {
-            toCompare = JSON.stringify(mutation)
-        } else {
-            // if this is a synthetic addition, then we need to ignore the id,
-            // since duplicates won't have duplicate ids
-            toCompare = JSON.stringify({
-                ...mutation.node,
-                id: 0,
-            })
-        }
+    // in case later mutations are the ones we want to keep, we reverse the array
+    // this does help with the deduping, so, it's likely that the view for a single ID
+    // is not consistent over a snapshot, but it's cheap to reverse so :YOLO:
+    return mutations
+        .reverse()
+        .filter((mutation: addedNodeMutation | removedNodeMutation) => {
+            let toCompare: string
+            if (isRemovedNodeMutation(mutation)) {
+                toCompare = JSON.stringify(mutation)
+            } else {
+                // if this is a synthetic addition, then we need to ignore the id,
+                // since duplicates won't have duplicate ids
+                toCompare = JSON.stringify({
+                    ...mutation.node,
+                    id: 0,
+                })
+            }
 
-        if (seen.has(toCompare)) {
-            return false
-        } else {
-            seen.add(toCompare)
-            return true
-        }
-    })
+            if (seen.has(toCompare)) {
+                return false
+            } else {
+                seen.add(toCompare)
+                return true
+            }
+        })
+        .reverse()
 }
 
 /**
@@ -1159,13 +1165,15 @@ export const makeIncrementalEvent = (
                 timestamp: mobileEvent.timestamp,
                 idSequence: globalIdSequence,
             }
+            const updateAdditions: addedNodeMutation[] = []
             mobileEvent.data.updates.forEach((update) => {
                 const removal = makeIncrementalRemoveForUpdate(update)
                 if (removal) {
                     removes.push(removal)
                 }
-                makeIncrementalAdd(update, updatesContext)?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(update, updatesContext)?.forEach((x) => updateAdditions.push(x))
             })
+            dedupeMutations(updateAdditions).forEach((x) => adds.push(x))
         }
 
         converted.data = {

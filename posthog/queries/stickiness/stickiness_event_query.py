@@ -58,7 +58,7 @@ class StickinessEventsQuery(EventQuery):
                 ) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query(relevant_events_conditions=entity_query + date_query)}
+            {self._get_person_ids_query(relevant_events_conditions=f"{entity_query} {date_query}")}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s

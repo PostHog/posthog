@@ -2890,17 +2890,12 @@ export interface SelectOptionWithChildren extends SelectOption {
     key: string
 }
 
-export interface KeyMapping {
+export interface CoreFilterDefinition {
     label: string
     description?: string | JSX.Element
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
-}
-
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
 }
 
 export interface TileParams {

@@ -255,6 +255,9 @@ posthog/hogql/resolver.py:0: error: Argument 1 to "get_child" of "Type" has inco
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "Alias")  [assignment]
 posthog/hogql/resolver.py:0: error: Argument "alias" to "Alias" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/hogql/resolver.py:0: error: Argument 1 to "join" of "str" has incompatible type "list[str | int]"; expected "Iterable[str]"  [arg-type]
+posthog/temporal/data_imports/external_data_job.py:0: error: Argument "team_id" has incompatible type "int"; expected "str"  [arg-type]
+posthog/temporal/data_imports/external_data_job.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/temporal/data_imports/external_data_job.py:0: error: Argument "team_id" has incompatible type "int"; expected "str"  [arg-type]
 posthog/temporal/data_imports/external_data_job.py:0: error: Argument 2 to "DataImportPipeline" has incompatible type "DltSource"; expected "DltResource"  [arg-type]
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
@@ -404,8 +407,19 @@ posthog/api/person.py:0: error: Argument 1 to "loads" has incompatible type "str
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Argument 1 to "append" of "list" has incompatible type "EventPropertyFilter"; expected "Expr"  [arg-type]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Return type "list[SelectQuery | SelectUnionQuery]" of "to_query" incompatible with return type "SelectQuery | SelectUnionQuery" in supertype "QueryRunner"  [override]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Signature of "to_actors_query" incompatible with supertype "QueryRunner"  [override]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | int | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | int | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: List item 0 has incompatible type "str | float | None"; expected "str | float"  [list-item]
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Item "None" of "BreakdownFilter | None" has no attribute "breakdown"  [union-attr]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "FormulaAST" has incompatible type "map[Any]"; expected "list[list[float]]"  [arg-type]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
@@ -782,6 +796,14 @@ posthog/api/property_definition.py:0: error: Incompatible types in assignment (e
 posthog/api/property_definition.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "organization"  [union-attr]
 posthog/api/property_definition.py:0: error: Item "None" of "Organization | Any | None" has no attribute "is_feature_available"  [union-attr]
 posthog/api/dashboards/dashboard_templates.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
+posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Item "None" of "BatchExportRun | None" has no attribute "data_interval_start"  [union-attr]
+posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Item "None" of "BatchExportRun | None" has no attribute "data_interval_end"  [union-attr]
+posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Item "None" of "BatchExportRun | None" has no attribute "status"  [union-attr]
+posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Item "None" of "BatchExportRun | None" has no attribute "status"  [union-attr]
 posthog/temporal/tests/batch_exports/test_batch_exports.py:0: error: TypedDict key must be a string literal; expected one of ("_timestamp", "created_at", "distinct_id", "elements", "elements_chain", ...)  [literal-required]
 posthog/queries/app_metrics/test/test_app_metrics.py:0: error: Argument 3 to "AppMetricsErrorDetailsQuery" has incompatible type "AppMetricsRequestSerializer"; expected "AppMetricsErrorsRequestSerializer"  [arg-type]
 posthog/queries/app_metrics/test/test_app_metrics.py:0: error: Argument 3 to "AppMetricsErrorDetailsQuery" has incompatible type "AppMetricsRequestSerializer"; expected "AppMetricsErrorsRequestSerializer"  [arg-type]

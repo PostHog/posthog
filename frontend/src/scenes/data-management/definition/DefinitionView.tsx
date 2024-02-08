@@ -10,11 +10,12 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { getPropertyLabel } from 'lib/taxonomy'
+import { getFilterLabel } from 'lib/taxonomy'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import {
     definitionLogic,
@@ -141,8 +142,15 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                             description: (
                                                 <>
                                                     <p>
-                                                        <strong>{getPropertyLabel(definition.name)}</strong> will
-                                                        no longer appear in selectors. Associated data will remain
+                                                        <strong>
+                                                            {getFilterLabel(
+                                                                definition.name,
+                                                                isEvent
+                                                                    ? TaxonomicFilterGroupType.Events
+                                                                    : TaxonomicFilterGroupType.EventProperties
+                                                            )}
+                                                        </strong>{' '}
+                                                        will no longer appear in selectors. Associated data will remain
                                                         in the database.
                                                     </p>
                                                     <p>
