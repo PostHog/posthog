@@ -367,7 +367,14 @@ class TestExports(APIBaseTest):
             after = (datetime.now() - timedelta(minutes=10)).isoformat()
 
             def requests_side_effect(*args, **kwargs):
-                return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+                response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+
+                def raise_for_status():
+                    if 400 <= response.status_code < 600:
+                        raise requests.exceptions.HTTPError(response=response)
+
+                response.raise_for_status = raise_for_status
+                return response
 
             patched_request.side_effect = requests_side_effect
 
@@ -446,7 +453,14 @@ class TestExportMixin(APIBaseTest):
             with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
 
                 def requests_side_effect(*args, **kwargs):
-                    return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+                    response = self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
+
+                    def raise_for_status():
+                        if 400 <= response.status_code < 600:
+                            raise requests.exceptions.HTTPError(response=response)
+
+                    response.raise_for_status = raise_for_status
+                    return response
 
                 patched_request.side_effect = requests_side_effect
 

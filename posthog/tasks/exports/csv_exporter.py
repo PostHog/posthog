@@ -272,7 +272,7 @@ def make_api_call(
     path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
-    params = {
+    params: dict[str, str | int] = {
         get_limit_param_key(request_url): limit,
         "is_csv_export": "1",
     }
