@@ -248,7 +248,7 @@ class TestExports(APIBaseTest):
             {
                 "attr": "export_format",
                 "code": "invalid_input",
-                "detail": "This type of export is not supported for this resource.",
+                "detail": "Export format application/pdf is not supported.",
                 "type": "validation_error",
             },
         )

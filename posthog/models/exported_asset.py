@@ -45,6 +45,8 @@ class ExportedAsset(models.Model):
         PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
 
+    SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV]
+
     # Relations
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)

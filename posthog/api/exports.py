@@ -82,6 +82,11 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         instance: ExportedAsset = super().create(validated_data)
 
+        if instance.export_format not in ExportedAsset.SUPPORTED_FORMATS:
+            raise serializers.ValidationError(
+                {"export_format": [f"Export format {instance.export_format} is not supported."]}
+            )
+
         exporter.export_asset.delay(instance.id)
 
         if user is not None:
