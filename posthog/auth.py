@@ -149,7 +149,12 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
             if not user.exists():
                 raise AuthenticationFailed(detail="User doesn't exist")
             return (user.first(), None)
+
         return None
+
+    # NOTE: This appears first in the authentication chain often so we want to define an authenticate_header to ensure 401 and not 403
+    def authenticate_header(self, request: Request):
+        return "Bearer"
 
 
 class JwtAuthentication(authentication.BaseAuthentication):

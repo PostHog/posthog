@@ -42,6 +42,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     include_in_docs = True
 
+    authentication_classes = []
+    permission_classes = []
+
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
     def get_permissions(self):
