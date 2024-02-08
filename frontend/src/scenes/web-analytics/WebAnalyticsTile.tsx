@@ -335,6 +335,15 @@ export const WebStatsTableTile = ({
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
+            if (
+                (breakdownBy === WebStatsBreakdown.InitialPage || breakdownBy === WebStatsBreakdown.Page) &&
+                isPathCleaningEnabled
+            ) {
+                // if the path cleaning is enabled, don't allow toggling a path by clicking a row, as this wouldn't
+                // work due to the order that the regex and filters are applied
+                return {}
+            }
+
             const breakdownValue = getBreakdownValue(record, breakdownBy)
             if (breakdownValue === undefined) {
                 return {}
