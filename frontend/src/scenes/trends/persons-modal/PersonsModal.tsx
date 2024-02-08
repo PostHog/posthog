@@ -25,6 +25,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -81,6 +82,8 @@ export function PersonsModal({
         actors,
         actorsResponseLoading,
         actorsResponse,
+        errorObject,
+        validationError,
         insightActorsQueryOptions,
         searchTerm,
         actorLabel,
@@ -155,7 +158,13 @@ export function PersonsModal({
 
                     {query &&
                         Object.entries(insightActorsQueryOptions ?? {})
-                            .filter(([, value]) => !!value)
+                            .filter(([, value]) => {
+                                if (Array.isArray(value)) {
+                                    return !!value.length
+                                }
+
+                                return !!value
+                            })
                             .map(([key, options]) => (
                                 <div key={key}>
                                     <LemonSelect
@@ -176,7 +185,7 @@ export function PersonsModal({
                             </>
                         ) : (
                             <span>
-                                {actorsResponse?.next || actorsResponse?.next_offset ? 'More than ' : ''}
+                                {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
                                 <b>
                                     {totalActorsCount || 'No'} unique{' '}
                                     {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
@@ -187,7 +196,13 @@ export function PersonsModal({
                 </div>
                 <div className="px-6 overflow-hidden flex flex-col">
                     <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
-                        {actors && actors.length > 0 ? (
+                        {errorObject ? (
+                            validationError ? (
+                                <InsightValidationError detail={validationError} />
+                            ) : (
+                                <InsightErrorState />
+                            )
+                        ) : actors && actors.length > 0 ? (
                             <>
                                 {actors.map((actor) => (
                                     <ActorRow
@@ -215,7 +230,7 @@ export function PersonsModal({
                             </div>
                         )}
 
-                        {(actorsResponse?.next || actorsResponse?.next_offset) && (
+                        {(actorsResponse?.next || actorsResponse?.offset) && (
                             <div className="m-4 flex justify-center">
                                 <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}
@@ -331,14 +346,16 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
-                            <CopyToClipboardInline
-                                explicitValue={actor.distinct_ids[0]}
-                                iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="end"
-                                className="text-xs text-muted-alt"
-                            >
-                                {midEllipsis(actor.distinct_ids[0], 32)}
-                            </CopyToClipboardInline>
+                            {actor.distinct_ids?.[0] && (
+                                <CopyToClipboardInline
+                                    explicitValue={actor.distinct_ids[0]}
+                                    iconStyle={{ color: 'var(--primary)' }}
+                                    iconPosition="end"
+                                    className="text-xs text-muted-alt"
+                                >
+                                    {midEllipsis(actor.distinct_ids[0], 32)}
+                                </CopyToClipboardInline>
+                            )}
                         </>
                     )}
                 </div>

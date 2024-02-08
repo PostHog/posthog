@@ -4,9 +4,9 @@ import { useActions, useValues } from 'kea'
 import {
     CUSTOM_OPTION_DESCRIPTION,
     CUSTOM_OPTION_KEY,
-    CUSTOM_OPTION_VALUE,
     DateFilterLogicProps,
     DateFilterView,
+    NO_OVERRIDE_RANGE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { IconCalendar } from 'lib/lemon-ui/icons'
@@ -97,7 +97,7 @@ export function DateFilter({
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
             <LemonCalendarRange
-                value={[rangeDateTo ?? dayjs(), rangeDateTo ?? dayjs()]}
+                value={[rangeDateFrom ?? dayjs(), rangeDateTo ?? dayjs()]}
                 onChange={([from, to]) => {
                     setRangeDateFrom(from)
                     setRangeDateTo(to)
@@ -163,7 +163,7 @@ export function DateFilter({
                                 active={isActive}
                                 fullWidth
                             >
-                                {key === CUSTOM_OPTION_KEY ? CUSTOM_OPTION_VALUE : key}
+                                {key === CUSTOM_OPTION_KEY ? NO_OVERRIDE_RANGE_PLACEHOLDER : key}
                             </LemonButton>
                         </Tooltip>
                     )

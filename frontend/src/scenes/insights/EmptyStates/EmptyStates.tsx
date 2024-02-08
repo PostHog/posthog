@@ -25,6 +25,7 @@ import { FunnelsQuery } from '~/queries/schema'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
+import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -163,8 +164,8 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                         We apologize for this unexpected situation. There are a couple of things you can do:
                         <ol>
                             <li>
-                                First and foremost you can <b>try again</b>. We recommended you wait a moment before
-                                doing so.
+                                First and foremost you can <b>try again</b>. We recommend you wait a moment before doing
+                                so.
                             </li>
                             <li>
                                 <Link
@@ -194,7 +195,9 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
 
     const filters = series ? seriesToActionsAndEvents(series) : {}
     const setFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as Partial<FunnelsQuery>)
+        updateQuerySource({
+            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.None),
+        } as Partial<FunnelsQuery>)
     }
 
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
@@ -240,7 +243,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     )
 }
 
-export function FunnelValidationError({ detail }: { detail: string }): JSX.Element {
+export function InsightValidationError({ detail }: { detail: string }): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">

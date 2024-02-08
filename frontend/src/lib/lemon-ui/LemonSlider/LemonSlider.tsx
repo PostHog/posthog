@@ -73,6 +73,8 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                         newValue = Math.round(newValue / step) * step // Adjusted to step
                     }
                     onChange?.(newValue)
+                    movementStartValueWithX.current = [newValue, e.clientX]
+                    setDragging(true)
                 }}
             >
                 <div className="w-full bg-border rounded-full h-1" />

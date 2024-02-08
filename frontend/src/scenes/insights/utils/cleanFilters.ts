@@ -62,9 +62,9 @@ export const getClampedStepRangeFilter = ({
     stepRange,
     filters,
 }: {
-    stepRange?: FunnelExclusionLegacy
+    stepRange?: FunnelExclusionLegacy | { funnel_from_step?: number; funnel_to_step?: number }
     filters: FunnelsFilterType
-}): FunnelExclusionLegacy => {
+}): FunnelExclusionLegacy | { funnel_from_step?: number; funnel_to_step?: number } => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
 
     let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
@@ -368,7 +368,7 @@ export function cleanFilters(
                     stepRange: e,
                     filters: funnelsFilter,
                 })
-            ),
+            ) as FunnelExclusionLegacy[],
         }
         return returnedParams
     } else if (isPathsFilter(filters)) {

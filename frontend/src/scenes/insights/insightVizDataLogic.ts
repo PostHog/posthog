@@ -17,7 +17,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { queryNodeToFilter, seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     getBreakdown,
     getCompare,
@@ -33,6 +33,7 @@ import {
 import {
     BreakdownFilter,
     DateRange,
+    FunnelExclusionSteps,
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
@@ -55,7 +56,7 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, FunnelExclusion, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, IntervalType } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
@@ -275,8 +276,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         validationError: [
             (s) => [s.insightDataError],
             (insightDataError): string | null => {
-                return insightDataError?.status === 400 && insightDataError.type === 'validation_error'
-                    ? insightDataError.detail
+                // We use 512 for query timeouts
+                return insightDataError?.status === 400 || insightDataError?.status === 512
+                    ? insightDataError.detail.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],
@@ -296,7 +298,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // Exclusion filters
         exclusionDefaultStepRange: [
             (s) => [s.querySource],
-            (querySource: FunnelsQuery): Omit<FunnelExclusion, 'id' | 'name'> => ({
+            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
                 funnelFromStep: 0,
                 funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
             }),
@@ -304,7 +306,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         exclusionFilters: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions,
+                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
+                    funnel_from_step: funnelFromStep,
+                    funnel_to_step: funnelToStep,
+                    order: index,
+                    ...seriesNodeToFilter(rest),
+                })),
             }),
         ],
     }),
@@ -350,7 +357,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
-            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
+            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER) // By timeout we just mean long loading time here
 
             if (values.insightDataLoading) {
                 actions.setTimedOutQueryId(queryId)
@@ -425,6 +432,7 @@ const handleQuerySourceUpdateSideEffects = (
      * Date range change side effects.
      */
     if (
+        !isRetentionQuery(currentState) &&
         !isPathsQuery(currentState) && // TODO: Apply side logic more elegantly
         update.dateRange &&
         update.dateRange.date_from &&

@@ -105,7 +105,7 @@ export function ProjectNotice(): JSX.Element | null {
             action: {
                 'data-attr': 'stop-impersonation-cta',
                 onClick: () => logout(),
-                children: 'Logout',
+                children: 'Log out',
             },
         },
     }

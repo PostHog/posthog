@@ -119,7 +119,7 @@ export function ActionsLineGraph({
                               return
                           }
 
-                          const day = dataset?.days?.[index] ?? ''
+                          const day = dataset.action?.days?.[index] ?? dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
                           const title = isStickiness ? (
@@ -147,6 +147,9 @@ export function ActionsLineGraph({
                                       source: query.source,
                                       day,
                                       status: dataset.status,
+                                      series: dataset.action?.order ?? 0,
+                                      breakdown: dataset.breakdown_value,
+                                      compare: dataset.compare_label,
                                   },
                               })
                           } else {

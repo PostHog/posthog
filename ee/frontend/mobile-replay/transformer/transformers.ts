@@ -105,6 +105,10 @@ export function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
 }
 
+function isRemovedNodeMutation(x: addedNodeMutation | removedNodeMutation): x is removedNodeMutation {
+    return isObject(x) && 'id' in x
+}
+
 export const makeCustomEvent = (
     mobileCustomEvent: (customEvent | keyboardEvent) & {
         timestamp: number
@@ -137,7 +141,6 @@ export const makeCustomEvent = (
                 {
                     timestamp: mobileCustomEvent.timestamp,
                     idSequence: globalIdSequence,
-                    skippableNodes: new Set(),
                     styleOverride: {
                         ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
                     },
@@ -166,7 +169,7 @@ export const makeCustomEvent = (
             }
         } else {
             removes.push({
-                parentId: BODY_ID,
+                parentId: KEYBOARD_PARENT_ID,
                 id: KEYBOARD_ID,
             })
         }
@@ -953,17 +956,8 @@ function convertWireframe(
     wireframe: wireframe,
     context: ConversionContext
 ): ConversionResult<serializedNodeWithId> | null {
-    if (context.skippableNodes?.has(wireframe.id)) {
-        return null
-    }
-
     const children = convertWireframesFor(wireframe.childWireframes, context)
-    const converter = chooseConverter(wireframe)
-    // every wireframe comes through this converter,
-    // so to track which ones we want to skip,
-    // we can add them here
-    context.skippableNodes?.add(wireframe.id)
-    const converted = converter?.(wireframe, children.result, children.context)
+    const converted = chooseConverter(wireframe)?.(wireframe, children.result, children.context)
     return converted || null
 }
 
@@ -1084,6 +1078,48 @@ function flattenMutationAdds(converted: addedNodeMutation): addedNodeMutation[] 
 }
 
 /**
+ * each update wireframe carries the entire tree because we don't want to diff on the client
+ * that means that we might create multiple mutations for the same node
+ * we only want to add it once, so we dedupe the mutations
+ * the app guarantees that for a given ID that is present more than once in a single snapshot
+ * every instance of that ID is identical
+ * it might change in the next snapshot but for a single incremental snapshot there is one
+ * and only one version of any given ID
+ */
+function dedupeMutations<T extends addedNodeMutation | removedNodeMutation>(mutations: T[]): T[] {
+    // KLUDGE: it's slightly yucky to stringify everything but since synthetic nodes
+    // introduce a new id, we can't just compare the id
+    const seen = new Set<string>()
+
+    // in case later mutations are the ones we want to keep, we reverse the array
+    // this does help with the deduping, so, it's likely that the view for a single ID
+    // is not consistent over a snapshot, but it's cheap to reverse so :YOLO:
+    return mutations
+        .reverse()
+        .filter((mutation: addedNodeMutation | removedNodeMutation) => {
+            let toCompare: string
+            if (isRemovedNodeMutation(mutation)) {
+                toCompare = JSON.stringify(mutation)
+            } else {
+                // if this is a synthetic addition, then we need to ignore the id,
+                // since duplicates won't have duplicate ids
+                toCompare = JSON.stringify({
+                    ...mutation.node,
+                    id: 0,
+                })
+            }
+
+            if (seen.has(toCompare)) {
+                return false
+            } else {
+                seen.add(toCompare)
+                return true
+            }
+        })
+        .reverse()
+}
+
+/**
  * We want to ensure that any events don't use id = 0.
  * They must always represent a valid ID from the dom, so we swap in the body id when the id = 0.
  *
@@ -1118,7 +1154,6 @@ export const makeIncrementalEvent = (
             const addsContext = {
                 timestamp: mobileEvent.timestamp,
                 idSequence: globalIdSequence,
-                skippableNodes: new Set<number>(),
             }
 
             mobileEvent.data.adds.forEach((add) => {
@@ -1129,24 +1164,25 @@ export const makeIncrementalEvent = (
             const updatesContext = {
                 timestamp: mobileEvent.timestamp,
                 idSequence: globalIdSequence,
-                skippableNodes: new Set<number>(),
             }
+            const updateAdditions: addedNodeMutation[] = []
             mobileEvent.data.updates.forEach((update) => {
                 const removal = makeIncrementalRemoveForUpdate(update)
                 if (removal) {
                     removes.push(removal)
                 }
-                makeIncrementalAdd(update, updatesContext)?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(update, updatesContext)?.forEach((x) => updateAdditions.push(x))
             })
+            dedupeMutations(updateAdditions).forEach((x) => adds.push(x))
         }
 
         converted.data = {
             source: IncrementalSource.Mutation,
             attributes: [],
             texts: [],
-            adds,
+            adds: dedupeMutations(adds),
             // TODO: this assumes that removes are processed before adds 🤞
-            removes,
+            removes: dedupeMutations(removes),
         }
     }
 

@@ -752,4 +752,4 @@ async def acreate_team(organization: Organization, name: str = "Test team") -> T
     could use either the api, or django admin to create, to get better parity
     with real world  scenarios.
     """
-    return await sync_to_async(create_team)(organization, name=name)  # type: ignore
+    return await sync_to_async(create_team)(organization, name=name)

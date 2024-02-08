@@ -11,9 +11,8 @@ import {
     LoaderOptions,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
-    TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { getKeyMapping } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
@@ -265,16 +264,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     group: TaxonomicFilterGroup,
                     item: EventDefinition | CohortType
                 ): string | undefined {
-                    const keyTypes = {
-                        [TaxonomicFilterGroupType.Events]: 'event',
-                        [TaxonomicFilterGroupType.EventProperties]: 'event',
-                        [TaxonomicFilterGroupType.PersonProperties]: 'event',
-                        [TaxonomicFilterGroupType.Metadata]: 'event',
-                        [TaxonomicFilterGroupType.Elements]: 'element',
-                    }
-
-                    const propertyKeyType = keyTypes[group.type]
-                    return propertyKeyType ? getKeyMapping(group?.getName?.(item), propertyKeyType)?.label : undefined
+                    return group ? getCoreFilterDefinition(group.getName?.(item), group.type)?.label : undefined
                 }
 
                 const haystack = (rawLocalItems || []).map((item) => ({

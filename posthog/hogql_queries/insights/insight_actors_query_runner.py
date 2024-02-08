@@ -32,7 +32,12 @@ class InsightActorsQueryRunner(QueryRunner):
             return paths_runner.to_actors_query()
         elif isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
-            return trends_runner.to_actors_query(self.query.day)
+            return trends_runner.to_actors_query(
+                time_frame=self.query.day,
+                series_index=self.query.series or 0,
+                breakdown_value=self.query.breakdown,
+                compare=self.query.compare,
+            )
         elif isinstance(self.source_runner, RetentionQueryRunner):
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
             return retention_runner.to_actors_query(interval=self.query.interval)

@@ -394,7 +394,7 @@ class CaptureMiddleware:
                 # Some middlewares raise MiddlewareNotUsed if they are not
                 # needed. In this case we want to avoid the default middlewares
                 # being used.
-                middlewares.append(middleware_class(get_response=None))
+                middlewares.append(middleware_class(get_response=get_response))
             except MiddlewareNotUsed:
                 pass
 

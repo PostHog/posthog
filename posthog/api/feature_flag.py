@@ -38,7 +38,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.cohort import Cohort
+from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
@@ -51,7 +51,6 @@ from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.queries.base import (
@@ -378,7 +377,6 @@ class FeatureFlagViewSet(
     serializer_class = FeatureFlagSerializer
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
         CanEditFeatureFlag,
     ]
@@ -523,7 +521,7 @@ class FeatureFlagViewSet(
         should_send_cohorts = "send_cohorts" in request.GET
 
         cohorts = {}
-        seen_cohorts_cache: Dict[int, Cohort] = {}
+        seen_cohorts_cache: Dict[int, CohortOrEmpty] = {}
 
         if should_send_cohorts:
             seen_cohorts_cache = {
@@ -570,10 +568,14 @@ class FeatureFlagViewSet(
                         if id in seen_cohorts_cache:
                             cohort = seen_cohorts_cache[id]
                         else:
-                            cohort = Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).get(id=id)
-                            seen_cohorts_cache[id] = cohort
+                            cohort = (
+                                Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION)
+                                .filter(id=id, team_id=self.team_id, deleted=False)
+                                .first()
+                            )
+                            seen_cohorts_cache[id] = cohort or ""
 
-                        if not cohort.is_static:
+                        if cohort and not cohort.is_static:
                             cohorts[cohort.pk] = cohort.properties.to_dict()
 
         # Add request for analytics

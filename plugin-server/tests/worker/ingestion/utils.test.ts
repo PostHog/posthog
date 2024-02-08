@@ -10,7 +10,7 @@ describe('captureIngestionWarning()', () => {
     let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log, MAX_PENDING_PROMISES_PER_WORKER: 0 })
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         await resetTestDatabaseClickhouse()
     })
 
