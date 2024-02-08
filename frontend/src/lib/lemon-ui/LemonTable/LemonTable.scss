@@ -18,7 +18,8 @@
         --lemon-table-background-color: var(--bg-light);
     }
 
-    .WebAnalyticsDashboard &, .WebAnalyticsModal & {
+    .WebAnalyticsDashboard &,
+    .WebAnalyticsModal & {
         // Special override for scenes where the surroundings provide a border
         border: none;
     }
