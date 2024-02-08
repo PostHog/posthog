@@ -7,13 +7,11 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
         FunnelStrict,
-        # FunnelUnordered,
-        FunnelBase,
+        FunnelUnordered,
     )
 
     if funnelsFilter.funnelOrderType == StepOrderValue.unordered:
-        return FunnelBase
-        # return FunnelUnordered
+        return FunnelUnordered
     elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
         return FunnelStrict
     return Funnel
