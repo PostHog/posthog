@@ -58,13 +58,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return [permission() for permission in permission_classes]
 
     def get_authenticators(self):
+        # NOTE: Custom authentication_classes go first as these typically have extra initial checks
         authentication_classes: list = [
+            *self.authentication_classes,
             JwtAuthentication,
             PersonalAPIKeyAuthentication,
             authentication.SessionAuthentication,
         ]
 
-        authentication_classes.extend(self.authentication_classes)
         return [auth() for auth in authentication_classes]
 
     def get_queryset(self):

@@ -306,7 +306,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
-    organization: Optional[Organization] = None
     include_in_docs = True
 
     def get_queryset(self):
