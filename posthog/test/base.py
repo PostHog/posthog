@@ -231,17 +231,17 @@ class PostHogTestCase(SimpleTestCase):
             )
         global persons_ordering_int
         persons_ordering_int = 0
-        super().tearDown()  # type: ignore
+        super().tearDown()
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
         # absolute URLs are used
-        self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)  # type: ignore
+        self.assertIn(f"{site_url}/static/posthog-logo.png", html_message)
 
         # CSS is inlined
-        self.assertIn('style="display: none;', html_message)  # type: ignore
+        self.assertIn('style="display: none;', html_message)
 
         if preheader:
-            self.assertIn(preheader, html_message)  # type: ignore
+            self.assertIn(preheader, html_message)
 
     @contextmanager
     def is_cloud(self, value: bool):
