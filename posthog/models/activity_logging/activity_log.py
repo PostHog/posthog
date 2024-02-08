@@ -32,6 +32,7 @@ ActivityScope = Literal[
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
     "Comment",
+    "Team",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -186,6 +187,7 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
         "post_to_slack",
         "property_type_format",
     ],
+    "Team": ["updated_at"],
 }
 
 

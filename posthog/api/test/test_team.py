@@ -1,10 +1,11 @@
 import json
-from typing import List, cast
+from typing import List, cast, Dict
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
+from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 from temporalio.service import RPCError
@@ -24,6 +25,14 @@ from posthog.test.base import APIBaseTest
 
 
 class TestTeamAPI(APIBaseTest):
+    def _assert_activity_log(self, expected: List[Dict]) -> None:
+        starting_log_response = self.client.get(f"/api/projects/{self.team.id}/activity")
+        assert starting_log_response.status_code == 200
+        assert starting_log_response.json()["results"] == expected
+
+    def _assert_activity_log_is_empty(self) -> None:
+        self._assert_activity_log([])
+
     def test_list_projects(self):
         response = self.client.get("/api/projects/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -140,16 +149,49 @@ class TestTeamAPI(APIBaseTest):
             response_data,
         )
 
+    @freeze_time("2022-02-08")
     def test_update_project_timezone(self):
-        response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Istanbul"})
+        self._assert_activity_log_is_empty()
+
+        response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Lisbon"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
         self.assertEqual(response_data["name"], self.team.name)
-        self.assertEqual(response_data["timezone"], "Europe/Istanbul")
+        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
 
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Istanbul")
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "updated",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": "Europe/Lisbon",
+                                "before": "UTC",
+                                "field": "timezone",
+                                "type": "Team",
+                            },
+                        ],
+                        "name": "Default Project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(self.team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
+        )
 
     def test_update_test_filter_default_checked(self):
         response = self.client.patch("/api/projects/@current/", {"test_account_filters_default_checked": "true"})
@@ -328,9 +370,12 @@ class TestTeamAPI(APIBaseTest):
             with self.assertRaises(RPCError):
                 describe_schedule(temporal, batch_export_id)
 
+    @freeze_time("2022-02-08")
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+        self._assert_activity_log_is_empty()
 
         self.team.api_token = "xyz"
         self.team.save()
@@ -343,6 +388,36 @@ class TestTeamAPI(APIBaseTest):
         self.assertNotEqual(response_data["api_token"], "xyz")
         self.assertEqual(response_data["api_token"], self.team.api_token)
         self.assertTrue(response_data["api_token"].startswith("phc_"))
+
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "updated",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": None,
+                                "before": None,
+                                "field": "api_token",
+                                "type": "Team",
+                            },
+                        ],
+                        "name": "Default Project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(self.team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
+        )
 
     def test_reset_token_insufficient_priviledges(self):
         self.team.api_token = "xyz"
