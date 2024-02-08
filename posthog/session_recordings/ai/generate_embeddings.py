@@ -107,6 +107,7 @@ def generate_recording_embeddings(session_id: str, team: Team):
     elements_chain_index = processed_sessions.column_index("elements_chain")
 
     with timer("prepare_input"):
+        input = str(session_metadata) + "\n"
         input = "\n".join(
             compact_result(
                 event_name=result[processed_sessions_index] or "",
