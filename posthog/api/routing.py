@@ -1,5 +1,5 @@
 from functools import cached_property, lru_cache
-from typing import TYPE_CHECKING, Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, cast
 
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
@@ -46,24 +46,24 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def get_permissions(self):
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes = [IsAuthenticated]
+        permission_classes: list = [IsAuthenticated]
 
         if self.is_team_view:
-            permission_classes = permission_classes + [TeamMemberAccessPermission]
+            permission_classes.append(TeamMemberAccessPermission)
         else:
-            permission_classes = permission_classes + [OrganizationMemberPermissions]
+            permission_classes.append(OrganizationMemberPermissions)
 
-        permission_classes = permission_classes + self.permission_classes
-
+        permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]
 
     def get_authenticators(self):
-        authentication_classes = [
+        authentication_classes: list = [
             JwtAuthentication,
             PersonalAPIKeyAuthentication,
             authentication.SessionAuthentication,
-        ] + self.authentication_classes
+        ]
 
+        authentication_classes.extend(self.authentication_classes)
         return [auth() for auth in authentication_classes]
 
     def get_queryset(self):
