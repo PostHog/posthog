@@ -1,9 +1,13 @@
-from typing import List
+from typing import Any, Dict, List, Optional
+import uuid
 
 from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
+from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
+from posthog.schema import ActionsNode, EventsNode
+from posthog.queries.util import correct_result_for_sampling
 
 
 class FunnelUnordered(FunnelBase):
@@ -100,58 +104,76 @@ class FunnelUnordered(FunnelBase):
             ),
         )
 
-    # def get_step_counts_without_aggregation_query(self):
-    #     max_steps = len(self._filter.entities)
-    #     union_queries = []
-    #     entities_to_use = list(self._filter.entities)
+    def get_step_counts_without_aggregation_query(self):
+        max_steps = self.context.max_steps
+        union_queries: List[ast.SelectQuery] = []
+        entities_to_use = list(self.context.query.series)
 
-    #     partition_select = self._get_partition_cols(1, max_steps)
-    #     sorting_condition = self.get_sorting_condition(max_steps)
-    #     breakdown_clause = self._get_breakdown_prop(group_remaining=True)
-    #     exclusion_clause = self._get_exclusion_condition()
+        for i in range(max_steps):
+            inner_query = ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["aggregation_target"]),
+                    ast.Field(chain=["timestamp"]),
+                    *self._get_partition_cols(1, max_steps),
+                    *self._get_breakdown_expr(group_remaining=True),
+                    *self._get_person_and_group_properties(),
+                ],
+                select_from=ast.JoinExpr(table=self._get_inner_event_query(entities_to_use, f"events_{i}")),
+            )
 
-    #     for i in range(max_steps):
-    #         inner_query = f"""
-    #             SELECT
-    #             aggregation_target,
-    #             timestamp,
-    #             {partition_select}
-    #             {breakdown_clause}
-    #             {self._get_person_and_group_properties()}
-    #             FROM ({self._get_inner_event_query(entities_to_use, f"events_{i}")})
-    #         """
+            where_exprs = [
+                ast.CompareOperation(
+                    left=ast.Field(chain=["step_0"]), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
+                ),
+                (
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["exclusion"]), right=ast.Constant(value=0), op=ast.CompareOperationOp.Eq
+                    )
+                    if self._get_exclusion_condition() != []
+                    else None
+                ),
+            ]
+            where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
-    #         formatted_query = f"""
-    #             SELECT *, {sorting_condition} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {self._get_person_and_group_properties()} FROM (
-    #                     {inner_query}
-    #                 ) WHERE step_0 = 1
-    #                 {'AND exclusion = 0' if exclusion_clause else ''}
-    #                 """
+            formatted_query = ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["*"]),
+                    ast.Alias(alias="steps", expr=self.get_sorting_condition(max_steps)),
+                    *self._get_exclusion_condition(),
+                    *self._get_step_times(max_steps),
+                    *self._get_person_and_group_properties(),
+                ],
+                select_from=ast.JoinExpr(table=inner_query),
+                where=where,
+            )
 
-    #         #  rotate entities by 1 to get new first event
-    #         entities_to_use.append(entities_to_use.pop(0))
-    #         union_queries.append(formatted_query)
+            #  rotate entities by 1 to get new first event
+            entities_to_use.append(entities_to_use.pop(0))
+            union_queries.append(formatted_query)
 
-    #     return " UNION ALL ".join(union_queries)
+        return ast.SelectUnionQuery(select_queries=union_queries)
 
-    # def _get_step_times(self, max_steps: int):
-    #     conditions: List[str] = []
+    def _get_step_times(self, max_steps: int) -> List[ast.Expr]:
+        windowInterval = self.context.funnelWindowInterval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
-    #     conversion_times_elements = []
-    #     for i in range(max_steps):
-    #         conversion_times_elements.append(f"latest_{i}")
+        exprs: List[ast.Expr] = []
 
-    #     conditions.append(f"arraySort([{','.join(conversion_times_elements)}]) as conversion_times")
+        conversion_times_elements = []
+        for i in range(max_steps):
+            conversion_times_elements.append(f"latest_{i}")
 
-    #     for i in range(1, max_steps):
-    #         conditions.append(
-    #             f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= conversion_times[{i}] + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
-    #             f"dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
-    #         )
-    #         # array indices in ClickHouse are 1-based :shrug:
+            exprs.append(parse_expr(f"arraySort([{','.join(conversion_times_elements)}]) as conversion_times"))
 
-    #     formatted = ", ".join(conditions)
-    #     return f", {formatted}" if formatted else ""
+            for i in range(1, max_steps):
+                exprs.append(
+                    parse_expr(
+                        f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= conversion_times[{i}] + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
+                    )
+                )
+                # array indices in ClickHouse are 1-based :shrug:
+
+        return exprs
 
     # def get_sorting_condition(self, max_steps: int):
     #     conditions = []
@@ -175,39 +197,49 @@ class FunnelUnordered(FunnelBase):
     #     else:
     #         return "1"
 
-    # def _get_exclusion_condition(self):
-    #     if not self._filter.exclusions:
-    #         return ""
+    def _get_exclusion_condition(self) -> List[ast.Expr]:
+        funnelsFilter = self.context.funnelsFilter
+        windowInterval = self.context.funnelWindowInterval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
-    #     conditions = []
-    #     for exclusion_id, exclusion in enumerate(self._filter.exclusions):
-    #         from_time = f"latest_{exclusion.funnel_from_step}"
-    #         to_time = f"event_times[{cast(int, exclusion.funnel_to_step) + 1}]"
-    #         exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
-    #         condition = (
-    #             f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
-    #             f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, {to_time}), 1, 0)"
-    #         )
-    #         conditions.append(condition)
+        if not funnelsFilter.exclusions:
+            return []
 
-    #     if conditions:
-    #         return f", arraySum([{','.join(conditions)}]) as exclusion"
-    #     else:
-    #         return ""
+        conditions: List[ast.Expr] = []
 
-    # def _serialize_step(
-    #     self,
-    #     step: Entity,
-    #     count: int,
-    #     people: Optional[List[uuid.UUID]] = None,
-    #     sampling_factor: Optional[float] = None,
-    # ) -> Dict[str, Any]:
-    #     return {
-    #         "action_id": None,
-    #         "name": f"Completed {step.index+1} step{'s' if step.index != 0 else ''}",
-    #         "custom_name": None,
-    #         "order": step.index,
-    #         "people": people if people else [],
-    #         "count": correct_result_for_sampling(count, sampling_factor),
-    #         "type": step.type,
-    #     }
+        for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
+            from_time = f"latest_{exclusion.funnelFromStep}"
+            to_time = f"event_times[{exclusion.funnelToStep + 1}]"
+            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
+            condition = parse_expr(
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), {from_time} + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
+            )
+            conditions.append(condition)
+
+        if conditions:
+            return [
+                ast.Alias(
+                    alias="exclusion",
+                    expr=ast.Call(name="arraySum", args=[ast.Array(exprs=conditions)]),
+                )
+            ]
+        else:
+            return []
+
+    def _serialize_step(
+        self,
+        step: ActionsNode | EventsNode,
+        count: int,
+        index: int,
+        people: Optional[List[uuid.UUID]] = None,
+        sampling_factor: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "action_id": None,
+            "name": f"Completed {index+1} step{'s' if index != 0 else ''}",
+            "custom_name": None,
+            "order": index,
+            "people": people if people else [],
+            "count": correct_result_for_sampling(count, sampling_factor),
+            "type": "events" if isinstance(step, EventsNode) else "actions",
+        }
