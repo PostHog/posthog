@@ -65,7 +65,7 @@ export const _OnboardingBilling = (): JSX.Element => {
 
     useEffect(() => {
         setProduct(billingJson.products[1] as unknown as BillingProductV2Type)
-        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.BILLING))
+        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.PLANS))
     }, [])
     return <App />
 }

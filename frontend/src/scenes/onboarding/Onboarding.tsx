@@ -57,7 +57,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [children as JSX.Element]
         }
         if (shouldShowBillingStep) {
-            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.BILLING} />
+            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.PLANS} />
             steps = [...steps, BillingStep]
         }
         if (shouldShowOtherProductsStep) {
@@ -80,7 +80,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
             <SDKs
                 usersAction="collecting events"
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
-                stepKey={OnboardingStepKey.SDKS}
+                stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingVerificationAndConfigStep
                 listeningForName="event"
@@ -141,7 +141,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
-                stepKey={OnboardingStepKey.SDKS}
+                stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={configOptions} />
         </OnboardingWrapper>
@@ -154,7 +154,7 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
                 usersAction="loading flags & experiments"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
                 subtitle="Choose the framework where you want to use feature flags and/or run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
-                stepKey={OnboardingStepKey.SDKS}
+                stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
     )
@@ -167,7 +167,7 @@ const SurveysOnboarding = (): JSX.Element => {
                 usersAction="taking surveys"
                 sdkInstructionMap={SurveysSDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
-                stepKey={OnboardingStepKey.SDKS}
+                stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
     )

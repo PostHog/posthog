@@ -1,0 +1,23 @@
+.onboardingCrumb {   
+    font-family: var(--font-sans) !important;
+    font-size: 1rem;
+    line-height: 1.2;
+    color: var(--default);
+    opacity: 0.5;
+
+    &:hover{
+        cursor: pointer;
+        opacity: 1;
+        transition: opacity 200ms ease;
+    }
+}
+
+.onboardingCrumbSeparator {
+    flex-shrink: 0;
+    margin: 0 0.5rem;
+    opacity: 0.5;
+
+    &::after {
+        content: '>';
+    }
+}

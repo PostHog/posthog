@@ -16,7 +16,7 @@ import { SDKSnippet } from './SDKSnippet'
 
 export function SDKs({
     sdkInstructionMap,
-    stepKey = OnboardingStepKey.SDKS,
+    stepKey = OnboardingStepKey.INSTALL,
 }: {
     usersAction?: string
     sdkInstructionMap: SDKInstructionsMap

@@ -17,7 +17,7 @@ import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingBillingStep = ({
     product,
-    stepKey = OnboardingStepKey.BILLING,
+    stepKey = OnboardingStepKey.PLANS,
 }: {
     product: BillingProductV2Type
     stepKey?: OnboardingStepKey

@@ -1,3 +1,5 @@
+import './onboarding.scss'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -10,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
-import { getProductUri, onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { getProductUri, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -37,10 +39,17 @@ export const OnboardingStep = ({
     backActionOverride?: () => void
     hedgehog?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, hasPreviousStep, productKey, isFirstProductOnboarding } = useValues(onboardingLogic)
-    const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
+    const {
+        hasNextStep,
+        onboardingStepNames,
+        totalOnboardingSteps,
+        hasPreviousStep,
+        productKey,
+        isFirstProductOnboarding,
+        currentOnboardingStep,
+    } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep, setStepKey, goToPreviousStep } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
-
     const hedgehogToRender = React.cloneElement(hedgehog || <PhonePairHogs />, {
         className: 'h-full w-full',
     })
@@ -50,37 +59,54 @@ export const OnboardingStep = ({
     }
 
     return (
-        <BridgePage
-            view="onboarding-step"
-            noLogo
-            hedgehog={false}
-            fixedWidth={false}
-            header={
-                <div className="mb-4">
-                    <LemonButton
-                        icon={<IconArrowLeft />}
-                        onClick={() =>
-                            backActionOverride
-                                ? backActionOverride()
-                                : hasPreviousStep
-                                ? goToPreviousStep()
-                                : !isFirstProductOnboarding
-                                ? router.actions.push(getProductUri(productKey as ProductKey))
-                                : router.actions.push(urls.products())
-                        }
-                    >
-                        Back
-                    </LemonButton>
+        //             <LemonButton
+        //                 icon={<IconArrowLeft />}
+        //                 onClick={() =>
+        //                     backActionOverride
+        //                         ? backActionOverride()
+        //                         : hasPreviousStep
+        //                         ? goToPreviousStep()
+        //                         : !isFirstProductOnboarding
+        //                         ? router.actions.push(getProductUri(productKey as ProductKey))
+        //                         : router.actions.push(urls.products())
+        //                 }
+        //             >
+        //                 Back
+        //             </LemonButton>
+        <>
+            <div className="pb-10">
+                <div className="flex justify-between items-center">
+                    <h1 className="font-bold m-0 pl-2">
+                        {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                    </h1>
+                    <div className="flex gap-2 items-center">
+                        {onboardingStepNames.map((stepName, idx) => {
+                            return (
+                                <React.Fragment key={idx}>
+                                    <div
+                                        className={`onboardingCrumb ${
+                                            currentOnboardingStep?.props.stepKey === stepName && 'font-bold'
+                                        }`}
+                                        key={stepName}
+                                        onClick={() => setStepKey(stepName)}
+                                    >
+                                        {stepKeyToTitle(stepName)}
+                                    </div>
+                                    {onboardingStepNames.length > 1 && idx !== onboardingStepNames.length - 1 && (
+                                        <div key={`${stepName}-separator`} className="onboardingCrumbSeparator" />
+                                    )}
+                                </React.Fragment>
+                            )
+                        })}
+                    </div>
                 </div>
-            }
-        >
-            <div className="max-w-192">
+            </div>
+            <div className="p-2">
                 {hedgehog && <div className="-mt-20 absolute right-4 h-16">{hedgehogToRender}</div>}
 
-                <h1 className="font-bold">{title}</h1>
                 <p>{subtitle}</p>
                 {children}
-                <div className="mt-8 flex justify-end gap-x-2">
+                <div className="mt-8 flex justify-start gap-x-2">
                     {showHelpButton && (
                         <LemonButton
                             type="secondary"
@@ -110,11 +136,12 @@ export const OnboardingStep = ({
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
-                            {!hasNextStep ? 'Finish' : 'Continue'}
+                            {!hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>
                     )}
                 </div>
             </div>
-        </BridgePage>
+        </>
+        // </BridgePage>
     )
 }

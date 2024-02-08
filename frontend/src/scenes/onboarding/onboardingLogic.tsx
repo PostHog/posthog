@@ -19,8 +19,8 @@ export interface OnboardingLogicProps {
 
 export enum OnboardingStepKey {
     PRODUCT_INTRO = 'product_intro',
-    SDKS = 'sdks',
-    BILLING = 'billing',
+    INSTALL = 'install',
+    PLANS = 'plans',
     OTHER_PRODUCTS = 'other_products',
     VERIFY = 'verify',
     VERIFY_AND_CONFIGURE = 'verify_and_configure',
@@ -33,6 +33,23 @@ const productKeyToProductName = {
     [ProductKey.SESSION_REPLAY]: 'Session Replay',
     [ProductKey.FEATURE_FLAGS]: 'Feature Flags',
     [ProductKey.SURVEYS]: 'Surveys',
+}
+
+const productKeyToURL = {
+    [ProductKey.PRODUCT_ANALYTICS]: urls.insights(),
+    [ProductKey.SESSION_REPLAY]: urls.replay(),
+    [ProductKey.FEATURE_FLAGS]: urls.featureFlags(),
+    [ProductKey.SURVEYS]: urls.surveys(),
+}
+
+export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
+    return (
+        stepKey &&
+        stepKey
+            .split('_')
+            .map((part) => part[0].toUpperCase() + part.substring(1))
+            .join(' ')
+    )
 }
 
 // These types have to be set like this, so that kea typegen is happy
@@ -79,6 +96,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
+        setOnIntroPage: (onIntroPage: boolean) => ({ onIntroPage }),
         goToNextStep: true,
         goToPreviousStep: true,
         resetStepKey: true,
@@ -114,22 +132,30 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
             },
         ],
+        onIntroPage: [
+            false,
+            {
+                setOnIntroPage: (_, { onIntroPage }) => onIntroPage,
+            },
+        ],
     })),
     selectors({
         breadcrumbs: [
-            (s) => [s.productKey, s.stepKey],
-            (productKey, stepKey) => [
-                {
-                    key: Scene.OnboardingProductIntroduction,
-                    name: productKeyToProductName[productKey],
-                    path: urls.onboardingProductIntroduction(productKey),
-                },
-                {
-                    key: [Scene.Products, stepKey],
-                    name: 'Onboarding',
-                    path: urls.onboarding(productKey),
-                },
-            ],
+            (s) => [s.productKey, s.stepKey, s.onIntroPage],
+            (productKey, stepKey, onIntroPage) => {
+                return [
+                    {
+                        key: Scene.OnboardingProductIntroduction,
+                        name: productKeyToProductName[productKey],
+                        path: productKeyToURL[productKey],
+                    },
+                    {
+                        key: Scene.Onboarding,
+                        name: onIntroPage ? stepKeyToTitle(OnboardingStepKey.PRODUCT_INTRO) : stepKeyToTitle(stepKey),
+                        path: urls.onboarding(productKey, stepKey),
+                    },
+                ]
+            },
         ],
         onCompleteOnboardingRedirectUrl: [
             (s) => [s.featureFlags, s.productKey],
@@ -140,6 +166,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
+        ],
+        onboardingStepNames: [
+            (s) => [s.allOnboardingSteps],
+            (allOnboardingSteps: AllOnboardingSteps) => {
+                return allOnboardingSteps.map((step) => step.props.stepKey)
+            },
         ],
         currentOnboardingStep: [
             (s) => [s.allOnboardingSteps, s.stepKey],
@@ -322,10 +354,15 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 window.location.href = urls.default()
                 return
             }
+
             if (intro === 'intro') {
                 // this prevents us from jumping straight back into onboarding if they are trying to see the intro again
                 actions.setAllOnboardingSteps([])
+                actions.setProductKey(productKey)
+                actions.setOnIntroPage(true)
+                return
             }
+            actions.setOnIntroPage(false)
             if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)
             }
