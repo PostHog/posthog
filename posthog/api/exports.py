@@ -92,7 +92,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if user is not None:
             report_user_action(user, "export created", instance.get_analytics_metadata())
 
-        instance.refresh_from_db()
         insight_id = instance.insight_id
         dashboard_id = instance.dashboard_id
         if insight_id and not dashboard_id:  # we don't log dashboard activity ¯\_(ツ)_/¯
