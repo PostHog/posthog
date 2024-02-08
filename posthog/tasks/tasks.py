@@ -543,11 +543,13 @@ def sync_insight_caching_state(
 
 @shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
-    from posthog.models.feature_flag.flag_analytics import capture_usage_for_all_teams
+    from posthog.models.feature_flag.flag_analytics import (
+        capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
+    )
 
     ph_client = get_ph_client()
 
-    capture_usage_for_all_teams(ph_client)
+    capture_decide_usage_for_all_teams(ph_client)
 
     ph_client.shutdown()
 

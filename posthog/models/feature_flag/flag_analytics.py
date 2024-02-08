@@ -65,15 +65,7 @@ def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) 
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    for team in (
-        Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only(
-            "id",
-            "uuid",
-            "organization__for_internal_metrics",
-        )
-    ):
+    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
         capture_team_decide_usage(ph_client, team.id, team.uuid)
 
 
