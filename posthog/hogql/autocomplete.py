@@ -55,13 +55,13 @@ def get_table(database: Database, join_expr: ast.JoinExpr) -> None | Table:
     return None
 
 
-def extend_responses(keys: List[str], suggestions: List[AutocompleteCompletionItem]) -> None:
+def extend_responses(keys: List[str], suggestions: List[AutocompleteCompletionItem], kind: Kind = Kind.Field) -> None:
     suggestions.extend(
         [
             AutocompleteCompletionItem(
                 insertText=key,
                 label=key,
-                kind=Kind.Field,
+                kind=kind,
             )
             for key in keys
         ]
@@ -97,6 +97,7 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                 and nearest_select.select_from is not None
                 and not isinstance(parent_node, ast.JoinExpr)
             ):
+                # Handle fields
                 table = get_table(database, nearest_select.select_from)
                 if table is not None:
                     if len(node.chain) == 1:
@@ -134,6 +135,11 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                         elif isinstance(field, LazyJoin):
                             fields = list(field.join_table.fields.keys())
                             extend_responses(fields, response.suggestions)
+            elif isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
+                # Handle table names
+                if len(node.chain) == 1:
+                    table_names = database.get_all_tables()
+                    extend_responses(table_names, response.suggestions, Kind.Folder)
         except Exception:
             pass
 

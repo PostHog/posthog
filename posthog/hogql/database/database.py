@@ -120,9 +120,13 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise HogQLException(f'Table "{table_name}" not found in database')
 
+    def get_all_tables(self) -> List[str]:
+        return self._table_names
+
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
             setattr(self, f_name, f_def)
+            self._table_names.append(f_name)
 
 
 def create_hogql_database(

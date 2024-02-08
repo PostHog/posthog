@@ -27,7 +27,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
     def test_autocomplete(self):
         query = "select * from events"
-        results = self._query_response(query=query, start=len(query) - 1, end=len(query) - 1)
+        results = self._query_response(query=query, start=0, end=0)
         assert len(results.suggestions) == 0
 
     def test_autocomplete_events_suggestions(self):
@@ -94,9 +94,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             assert results.suggestions[index].label == key
 
     def test_autocomplete_table_name(self):
-        query = "select event from events"
-        results = self._query_response(query=query, start=18, end=24)
-        assert len(results.suggestions) == 0
+        query = "select event from "
+        results = self._query_response(query=query, start=18, end=18)
+        assert len(results.suggestions) != 0
 
     def test_autocomplete_table_name_dot_notation(self):
         query = "select event from events."
