@@ -3,7 +3,9 @@ from posthog.constants import FlagRequestType
 from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
 )
+from django.db.models import Q
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models import Team
 from posthog.redis import redis, get_client
 import time
 from sentry_sdk import capture_exception
@@ -60,6 +62,11 @@ def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) 
             client.hdel(key, time_bucket)
 
     return total_count, min_time, max_time
+
+
+def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
+    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
+        capture_team_decide_usage(ph_client, team.id, team.uuid)
 
 
 def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str) -> None:
