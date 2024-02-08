@@ -14,11 +14,14 @@ export const LastRefreshText = (): JSX.Element => {
     return <span>Last updated {lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
 }
 
-// in seconds
+const refreshIntervalSeconds = [1800, 3600]
+if (process.env.NODE_ENV === 'development') {
+    refreshIntervalSeconds.push(10)
+}
 const intervalOptions = [
-    ...Array.from([1800, 3600], (v) => ({
-        label: humanFriendlyDuration(v),
-        value: v,
+    ...Array.from(refreshIntervalSeconds, (value) => ({
+        label: humanFriendlyDuration(value),
+        value: value,
     })),
 ]
 
@@ -61,7 +64,7 @@ export function DashboardReloadAction(): JSX.Element {
                                     id="auto-refresh-picker"
                                 >
                                     <Tooltip
-                                        title="Auto-refresh will only work while this tab is open"
+                                        title="Auto refresh will only work while this tab is open"
                                         placement="topRight"
                                     >
                                         <div>

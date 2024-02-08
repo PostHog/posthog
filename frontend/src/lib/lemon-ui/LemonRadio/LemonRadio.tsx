@@ -28,6 +28,7 @@ export function LemonRadio<T extends React.Key>({
             {options.map((option) => {
                 const content = (
                     <label
+                        key={option.value}
                         className={clsx(
                             'flex items-center space-x-2',
                             option.disabledReason ? 'text-muted cursor-not-allowed' : 'cursor-pointer'
@@ -37,7 +38,7 @@ export function LemonRadio<T extends React.Key>({
                             type="radio"
                             checked={option.value === value}
                             value={option.value}
-                            onClick={() => {
+                            onChange={() => {
                                 if (!option.disabledReason) {
                                     onChange(option.value)
                                 }
@@ -48,13 +49,14 @@ export function LemonRadio<T extends React.Key>({
                     </label>
                 )
 
-                return option.disabledReason ? (
-                    <Tooltip trigger="hover" key={option.value} title={option.disabledReason}>
-                        {content}
-                    </Tooltip>
-                ) : (
-                    content
-                )
+                if (option.disabledReason) {
+                    return (
+                        <Tooltip trigger="hover" key={option.value} title={option.disabledReason}>
+                            {content}
+                        </Tooltip>
+                    )
+                }
+                return content
             })}
         </div>
     )
