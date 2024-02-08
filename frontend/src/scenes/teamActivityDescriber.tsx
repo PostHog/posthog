@@ -67,7 +67,7 @@ const teamActionsMapping: Record<
             descriptions.push(
                 <>
                     added {adds.join(', ')} to session recording authorised{' '}
-                    {pluralize(adds.length, 'domain', 'domains')}{' '}
+                    {pluralize(adds.length, 'domain', 'domains', false)}
                 </>
             )
         }
@@ -85,7 +85,7 @@ const teamActionsMapping: Record<
             descriptions.push(
                 <>
                     removed {removes.join(', ')} from session recording authorised{' '}
-                    {pluralize(removes.length, 'domain', 'domains')}{' '}
+                    {pluralize(removes.length, 'domain', 'domains', false)}
                 </>
             )
         }
