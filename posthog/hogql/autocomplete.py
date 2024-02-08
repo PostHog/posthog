@@ -1,7 +1,8 @@
-from typing import List, Optional, cast
+from typing import Callable, List, Optional, cast
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import LazyJoin, LazyTable, StringJSONDatabaseField, Table, VirtualTable
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -55,11 +56,16 @@ def get_table(database: Database, join_expr: ast.JoinExpr) -> None | Table:
     return None
 
 
-def extend_responses(keys: List[str], suggestions: List[AutocompleteCompletionItem], kind: Kind = Kind.Field) -> None:
+def extend_responses(
+    keys: List[str],
+    suggestions: List[AutocompleteCompletionItem],
+    kind: Kind = Kind.Field,
+    insert_text: Optional[Callable[[str], str]] = None,
+) -> None:
     suggestions.extend(
         [
             AutocompleteCompletionItem(
-                insertText=key,
+                insertText=insert_text(key) if insert_text is not None else key,
                 label=key,
                 kind=kind,
             )
@@ -103,6 +109,11 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                     if len(node.chain) == 1:
                         fields = list(table.fields.keys())
                         extend_responses(fields, response.suggestions)
+
+                        available_functions = ALL_EXPOSED_FUNCTION_NAMES
+                        extend_responses(
+                            available_functions, response.suggestions, Kind.Function, insert_text=lambda key: f"{key}()"
+                        )
                     # TODO: we should do this recursively for deeper joins, e.g. properties.pdi.person.properties.$browser
                     # TODO: add logic for FieldTraverser field types
                     elif len(node.chain) == 2:
