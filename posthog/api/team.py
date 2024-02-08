@@ -320,6 +320,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().get_serializer_class()
 
     def check_permissions(self, request):
+        # TODO: Change this to support it coming from the URL
         if self.action and self.action == "create":
             organization = getattr(self.request.user, "organization", None)
             if not organization:
