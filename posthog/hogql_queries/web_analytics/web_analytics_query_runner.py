@@ -239,3 +239,7 @@ def _sample_rate_from_count(count: int) -> SamplingRate:
         if count / sample_target >= step:
             return SamplingRate(numerator=1, denominator=step)
     return SamplingRate(numerator=1)
+
+
+def map_columns(results, mapper: dict[int, callable]):
+    return [[mapper[i](data) if i in mapper else data for i, data in enumerate(row)] for row in results]
