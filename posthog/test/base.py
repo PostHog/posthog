@@ -20,7 +20,7 @@ from django.apps import apps
 from django.core.cache import cache
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
@@ -183,7 +183,7 @@ class ErrorResponsesMixin:
         }
 
 
-class TestMixin:
+class PostHogTestCase(SimpleTestCase):
     CONFIG_ORGANIZATION_NAME: str = "Test"
     CONFIG_EMAIL: Optional[str] = "user1@posthog.com"
     CONFIG_PASSWORD: Optional[str] = "testpassword12345"
@@ -284,7 +284,7 @@ class MemoryLeakTestMixin:
         )
 
 
-class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
+class BaseTest(PostHogTestCase, ErrorResponsesMixin, TestCase):
     """
     Base class for performing Postgres-based backend unit tests on.
     Each class and each test is wrapped inside an atomic block to rollback DB commits after each test.
@@ -294,7 +294,7 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     pass
 
 
-class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
+class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
     """
     Django wraps tests in TestCase inside atomic transactions to speed up the run time. TransactionTestCase is the base
     class for TestCase that doesn't implement this atomic wrapper.
@@ -306,7 +306,7 @@ class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
         cls.setUpTestData()
 
 
-class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
+class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
     """
