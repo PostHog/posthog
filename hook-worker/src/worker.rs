@@ -2,6 +2,7 @@ use std::collections;
 use std::sync::Arc;
 use std::time;
 
+use chrono::Utc;
 use futures::future::join_all;
 use hook_common::health::HealthHandle;
 use hook_common::pgqueue::PgTransactionBatch;
@@ -234,11 +235,24 @@ async fn process_webhook_job<W: WebhookJob>(
 
     match send_result {
         Ok(_) => {
+            let created_at = webhook_job.job().created_at;
+            let retries = webhook_job.job().attempt - 1;
+            let labels_with_retries = [
+                ("queue", webhook_job.queue()),
+                ("retries", retries.to_string()),
+            ];
+
             webhook_job.complete().await.map_err(|error| {
                 metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
                 error
             })?;
 
+            let insert_to_complete_duration = Utc::now() - created_at;
+            metrics::histogram!(
+                "webhook_jobs_insert_to_complete_duration_seconds",
+                &labels_with_retries
+            )
+            .record((insert_to_complete_duration.num_milliseconds() as f64) / 1_000_f64);
             metrics::counter!("webhook_jobs_completed", &labels).increment(1);
             metrics::histogram!("webhook_jobs_processing_duration_seconds", &labels)
                 .record(elapsed);
