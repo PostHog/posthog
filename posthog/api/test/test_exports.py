@@ -145,7 +145,7 @@ class TestExports(APIBaseTest):
     def test_can_create_new_valid_export_insight(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": self.insight.id},
+            {"export_format": "image/png", "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
@@ -155,8 +155,8 @@ class TestExports(APIBaseTest):
                 "id": data["id"],
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
-                "export_format": "application/pdf",
-                "filename": "export-example-insight.pdf",
+                "export_format": "image/png",
+                "filename": "export-example-insight.png",
                 "has_content": False,
                 "dashboard": None,
                 "export_context": None,
@@ -183,7 +183,7 @@ class TestExports(APIBaseTest):
                         "changes": [
                             {
                                 "action": "exported",
-                                "after": "application/pdf",
+                                "after": "image/png",
                                 "before": None,
                                 "field": "export_format",
                                 "type": "Insight",
@@ -231,7 +231,7 @@ class TestExports(APIBaseTest):
         mock_exporter_task.export_asset.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": self.insight.id},
+            {"export_format": "image/png", "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
