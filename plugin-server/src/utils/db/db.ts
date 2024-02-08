@@ -879,8 +879,8 @@ export class DB {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
-            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
-            [distinctId, person.id, person.team_id],
+            'INSERT INTO posthog_persondistinctid (team_id, distinct_id, person_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
+            [person.team_id, distinctId, person.id],
             'addDistinctIdPooled'
         )
 
