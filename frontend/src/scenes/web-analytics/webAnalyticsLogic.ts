@@ -1009,6 +1009,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabId,
                         title: tab.title,
                         showIntervalSelect: tab.showIntervalSelect,
+                        showPathCleaningControls: tab.showPathCleaningControls,
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, tabId, true),
                             loadPriority: 0,
@@ -1023,6 +1024,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return {
                         tileId,
                         title: tile.title,
+                        showIntervalSelect: tile.showIntervalSelect,
+                        showPathCleaningControls: tile.showPathCleaningControls,
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, undefined, true),
                             loadPriority: 0,
