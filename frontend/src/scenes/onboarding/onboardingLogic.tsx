@@ -163,6 +163,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return productKey ? getProductUri(productKey as ProductKey, featureFlags) : urls.default()
             },
         ],
+        stepAfterInstall: [
+            (s) => [s.allOnboardingSteps],
+            (allOnboardingSteps: AllOnboardingSteps) =>
+                allOnboardingSteps[
+                    allOnboardingSteps.findIndex((step) => step.props.stepKey === OnboardingStepKey.INSTALL) + 1
+                ]?.props.stepKey,
+        ],
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
@@ -282,6 +289,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
             }
         },
+
         completeOnboarding: ({ nextProductKey }) => {
             if (values.productKey) {
                 const product = values.productKey

@@ -40,13 +40,11 @@ export const OnboardingVerificationAndConfigStep = ({
     return (
         <OnboardingStep
             title="Configure"
-            showSkip={true}
             stepKey={stepKey}
-            onSkip={() => {
-                reportIngestionContinueWithoutVerifying()
+            continueAction={() => {
+                !currentTeam?.[teamPropertyToVerify] && reportIngestionContinueWithoutVerifying()
                 saveConfiguration()
             }}
-            continueAction={saveConfiguration}
         >
             <h3>Verifying Installation...</h3>
             <LemonDivider />

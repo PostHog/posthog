@@ -51,10 +51,12 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
         [ProductKey.SURVEYS]: 'Create a survey',
     }
 
+    const { isFirstProductOnboarding, stepAfterInstall } = useValues(onboardingLogic)
+
     return (
         <div className="flex gap-x-4 items-center">
             <LemonButton
-                to={urls.onboarding(product.type)}
+                to={urls.onboarding(product.type, !isFirstProductOnboarding ? stepAfterInstall : undefined)}
                 type="primary"
                 status="alt"
                 data-attr={`${product.type}-onboarding`}

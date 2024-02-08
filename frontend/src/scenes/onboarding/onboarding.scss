@@ -1,15 +1,31 @@
-.onboardingCrumb {   
+.onboardingCrumb {
     font-family: var(--font-sans) !important;
     font-size: 1rem;
     line-height: 1.2;
     color: var(--default);
     opacity: 0.5;
 
-    &:hover{
+    &:hover {
         cursor: pointer;
         opacity: 1;
         transition: opacity 200ms ease;
     }
+}
+
+.onboardingHeader {
+    grid-template-columns: max-content 1fr max-content;
+}
+
+.onboardingCrumb::after {
+    display: block;
+    height: 0;
+    overflow: hidden;
+    font-weight: bold;
+    pointer-events: none;
+    visibility: hidden;
+    content: attr(data-text);
+    content: attr(data-text) / '';
+    user-select: none;
 }
 
 .onboardingCrumbSeparator {

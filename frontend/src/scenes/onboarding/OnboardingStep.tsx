@@ -2,17 +2,11 @@ import './onboarding.scss'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowRight } from 'lib/lemon-ui/icons'
 import React from 'react'
-import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
-
-import { getProductUri, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
+import { onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -24,8 +18,6 @@ export const OnboardingStep = ({
     onSkip,
     continueAction,
     continueOverride,
-    backActionOverride,
-    hedgehog,
 }: {
     stepKey: OnboardingStepKey
     title: string
@@ -36,50 +28,24 @@ export const OnboardingStep = ({
     onSkip?: () => void
     continueAction?: () => void
     continueOverride?: JSX.Element
-    backActionOverride?: () => void
-    hedgehog?: JSX.Element
 }): JSX.Element => {
-    const {
-        hasNextStep,
-        onboardingStepNames,
-        totalOnboardingSteps,
-        hasPreviousStep,
-        productKey,
-        isFirstProductOnboarding,
-        currentOnboardingStep,
-    } = useValues(onboardingLogic)
-    const { completeOnboarding, goToNextStep, setStepKey, goToPreviousStep } = useActions(onboardingLogic)
+    const { hasNextStep, onboardingStepNames, currentOnboardingStep } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const hedgehogToRender = React.cloneElement(hedgehog || <PhonePairHogs />, {
-        className: 'h-full w-full',
-    })
 
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
     }
 
     return (
-        //             <LemonButton
-        //                 icon={<IconArrowLeft />}
-        //                 onClick={() =>
-        //                     backActionOverride
-        //                         ? backActionOverride()
-        //                         : hasPreviousStep
-        //                         ? goToPreviousStep()
-        //                         : !isFirstProductOnboarding
-        //                         ? router.actions.push(getProductUri(productKey as ProductKey))
-        //                         : router.actions.push(urls.products())
-        //                 }
-        //             >
-        //                 Back
-        //             </LemonButton>
         <>
-            <div className="pb-10">
-                <div className="flex justify-between items-center">
+            <div className="pb-2">
+                <div className="grid onboardingHeader">
                     <h1 className="font-bold m-0 pl-2">
                         {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                     </h1>
-                    <div className="flex gap-2 items-center">
+                    <div />
+                    <div className="flex items-center">
                         {onboardingStepNames.map((stepName, idx) => {
                             return (
                                 <React.Fragment key={idx}>
@@ -87,6 +53,7 @@ export const OnboardingStep = ({
                                         className={`onboardingCrumb ${
                                             currentOnboardingStep?.props.stepKey === stepName && 'font-bold'
                                         }`}
+                                        data-text={stepKeyToTitle(stepName)}
                                         key={stepName}
                                         onClick={() => setStepKey(stepName)}
                                     >
@@ -102,8 +69,6 @@ export const OnboardingStep = ({
                 </div>
             </div>
             <div className="p-2">
-                {hedgehog && <div className="-mt-20 absolute right-4 h-16">{hedgehogToRender}</div>}
-
                 <p>{subtitle}</p>
                 {children}
                 <div className="mt-8 flex justify-start gap-x-2">
@@ -130,6 +95,7 @@ export const OnboardingStep = ({
                     ) : (
                         <LemonButton
                             type="primary"
+                            status="alt"
                             onClick={() => {
                                 continueAction && continueAction()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
@@ -142,6 +108,5 @@ export const OnboardingStep = ({
                 </div>
             </div>
         </>
-        // </BridgePage>
     )
 }

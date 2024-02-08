@@ -40,6 +40,7 @@ export const OnboardingBillingStep = ({
                         // TODO: redirect path won't work properly until navigation is properly set up
                         to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
                         type="primary"
+                        status="alt"
                         center
                         disableClientSideRouting
                         onClick={() => {
