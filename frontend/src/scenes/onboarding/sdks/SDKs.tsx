@@ -28,6 +28,7 @@ export function SDKs({
         useValues(sdksLogic)
     const { productKey } = useValues(onboardingLogic)
     const { width } = useWindowSize()
+
     const minimumSideBySideSize = 768
 
     useEffect(() => {

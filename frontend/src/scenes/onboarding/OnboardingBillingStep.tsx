@@ -36,23 +36,27 @@ export const OnboardingBillingStep = ({
         planKey: string | undefined
         currentPlan: boolean
         isFreePlan: boolean
+        hasAddons: boolean
     }): JSX.Element => {
         return (
-            <LemonButton
-                to={getUpgradeProductLink(product, planKey || '', redirectPath, true)}
-                type={isFreePlan ? 'secondary' : 'primary'}
-                status={currentPlan ? 'default' : 'alt'}
-                fullWidth
-                center
-                disableClientSideRouting
-                onClick={() => {
-                    if (!currentPlan) {
-                        reportBillingUpgradeClicked(product.type)
-                    }
-                }}
-            >
-                Choose Plan {currentPlan && '(Current Plan)'}
-            </LemonButton>
+            <>
+                <LemonButton
+                    className="mt-auto"
+                    to={getUpgradeProductLink(product, planKey || '', redirectPath, true)}
+                    type={isFreePlan ? 'secondary' : 'primary'}
+                    status="default"
+                    fullWidth
+                    center
+                    disableClientSideRouting
+                    onClick={() => {
+                        if (!currentPlan) {
+                            reportBillingUpgradeClicked(product.type)
+                        }
+                    }}
+                >
+                    Choose Plan {currentPlan && '(Current Plan)'}
+                </LemonButton>
+            </>
         )
     }
     // const upgradeButtons = product.plans?.map((plan) => {
@@ -102,52 +106,6 @@ export const OnboardingBillingStep = ({
                 )
             }
         >
-            <h3>Pick a Plan</h3>
-            <LemonDivider />
-            <div className="flex justify-between gap-8">
-                {product.plans.map((plan) => {
-                    const isFreePlan = (plan.free_allocation && !plan.tiers) as boolean
-                    const formattedUnit = plan.unit![0].toUpperCase() + plan.unit?.substring(1) + 's'
-                    const dataRetentionFeature = plan.features.find((feature) => feature.key.includes('data_retention'))
-                    const dataRetentionFormatted = `${dataRetentionFeature?.limit} ${dataRetentionFeature?.unit}`
-                    const priceTierFree = `First ${formatCompactNumber(plan.tiers?.[0].up_to)} ${plan.unit}s/mo free`
-                    const priceTierPaid = `Then ${parseFloat(plan.tiers?.[1]?.unit_amount_usd || '')}/${plan.unit}`
-                    return (
-                        <div className="PlanUpgradeCard" key={plan.plan_key}>
-                            <h3 className="mb-0">{isFreePlan ? 'Free' : 'Paid'}</h3>
-                            <h4 className="mb-6">
-                                {isFreePlan ? 'No credit card required' : 'All features, no limitations'}
-                            </h4>
-                            <div className="PlanUpgradeCard__Item">
-                                <p>{formattedUnit}</p>
-                                <p className="font-bold">{plan.free_allocation || 'Unlimited'}</p>
-                            </div>
-                            <div className="PlanUpgradeCard__Item">
-                                <p>Data Retention</p>
-                                <p className="font-bold">{dataRetentionFormatted}</p>
-                            </div>
-                            <div className="PlanUpgradeCard__Item">
-                                <p>Features</p>
-                                <p className="font-bold">
-                                    {isFreePlan ? 'Basic features' : 'All features (see below)'}
-                                </p>
-                            </div>
-                            <div className="PlanUpgradeCard__Item">
-                                <p>Price</p>
-                                <div>
-                                    <p className="font-bold mb-0">{isFreePlan ? 'Free' : priceTierFree}</p>
-                                    {!isFreePlan && <p>{priceTierPaid}</p>}
-                                </div>
-                            </div>
-                            <ChoosePlanButton
-                                planKey={plan.plan_key}
-                                currentPlan={plan.current_plan}
-                                isFreePlan={isFreePlan}
-                            />
-                        </div>
-                    )
-                })}
-            </div>
             {billing?.products && productKey && product ? (
                 <div className="mt-6">
                     {product.subscribed ? (
@@ -176,7 +134,66 @@ export const OnboardingBillingStep = ({
                         </div>
                     ) : (
                         <>
-                            <h3>Compare Plans for {product.name}</h3>
+                            <h3>Pick a Plan</h3>
+                            <LemonDivider />
+                            <div className="flex justify-between gap-8">
+                                {product.plans.map((plan) => {
+                                    const isFreePlan = (plan.free_allocation && !plan.tiers) as boolean
+                                    const formattedUnit = plan.unit![0].toUpperCase() + plan.unit?.substring(1) + 's'
+                                    const dataRetentionFeature = plan.features.find((feature) =>
+                                        feature.key.includes('data_retention')
+                                    )
+                                    const dataRetentionFormatted = `${dataRetentionFeature?.limit} ${dataRetentionFeature?.unit}`
+                                    const priceTierFree = `First ${formatCompactNumber(plan.tiers?.[0].up_to)} ${
+                                        plan.unit
+                                    }s/mo free`
+                                    const priceTierPaid = `Then ${parseFloat(plan.tiers?.[1]?.unit_amount_usd || '')}/${
+                                        plan.unit
+                                    }`
+                                    return (
+                                        <div className="PlanUpgradeCard" key={plan.plan_key}>
+                                            <h3 className="mb-0">{isFreePlan ? 'Free' : 'Paid'}</h3>
+                                            <h4 className="mb-6">
+                                                {isFreePlan
+                                                    ? 'No credit card required'
+                                                    : 'All features, no limitations'}
+                                            </h4>
+                                            <div>
+                                                <div className="PlanUpgradeCard__Item">
+                                                    <p>{formattedUnit}</p>
+                                                    <p className="font-bold">{plan.free_allocation || 'Unlimited'}</p>
+                                                </div>
+                                                <div className="PlanUpgradeCard__Item">
+                                                    <p>Data Retention</p>
+                                                    <p className="font-bold">{dataRetentionFormatted}</p>
+                                                </div>
+                                                <div className="PlanUpgradeCard__Item">
+                                                    <p>Features</p>
+                                                    <p className="font-bold">
+                                                        {isFreePlan ? 'Basic features' : 'All features (see below)'}
+                                                    </p>
+                                                </div>
+                                                <div className="PlanUpgradeCard__Item">
+                                                    <p>Price</p>
+                                                    <div>
+                                                        <p className="font-bold mb-0">
+                                                            {isFreePlan ? 'Free' : priceTierFree}
+                                                        </p>
+                                                        {!isFreePlan && <p>{priceTierPaid}</p>}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <ChoosePlanButton
+                                                planKey={plan.plan_key}
+                                                currentPlan={plan.current_plan}
+                                                isFreePlan={isFreePlan}
+                                                hasAddons={product.addons.length > 0}
+                                            />
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                            <h3 className="mt-8">Compare Plans for {product.name}</h3>
                             <LemonDivider />
                             <PlanComparison product={product} includeAddons />
                         </>
