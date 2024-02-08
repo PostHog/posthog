@@ -91,7 +91,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 size="small"
                 type="secondary"
             >
-                Open in modal
+                Show more
             </LemonButton>
         ) : null,
     ].filter(isNotNil)
@@ -200,7 +200,7 @@ export const WebTabs = ({
                 size="small"
                 type="secondary"
             >
-                Open in modal
+                Show more
             </LemonButton>
         ) : null,
     ].filter(isNotNil)
