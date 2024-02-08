@@ -180,7 +180,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             toggleQueryEditorPanel()
                                         }}
                                         fullWidth
-                                        label="View Source"
+                                        label="View source"
                                     />
                                     {hogQL && (
                                         <>

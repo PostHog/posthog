@@ -18,12 +18,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND (NOT has([''], "$group_0"))
@@ -51,12 +51,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND (NOT has([''], "$group_0")
@@ -85,12 +85,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND (NOT has([''], "$group_0")
@@ -119,12 +119,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND (NOT has([''], "$group_0")
@@ -154,12 +154,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND event = 'watched movie'
      GROUP BY aggregation_target)
@@ -187,12 +187,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
        AND event = 'watched movie'
      GROUP BY aggregation_target)
@@ -220,7 +220,7 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
@@ -232,7 +232,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -260,7 +260,7 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
@@ -272,7 +272,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -300,7 +300,7 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
@@ -312,7 +312,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -340,7 +340,7 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
@@ -352,7 +352,7 @@
           AND group_type_index = 0
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-01 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-15 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
@@ -392,12 +392,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND event = 'watched movie'
      GROUP BY aggregation_target)
@@ -436,12 +436,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND event = 'watched movie'
      GROUP BY aggregation_target)
@@ -469,12 +469,12 @@
              FROM events
              WHERE team_id = 2
                AND event = 'watched movie'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 12:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-01 12:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-01 20:00:00', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 12:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-01 12:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-01 20:00:00', 'UTC')
        AND event = 'watched movie'
      GROUP BY aggregation_target)
@@ -501,12 +501,12 @@
              FROM events
              WHERE team_id = 2
                AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND ((event = 'watched movie'))
      GROUP BY aggregation_target)
@@ -533,12 +533,12 @@
              FROM events
              WHERE team_id = 2
                AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND ((event = 'watched movie'))
      GROUP BY aggregation_target)
@@ -565,12 +565,12 @@
              FROM events
              WHERE team_id = 2
                AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND ((event = 'watched movie'))
      GROUP BY aggregation_target)
@@ -609,7 +609,7 @@
         WHERE team_id = 2
         GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND event = 'watched movie'
        AND notEmpty(e.person_id)
@@ -638,12 +638,12 @@
              FROM events
              WHERE team_id = 2
                AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-15 23:59:59', 'UTC') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-15 23:59:59', 'UTC')
        AND event = '$pageview'
      GROUP BY aggregation_target)
@@ -671,12 +671,12 @@
              FROM events
              WHERE team_id = 2
                AND event = '$pageview'
-               AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-05-01 00:00:00', 'US/Pacific')
+               AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'US/Pacific')), 'US/Pacific')
                AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-15 23:59:59', 'US/Pacific') )
         GROUP BY distinct_id
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
-       AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime('2021-05-01 00:00:00', 'US/Pacific')
+       AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'US/Pacific')), 'US/Pacific')
        AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-15 23:59:59', 'US/Pacific')
        AND event = '$pageview'
      GROUP BY aggregation_target)

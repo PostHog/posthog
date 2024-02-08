@@ -557,7 +557,12 @@ export function DataTable({
                                         result && result[0] && result[0]['event'] === '$exception',
                                 })
                             }
-                            footer={(dataTableRows ?? []).length > 0 ? <LoadNext query={query.source} /> : null}
+                            footer={
+                                (dataTableRows ?? []).length > 0 &&
+                                !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
+                                    <LoadNext query={query.source} />
+                                ) : null
+                            }
                             onRow={context?.rowProps}
                         />
                     )}
