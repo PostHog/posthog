@@ -2,6 +2,7 @@ import {
     arrow,
     autoUpdate,
     flip,
+    FloatingArrow,
     FloatingPortal,
     offset as offsetFunc,
     Placement,
@@ -11,6 +12,7 @@ import {
     useFocus,
     useHover,
     useInteractions,
+    useMergeRefs,
     useRole,
 } from '@floating-ui/react'
 import clsx from 'clsx'
@@ -28,25 +30,19 @@ export type TooltipProps = {
     className?: string
 }
 
-export const Tooltip = ({
+export function Tooltip({
     title,
     children,
     open,
     placement = 'top',
-    offset = 5,
+    offset = 8,
     delayMs = DEFAULT_DELAY_MS,
     className = '',
-}: TooltipProps): JSX.Element => {
+}: TooltipProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const caretRef = useRef(null)
 
-    const {
-        refs,
-        floatingStyles,
-        context,
-        middlewareData,
-        placement: renderedPlacement,
-    } = useFloating({
+    const { refs, floatingStyles, context } = useFloating({
         open: open === undefined ? isOpen : open,
         onOpenChange: !open ? setIsOpen : undefined,
         placement: placement,
@@ -69,20 +65,18 @@ export const Tooltip = ({
 
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
-    const placementSide = renderedPlacement.split('-')[0]
-    const staticSide = {
-        top: 'bottom',
-        right: 'left',
-        bottom: 'top',
-        left: 'right',
-    }[placementSide]
+    const childrenRef = (children as any).ref
+
+    const triggerRef = useMergeRefs([refs.setReference, childrenRef])
 
     return title ? (
         <>
-            {React.cloneElement(child, {
-                ref: refs.setReference,
-                ...getReferenceProps(),
-            })}
+            {React.cloneElement(
+                child,
+                getReferenceProps({
+                    ref: triggerRef,
+                })
+            )}
             <FloatingPortal>
                 {isOpen && (
                     <>
@@ -97,22 +91,7 @@ export const Tooltip = ({
                             {...getFloatingProps()}
                         >
                             {typeof title === 'function' ? title() : title}
-                            {staticSide && (
-                                <div
-                                    ref={caretRef}
-                                    className="absolute w-1.5 h-1.5 bg-tooltip-bg rotate-45"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        left: middlewareData.arrow?.x != null ? `${middlewareData.arrow.x}px` : '',
-                                        top: middlewareData.arrow?.y != null ? `${middlewareData.arrow.y}px` : '',
-                                        // Ensure the static side gets unset when
-                                        // flipping to other placements' axes.
-                                        right: '',
-                                        bottom: '',
-                                        [staticSide]: `-3px`,
-                                    }}
-                                />
-                            )}
+                            <FloatingArrow ref={caretRef} context={context} fill="var(--tooltip-bg)" />
                         </div>
                     </>
                 )}

@@ -114,8 +114,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const {
         x,
         y,
-        reference,
-        refs: { reference: referenceRef, floating: floatingRef },
+        refs: { reference: referenceRef, floating: floatingRef, setReference },
         strategy,
         placement: effectivePlacement,
         update,
@@ -156,7 +155,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     useLayoutEffect(() => {
         if (referenceElement) {
-            reference(referenceElement)
+            setReference(referenceElement)
         }
     }, [referenceElement])
 
