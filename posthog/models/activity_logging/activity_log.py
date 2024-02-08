@@ -403,6 +403,21 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
     )
 
 
+def load_organization_activity(
+    scope: ActivityScope,
+    organization_id: UUIDT,
+    limit: int = 10,
+    page: int = 1,
+) -> ActivityPage:
+    activity_query = (
+        ActivityLog.objects.select_related("user")
+        .filter(organization_id=organization_id, scope=scope)
+        .order_by("-created_at")
+    )
+
+    return get_activity_page(activity_query, limit, page)
+
+
 def load_activity(
     scope: ActivityScope,
     team_id: int,

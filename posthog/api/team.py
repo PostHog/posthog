@@ -409,6 +409,8 @@ class TeamViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
+        organization_id = team.organization_id
+        team_name = team.name
 
         user = cast(User, self.request.user)
 
@@ -431,6 +433,16 @@ class TeamViewSet(viewsets.ModelViewSet):
             ignore_conflicts=True,
         )
 
+        log_activity(
+            organization_id=cast(UUIDT, organization_id),
+            team_id=team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(self.request),
+            scope="Team",
+            item_id=team_id,
+            activity="deleted",
+            detail=Detail(name=str(team_name)),
+        )
         # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
         report_user_action(user, f"team deleted", team=team)
 
@@ -481,6 +493,14 @@ class TeamViewSet(viewsets.ModelViewSet):
         team = self.get_object()
         cache_key = f"is_generating_demo_data_{team.pk}"
         return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
+
+    @action(methods=["GET"], url_path="activity", detail=False)
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="Team", team_id=self.team_id, limit=limit, page=page)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):

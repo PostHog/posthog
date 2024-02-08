@@ -34,6 +34,11 @@ class TestTeamAPI(APIBaseTest):
         assert starting_log_response.status_code == 200
         assert starting_log_response.json()["results"] == expected
 
+    def _assert_organization_activity_log(self, expected: List[Dict]) -> None:
+        starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
+        assert starting_log_response.status_code == 200
+        assert starting_log_response.json()["results"] == expected
+
     def _assert_activity_log_is_empty(self) -> None:
         self._assert_activity_log([])
 
@@ -246,6 +251,40 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(
             response_data["test_account_filters"],
             [{"key": "$current_url", "value": "test"}],
+        )
+
+    @freeze_time("2022-02-08")
+    @patch("posthog.api.team.delete_bulky_postgres_data")
+    @patch("posthoganalytics.capture")
+    def test_delete_team_activity_log(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team: Team = Team.objects.create_with_data(organization=self.organization)
+
+        response = self.client.delete(f"/api/projects/{team.id}")
+        assert response.status_code == 204
+
+        self._assert_organization_activity_log(
+            [
+                {
+                    "activity": "deleted",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": None,
+                        "name": "Default Project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
         )
 
     @patch("posthog.api.team.delete_bulky_postgres_data")

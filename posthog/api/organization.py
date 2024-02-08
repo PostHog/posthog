@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 
 from posthog import settings
@@ -11,6 +12,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import load_organization_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
@@ -189,3 +192,18 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    @action(methods=["GET"], detail=True)
+    def activity(self, request: Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        organization = self.get_object()
+
+        activity_page = load_organization_activity(
+            scope="Team",
+            organization_id=organization.pk,
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
