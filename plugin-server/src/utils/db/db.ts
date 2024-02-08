@@ -879,10 +879,20 @@ export class DB {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
-            'INSERT INTO posthog_persondistinctid (team_id, distinct_id, person_id, version) VALUES ($1, $2, $3, 0) RETURNING *',
+            `
+                INSERT INTO posthog_persondistinctid AS pdi
+                    (team_id, distinct_id, person_id, version)
+                    VALUES ($1, $2, $3, 0)
+                ON CONFLICT (team_id, distinct_id)
+                    DO UPDATE SET
+                        person_id = excluded.person_id,
+                        version = pdi.version + 1
+                    WHERE pdi.person_id IS NULL
+                RETURNING *
+            `,
             [person.team_id, distinctId, person.id],
             'addDistinctIdPooled'
-        )
+        ) // TODO: handle empty result as failed INSERT
 
         const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         const version = Number(versionStr || 0)
