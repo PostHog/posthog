@@ -183,7 +183,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     # otherwise evil sites could create actions with a users' session.
     # NOTE: Origin header is only set on cross domain request
     def test_create_from_other_domain(self, *args):
-        # FIXME: BaseTest is using Django client to performe calls to a DRF endpoint.
+        # FIXME: BaseTest is using Django client to perform calls to a DRF endpoint.
         # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
