@@ -1225,8 +1225,8 @@
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT [now()] AS date,
-         [0] AS total,
+  SELECT now() AS date,
+         0 AS total,
          '' AS breakdown_value
   LIMIT 0
   '''
