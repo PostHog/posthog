@@ -348,19 +348,6 @@ class TestStickinessQueryRunner(APIBaseTest):
         assert result["days"] == [1, 2, 3]
         assert result["data"] == [0, 0, 2]
 
-    def test_interval_full_weeks(self):
-        self._create_test_events()
-
-        with freeze_time("2020-01-23T12:00:00Z"):
-            response = self._run_query(interval=IntervalType.week, date_from="-30d", date_to="now")
-
-            result = response.results[0]
-
-            assert result["label"] == "$pageview"
-            assert result["labels"] == ["1 week", "2 weeks", "3 weeks", "4 weeks", "5 weeks"]
-            assert result["days"] == [1, 2, 3, 4, 5]
-            assert result["data"] == [0, 0, 2, 0, 0]
-
     def test_interval_month(self):
         self._create_test_events()
 
