@@ -1,4 +1,5 @@
 import { captureException } from '@sentry/node'
+import crypto from 'crypto'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -149,14 +150,18 @@ export class SessionRecordingIngester {
 
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
 
+        // We create a hash of the cluster to use as a unique identifier for the high water marks
+        // This enables us to swap clusters without having to worry about resetting the high water marks
+        const kafkaClusterIdentifier = crypto.createHash('md5').update(this.config.KAFKA_HOSTS).digest('hex')
+
         this.sessionHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
-            this.config.SESSION_RECORDING_REDIS_PREFIX
+            this.config.SESSION_RECORDING_REDIS_PREFIX + `kafka-${kafkaClusterIdentifier}/`
         )
 
         this.persistentHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
-            this.config.SESSION_RECORDING_REDIS_PREFIX + 'persistent/'
+            this.config.SESSION_RECORDING_REDIS_PREFIX + `kafka-${kafkaClusterIdentifier}/persistent/`
         )
 
         // NOTE: This is the only place where we need to use the shared server config
