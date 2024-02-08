@@ -871,13 +871,9 @@ export class DB {
         }
     }
 
-    public async addDistinctIdPooled(
-        person: Person,
-        distinctId: string,
-        tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    public async addDistinctIdPooled(person: Person, distinctId: string): Promise<ProducerRecord[]> {
         const insertResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             `
                 INSERT INTO posthog_persondistinctid AS pdi
