@@ -224,7 +224,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
                                         const completionItems = response.suggestions
 
-                                        const suggestions = completionItems.map((item) => {
+                                        const suggestions = completionItems.map<languages.CompletionItem>((item) => {
+                                            const kind = convertCompletionItemKind(item.kind)
+
                                             return {
                                                 label: item.label,
                                                 documentation: item.documentation,
@@ -235,7 +237,14 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                                     startColumn: word.startColumn,
                                                     endColumn: word.endColumn,
                                                 },
-                                                kind: convertCompletionItemKind(item.kind),
+                                                kind,
+                                                command:
+                                                    kind === languages.CompletionItemKind.Function
+                                                        ? {
+                                                              id: 'cursorLeft',
+                                                              title: 'Move cursor left',
+                                                          }
+                                                        : undefined,
                                             }
                                         })
 
