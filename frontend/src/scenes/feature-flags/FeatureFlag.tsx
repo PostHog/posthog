@@ -1018,7 +1018,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         ? 'Cannot delete variants from a feature flag that is part of an experiment'
                                                         : undefined
                                                 }
-                                                tooltipPlacement="topRight"
+                                                tooltipPlacement="top-end"
                                             />
                                         )}
                                     </div>
@@ -1044,7 +1044,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
                                     : undefined
                             }
-                            tooltipPlacement="topLeft"
+                            tooltipPlacement="top-start"
                             center
                         >
                             Add variant

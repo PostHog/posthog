@@ -119,7 +119,7 @@ export function ViewLinkDeleteButton({ table, column }: ViewLinkDeleteButtonProp
             icon={<IconDelete />}
             onClick={() => deleteViewLink(table, column)}
             tooltip="Remove view association"
-            tooltipPlacement="bottomLeft"
+            tooltipPlacement="bottom-start"
             size="small"
         />
     )

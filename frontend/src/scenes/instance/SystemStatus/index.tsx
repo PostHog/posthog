@@ -37,7 +37,9 @@ export function SystemStatus(): JSX.Element {
             key: 'overview',
             label: (
                 <Tooltip title="System overview is cached for 60 seconds">
-                    System overview <IconInfo />
+                    <span>
+                        System overview <IconInfo />
+                    </span>
                 </Tooltip>
             ),
             content: <OverviewTab />,

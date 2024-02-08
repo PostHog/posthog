@@ -40,7 +40,7 @@ const NOTICES: {
                 You can now find them in <b>Data Management</b>
             </>
         ),
-        placement: 'rightBottom',
+        placement: 'bottom-end',
         flagSuffix: 'annotations-2023-10-30',
     },
     {
@@ -52,7 +52,7 @@ const NOTICES: {
                 You can now find them in <b>People</b>
             </>
         ),
-        placement: 'rightTop',
+        placement: 'top-end',
         flagSuffix: 'cohorts-2023-10-30',
     },
 ]
