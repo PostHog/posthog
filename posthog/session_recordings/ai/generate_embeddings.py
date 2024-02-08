@@ -31,7 +31,6 @@ def generate_team_embeddings(team: Team):
                     "session_id": recording.id,
                     "team_id": team.pk,
                     "embeddings": embeddings,
-                    "generation_timestamp": "now()",
                 }
             )
 
@@ -42,13 +41,22 @@ def generate_team_embeddings(team: Team):
 
 def fetch_recordings(team: Team):
     query = """
-            SELECT
-                *
+            WITH embedding_ids AS
+            (
+                SELECT
+                    session_id
+                from
+                    session_replay_embeddings
+                where
+                    team_id = %(team_id)s
+            )
+            SELECT DISTINCT
+                session_id
             FROM
-                session_replay_embeddings
-            PREWHERE
-                team_id = %(team_id)s
-                AND empty(embeddings)
+                session_replay_events
+            WHERE
+                session_id NOT IN embedding_ids
+                AND team_id = %(team_id)s
             LIMIT %(batch_flush_size)s
         """
 
@@ -59,7 +67,7 @@ def fetch_recordings(team: Team):
 
 
 def flush_embeddings_to_clickhouse(embeddings):
-    sync_execute("INSERT INTO session_replay_embeddings (*) VALUES", embeddings)
+    sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
 
 
 def generate_recording_embeddings(recording: SessionRecording, user: User):
