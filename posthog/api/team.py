@@ -6,12 +6,12 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from rest_framework import (
     exceptions,
-    permissions,
     request,
     response,
     serializers,
     viewsets,
 )
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.decorators import action
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -19,15 +19,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.models import InsightCachingState, Organization, Team, User
+from posthog.models import InsightCachingState, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import (
-    groups_on_events_querying_enabled,
-    set_team_in_cache,
-)
+from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -42,7 +39,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-class PremiumMultiProjectPermissions(permissions.BasePermission):
+class PremiumMultiProjectPermissions(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
@@ -303,7 +300,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
-    permission_classes = [PremiumMultiProjectPermissions]
+    permission_classes = [IsAuthenticated, PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
     include_in_docs = True
@@ -317,16 +314,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             return TeamBasicSerializer
         return super().get_serializer_class()
-
-    def check_permissions(self, request):
-        if self.action and self.action == "create":
-            organization = getattr(self.request.user, "organization", None)
-            if not organization:
-                raise exceptions.ValidationError("You need to belong to an organization.")
-            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-            self.organization = organization
-
-        return super().check_permissions(request)
 
     def get_permissions(self) -> List:
         """
@@ -346,6 +333,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
+
+    def check_permissions(self, request):
+        if self.action and self.action == "create":
+            organization = getattr(self.request.user, "organization", None)
+            if not organization:
+                raise exceptions.ValidationError("You need to belong to an organization.")
+            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+            self.organization = organization
+
+        return super().check_permissions(request)
 
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
@@ -400,7 +397,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         # Only ADMIN or higher users are allowed to access this project
         permission_classes=[
-            permissions.IsAuthenticated,
+            IsAuthenticated,
             TeamMemberStrictManagementPermission,
         ],
     )
@@ -415,7 +412,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(
         methods=["GET"],
         detail=True,
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[IsAuthenticated],
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
