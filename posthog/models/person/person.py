@@ -107,11 +107,25 @@ class Person(models.Model):
 
 class PersonDistinctId(models.Model):
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team")]
+        constraints = [
+            # These columns in the unique constraint are also used as the
+            # primary key columns for the ClickHouse copy of this table.
+            models.UniqueConstraint(fields=["team", "distinct_id"], name="unique distinct_id for team"),
+        ]
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
-    person: models.ForeignKey = models.ForeignKey(Person, on_delete=WARN_ON_CASCADE, null=True)
     distinct_id: models.CharField = models.CharField(max_length=400)
+
+    # IMPORTANT: When reading from this table, you need to filter out rows where
+    # the person is null if you are only interested in rows that are currently
+    # associated with a valid (non-deleted) person. Rather than deleting rows
+    # from this table when a person is deleted, we keep the row around but
+    # disassociate it from the person that is being deleted. If we were to
+    # cascade person deletion to this table, the ``version`` value used by
+    # ClickHouse would appear to roll back to zero from after distinct ID reuse,
+    # leading to lost updates and data drift between the Postgres and ClickHouse
+    # copies of this table.
+    person: models.ForeignKey = models.ForeignKey(Person, on_delete=WARN_ON_CASCADE, null=True)
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
