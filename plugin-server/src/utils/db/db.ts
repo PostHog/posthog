@@ -886,7 +886,7 @@ export class DB {
                 ON CONFLICT (team_id, distinct_id)
                     DO UPDATE SET
                         person_id = excluded.person_id,
-                        version = pdi.version + 1
+                        version = COALESCE(pdi.version, 0)::numeric + 1  -- TODO: why ::numeric and not ::bigint?
                     WHERE pdi.person_id IS NULL
                 RETURNING *
             `,
