@@ -194,7 +194,7 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
         "post_to_slack",
         "property_type_format",
     ],
-    "Team": ["updated_at"],
+    "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
 }
 
 
