@@ -3,18 +3,20 @@ from openai import OpenAI
 from typing import Dict
 
 from posthog.api.activity_log import ServerTimingsGathered
-from posthog.utils import get_instance_region
-from posthog.models import User, Team
+from posthog.models import Team
 
-from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.ai.utils import (
     SessionSummaryPromptData,
     reduce_elements_chain,
+    simplify_window_id,
+    format_dates,
     collapse_sequence_of_events,
 )
 
 from posthog.clickhouse.client import sync_execute
+import datetime
+import pytz
 
 BATCH_FLUSH_SIZE = 10
 
@@ -25,17 +27,16 @@ def generate_team_embeddings(team: Team):
     while len(recordings) > 0:
         batched_embeddings = []
         for recording in recordings:
-            embeddings = generate_recording_embeddings(recording=recording)
+            session_id = recording[0]
+            embeddings = generate_recording_embeddings(session_id=session_id, team=team)
             batched_embeddings.append(
                 {
-                    "session_id": recording.id,
+                    "session_id": session_id,
                     "team_id": team.pk,
                     "embeddings": embeddings,
                 }
             )
-
         flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
-
         recordings = fetch_recordings(team=team)
 
 
@@ -70,35 +71,47 @@ def flush_embeddings_to_clickhouse(embeddings):
     sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
 
 
-def generate_recording_embeddings(recording: SessionRecording, user: User):
+def generate_recording_embeddings(session_id: str, team: Team):
     timer = ServerTimingsGathered()
     client = OpenAI()
 
-    instance_region = get_instance_region() or "HOBBY"
+    with timer("get_metadata"):
+        session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
+        if not session_metadata:
+            raise ValueError(f"no session metadata found for session_id {session_id}")
 
     with timer("get_events"):
         session_events = SessionReplayEvents().get_events(
-            session_id=str(recording.session_id),
-            team=recording.team,
-            metadata={"start_time": "now() - interval 7 days", "end_time": "now()"},
+            session_id=str(session_id),
+            team=team,
+            metadata=session_metadata,
             events_to_ignore=[
                 "$feature_flag_called",
             ],
         )
         if not session_events or not session_events[0] or not session_events[1]:
-            raise ValueError(f"no events found for session_id {recording.session_id}")
+            raise ValueError(f"no events found for session_id {session_id}")
 
     with timer("generate_input"):
         processed_sessions = collapse_sequence_of_events(
-            reduce_elements_chain(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
+            format_dates(
+                reduce_elements_chain(
+                    simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
+                ),
+                start=datetime.datetime(1970, 1, 1, tzinfo=pytz.UTC),  # epoch timestamp
+            )
         )
+
+    processed_sessions_index = processed_sessions.column_index("event")
+    current_url_index = processed_sessions.column_index("$current_url")
+    elements_chain_index = processed_sessions.column_index("elements_chain")
 
     with timer("prepare_input"):
         input = "\n".join(
             compact_result(
-                event_name=result[processed_sessions.column_index("event")],
-                event_count=result[processed_sessions.column_index("event_repetition_count")],
-                elements_chain=result[processed_sessions.column_index("elements_chain")],
+                event_name=result[processed_sessions_index] or "",
+                current_url=result[current_url_index] or "",
+                elements_chain=result[elements_chain_index] or "",
             )
             for result in processed_sessions.results
         )
@@ -108,7 +121,6 @@ def generate_recording_embeddings(recording: SessionRecording, user: User):
             client.embeddings.create(
                 input=input,
                 model="text-embedding-3-small",
-                user=f"{instance_region}/{user.pk}",
             )
             .data[0]
             .embedding
@@ -117,5 +129,6 @@ def generate_recording_embeddings(recording: SessionRecording, user: User):
     return embeddings
 
 
-def compact_result(event_name: str, event_count: int, elements_chain: Dict[str, str]):
-    return event_name + " " + event_count + " " + ",".join(elements_chain.values)
+def compact_result(event_name: str, current_url: int, elements_chain: Dict[str, str]):
+    elements_string = elements_chain if isinstance(elements_chain, str) else ", ".join(str(e) for e in elements_chain)
+    return event_name + " " + current_url + " " + elements_string
