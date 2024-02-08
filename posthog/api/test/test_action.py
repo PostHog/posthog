@@ -190,7 +190,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"name": "user signed up"},
             HTTP_ORIGIN="https://evilwebsite.com",
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 401)
 
         self.user.temporary_token = "token123"
         self.user.save()
@@ -214,13 +214,13 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/actions/",
             HTTP_ORIGIN="https://evilwebsite.com",
         )
-        self.assertEqual(list_response.status_code, 403)
+        self.assertEqual(list_response.status_code, 401)
 
         detail_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/{response.json()['id']}/",
             HTTP_ORIGIN="https://evilwebsite.com",
         )
-        self.assertEqual(detail_response.status_code, 403)
+        self.assertEqual(detail_response.status_code, 401)
 
         self.client.logout()
         list_response = self.client.get(
