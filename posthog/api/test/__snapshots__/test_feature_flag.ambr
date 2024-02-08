@@ -408,8 +408,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."id" IN
@@ -524,8 +524,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."id" IN
@@ -766,8 +766,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."id" IN
@@ -950,8 +950,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."id" IN
@@ -1085,8 +1085,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."id" IN
@@ -1337,8 +1337,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."id" IN
@@ -1578,8 +1578,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
   WHERE ("posthog_persondistinctid"."id" IN
