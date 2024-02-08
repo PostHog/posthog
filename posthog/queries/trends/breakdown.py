@@ -229,7 +229,7 @@ class TrendsBreakdown:
             # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
             # See https://github.com/PostHog/posthog/pull/5674 for context.
             return (
-                "SELECT [now()] AS date, [0] AS total, '' AS breakdown_value LIMIT 0",
+                "SELECT now() AS date, 0 AS total, '' AS breakdown_value LIMIT 0",
                 {},
                 lambda _: [],
             )

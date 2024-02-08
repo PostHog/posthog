@@ -595,6 +595,10 @@ class TrendsQueryRunner(QueryRunner):
 
         series_data = map(lambda s: s["data"], results)
         new_series_data = FormulaAST(series_data).call(formula)
+
+        if not len(results):
+            return []
+
         new_result = results[0]
 
         new_result["data"] = new_series_data
