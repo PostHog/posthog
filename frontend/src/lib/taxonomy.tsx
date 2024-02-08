@@ -177,7 +177,8 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     event_properties: {
-        distinct_id: {} as CoreFilterDefinition, // Copied from metadata down below
+        distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
+        $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
         $pageview_id: {
             label: 'Pageview ID',
             description: "PostHog's internal ID for matching events to a pageview.",
@@ -935,6 +936,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties = Object.fromEntries(
     )
 )
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.distinct_id = CORE_FILTER_DEFINITIONS_BY_GROUP.metadata.distinct_id
+// We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
+CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.$session_duration =
+    CORE_FILTER_DEFINITIONS_BY_GROUP.sessions.$session_duration
 
 export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
 

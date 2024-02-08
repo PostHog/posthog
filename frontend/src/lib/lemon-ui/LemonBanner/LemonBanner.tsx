@@ -67,7 +67,7 @@ export function LemonBanner({
                         <IconInfo className="LemonBanner__icon" />
                     )
                 ) : null}
-                <div className="grow">{children}</div>
+                <div className="grow overflow-hidden">{children}</div>
                 {!isCompact && action && <LemonButton type="secondary" {...action} />}
                 {showCloseButton && (
                     <LemonButton size="small" icon={<IconClose />} onClick={_onClose} aria-label="close" />

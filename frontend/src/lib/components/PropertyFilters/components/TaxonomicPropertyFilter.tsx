@@ -9,6 +9,7 @@ import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/type
 import {
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     propertyFilterTypeToTaxonomicFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -183,7 +184,7 @@ export function TaxonomicPropertyFilter({
                                         value={filter.key}
                                         disablePopover
                                         ellipsis
-                                        type={activeTaxonomicGroup?.type}
+                                        type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
                                     />
                                 ) : (
                                     addText || 'Add filter'
