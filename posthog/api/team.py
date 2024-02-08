@@ -494,14 +494,6 @@ class TeamViewSet(viewsets.ModelViewSet):
         cache_key = f"is_generating_demo_data_{team.pk}"
         return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
 
-    @action(methods=["GET"], url_path="activity", detail=False)
-    def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
-
-        activity_page = load_activity(scope="Team", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
-
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
