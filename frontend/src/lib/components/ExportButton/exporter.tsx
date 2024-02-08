@@ -107,7 +107,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
             } catch (e: any) {
                 trackingProperties.total_time_ms = performance.now() - startTime
                 posthog.capture('export failed', trackingProperties)
-                reject(`Export failed: ${JSON.stringify(e)}`)
+                reject(new Error(`Export failed: ${JSON.stringify(e.detail ?? e)}`))
             }
         })
         await lemonToast.promise(
