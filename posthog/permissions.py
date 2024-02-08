@@ -241,7 +241,13 @@ class SharingTokenPermission(BasePermission):
 
 class APIScopePermission(BasePermission):
     """
-    The request is authenticated as a user and the token used has the right scope
+    The request is via an API key and the user has the appropriate scopes.
+
+    This permission requires that the view has a "scope" attribute which is the base scope required for the action.
+    E.g. scope="insight" for a view that requires "insight:read" or "insight:write" for the relevant actions.
+
+    Actions can override this default scope by setting the `required_scopes` attribute on the view method.
+
     """
 
     write_actions = ["create", "update", "partial_update", "destroy"]

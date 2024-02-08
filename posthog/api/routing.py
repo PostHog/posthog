@@ -13,7 +13,7 @@ from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
+from posthog.permissions import APIScopePermission, OrganizationMemberPermissions, TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -50,7 +50,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def get_permissions(self):
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated]
+        permission_classes: list = [IsAuthenticated, APIScopePermission]
 
         if self.is_team_view:
             permission_classes.append(TeamMemberAccessPermission)
