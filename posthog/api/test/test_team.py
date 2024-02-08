@@ -535,6 +535,41 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @freeze_time("2022-02-08")
+    def test_team_float_config_can_be_serialized_to_activity_log(self):
+        # regression test since this isn't true by default
+        response = self.client.patch(f"/api/projects/@current/", {"session_recording_sample_rate": 0.4})
+        assert response.status_code == status.HTTP_200_OK
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "updated",
+                    "created_at": "2022-02-08T00:00:00Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "created",
+                                "after": "0.4",
+                                "before": None,
+                                "field": "session_recording_sample_rate",
+                                "type": "Team",
+                            },
+                        ],
+                        "name": "Default Project",
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(self.team.pk),
+                    "scope": "Team",
+                    "user": {
+                        "email": "user1@posthog.com",
+                        "first_name": "",
+                    },
+                },
+            ]
+        )
+
+    @freeze_time("2022-02-08")
     def test_team_creation_is_in_activity_log(self):
         Team.objects.all().delete()
 

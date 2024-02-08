@@ -1,6 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import structlog
@@ -74,6 +75,12 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return str(obj)
         if isinstance(obj, User):
             return {"first_name": obj.first_name, "email": obj.email}
+        if isinstance(obj, float):
+            # more precision than we'll need but avoids rounding too unnecessarily
+            return format(obj, ".6f").rstrip("0").rstrip(".")
+        if isinstance(obj, Decimal):
+            # more precision than we'll need but avoids rounding too unnecessarily
+            return format(obj, ".6f").rstrip("0").rstrip(".")
 
         return json.JSONEncoder.default(self, obj)
 
