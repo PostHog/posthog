@@ -83,7 +83,7 @@ function EditKeyModal(): JSX.Element {
                                     </Field>
                                 </div>
                                 <div>
-                                    {APIScopes.map(({ key, actions, description }) => (
+                                    {APIScopes.map(({ key, actions }) => (
                                         <div key={key} className="flex items-center justify-between gap-2 min-h-8">
                                             <div>
                                                 <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>

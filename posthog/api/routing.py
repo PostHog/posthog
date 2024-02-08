@@ -11,6 +11,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 from posthog.api.utils import get_token
 from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.organization import Organization
+from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, OrganizationMemberPermissions, TeamMemberAccessPermission
@@ -44,6 +45,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     authentication_classes = []
     permission_classes = []
+
+    # NOTE: Could we type this? Would be pretty cool as a helper
+    base_scope: Optional[APIScopeObjectOrNotSupported] = None
+    required_scopes: Optional[list[str]] = None
 
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes

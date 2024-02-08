@@ -12,6 +12,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -254,7 +255,9 @@ class APIScopePermission(BasePermission):
     read_actions = ["list", "retrieve"]
 
     def has_permission(self, request, view):
-        required_scopes = self.get_scopes(request, view)
+        # NOTE: We do this first to error out quickly if the view is missing the required attribute
+        # Helps devs remember to add it.
+        base_scope = self.get_base_scope(request, view)
 
         # API Scopes currently only apply to PersonalAPIKeyAuthentication
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
@@ -272,17 +275,14 @@ class APIScopePermission(BasePermission):
         # 2. Check if the required scope is in the requester's scopes
         # - If the scope is :read then either :read or :write is enough
 
+        if base_scope == APIScopeObjectOrNotSupported.NOT_SUPPORTED:
+            raise PermissionDenied(f"This action does not support Personal API Key access")
+
+        required_scopes = self.derive_required_scopes(request, view, base_scope)
+
         # TODO: Abstract this into a method that we can reliably test
         for required_scope in required_scopes:
-            valid_scopes = []
-            if ":" in required_scope:
-                # When specified with an action, then we just use it
-                valid_scopes.append(required_scope)
-            else:
-                if view.action in self.write_actions:
-                    valid_scopes.append(f"{required_scope}:write")
-                elif view.action in self.read_actions or request.method == "OPTIONS":
-                    valid_scopes.append(f"{required_scope}:read")
+            valid_scopes = [required_scope]
 
             # For all valid scopes with :read we also add :write
             for scope in valid_scopes:
@@ -300,8 +300,25 @@ class APIScopePermission(BasePermission):
 
         return True
 
-    def get_scopes(self, request, view):
-        try:
+    def derive_required_scopes(self, request, view, base_scope: APIScopeObjectOrNotSupported) -> list[str]:
+        # If required_scopes is set on the view method then use that
+        # Otherwise use the base_scope and derive the required scope from the action
+
+        if hasattr(view, "required_scopes"):
             return view.required_scopes
+
+        if view.action in self.write_actions:
+            return [f"{base_scope.value}:write"]
+        elif view.action in self.read_actions or request.method == "OPTIONS":
+            return [f"{base_scope.value}:read"]
+
+        # If we get here this typically means an action was called without a required scope
+        raise ImproperlyConfigured(
+            f"Required scopes could not be properly determined. Please ensure the action has `required_scopes` and that it is specific e.g. insights:read"
+        )
+
+    def get_base_scope(self, request, view) -> APIScopeObjectOrNotSupported:
+        try:
+            return view.base_scope
         except AttributeError:
-            raise ImproperlyConfigured("APIScopePermission requires the view to define the required_scopes attribute")
+            raise ImproperlyConfigured("APIScopePermission requires the view to define the base_scope attribute.")

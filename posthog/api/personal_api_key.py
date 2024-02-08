@@ -1,6 +1,6 @@
-from typing import Type, cast
+from typing import cast
 
-from rest_framework import mixins, response, serializers, viewsets
+from rest_framework import response, serializers, viewsets
 
 from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
@@ -34,8 +34,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         # TODO: Properly check that they are valid scopes
-
-        print("after", attrs)
         return attrs
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:

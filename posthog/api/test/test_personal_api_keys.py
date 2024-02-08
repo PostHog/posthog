@@ -1,5 +1,4 @@
 from datetime import timedelta
-from unittest.mock import ANY
 
 from rest_framework import status
 

@@ -1,3 +1,4 @@
+from enum import Enum
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.db import models
 from django.utils import timezone
@@ -51,3 +52,43 @@ class PersonalAPIKey(models.Model):
     @property
     def scopes_list(self) -> list[str]:
         return self.scopes.split(",") if self.scopes else []
+
+
+## API Scopes
+# These are the scopes that are used to define the permissions of the API tokens.
+# Not every model needs a scope - it should more be for top-level things
+# Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
+
+
+class APIScopeObjectOrNotSupported(Enum):
+    NOT_SUPPORTED = "not_supported"
+
+    ACTION = "action"
+    ACTIVITY_LOG = "activity_log"
+    ANNOTATION = "annotation"
+    BATCH_EXPORT = "batch_export"
+    COHORT = "cohort"
+    DASHBOARD = "dashboard"
+    EARLY_ACCESS_FEATURE = "early_access_feature"
+    EVENT_DEFINITION = "event_definition"
+    EXPERIMENT = "experiment"
+    EXPORT = "export"
+    FEATURE_FLAG = "feature_flag"
+    GROUP = "group"
+    INSIGHT = "insight"
+    QUERY = "query"
+    NOTEBOOK = "notebook"
+    ORGANIZATION = "organization"
+    ORGANIZATION_MEMBER = "organization_member"
+    PERSON = "person"
+    PLUGIN = "plugin"
+    PROPERTY_DEFINITION = "property_definition"
+    SESSION_RECORDING = "session_recording"
+    SESSION_RECORDING_PLAYLIST = "session_recording_playlist"
+    SHARING_CONFIGURATION = "sharing_configuration"
+    SUBSCRIPTION = "subscription"
+    SURVEY = "survey"
+    TEAM = "team"
+    USER = "user"
+    DATA_WAREHOUSE_TABLE = "data_warehouse_table"
+    SCHEDULED_CHANGE = "scheduled_change"
