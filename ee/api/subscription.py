@@ -12,9 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.subscription import Subscription, unsubscribe_using_token
-from posthog.permissions import (
-    PremiumFeaturePermission,
-)
+from posthog.permissions import PremiumFeaturePermission
 from posthog.utils import str_to_bool
 
 

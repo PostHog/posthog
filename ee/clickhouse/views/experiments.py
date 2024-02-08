@@ -26,9 +26,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
-from posthog.permissions import (
-    PremiumFeaturePermission,
-)
+from posthog.permissions import PremiumFeaturePermission
 from posthog.utils import generate_cache_key, get_safe_cache
 
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes

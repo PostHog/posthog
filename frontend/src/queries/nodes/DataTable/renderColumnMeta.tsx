@@ -1,4 +1,5 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
@@ -6,7 +7,6 @@ import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { isHogQLQuery, trimQuotes } from '~/queries/utils'
-import { PropertyFilterType } from '~/types'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -34,8 +34,13 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     } else if (key === 'person') {
         title = 'Person'
     } else if (key.startsWith('properties.')) {
-        // NOTE: Sometimes these are event, sometimes person properties. We use PropertyFilterType.Event for both.
-        title = <PropertyKeyInfo value={trimQuotes(key.substring(11))} type={PropertyFilterType.Event} disableIcon />
+        title = (
+            <PropertyKeyInfo
+                value={trimQuotes(key.substring(11))}
+                type={TaxonomicFilterGroupType.EventProperties}
+                disableIcon
+            />
+        )
     } else if (key.startsWith('context.columns.')) {
         const column = trimQuotes(key.substring(16))
         const queryContextColumn = context?.columns?.[column]
@@ -50,8 +55,13 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         title = ''
         width = 0
     } else if (key.startsWith('person.properties.')) {
-        // NOTE: PropertyFilterType.Event is not a mistake. PropertyKeyInfo only knows events vs elements ¯\_(ツ)_/¯
-        title = <PropertyKeyInfo value={trimQuotes(key.substring(18))} type={PropertyFilterType.Event} disableIcon />
+        title = (
+            <PropertyKeyInfo
+                value={trimQuotes(key.substring(18))}
+                type={TaxonomicFilterGroupType.PersonProperties}
+                disableIcon
+            />
+        )
     } else {
         title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractExpressionComment(key) : key
     }

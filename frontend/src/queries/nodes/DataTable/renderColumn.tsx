@@ -3,6 +3,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -109,7 +110,7 @@ export function renderColumn(
         if (value === '$autocapture' && eventRecord) {
             return autoCaptureEventToDescription(eventRecord)
         } else {
-            const content = <PropertyKeyInfo value={value} type="event" />
+            const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
             const $sentry_url = eventRecord?.properties?.$sentry_url
             return $sentry_url ? (
                 <Link to={$sentry_url} target="_blank">

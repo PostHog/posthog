@@ -30,6 +30,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
         self.trailing_slash = r"/?"
 
 
+# NOTE: Previously known as the StructuredViewSetMixin
 class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one

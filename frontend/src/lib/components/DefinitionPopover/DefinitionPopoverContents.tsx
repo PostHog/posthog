@@ -18,7 +18,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isPostHogProp, KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { useEffect } from 'react'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
@@ -95,7 +95,7 @@ export function VerifiedDefinitionCheckbox({
 }
 
 function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element {
-    const { definition, type, hasTaxonomyFeatures, isAction, isEvent, isCohort, isElement, isProperty } =
+    const { definition, type, hasTaxonomyFeatures, isAction, isEvent, isCohort, isProperty } =
         useValues(definitionPopoverLogic)
 
     if (!definition) {
@@ -104,8 +104,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
 
     const description: string | JSX.Element | undefined | null =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name &&
-            (KEY_MAPPING.element[definition.name]?.description || KEY_MAPPING.event[definition.name]?.description))
+        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description)
 
     const sharedComponents = (
         <>
@@ -245,7 +244,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
-    if (isElement) {
+    if (group.type === TaxonomicFilterGroupType.Elements) {
         const _definition = definition as SimpleOption
         return (
             <>
@@ -321,7 +320,7 @@ function DefinitionEdit(): JSX.Element {
                         </div>
                     </>
                 )}
-                {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
+                {definition && definition.name && !isCoreFilter(definition.name) && 'verified' in localDefinition && (
                     <VerifiedDefinitionCheckbox
                         verified={!!localDefinition.verified}
                         isProperty={isProperty}
@@ -393,7 +392,7 @@ export function ControlledDefinitionPopover({
         return null
     }
 
-    const { state, singularType, isElement, definition } = useValues(definitionPopoverLogic)
+    const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
     const icon = group.getIcon?.(definition || item)
@@ -415,7 +414,7 @@ export function ControlledDefinitionPopover({
                         title={
                             <PropertyKeyInfo
                                 value={item.name ?? ''}
-                                type={isElement ? 'element' : undefined}
+                                type={group.type}
                                 disablePopover
                                 disableIcon={!!icon}
                                 ellipsis={false}
