@@ -303,8 +303,7 @@ class APIScopePermission(BasePermission):
     def derive_required_scopes(self, request, view, base_scope: APIScopeObjectOrNotSupported) -> list[str]:
         # If required_scopes is set on the view method then use that
         # Otherwise use the base_scope and derive the required scope from the action
-
-        if hasattr(view, "required_scopes"):
+        if getattr(view, "required_scopes", None):
             return view.required_scopes
 
         if view.action in self.write_actions:
@@ -318,7 +317,7 @@ class APIScopePermission(BasePermission):
         )
 
     def get_base_scope(self, request, view) -> APIScopeObjectOrNotSupported:
-        try:
-            return view.base_scope
-        except AttributeError:
+        if not getattr(view, "base_scope", None):
             raise ImproperlyConfigured("APIScopePermission requires the view to define the base_scope attribute.")
+
+        return view.base_scope
