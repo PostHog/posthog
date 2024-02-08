@@ -9,6 +9,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, TeamType } from '~/types'
@@ -45,8 +46,50 @@ const teamActionsMapping: Record<
             ],
         }
     },
-    recording_domains(): ChangeMapping | null {
-        return null
+    recording_domains(change: ActivityChange | undefined): ChangeMapping | null {
+        const before: string[] | null = Array.isArray(change?.before) ? change!.before : null
+        const after: string[] | null = Array.isArray(change?.after) ? change!.after : null
+        if (after === null && before === null) {
+            return null
+        }
+
+        const descriptions = []
+
+        const adds: string[] = []
+        if (after) {
+            for (const domain of after) {
+                if ((!before || !before.includes(domain)) && domain.trim().length > 0) {
+                    adds.push(domain)
+                }
+            }
+        }
+        if (adds.length) {
+            descriptions.push(
+                <>
+                    added {adds.join(', ')} to session recording authorised{' '}
+                    {pluralize(adds.length, 'domain', 'domains')}{' '}
+                </>
+            )
+        }
+
+        const removes: string[] = []
+        if (before) {
+            for (const domain of before) {
+                if ((!after || !after.includes(domain)) && domain.trim().length > 0) {
+                    removes.push(domain)
+                }
+            }
+        }
+
+        if (removes.length) {
+            descriptions.push(
+                <>
+                    removed {removes.join(', ')} from session recording authorised{' '}
+                    {pluralize(removes.length, 'domain', 'domains')}{' '}
+                </>
+            )
+        }
+        return { description: descriptions }
     },
     session_recording_linked_flag(change: ActivityChange | undefined): ChangeMapping | null {
         return {
