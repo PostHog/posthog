@@ -29,9 +29,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import (
-    TEST_clear_cloud_cache,
     TEST_clear_instance_license_cache,
-    is_cloud,
 )
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
@@ -245,6 +243,11 @@ class TestMixin:
         if preheader:
             self.assertIn(preheader, html_message)  # type: ignore
 
+    @contextmanager
+    def is_cloud(self, value: bool):
+        with self.settings(REGION="US" if value else None):
+            yield value
+
 
 class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
@@ -288,14 +291,7 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
-    @contextmanager
-    def is_cloud(self, value: bool):
-        previous_value = is_cloud()
-        try:
-            TEST_clear_cloud_cache(value)
-            yield value
-        finally:
-            TEST_clear_cloud_cache(previous_value)
+    pass
 
 
 class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
@@ -321,7 +317,6 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         super().setUp()
 
         cache.clear()
-        TEST_clear_cloud_cache(self.initial_cloud_mode)
         TEST_clear_instance_license_cache()
 
         # Sets the cloud mode to stabilise things tests, especially num query counts
@@ -341,16 +336,6 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     def assertFasterThan(self, duration_ms: float):
         with assert_faster_than(duration_ms):
             yield
-
-    @contextmanager
-    def is_cloud(self, value: bool):
-        # Typically the is_cloud setting is controlled by License but we need to be able to override it for tests
-        previous_value = is_cloud()
-        try:
-            TEST_clear_cloud_cache(value)
-            yield value
-        finally:
-            TEST_clear_cloud_cache(previous_value)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
