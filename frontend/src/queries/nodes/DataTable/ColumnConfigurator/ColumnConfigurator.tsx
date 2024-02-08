@@ -222,9 +222,11 @@ const SelectedColumn = ({
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
 
     let columnType: PropertyFilterType | null = null
+    let filterGroupType: TaxonomicFilterGroupType | undefined
     let columnKey = column
     if (column.startsWith('person.properties.')) {
         columnType = PropertyFilterType.Person
+        filterGroupType = TaxonomicFilterGroupType.PersonProperties
         columnKey = column.substring(18)
     }
     if (column.startsWith('properties.')) {
@@ -249,7 +251,11 @@ const SelectedColumn = ({
                     <SortableDragIcon />
                 </span>
                 {columnType && <PropertyFilterIcon type={columnType} />}
-                <PropertyKeyInfo className="ml-1" value={columnKey} />
+                <PropertyKeyInfo
+                    className="ml-1"
+                    value={columnKey}
+                    type={filterGroupType || TaxonomicFilterGroupType.EventProperties}
+                />
                 <div className="flex-1" />
                 <Tooltip title="Edit">
                     <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">

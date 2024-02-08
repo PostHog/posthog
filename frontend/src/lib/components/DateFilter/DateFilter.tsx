@@ -97,7 +97,7 @@ export function DateFilter({
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
             <LemonCalendarRange
-                value={[rangeDateTo ?? dayjs(), rangeDateTo ?? dayjs()]}
+                value={[rangeDateFrom ?? dayjs(), rangeDateTo ?? dayjs()]}
                 onChange={([from, to]) => {
                     setRangeDateFrom(from)
                     setRangeDateTo(to)

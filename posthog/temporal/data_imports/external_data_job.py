@@ -38,17 +38,17 @@ class CreateExternalDataJobInputs:
 
 @activity.defn
 async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) -> Tuple[str, list[str]]:
-    run = await sync_to_async(create_external_data_job)(  # type: ignore
+    run = await sync_to_async(create_external_data_job)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
         workflow_id=activity.info().workflow_id,
     )
 
-    source = await sync_to_async(ExternalDataSource.objects.get)(  # type: ignore
+    source = await sync_to_async(ExternalDataSource.objects.get)(
         team_id=inputs.team_id, id=inputs.external_data_source_id
     )
     source.status = "Running"
-    await sync_to_async(source.save)()  # type: ignore
+    await sync_to_async(source.save)()
 
     if source.source_type == ExternalDataSource.Type.POSTGRES:
         host = source.job_inputs.get("host")
@@ -57,16 +57,14 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         password = source.job_inputs.get("password")
         database = source.job_inputs.get("database")
         schema = source.job_inputs.get("schema")
-        schemas_to_sync = await sync_to_async(get_postgres_schemas)(  # type: ignore
-            host, port, database, user, password, schema
-        )
+        schemas_to_sync = await sync_to_async(get_postgres_schemas)(host, port, database, user, password, schema)
         await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
             schemas_to_sync,
             source_id=inputs.external_data_source_id,
             team_id=inputs.team_id,
         )
 
-    schemas = await sync_to_async(get_active_schemas_for_source_id)(  # type: ignore
+    schemas = await sync_to_async(get_active_schemas_for_source_id)(
         team_id=inputs.team_id, source_id=inputs.external_data_source_id
     )
 
@@ -90,7 +88,7 @@ class UpdateExternalDataJobStatusInputs:
 
 @activity.defn
 async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
-    await sync_to_async(update_external_job_status)(  # type: ignore
+    await sync_to_async(update_external_job_status)(
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
@@ -165,6 +163,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         source = stripe_source(
             api_key=stripe_secret_key,
             endpoints=tuple(inputs.schemas),
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token

@@ -10,10 +10,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models import ScheduledChange
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import TeamMemberAccessPermission
 
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):
@@ -67,7 +64,6 @@ class ScheduledChangeViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ScheduledChangeSerializer
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
     authentication_classes = [

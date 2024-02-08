@@ -12,7 +12,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 
@@ -72,11 +71,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
     queryset = Annotation.objects.select_related("dashboard_item")
     serializer_class = AnnotationSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     filter_backends = [filters.SearchFilter]
     pagination_class = AnnotationsLimitOffsetPagination
     search_fields = ["content"]

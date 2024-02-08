@@ -770,7 +770,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="sign up",
             distinct_id="2",
-            timestamp=datetime(2024, 1, 1, 1, 0, 0),
+            timestamp=datetime(2024, 1, 1, 1, 0, 0, 12345),
             properties={"key": "test_val"},
         )
 
@@ -785,16 +785,24 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 event="sign up",
                 distinct_id="2",
-                timestamp=datetime(2024, 1, 1, 1, 0, 0),
+                timestamp=datetime(2024, 1, 1, 1, 2, round(_ / 2), _),
                 properties={"key": "test_val"},
             )
             for _ in range(0, 100)
         ]
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?after=2021-01-01&before=2024-01-01T02:02:02Z"
+            f"/api/projects/{self.team.id}/events/?after=2023-01-01T01:01:00Z&before=2024-01-01T02:02:01Z"
         ).json()
         self.assertEqual(patch_query_with_columns.call_count, 3)
         self.assertEqual(len(response["results"]), 100)
+
+        # Test for the bug where we wouldn't respect ?after if we had more 100 results on the same day
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?after=2024-01-01T01:02:00Z&before=2024-01-01T01:04:01Z"
+        ).json()
+        self.assertEqual(len(response["results"]), 99)
+        self.assertEqual(patch_query_with_columns.call_count, 5)
+        self.assertIsNone(response["next"])
 
     def test_filter_events_by_being_after_properties_with_date_type(self):
         journeys_for(

@@ -25,7 +25,6 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.queries.trends.trends_actors import TrendsActors
@@ -190,11 +189,7 @@ class ActionViewSet(
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     ordering = ["-last_calculated_at", "name"]
 
     def get_queryset(self):
@@ -284,7 +279,3 @@ class ActionViewSet(
             },
         )
         return Response({"count": results[0][0]})
-
-
-class LegacyActionViewSet(ActionViewSet):
-    legacy_team_compatibility = True
