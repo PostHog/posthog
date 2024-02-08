@@ -8,7 +8,7 @@ from dlt.common import pendulum
 from dlt.sources import DltResource
 from pendulum import DateTime
 from asgiref.sync import sync_to_async
-from posthog.temporal.data_imports.pipelines.helpers import check_limit
+from posthog.temporal.data_imports.pipelines.helpers import check_limit, aupdate_job_count
 from posthog.warehouse.models import ExternalDataJob
 
 stripe.api_version = "2022-11-15"
@@ -91,6 +91,8 @@ async def stripe_pagination(
 
         if not response["has_more"] or status == ExternalDataJob.Status.CANCELLED:
             break
+
+    await aupdate_job_count(job_id, team_id, count)
 
 
 @dlt.source(max_table_nesting=0)
