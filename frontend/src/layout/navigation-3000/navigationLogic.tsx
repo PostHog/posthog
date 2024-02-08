@@ -472,6 +472,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.pipeline(),
                             featureFlag: FEATURE_FLAGS.PIPELINE_UI,
                         },
+                        {
+                            identifier: Scene.Sites,
+                            label: 'Sites',
+                            icon: <IconDecisionTree />,
+                            to: urls.sites(),
+                        },
                     ].filter(isNotNil),
                 ]
             },

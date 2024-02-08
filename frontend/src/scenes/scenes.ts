@@ -286,6 +286,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         hideProjectNotice: true,
         layout: 'app-raw',
     },
+    [Scene.Sites]: {
+        projectBased: true,
+        hideProjectNotice: true,
+        layout: 'app-raw',
+    },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
@@ -559,4 +564,5 @@ export const routes: Record<string, Scene> = {
     [urls.canvas()]: Scene.Canvas,
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
+    [urls.sites()]: Scene.Sites,
 }
