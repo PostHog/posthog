@@ -195,10 +195,6 @@ WINDOW: W I N D O W;
 WITH: W I T H;
 YEAR: Y E A R | Y Y Y Y;
 
-// Adding these as keywords to get around an autocomplete issue with partial property matching
-GROUPS: G R O U P S;
-PERSONS: P E R S O N S;
-
 JSON_FALSE: 'false';
 JSON_TRUE: 'true';
 
