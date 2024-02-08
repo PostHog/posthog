@@ -102,3 +102,11 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select event from events."
         results = self._query_response(query=query, start=25, end=25)
         assert len(results.suggestions) == 0
+
+    def test_autocomplete_recursive_fields(self):
+        self._create_properties()
+
+        query = "select pdi.person.properties. from events"
+        results = self._query_response(query=query, start=29, end=29)
+        assert len(results.suggestions) == 1
+        assert results.suggestions[0].label == "some_person_value"
