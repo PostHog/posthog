@@ -5,7 +5,7 @@ from django.test import override_settings
 from freezegun import freeze_time
 from posthog.api.instance_settings import get_instance_setting
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import INSIGHT_FUNNELS
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -61,8 +61,7 @@ def _create_action(**kwargs):
 
 
 class TestFunnelConversionTime(
-    ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(Funnel, ClickhouseFunnelActors, _create_event, _create_person),  # type: ignore
+    ClickhouseTestMixin, funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors)
 ):
     maxDiff = None
     pass

@@ -1,8 +1,7 @@
 # from datetime import datetime
 from typing import cast
 
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.insights.funnels.funnel_strict import FunnelStrict
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
@@ -182,12 +181,7 @@ def _create_action(**kwargs):
 
 class TestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(  # type: ignore
-        FunnelStrict,
-        ClickhouseFunnelStrictActors,
-        _create_event,
-        _create_person,
-    ),
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelStrictActors),
 ):
     maxDiff = None
     pass
@@ -206,6 +200,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     def test_basic_strict_funnel(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "strict",
             "events": [
                 {"id": "user signed up", "order": 0},
                 {"id": "$pageview", "order": 1},
@@ -349,6 +344,8 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "strict",
             "events": [
                 {"id": "user signed up", "type": "events", "order": 0},
                 {"id": "$pageview", "type": "events", "order": 2},
@@ -357,7 +354,6 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
                 {"id": sign_up_action.id, "math": "dau", "order": 1},
                 {"id": view_action.id, "math": "weekly_active", "order": 3},
             ],
-            "insight": INSIGHT_FUNNELS,
         }
 
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -528,6 +524,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
     def test_basic_strict_funnel_conversion_times(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "strict",
             "events": [
                 {"id": "user signed up", "order": 0},
                 {"id": "$pageview", "order": 1},
