@@ -1,11 +1,14 @@
 import datetime
+import logging
 import json
 from contextlib import ExitStack
+from functools import partial
 from typing import Dict, List, Optional, Union
 from uuid import UUID
 
 from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
+from django.db import connections, router, transaction
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -31,11 +34,15 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
 
+
+logger = logging.getLogger(__name__)
+
 # The placeholder value that is written to the ClickHouse copy of the
 # ``PersonDistinctId`` data set after person deletion has occurred.
 # TODO: It would be nice to replace this with ``None`` (``NULL`` in ClickHouse)
 # in the future for clarity and consistency with the Postgres side.
 DELETED_PERSON_UUID_PLACEHOLDER = UUID(int=0)
+
 
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
@@ -234,11 +241,87 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
 
 
 def delete_person(person: Person, sync: bool = False) -> None:
-    # This is racy https://github.com/PostHog/posthog/issues/11590
-    distinct_ids_to_version = _get_distinct_ids_with_version(person)
-    _delete_person(person.team.id, person.uuid, int(person.version or 0), person.created_at, sync)
-    for distinct_id, version in distinct_ids_to_version.items():
-        _delete_ch_distinct_id(person.team.id, person.uuid, distinct_id, version, sync)
+    """
+    Delete a person instance, releasing any distinct IDs that were associated
+    with the person so that they may later be reused.
+    """
+    # XXX: This function bypasses ``post_save`` signal dispatch for both
+    # ``Person`` and ``PersonDistinctId``!
+
+    # Ensure that we aren't about to try a multi-database transaction...
+    databases = {router.db_for_write(model) for model in [Person, PersonDistinctId]}
+    assert len(databases) == 1
+    (database,) = databases
+
+    with transaction.atomic(database):
+        connection = connections[database]
+
+        # Release all of the held distinct IDs so they can be used again by a
+        # different person...
+        with connection.cursor() as cursor:
+            # XXX: This result set could be very large, and we're going to queue
+            # up a bunch of ``on_commit`` signals prior to the transaction being
+            # committed...
+            cursor.execute(
+                """
+                UPDATE posthog_persondistinctid
+                SET
+                    person_id = NULL,
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE
+                    team_id = %s
+                    AND person_id = %s
+                RETURNING distinct_id, version
+                """,
+                [person.team.id, person.id],
+            )
+            while row := cursor.fetchone():
+                (distinct_id, version) = row
+                transaction.on_commit(
+                    partial(
+                        create_person_distinct_id,
+                        team_id=person.team.id,
+                        person_id=str(DELETED_PERSON_UUID_PLACEHOLDER),
+                        distinct_id=distinct_id,
+                        version=version,
+                        is_deleted=True,  # NOTE: not permanently -- may be reused
+                        sync=sync,
+                    ),
+                    using=database,
+                )
+
+        # ...and finally delete the person.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM posthog_person
+                WHERE id = %s
+                RETURNING
+                    COALESCE(version, 0)::numeric as version
+                """,
+                [person.id],
+            )
+            deletion_results = cursor.fetchall()
+            if len(deletion_results) == 1:
+                [(version,)] = deletion_results
+                transaction.on_commit(
+                    partial(
+                        _delete_person,
+                        team_id=person.team.id,
+                        uuid=person.uuid,
+                        version=version,
+                        created_at=person.created_at,
+                        sync=sync,
+                    ),
+                    using=database,
+                )
+            elif len(deletion_results) == 0:
+                logger.info("Deletion of %r did not return any affected rows.", person)
+            else:
+                # "This should never happen"
+                raise Exception(
+                    f"Deletion of {person!r} would have affected {len(deletion_results)} rows! Rolling back..."
+                )
 
 
 def _delete_person(
@@ -258,16 +341,8 @@ def _delete_person(
     )
 
 
-def _get_distinct_ids_with_version(person: Person) -> Dict[str, int]:
-    return {
-        distinct_id: int(version or 0)
-        for distinct_id, version in PersonDistinctId.objects.filter(person=person, team_id=person.team_id)
-        .order_by("id")
-        .values_list("distinct_id", "version")
-    }
-
-
 def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int, sync: bool = False) -> None:
+    # XXX: This methods should be deprecated and deleted as we no longer delete distinct IDs.
     create_person_distinct_id(
         team_id=team_id,
         distinct_id=distinct_id,

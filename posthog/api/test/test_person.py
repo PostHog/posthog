@@ -302,13 +302,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="anonymous_id")
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
-        response = self.client.delete(f"/api/person/{person.uuid}/")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
-        response = self.client.delete(f"/api/person/{person.uuid}/")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
+
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         self._assert_person_activity(
@@ -357,7 +360,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="anonymous_id")
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
-        response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
+
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)

@@ -380,6 +380,9 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
+    def perform_destroy(self, instance: Person) -> None:
+        return delete_person(instance)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -394,7 +397,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         try:
             person = self.get_object()
             person_id = person.id
-            delete_person(person=person)
             self.perform_destroy(person)
             log_activity(
                 organization_id=self.organization.id,

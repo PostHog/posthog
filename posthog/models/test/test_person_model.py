@@ -3,7 +3,7 @@ from uuid import uuid4
 from posthog.client import sync_execute
 from posthog.models import Person, PersonDistinctId
 from posthog.models.event.util import create_event
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import DELETED_PERSON_UUID_PLACEHOLDER, delete_person
 from posthog.test.base import BaseTest
 
 
@@ -24,7 +24,10 @@ class TestPerson(BaseTest):
         person = Person.objects.create(
             team=self.team, version=15
         )  # version be > 0 to check that we don't just assume 0 in deletes
-        delete_person(person, sync=True)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            delete_person(person, sync=True)
+
         ch_persons = sync_execute(
             "SELECT toString(id), version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
@@ -33,17 +36,19 @@ class TestPerson(BaseTest):
 
     def test_delete_ch_distinct_ids(self):
         person = Person.objects.create(team=self.team)
-        PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="distinct_id1", version=15)
+        pdi = PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="distinct_id1", version=15)
 
         ch_distinct_ids = sync_execute(
             "SELECT is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
-            {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
+            {"team_id": self.team.pk, "distinct_id": pdi.distinct_id},
         )
         self.assertEqual(ch_distinct_ids, [(0,)])
 
-        delete_person(person, sync=True)
+        with self.captureOnCommitCallbacks(execute=True):
+            delete_person(person, sync=True)
+
         ch_distinct_ids = sync_execute(
             "SELECT toString(person_id), version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
-            {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
+            {"team_id": self.team.pk, "distinct_id": pdi.distinct_id},
         )
-        self.assertEqual(ch_distinct_ids, [(str(person.uuid), 115, 1)])
+        self.assertEqual(ch_distinct_ids, [(str(DELETED_PERSON_UUID_PLACEHOLDER), pdi.version + 1, 1)])
