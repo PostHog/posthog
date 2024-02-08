@@ -4,7 +4,6 @@ from prometheus_client import Histogram
 
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
-from posthog.models.element import chain_to_elements
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
