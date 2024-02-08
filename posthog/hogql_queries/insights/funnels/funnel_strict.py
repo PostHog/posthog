@@ -85,7 +85,7 @@ class FunnelStrict(FunnelBase):
             *self._get_person_and_group_properties(),
         ]
         select_from_inner = self._get_inner_event_query(skip_entity_filter=True, skip_step_filter=True)
-        inner_query = ast.SelectQuery(select=select_inner, select_from=select_from_inner)
+        inner_query = ast.SelectQuery(select=select_inner, select_from=ast.JoinExpr(table=select_from_inner))
 
         select: List[ast.Expr] = [
             ast.Field(chain=["*"]),
