@@ -1,4 +1,4 @@
-import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
+import { ConsumerTopicConfig, GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { retryIfRetriable } from '../utils/retries'
@@ -39,6 +39,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs,
     eachBatch,
     queuedMinMessages = 100000,
+    topicConfig,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -55,6 +56,7 @@ export const startBatchConsumer = async ({
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     queuedMinMessages?: number
+    topicConfig?: ConsumerTopicConfig
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -76,53 +78,56 @@ export const startBatchConsumer = async ({
     //
     // We also instrument the consumer with Prometheus metrics, which are
     // exposed on the /_metrics endpoint by the global prom-client registry.
-    const consumer = await createKafkaConsumer({
-        ...connectionConfig,
-        'group.id': groupId,
-        'session.timeout.ms': sessionTimeout,
-        'max.poll.interval.ms': maxPollIntervalMs,
-        'enable.auto.commit': autoCommit,
-        'enable.auto.offset.store': false,
-        /**
-         * max.partition.fetch.bytes
-         * The maximum amount of data per-partition the server will return.
-         * Records are fetched in batches by the consumer.
-         * If the first record batch in the first non-empty partition of the fetch is larger than this limit,
-         * the batch will still be returned to ensure that the consumer can make progress.
-         * The maximum record batch size accepted by the broker is defined via message.max.bytes (broker config)
-         * or max.message.bytes (topic config).
-         * https://docs.confluent.io/platform/current/installation/configuration/consumer-configs.html#:~:text=max.partition.fetch.bytes,the%20consumer%20can%20make%20progress.
-         */
-        'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
-        // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L122
-        // Initial maximum number of bytes per topic+partition to request when fetching messages from the broker. If the client encounters a message larger than this value it will gradually try to increase it until the entire message can be fetched.
-        'fetch.message.max.bytes': consumerMaxBytes,
-        'fetch.wait.max.ms': consumerMaxWaitMs,
-        'fetch.error.backoff.ms': consumerErrorBackoffMs,
-        'enable.partition.eof': true,
-        // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
-        // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
-        'queued.min.messages': queuedMinMessages, // 100000 is the default
-        'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
-        // Use cooperative-sticky rebalancing strategy, which is the
-        // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
-        // in the Java Kafka Client. There its actually
-        // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
-        // cooperative strategies. This is however explicitly mentioned to not
-        // be supported in the [librdkafka library config
-        // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
-        // so we just use cooperative-sticky. If there are other consumer
-        // members with other strategies already running, you'll need to delete
-        // e.g. the replicaset for them if on k8s.
-        //
-        // See
-        // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
-        // for details on the advantages of this rebalancing strategy as well as
-        // how it works.
-        'partition.assignment.strategy': 'cooperative-sticky',
-        rebalance_cb: true,
-        offset_commit_cb: true,
-    })
+    const consumer = await createKafkaConsumer(
+        {
+            ...connectionConfig,
+            'group.id': groupId,
+            'session.timeout.ms': sessionTimeout,
+            'max.poll.interval.ms': maxPollIntervalMs,
+            'enable.auto.commit': autoCommit,
+            'enable.auto.offset.store': false,
+            /**
+             * max.partition.fetch.bytes
+             * The maximum amount of data per-partition the server will return.
+             * Records are fetched in batches by the consumer.
+             * If the first record batch in the first non-empty partition of the fetch is larger than this limit,
+             * the batch will still be returned to ensure that the consumer can make progress.
+             * The maximum record batch size accepted by the broker is defined via message.max.bytes (broker config)
+             * or max.message.bytes (topic config).
+             * https://docs.confluent.io/platform/current/installation/configuration/consumer-configs.html#:~:text=max.partition.fetch.bytes,the%20consumer%20can%20make%20progress.
+             */
+            'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
+            // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L122
+            // Initial maximum number of bytes per topic+partition to request when fetching messages from the broker. If the client encounters a message larger than this value it will gradually try to increase it until the entire message can be fetched.
+            'fetch.message.max.bytes': consumerMaxBytes,
+            'fetch.wait.max.ms': consumerMaxWaitMs,
+            'fetch.error.backoff.ms': consumerErrorBackoffMs,
+            'enable.partition.eof': true,
+            // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
+            // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
+            'queued.min.messages': queuedMinMessages, // 100000 is the default
+            'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
+            // Use cooperative-sticky rebalancing strategy, which is the
+            // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
+            // in the Java Kafka Client. There its actually
+            // RangeAssignor,CooperativeStickyAssignor i.e. it mixes eager and
+            // cooperative strategies. This is however explicitly mentioned to not
+            // be supported in the [librdkafka library config
+            // docs](https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md#partitionassignmentstrategy)
+            // so we just use cooperative-sticky. If there are other consumer
+            // members with other strategies already running, you'll need to delete
+            // e.g. the replicaset for them if on k8s.
+            //
+            // See
+            // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
+            // for details on the advantages of this rebalancing strategy as well as
+            // how it works.
+            'partition.assignment.strategy': 'cooperative-sticky',
+            rebalance_cb: true,
+            offset_commit_cb: true,
+        },
+        topicConfig
+    )
 
     instrumentConsumerMetrics(consumer, groupId)
 
