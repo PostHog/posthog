@@ -1,7 +1,9 @@
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
+    IconBugShield,
     IconGauge,
     IconInfo,
     IconPause,
@@ -11,13 +13,18 @@ import {
     IconUnverifiedEvent,
 } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 
 import { SessionRecordingPlayerTab } from '~/types'
 
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+    SessionRecordingPlayerMode,
+} from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
@@ -26,19 +33,55 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
     [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
     [SessionRecordingPlayerTab.NETWORK]: IconGauge,
+    [SessionRecordingPlayerTab.DOCTOR]: IconBugShield,
+}
+
+function TabButtons({
+    tabs,
+    logicProps,
+}: {
+    tabs: SessionRecordingPlayerTab[]
+    logicProps: SessionRecordingPlayerLogicProps
+}): JSX.Element {
+    const inspectorLogic = playerInspectorLogic(logicProps)
+    const { tab, tabsState } = useValues(inspectorLogic)
+    const { setTab } = useActions(inspectorLogic)
+
+    return (
+        <>
+            {tabs.map((tabId) => {
+                const TabIcon = TabToIcon[tabId]
+                return (
+                    <LemonButton
+                        key={tabId}
+                        size="small"
+                        // We want to indicate the tab is loading, but not disable it so we just override the icon here
+                        icon={
+                            TabIcon ? tabsState[tabId] === 'loading' ? <Spinner textColored /> : <TabIcon /> : undefined
+                        }
+                        active={tab === tabId}
+                        onClick={() => setTab(tabId)}
+                    >
+                        {capitalizeFirstLetter(tabId)}
+                    </LemonButton>
+                )
+            })}
+        </>
+    )
 }
 
 export function PlayerInspectorControls({ onClose }: { onClose: () => void }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
-    const { windowIdFilter, tab, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
-        useValues(inspectorLogic)
-    const { setWindowIdFilter, setTab, setSyncScrollPaused } = useActions(inspectorLogic)
+    const { tab, windowIdFilter, syncScrollingPaused, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
+    const { setWindowIdFilter, setSyncScrollPaused, setTab } = useActions(inspectorLogic)
     const { showOnlyMatching, timestampMode, miniFilters, syncScroll, searchQuery } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll, setSearchQuery } =
         useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const tabs = [
         SessionRecordingPlayerTab.ALL,
@@ -46,39 +89,27 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
         SessionRecordingPlayerTab.CONSOLE,
         SessionRecordingPlayerTab.NETWORK,
     ]
+    if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
+        tabs.push(SessionRecordingPlayerTab.DOCTOR)
+    } else {
+        // ensure we've not left the doctor tab in the tabs state
+        if (tab === SessionRecordingPlayerTab.DOCTOR) {
+            setTab(SessionRecordingPlayerTab.ALL)
+        }
+    }
 
     if (mode === SessionRecordingPlayerMode.Sharing) {
         // Events can't be loaded in sharing mode
         tabs.splice(1, 1)
+        // Doctor tab is not available in sharing mode
+        tabs.pop()
     }
 
     return (
         <div className="bg-side p-2 space-y-2 border-b">
             <div className="flex justify-between gap-2 flex-nowrap">
                 <div className="flex flex-1 items-center gap-1">
-                    {tabs.map((tabId) => {
-                        const TabIcon = TabToIcon[tabId]
-                        return (
-                            <LemonButton
-                                key={tabId}
-                                size="small"
-                                // We want to indicate the tab is loading, but not disable it so we just override the icon here
-                                icon={
-                                    TabIcon ? (
-                                        tabsState[tabId] === 'loading' ? (
-                                            <Spinner textColored />
-                                        ) : (
-                                            <TabIcon />
-                                        )
-                                    ) : undefined
-                                }
-                                active={tab === tabId}
-                                onClick={() => setTab(tabId)}
-                            >
-                                {capitalizeFirstLetter(tabId)}
-                            </LemonButton>
-                        )
-                    })}
+                    <TabButtons tabs={tabs} logicProps={logicProps} />
                 </div>
                 <LemonButton size="small" icon={<IconX />} onClick={onClose} />
             </div>

@@ -329,6 +329,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     source: sources[0],
                 })
 
+                // If we only have a realtime source and its empty, start polling it anyway
+                if (sources[0].source === SnapshotSourceType.realtime) {
+                    actions.startRealTimePolling()
+                }
+
                 return
             }
 
@@ -463,7 +468,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return values.sessionPlayerSnapshotData
                     }
 
-                    cache.snapshotsStartTime = performance.now()
+                    if (!cache.snapshotsStartTime) {
+                        cache.snapshotsStartTime = performance.now()
+                    }
 
                     const data: SessionPlayerSnapshotData = {
                         ...(values.sessionPlayerSnapshotData || {}),

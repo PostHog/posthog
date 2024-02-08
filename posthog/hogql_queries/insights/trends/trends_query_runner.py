@@ -5,6 +5,8 @@ from math import ceil
 from operator import itemgetter
 import threading
 from typing import List, Optional, Any, Dict
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 
 from django.utils.timezone import datetime
@@ -20,6 +22,8 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
+    BREAKDOWN_NULL_NUMERIC_LABEL,
+    BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
@@ -39,15 +43,22 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
+    BreakdownItem,
     ChartDisplayType,
+    Compare,
+    CompareItem,
+    DayItem,
     EventsNode,
     HogQLQueryResponse,
     InCohortVia,
+    InsightActorsQueryOptionsResponse,
     QueryTiming,
+    Series,
     TrendsQuery,
     TrendsQueryResponse,
     HogQLQueryModifiers,
 )
+from posthog.utils import format_label_date
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -89,7 +100,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:  # type: ignore
+    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
             for series in self.series:
@@ -110,34 +121,118 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(self, time_frame: Optional[str | int]) -> ast.SelectQuery | ast.SelectUnionQuery:  # type: ignore
-        queries = []
+    def to_actors_query(
+        self,
+        time_frame: Optional[str | int],
+        series_index: int,
+        breakdown_value: Optional[str | int] = None,
+        compare: Optional[Compare] = None,
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
-            for series in self.series:
-                if not series.is_previous_period_series:
-                    query_date_range = self.query_date_range
-                else:
-                    query_date_range = self.query_previous_date_range
+            series = self.query.series[series_index]
 
-                query_builder = TrendsQueryBuilder(
-                    trends_query=series.overriden_query or self.query,
-                    team=self.team,
-                    query_date_range=query_date_range,
-                    series=series.series,
-                    timings=self.timings,
-                    modifiers=self.modifiers,
-                    person_query_time_frame=time_frame,
-                )
-                queries.append(query_builder.build_query())
+            if compare == Compare.previous:
+                query_date_range = self.query_previous_date_range
 
-        select_queries: List[ast.SelectQuery] = []
-        for query in queries:
-            if isinstance(query, ast.SelectUnionQuery):
-                select_queries.extend(query.select_queries)
+                delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
+                if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
+                    relative_delta = relativedelta(**delta_mappings)
+                    parsed_dt = parser.isoparse(time_frame)
+                    parse_dt_with_relative_delta = parsed_dt - relative_delta
+                    time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
             else:
-                select_queries.append(query)
+                query_date_range = self.query_date_range
 
-        return ast.SelectUnionQuery(select_queries=select_queries)
+            query_builder = TrendsQueryBuilder(
+                trends_query=self.query,
+                team=self.team,
+                query_date_range=query_date_range,
+                series=series,
+                timings=self.timings,
+                modifiers=self.modifiers,
+            )
+
+            query = query_builder.build_actors_query(time_frame=time_frame, breakdown_filter=breakdown_value)
+
+        return query
+
+    def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
+        res_breakdown: List[BreakdownItem] | None = None
+        res_series: List[Series] = []
+        res_compare: List[CompareItem] | None = None
+
+        # Days
+        res_days: List[DayItem] = [DayItem(label=day, value=day) for day in self.query_date_range.all_values()]
+
+        # Series
+        for index, series in enumerate(self.query.series):
+            series_label = self.series_event(series)
+            res_series.append(Series(label="All events" if series_label is None else series_label, value=index))
+
+        # Compare
+        if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
+            res_compare = [
+                CompareItem(label="Current", value="current"),
+                CompareItem(label="Previous", value="previous"),
+            ]
+
+        # Breakdowns
+        for series in self.query.series:
+            # TODO: Work out if we will have issues only getting breakdown values for
+            # the "current" period and not "previous" period for when "compare" is turned on
+            query_date_range = self.query_date_range
+
+            query_builder = TrendsQueryBuilder(
+                trends_query=self.query,
+                team=self.team,
+                query_date_range=query_date_range,
+                series=series,
+                timings=self.timings,
+                modifiers=self.modifiers,
+            )
+
+            breakdown = query_builder._breakdown(is_actors_query=False)
+            if not breakdown.enabled:
+                break
+
+            is_boolean_breakdown = self._is_breakdown_field_boolean()
+            is_histogram_breakdown = breakdown.is_histogram_breakdown
+            breakdown_values: List[str | int]
+            res_breakdown = []
+
+            if is_histogram_breakdown:
+                buckets = breakdown._get_breakdown_histogram_buckets()
+                breakdown_values = [f"[{t[0]},{t[1]}]" for t in buckets]
+                breakdown_values.append('["",""]')
+            else:
+                breakdown_values = breakdown._get_breakdown_values
+
+            for value in breakdown_values:
+                if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown_type == "cohort":
+                    cohort_name = "all users" if str(value) == "0" else Cohort.objects.get(pk=value).name
+                    label = cohort_name
+                    value = value
+                elif value == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
+                    # label = "Other"
+                    # value = BREAKDOWN_OTHER_STRING_LABEL
+                    continue  # TODO: Add support for "other" breakdowns
+                elif value == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
+                    # label = "Null"
+                    # value = BREAKDOWN_NULL_STRING_LABEL
+                    continue  # TODO: Add support for "null" breakdowns
+                elif is_boolean_breakdown:
+                    label = self._convert_boolean(value)
+                else:
+                    label = str(value)
+
+                item = BreakdownItem(label=label, value=value)
+
+                if item not in res_breakdown:
+                    res_breakdown.append(item)
+
+        return InsightActorsQueryOptionsResponse(
+            series=res_series, breakdown=res_breakdown, day=res_days, compare=res_compare
+        )
 
     def calculate(self):
         queries = self.to_query()
@@ -184,7 +279,7 @@ class TrendsQueryRunner(QueryRunner):
 
         # This exists so that we're not spawning threads during unit tests. We can't do
         # this right now due to the lack of multithreaded support of Django
-        if settings.IN_UNIT_TESTING:  # type: ignore
+        if settings.IN_UNIT_TESTING:
             for index, query in enumerate(queries):
                 run(index, query, False)
         elif len(queries) == 1:
@@ -264,9 +359,10 @@ class TrendsQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
+                        "days": self.query_date_range.all_values(),
                         "id": series_label,
                         "type": "events",
-                        "order": 0,
+                        "order": series.series_order,
                         "name": series_label or "All events",
                         "custom_name": None,
                         "math": series.series.math,
@@ -285,10 +381,7 @@ class TrendsQueryRunner(QueryRunner):
                 series_object = {
                     "data": get_value("total", val),
                     "labels": [
-                        item.strftime(
-                            "%-d-%b-%Y{}".format(" %H:%M" if self.query_date_range.interval_name == "hour" else "")
-                        )
-                        for item in get_value("date", val)
+                        format_label_date(item, self.query_date_range.interval_name) for item in get_value("date", val)
                     ],
                     "days": [
                         item.strftime(
@@ -300,9 +393,10 @@ class TrendsQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
+                        "days": self.query_date_range.all_values(),
                         "id": series_label,
                         "type": "events",
-                        "order": 0,
+                        "order": series.series_order,
                         "name": series_label or "All events",
                         "custom_name": None,
                         "math": series.series.math,
@@ -420,12 +514,13 @@ class TrendsQueryRunner(QueryRunner):
     def setup_series(self) -> List[SeriesWithExtras]:
         series_with_extras = [
             SeriesWithExtras(
-                series,
-                None,
-                None,
-                self._trends_display.should_aggregate_values(),
+                series=series,
+                series_order=index,
+                is_previous_period_series=None,
+                overriden_query=None,
+                aggregate_values=self._trends_display.should_aggregate_values(),
             )
-            for series in self.query.series
+            for index, series in enumerate(self.query.series)
         ]
 
         if (
@@ -437,16 +532,17 @@ class TrendsQueryRunner(QueryRunner):
             if isinstance(self.query.breakdownFilter.breakdown, List):
                 cohort_ids = self.query.breakdownFilter.breakdown
             else:
-                cohort_ids = [self.query.breakdownFilter.breakdown]  # type: ignore
+                cohort_ids = [self.query.breakdownFilter.breakdown]
 
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
-                    copied_query.breakdownFilter.breakdown = cohort_id  # type: ignore
+                    copied_query.breakdownFilter.breakdown = cohort_id
 
                     updated_series.append(
                         SeriesWithExtras(
                             series=series.series,
+                            series_order=series.series_order,
                             is_previous_period_series=series.is_previous_period_series,
                             overriden_query=copied_query,
                             aggregate_values=self._trends_display.should_aggregate_values(),
@@ -460,6 +556,7 @@ class TrendsQueryRunner(QueryRunner):
                 updated_series.append(
                     SeriesWithExtras(
                         series=series.series,
+                        series_order=series.series_order,
                         is_previous_period_series=False,
                         overriden_query=series.overriden_query,
                         aggregate_values=self._trends_display.should_aggregate_values(),
@@ -468,6 +565,7 @@ class TrendsQueryRunner(QueryRunner):
                 updated_series.append(
                     SeriesWithExtras(
                         series=series.series,
+                        series_order=series.series_order,
                         is_previous_period_series=True,
                         overriden_query=series.overriden_query,
                         aggregate_values=self._trends_display.should_aggregate_values(),
@@ -506,6 +604,9 @@ class TrendsQueryRunner(QueryRunner):
         return [new_result]
 
     def _is_breakdown_field_boolean(self):
+        if not self.query.breakdownFilter or not self.query.breakdownFilter.breakdown_type:
+            return False
+
         if (
             self.query.breakdownFilter.breakdown_type == "hogql"
             or self.query.breakdownFilter.breakdown_type == "cohort"

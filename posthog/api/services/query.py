@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -15,6 +16,7 @@ from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySeria
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
     FunnelsQuery,
+    HogQLAutocomplete,
     HogQLMetadata,
     HogQLQuery,
     EventsQuery,
@@ -81,6 +83,8 @@ def process_query_model(
     elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)
         result = query_runner.calculate()
+    elif isinstance(query, HogQLAutocomplete):
+        result = get_hogql_autocomplete(query=query, team=team)
     elif isinstance(query, HogQLMetadata):
         metadata_query = HogQLMetadata.model_validate(query)
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)

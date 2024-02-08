@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/react'
 import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
     isFunnelsFilter,
     isLifecycleFilter,
@@ -14,6 +15,8 @@ import {
     ActionsNode,
     BreakdownFilter,
     EventsNode,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
     FunnelsFilter,
     InsightNodeKind,
     InsightQueryNode,
@@ -38,9 +41,13 @@ import {
 import {
     ActionFilter,
     AnyPropertyFilter,
+    BaseMathType,
     FilterLogicalOperator,
     FilterType,
+    FunnelExclusionLegacy,
     FunnelsFilterType,
+    GroupMathType,
+    HogQLMathType,
     InsightType,
     PathsFilterType,
     PropertyFilterType,
@@ -60,39 +67,83 @@ const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightT
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
 }
 
+const actorsOnlyMathTypes = [
+    BaseMathType.UniqueUsers,
+    BaseMathType.WeeklyActiveUsers,
+    BaseMathType.MonthlyActiveUsers,
+    GroupMathType.UniqueGroup,
+    HogQLMathType.HogQL,
+]
+
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
-export const actionsAndEventsToSeries = ({
-    actions,
-    events,
-    new_entity,
-}: FilterTypeActionsAndEvents): (EventsNode | ActionsNode)[] => {
+export const legacyEntityToNode = (
+    entity: ActionFilter,
+    includeProperties: boolean,
+    mathAvailability: MathAvailability
+): EventsNode | ActionsNode => {
+    let shared: Partial<EventsNode | ActionsNode> = {
+        name: entity.name || undefined,
+        custom_name: entity.custom_name || undefined,
+    }
+
+    if (includeProperties) {
+        shared = { ...shared, properties: cleanProperties(entity.properties) } as any
+    }
+
+    if (mathAvailability !== MathAvailability.None) {
+        // only trends and stickiness insights support math.
+        // transition to then default math for stickiness, when an unsupported math type is encountered.
+        if (mathAvailability === MathAvailability.ActorsOnly && !actorsOnlyMathTypes.includes(entity.math as any)) {
+            shared = {
+                ...shared,
+                math: BaseMathType.UniqueUsers,
+            }
+        } else {
+            shared = {
+                ...shared,
+                math: entity.math || 'total',
+                math_property: entity.math_property,
+                math_hogql: entity.math_hogql,
+                math_group_type_index: entity.math_group_type_index,
+            } as any
+        }
+    }
+
+    if (entity.type === 'actions') {
+        return objectCleanWithEmpty({
+            kind: NodeKind.ActionsNode,
+            id: entity.id,
+            ...shared,
+        }) as any
+    } else {
+        return objectCleanWithEmpty({
+            kind: NodeKind.EventsNode,
+            event: entity.id,
+            ...shared,
+        }) as any
+    }
+}
+
+export const exlusionEntityToNode = (
+    entity: FunnelExclusionLegacy
+): FunnelExclusionEventsNode | FunnelExclusionActionsNode => {
+    const baseEntity = legacyEntityToNode(entity as ActionFilter, false, MathAvailability.None)
+    return {
+        ...baseEntity,
+        funnelFromStep: entity.funnel_from_step,
+        funnelToStep: entity.funnel_to_step,
+    }
+}
+
+export const actionsAndEventsToSeries = (
+    { actions, events, new_entity }: FilterTypeActionsAndEvents,
+    includeProperties: boolean,
+    includeMath: MathAvailability
+): (EventsNode | ActionsNode)[] => {
     const series: any = [...(actions || []), ...(events || []), ...(new_entity || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
-        .map((f) => {
-            const shared = objectCleanWithEmpty({
-                name: f.name || undefined,
-                custom_name: f.custom_name,
-                properties: cleanProperties(f.properties),
-                math: f.math || 'total',
-                math_property: f.math_property,
-                math_hogql: f.math_hogql,
-                math_group_type_index: f.math_group_type_index,
-            })
-            if (f.type === 'actions') {
-                return {
-                    kind: NodeKind.ActionsNode,
-                    id: f.id,
-                    ...shared,
-                }
-            } else {
-                return {
-                    kind: NodeKind.EventsNode,
-                    event: f.id,
-                    ...shared,
-                }
-            }
-        })
+        .map((f) => legacyEntityToNode(f, includeProperties, includeMath))
 
     return series
 }
@@ -235,9 +286,16 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // series + interval
     if (isInsightQueryWithSeries(query)) {
+        let includeMath = MathAvailability.None
+        const includeProperties = true
+        if (isTrendsQuery(query)) {
+            includeMath = MathAvailability.All
+        } else if (isStickinessQuery(query)) {
+            includeMath = MathAvailability.ActorsOnly
+        }
+
         const { events, actions } = filters
-        const series = actionsAndEventsToSeries({ actions, events } as any)
-        query.series = series
+        query.series = actionsAndEventsToSeries({ actions, events } as any, includeProperties, includeMath)
         query.interval = filters.interval
     }
 
@@ -336,11 +394,7 @@ export const funnelsFilterToQuery = (filters: Partial<FunnelsFilterType>): Funne
         funnelOrderType: filters.funnel_order_type,
         exclusions:
             filters.exclusions !== undefined
-                ? filters.exclusions.map(({ funnel_from_step, funnel_to_step, ...rest }) => ({
-                      funnelFromStep: funnel_from_step,
-                      funnelToStep: funnel_to_step,
-                      ...rest,
-                  }))
+                ? filters.exclusions.map((entity) => exlusionEntityToNode(entity))
                 : undefined,
         layout: filters.layout,
         hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),

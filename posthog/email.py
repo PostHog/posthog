@@ -43,7 +43,7 @@ def is_email_available(with_absolute_urls: bool = False) -> bool:
 
 
 EMAIL_TASK_KWARGS = dict(
-    queue=CeleryQueue.EMAIL,
+    queue=CeleryQueue.EMAIL.value,
     ignore_result=True,
     autoretry_for=(Exception,),
     max_retries=3,

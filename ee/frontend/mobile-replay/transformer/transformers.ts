@@ -31,12 +31,14 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframeNavigationBar,
     wireframePlaceholder,
     wireframeProgress,
     wireframeRadio,
     wireframeRadioGroup,
     wireframeRectangle,
     wireframeSelect,
+    wireframeStatusBar,
     wireframeText,
     wireframeToggle,
 } from '../mobile.types'
@@ -44,7 +46,6 @@ import { makeNavigationBar, makeStatusBar } from './screen-chrome'
 import { ConversionContext, ConversionResult } from './types'
 import {
     asStyleString,
-    KEYBOARD_Z_INDEX,
     makeBodyStyles,
     makeColorStyles,
     makeDeterminateProgressStyles,
@@ -87,8 +88,14 @@ const HTML_DOC_TYPE_ID = 2
 const HTML_ELEMENT_ID = 3
 const HEAD_ID = 4
 const BODY_ID = 5
-const KEYBOARD_ID = 6
-export const STATUS_BAR_ID = 7
+// the nav bar should always be the last item in the body so that it is at the top of the stack
+const NAVIGATION_BAR_PARENT_ID = 7
+export const NAVIGATION_BAR_ID = 8
+// the keyboard so that it is still before the nav bar
+const KEYBOARD_PARENT_ID = 9
+const KEYBOARD_ID = 10
+export const STATUS_BAR_PARENT_ID = 11
+export const STATUS_BAR_ID = 12
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
     return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
@@ -96,6 +103,10 @@ function isKeyboardEvent(x: unknown): x is keyboardEvent {
 
 export function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
+}
+
+function isRemovedNodeMutation(x: addedNodeMutation | removedNodeMutation): x is removedNodeMutation {
+    return isObject(x) && 'id' in x
 }
 
 export const makeCustomEvent = (
@@ -130,16 +141,14 @@ export const makeCustomEvent = (
                 {
                     timestamp: mobileCustomEvent.timestamp,
                     idSequence: globalIdSequence,
-                    skippableNodes: new Set(),
                     styleOverride: {
-                        'z-index': KEYBOARD_Z_INDEX,
                         ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
                     },
                 }
             )
             if (keyboardPlaceHolder) {
                 adds.push({
-                    parentId: BODY_ID,
+                    parentId: KEYBOARD_PARENT_ID,
                     nextId: null,
                     node: keyboardPlaceHolder.result,
                 })
@@ -160,7 +169,7 @@ export const makeCustomEvent = (
             }
         } else {
             removes.push({
-                parentId: BODY_ID,
+                parentId: KEYBOARD_PARENT_ID,
                 id: KEYBOARD_ID,
             })
         }
@@ -299,6 +308,8 @@ function makePlaceholderElement(
 }
 
 export function dataURIOrPNG(src: string): string {
+    // replace all new lines in src
+    src = src.replace(/\r?\n|\r/g, '')
     if (!src.startsWith('data:image/')) {
         return 'data:image/png;base64,' + src
     }
@@ -945,17 +956,8 @@ function convertWireframe(
     wireframe: wireframe,
     context: ConversionContext
 ): ConversionResult<serializedNodeWithId> | null {
-    if (context.skippableNodes?.has(wireframe.id)) {
-        return null
-    }
-
     const children = convertWireframesFor(wireframe.childWireframes, context)
-    const converter = chooseConverter(wireframe)
-    // every wireframe comes through this converter,
-    // so to track which ones we want to skip,
-    // we can add them here
-    context.skippableNodes?.add(wireframe.id)
-    const converted = converter?.(wireframe, children.result, children.context)
+    const converted = chooseConverter(wireframe)?.(wireframe, children.result, children.context)
     return converted || null
 }
 
@@ -1076,6 +1078,48 @@ function flattenMutationAdds(converted: addedNodeMutation): addedNodeMutation[] 
 }
 
 /**
+ * each update wireframe carries the entire tree because we don't want to diff on the client
+ * that means that we might create multiple mutations for the same node
+ * we only want to add it once, so we dedupe the mutations
+ * the app guarantees that for a given ID that is present more than once in a single snapshot
+ * every instance of that ID is identical
+ * it might change in the next snapshot but for a single incremental snapshot there is one
+ * and only one version of any given ID
+ */
+function dedupeMutations<T extends addedNodeMutation | removedNodeMutation>(mutations: T[]): T[] {
+    // KLUDGE: it's slightly yucky to stringify everything but since synthetic nodes
+    // introduce a new id, we can't just compare the id
+    const seen = new Set<string>()
+
+    // in case later mutations are the ones we want to keep, we reverse the array
+    // this does help with the deduping, so, it's likely that the view for a single ID
+    // is not consistent over a snapshot, but it's cheap to reverse so :YOLO:
+    return mutations
+        .reverse()
+        .filter((mutation: addedNodeMutation | removedNodeMutation) => {
+            let toCompare: string
+            if (isRemovedNodeMutation(mutation)) {
+                toCompare = JSON.stringify(mutation)
+            } else {
+                // if this is a synthetic addition, then we need to ignore the id,
+                // since duplicates won't have duplicate ids
+                toCompare = JSON.stringify({
+                    ...mutation.node,
+                    id: 0,
+                })
+            }
+
+            if (seen.has(toCompare)) {
+                return false
+            } else {
+                seen.add(toCompare)
+                return true
+            }
+        })
+        .reverse()
+}
+
+/**
  * We want to ensure that any events don't use id = 0.
  * They must always represent a valid ID from the dom, so we swap in the body id when the id = 0.
  *
@@ -1110,7 +1154,6 @@ export const makeIncrementalEvent = (
             const addsContext = {
                 timestamp: mobileEvent.timestamp,
                 idSequence: globalIdSequence,
-                skippableNodes: new Set<number>(),
             }
 
             mobileEvent.data.adds.forEach((add) => {
@@ -1121,28 +1164,132 @@ export const makeIncrementalEvent = (
             const updatesContext = {
                 timestamp: mobileEvent.timestamp,
                 idSequence: globalIdSequence,
-                skippableNodes: new Set<number>(),
             }
+            const updateAdditions: addedNodeMutation[] = []
             mobileEvent.data.updates.forEach((update) => {
                 const removal = makeIncrementalRemoveForUpdate(update)
                 if (removal) {
                     removes.push(removal)
                 }
-                makeIncrementalAdd(update, updatesContext)?.forEach((x) => adds.push(x))
+                makeIncrementalAdd(update, updatesContext)?.forEach((x) => updateAdditions.push(x))
             })
+            dedupeMutations(updateAdditions).forEach((x) => adds.push(x))
         }
 
         converted.data = {
             source: IncrementalSource.Mutation,
             attributes: [],
             texts: [],
-            adds,
+            adds: dedupeMutations(adds),
             // TODO: this assumes that removes are processed before adds 🤞
-            removes,
+            removes: dedupeMutations(removes),
         }
     }
 
     return converted
+}
+
+function makeKeyboardParent(): serializedNodeWithId {
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-render-reason': 'a fixed placeholder to contain the keyboard in the correct stacking position',
+            'data-rrweb-id': KEYBOARD_PARENT_ID,
+        },
+        id: KEYBOARD_PARENT_ID,
+        childNodes: [],
+    }
+}
+
+function makeStatusBarNode(
+    statusBar: wireframeStatusBar | undefined,
+    context: ConversionContext
+): serializedNodeWithId {
+    const childNodes = statusBar ? convertWireframesFor([statusBar], context).result : []
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-rrweb-id': STATUS_BAR_PARENT_ID,
+        },
+        id: STATUS_BAR_PARENT_ID,
+        childNodes,
+    }
+}
+
+function makeNavBarNode(
+    navigationBar: wireframeNavigationBar | undefined,
+    context: ConversionContext
+): serializedNodeWithId {
+    const childNodes = navigationBar ? convertWireframesFor([navigationBar], context).result : []
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            'data-rrweb-id': NAVIGATION_BAR_PARENT_ID,
+        },
+        id: NAVIGATION_BAR_PARENT_ID,
+        childNodes,
+    }
+}
+
+function stripBarsFromWireframe(wireframe: wireframe): {
+    wireframe: wireframe | undefined
+    statusBar: wireframeStatusBar | undefined
+    navBar: wireframeNavigationBar | undefined
+} {
+    if (wireframe.type === 'status_bar') {
+        return { wireframe: undefined, statusBar: wireframe, navBar: undefined }
+    } else if (wireframe.type === 'navigation_bar') {
+        return { wireframe: undefined, statusBar: undefined, navBar: wireframe }
+    } else {
+        let statusBar: wireframeStatusBar | undefined
+        let navBar: wireframeNavigationBar | undefined
+        const wireframeToReturn: wireframe | undefined = { ...wireframe }
+        wireframeToReturn.childWireframes = []
+        for (const child of wireframe.childWireframes || []) {
+            const {
+                wireframe: childWireframe,
+                statusBar: childStatusBar,
+                navBar: childNavBar,
+            } = stripBarsFromWireframe(child)
+            statusBar = statusBar || childStatusBar
+            navBar = navBar || childNavBar
+            if (childWireframe) {
+                wireframeToReturn.childWireframes.push(childWireframe)
+            }
+        }
+        return { wireframe: wireframeToReturn, statusBar, navBar }
+    }
+}
+
+/**
+ * We want to be able to place the status bar and navigation bar in the correct stacking order.
+ * So, we lift them out of the tree, and return them separately.
+ */
+export function stripBarsFromWireframes(wireframes: wireframe[]): {
+    statusBar: wireframeStatusBar | undefined
+    navigationBar: wireframeNavigationBar | undefined
+    appNodes: wireframe[]
+} {
+    let statusBar: wireframeStatusBar | undefined
+    let navigationBar: wireframeNavigationBar | undefined
+    const copiedNodes: wireframe[] = []
+
+    wireframes.forEach((w) => {
+        const matches = stripBarsFromWireframe(w)
+        if (matches.statusBar) {
+            statusBar = matches.statusBar
+        }
+        if (matches.navBar) {
+            navigationBar = matches.navBar
+        }
+        if (matches.wireframe) {
+            copiedNodes.push(matches.wireframe)
+        }
+    })
+    return { statusBar, navigationBar, appNodes: copiedNodes }
 }
 
 export const makeFullEvent = (
@@ -1162,6 +1309,19 @@ export const makeFullEvent = (
             timestamp: number
             delay?: number
         }
+    }
+
+    const conversionContext = {
+        timestamp: mobileEvent.timestamp,
+        idSequence: globalIdSequence,
+    }
+
+    const { statusBar, navigationBar, appNodes } = stripBarsFromWireframes(mobileEvent.data.wireframes)
+
+    const nodeGroups = {
+        appNodes: convertWireframesFor(appNodes, conversionContext).result || [],
+        statusBarNode: makeStatusBarNode(statusBar, conversionContext),
+        navBarNode: makeNavBarNode(navigationBar, conversionContext),
     }
 
     return {
@@ -1196,11 +1356,14 @@ export const makeFullEvent = (
                                 tagName: 'body',
                                 attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes:
-                                    convertWireframesFor(mobileEvent.data.wireframes, {
-                                        timestamp: mobileEvent.timestamp,
-                                        idSequence: globalIdSequence,
-                                    }).result || [],
+                                childNodes: [
+                                    // in the order they should stack if they ever clash
+                                    // lower is higher in the stacking context
+                                    ...nodeGroups.appNodes,
+                                    makeKeyboardParent(),
+                                    nodeGroups.navBarNode,
+                                    nodeGroups.statusBarNode,
+                                ],
                             },
                         ],
                     },

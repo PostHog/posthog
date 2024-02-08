@@ -2,10 +2,6 @@ import { wireframe, wireframeProgress } from '../mobile.types'
 import { dataURIOrPNG } from './transformers'
 import { StyleOverride } from './types'
 
-/** all other z-indexes must be set less than this */
-export const TOP_OF_STACK = 9999999
-export const KEYBOARD_Z_INDEX = 9999998
-
 function ensureTrailingSemicolon(styles: string): string {
     return styles.endsWith(';') ? styles : styles + ';'
 }
@@ -220,7 +216,7 @@ export function makeBackgroundStyles(wireframe: wireframe, styleOverride?: Style
     if (combinedStyles.backgroundImage) {
         styleParts = styleParts.concat([
             `background-image: url('${dataURIOrPNG(combinedStyles.backgroundImage)}')`,
-            `background-size: ${combinedStyles.backgroundSize || 'auto'}`,
+            `background-size: ${combinedStyles.backgroundSize || 'contain'}`,
             'background-repeat: no-repeat',
         ])
     }

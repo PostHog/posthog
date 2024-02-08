@@ -3,33 +3,38 @@ import csv
 import dataclasses
 import datetime as dt
 import gzip
-import json
 import tempfile
 import typing
 import uuid
 from string import Template
 
 import brotli
+import orjson
+import pyarrow as pa
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
+    BatchExportField,
     create_batch_export_backfill,
     create_batch_export_run,
     update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 SELECT_QUERY_TEMPLATE = Template(
     """
-    SELECT $fields
+    SELECT
+    $distinct
+    $fields
     FROM events
     WHERE
         COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
@@ -53,13 +58,14 @@ AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 
 
 async def get_rows_count(
-    client,
+    client: ClickHouseClient,
     team_id: int,
     interval_start: str,
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
 ) -> int:
+    """Return a count of rows to be batch exported."""
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -85,6 +91,7 @@ async def get_rows_count(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
         order_by="",
         format="",
+        distinct="",
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
@@ -107,49 +114,59 @@ async def get_rows_count(
     return int(count)
 
 
-FIELDS = """
-DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
-toString(uuid) as uuid,
-team_id,
-timestamp,
-inserted_at,
-created_at,
-event,
-properties,
--- Point in time identity fields
-toString(distinct_id) as distinct_id,
-toString(person_id) as person_id,
--- Autocapture fields
-elements_chain
-"""
-
-S3_FIELDS = """
-DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
-toString(uuid) as uuid,
-team_id,
-timestamp,
-inserted_at,
-created_at,
-event,
-properties,
--- Point in time identity fields
-toString(distinct_id) as distinct_id,
-toString(person_id) as person_id,
-person_properties,
--- Autocapture fields
-elements_chain
-"""
+def default_fields() -> list[BatchExportField]:
+    """Return list of default batch export Fields."""
+    return [
+        BatchExportField(expression="toString(uuid)", alias="uuid"),
+        BatchExportField(expression="team_id", alias="team_id"),
+        BatchExportField(expression="timestamp", alias="timestamp"),
+        BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at"),
+        BatchExportField(expression="created_at", alias="created_at"),
+        BatchExportField(expression="event", alias="event"),
+        BatchExportField(expression="nullIf(properties, '')", alias="properties"),
+        BatchExportField(expression="toString(distinct_id)", alias="distinct_id"),
+        BatchExportField(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set"),
+        BatchExportField(
+            expression="nullIf(JSONExtractString(properties, '$set_once'), '')",
+            alias="set_once",
+        ),
+    ]
 
 
-def get_results_iterator(
-    client,
+BytesGenerator = collections.abc.Generator[bytes, None, None]
+RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
+
+# Spoiler: We'll use these ones later 8)
+# AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
+# AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
+
+
+def iter_records(
+    client: ClickHouseClient,
     team_id: int,
     interval_start: str,
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
-    include_person_properties: bool = False,
-) -> typing.Generator[dict[str, typing.Any], None, None]:
+    fields: list[BatchExportField] | None = None,
+    extra_query_parameters: dict[str, typing.Any] | None = None,
+) -> RecordsGenerator:
+    """Iterate over Arrow batch records for a batch export.
+
+    Args:
+        client: The ClickHouse client used to query for the batch records.
+        team_id: The ID of the team whose data we are querying.
+        interval_start: The beginning of the batch export interval.
+        interval_end: The end of the batch export interval.
+        exclude_events: Optionally, any event names that should be excluded.
+        include_events: Optionally, the event names that should only be included in the export.
+        fields: The fields that will be queried from ClickHouse. Will call default_fields if not set.
+        extra_query_parameters: A dictionary of additional query parameters to pass to the query execution.
+            Useful if fields contains any fields with placeholders.
+
+    Returns:
+        A generator that yields tuples of batch records as Python dictionaries and their schema.
+    """
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -171,67 +188,40 @@ def get_results_iterator(
     if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         timestamp_predicates = ""
 
+    if fields is None:
+        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in default_fields()))
+    else:
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            control_fields = [BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at")]
+        else:
+            control_fields = []
+
+        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in fields + control_fields))
+
     query = SELECT_QUERY_TEMPLATE.substitute(
-        fields=S3_FIELDS if include_person_properties else FIELDS,
-        order_by="ORDER BY inserted_at",
+        fields=query_fields,
+        order_by="ORDER BY COALESCE(inserted_at, _timestamp)",
         format="FORMAT ArrowStream",
+        distinct="DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))",
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
     )
+    base_query_parameters = {
+        "team_id": team_id,
+        "data_interval_start": data_interval_start_ch,
+        "data_interval_end": data_interval_end_ch,
+        "exclude_events": events_to_exclude_tuple,
+        "include_events": events_to_include_tuple,
+    }
 
-    for batch in client.stream_query_as_arrow(
-        query,
-        query_parameters={
-            "team_id": team_id,
-            "data_interval_start": data_interval_start_ch,
-            "data_interval_end": data_interval_end_ch,
-            "exclude_events": events_to_exclude_tuple,
-            "include_events": events_to_include_tuple,
-        },
-    ):
-        yield from iter_batch_records(batch)
+    if extra_query_parameters is not None:
+        query_parameters = base_query_parameters | extra_query_parameters
+    else:
+        query_parameters = base_query_parameters
 
-
-def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, None]:
-    """Iterate over records of a batch.
-
-    During iteration, we yield dictionaries with all fields used by PostHog BatchExports.
-
-    Args:
-        batch: A record batch of rows.
-    """
-    for record in batch.to_pylist():
-        properties = record.get("properties")
-        person_properties = record.get("person_properties")
-        properties = json.loads(properties) if properties else None
-
-        # This is not backwards compatible, as elements should contain a parsed array.
-        # However, parsing elements_chain is a mess, so we json.dump to at least be compatible with
-        # schemas that use JSON-like types.
-        elements = json.dumps(record.get("elements_chain").decode())
-
-        record = {
-            "created_at": record.get("created_at").isoformat(),
-            "distinct_id": record.get("distinct_id").decode(),
-            "elements": elements,
-            "elements_chain": record.get("elements_chain").decode(),
-            "event": record.get("event").decode(),
-            "inserted_at": record.get("inserted_at").isoformat() if record.get("inserted_at") else None,
-            "ip": properties.get("$ip", None) if properties else None,
-            "person_id": record.get("person_id").decode(),
-            "person_properties": json.loads(person_properties) if person_properties else None,
-            "set": properties.get("$set", None) if properties else None,
-            "set_once": properties.get("$set_once", None) if properties else None,
-            "properties": properties,
-            # Kept for backwards compatibility, but not exported anymore.
-            "site_url": "",
-            "team_id": record.get("team_id"),
-            "timestamp": record.get("timestamp").isoformat(),
-            "uuid": record.get("uuid").decode(),
-        }
-
-        yield record
+    for record_batch in client.stream_query_as_arrow(query, query_parameters=query_parameters):
+        yield record_batch
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
@@ -295,8 +285,8 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
     return (data_interval_start_dt, data_interval_end_dt)
 
 
-def json_dumps_bytes(d, encoding="utf-8") -> bytes:
-    return json.dumps(d).encode(encoding)
+def json_dumps_bytes(d) -> bytes:
+    return orjson.dumps(d, default=str)
 
 
 class BatchExportTemporaryFile:
@@ -392,10 +382,10 @@ class BatchExportTemporaryFile:
 
     def write_records_to_jsonl(self, records):
         """Write records to a temporary file as JSONL."""
-        jsonl_dump = b"\n".join(map(json_dumps_bytes, records))
-
         if len(records) == 1:
-            jsonl_dump += b"\n"
+            jsonl_dump = orjson.dumps(records[0], option=orjson.OPT_APPEND_NEWLINE, default=str)
+        else:
+            jsonl_dump = b"\n".join(map(json_dumps_bytes, records))
 
         result = self.write(jsonl_dump)
 
@@ -411,7 +401,8 @@ class BatchExportTemporaryFile:
         extrasaction: typing.Literal["raise", "ignore"] = "ignore",
         delimiter: str = ",",
         quotechar: str = '"',
-        escapechar: str = "\\",
+        escapechar: str | None = "\\",
+        lineterminator: str = "\n",
         quoting=csv.QUOTE_NONE,
     ):
         """Write records to a temporary file as CSV."""
@@ -429,6 +420,7 @@ class BatchExportTemporaryFile:
             quotechar=quotechar,
             escapechar=escapechar,
             quoting=quoting,
+            lineterminator=lineterminator,
         )
         writer.writerows(records)
 
@@ -441,7 +433,8 @@ class BatchExportTemporaryFile:
         fieldnames: None | list[str] = None,
         extrasaction: typing.Literal["raise", "ignore"] = "ignore",
         quotechar: str = '"',
-        escapechar: str = "\\",
+        escapechar: str | None = "\\",
+        lineterminator: str = "\n",
         quoting=csv.QUOTE_NONE,
     ):
         """Write records to a temporary file as TSV."""
@@ -453,6 +446,7 @@ class BatchExportTemporaryFile:
             quotechar=quotechar,
             escapechar=escapechar,
             quoting=quoting,
+            lineterminator=lineterminator,
         )
 
     def rewind(self):
@@ -513,7 +507,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_run)(  # type: ignore
+    run = await sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
@@ -534,7 +528,7 @@ class UpdateBatchExportRunStatusInputs:
 
 
 @activity.defn
-async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
+async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
@@ -542,7 +536,7 @@ async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
-    )  # type: ignore
+    )
 
     if batch_export_run.status == "Failed":
         logger.error("BatchExport failed with error: %s", batch_export_run.latest_error)
@@ -583,7 +577,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_backfill)(  # type: ignore
+    run = await sync_to_async(create_batch_export_backfill)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -603,11 +597,11 @@ class UpdateBatchExportBackfillStatusInputs:
 
 
 @activity.defn
-async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs):
+async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
     backfill = await sync_to_async(update_batch_export_backfill_status)(
         backfill_id=uuid.UUID(inputs.id), status=inputs.status
-    )  # type: ignore
+    )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status == "Failed":

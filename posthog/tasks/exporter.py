@@ -43,7 +43,7 @@ EXPORT_TIMER = Histogram(
     acks_late=True,
     ignore_result=False,
     time_limit=settings.ASSET_GENERATION_MAX_TIMEOUT_SECONDS,
-    queue=CeleryQueue.EXPORTS,
+    queue=CeleryQueue.EXPORTS.value,
 )
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter

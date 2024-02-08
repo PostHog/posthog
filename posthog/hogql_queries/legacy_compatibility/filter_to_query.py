@@ -1,13 +1,17 @@
+import copy
+from enum import Enum
 import json
-from typing import List, Dict
-from posthog.models.entity.entity import Entity as BackendEntity
+from typing import List, Dict, Literal
+from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     BreakdownFilter,
     ChartDisplayType,
     DateRange,
     EventsNode,
-    FunnelExclusion,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
     FunnelsFilter,
     FunnelsQuery,
     LifecycleFilter,
@@ -23,6 +27,21 @@ from posthog.schema import (
     TrendsQuery,
 )
 from posthog.types import InsightQueryNode
+
+
+class MathAvailability(str, Enum):
+    Unavailable = ("Unavailable",)
+    All = ("All",)
+    ActorsOnly = "ActorsOnly"
+
+
+actors_only_math_types = [
+    BaseMathType.dau,
+    BaseMathType.weekly_active,
+    BaseMathType.monthly_active,
+    "unique_group",
+    "hogql",
+]
 
 
 def is_property_with_operator(property: Dict):
@@ -114,7 +133,12 @@ def clean_display(display: str):
         return display
 
 
-def entity_to_node(entity: BackendEntity, include_properties: bool, include_math: bool) -> EventsNode | ActionsNode:
+def legacy_entity_to_node(
+    entity: LegacyEntity, include_properties: bool, math_availability: MathAvailability
+) -> EventsNode | ActionsNode:
+    """
+    Takes a legacy entity and converts it into an EventsNode or ActionsNode.
+    """
     shared = {
         "name": entity.name,
         "custom_name": entity.custom_name,
@@ -126,14 +150,24 @@ def entity_to_node(entity: BackendEntity, include_properties: bool, include_math
             "properties": clean_entity_properties(entity._data.get("properties", None)),
         }
 
-    if include_math:
-        shared = {
-            **shared,
-            "math": entity.math,
-            "math_property": entity.math_property,
-            "math_hogql": entity.math_hogql,
-            "math_group_type_index": entity.math_group_type_index,
-        }
+    if math_availability != MathAvailability.Unavailable:
+        #  only trends and stickiness insights support math.
+        #  transition to then default math for stickiness, when an unsupported math type is encountered.
+
+        if (
+            entity.math is not None
+            and math_availability == MathAvailability.ActorsOnly
+            and entity.math not in actors_only_math_types
+        ):
+            shared = {**shared, "math": BaseMathType.dau}
+        else:
+            shared = {
+                **shared,
+                "math": entity.math,
+                "math_property": entity.math_property,
+                "math_hogql": entity.math_hogql,
+                "math_group_type_index": entity.math_group_type_index,
+            }
 
     if entity.type == "actions":
         return ActionsNode(id=entity.id, **shared)
@@ -141,6 +175,28 @@ def entity_to_node(entity: BackendEntity, include_properties: bool, include_math
         return EventsNode(event=entity.id, **shared)
 
 
+def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusionActionsNode:
+    """
+    Takes a legacy exclusion entity and converts it into an FunnelExclusionEventsNode or FunnelExclusionActionsNode.
+    """
+    base_entity = legacy_entity_to_node(
+        LegacyEntity(entity), include_properties=False, math_availability=MathAvailability.Unavailable
+    )
+    if isinstance(base_entity, EventsNode):
+        return FunnelExclusionEventsNode(
+            **base_entity.model_dump(),
+            funnelFromStep=entity.get("funnel_from_step"),
+            funnelToStep=entity.get("funnel_to_step"),
+        )
+    else:
+        return FunnelExclusionActionsNode(
+            **base_entity.model_dump(),
+            funnelFromStep=entity.get("funnel_from_step"),
+            funnelToStep=entity.get("funnel_to_step"),
+        )
+
+
+# TODO: remove this method that returns legacy entities
 def to_base_entity_dict(entity: Dict):
     return {
         "type": entity.get("type"),
@@ -159,6 +215,8 @@ insight_to_query_type = {
     "LIFECYCLE": LifecycleQuery,
     "STICKINESS": StickinessQuery,
 }
+
+INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]
 
 
 def _date_range(filter: Dict):
@@ -188,34 +246,37 @@ def _series(filter: Dict):
     if filter.get("events") is not None:
         filter["events"] = [event for event in filter.get("events") if not (isinstance(event, str))]
 
-    include_math = True
-    include_properties = True
-    if _insight_type(filter) == "LIFECYCLE":
-        include_math = False
+    math_availability: MathAvailability = MathAvailability.Unavailable
+    include_properties: bool = True
+
+    if _insight_type(filter) == "TRENDS":
+        math_availability = MathAvailability.All
+    elif _insight_type(filter) == "STICKINESS":
+        math_availability = MathAvailability.ActorsOnly
 
     return {
         "series": [
-            entity_to_node(entity, include_properties, include_math)
+            legacy_entity_to_node(entity, include_properties, math_availability)
             for entity in _entities(filter)
-            if entity.id is not None
+            if not (entity.type == "actions" and entity.id is None)
         ]
     }
 
 
 def _entities(filter: Dict):
-    processed_entities: List[BackendEntity] = []
+    processed_entities: List[LegacyEntity] = []
 
     # add actions
     actions = filter.get("actions", [])
     if isinstance(actions, str):
         actions = json.loads(actions)
-    processed_entities.extend([BackendEntity({**entity, "type": "actions"}) for entity in actions])
+    processed_entities.extend([LegacyEntity({**entity, "type": "actions"}) for entity in actions])
 
     # add events
     events = filter.get("events", [])
     if isinstance(events, str):
         events = json.loads(events)
-    processed_entities.extend([BackendEntity({**entity, "type": "events"}) for entity in events])
+    processed_entities.extend([LegacyEntity({**entity, "type": "events"}) for entity in events])
 
     # order by order
     processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
@@ -342,14 +403,7 @@ def _insight_filter(filter: Dict):
                 breakdownAttributionType=filter.get("breakdown_attribution_type"),
                 breakdownAttributionValue=filter.get("breakdown_attribution_value"),
                 binCount=filter.get("bin_count"),
-                exclusions=[
-                    FunnelExclusion(
-                        **to_base_entity_dict(entity),
-                        funnelFromStep=entity.get("funnel_from_step"),
-                        funnelToStep=entity.get("funnel_to_step"),
-                    )
-                    for entity in filter.get("exclusions", [])
-                ],
+                exclusions=[exlusion_entity_to_node(entity) for entity in filter.get("exclusions", [])],
                 layout=filter.get("layout"),
                 # hidden_legend_breakdowns: cleanHiddenLegendSeries(filter.get('hidden_legend_keys')),
                 funnelAggregateByHogQL=filter.get("funnel_aggregate_by_hogql"),
@@ -414,13 +468,15 @@ def _insight_filter(filter: Dict):
     return insight_filter
 
 
-def _insight_type(filter: Dict) -> str:
+def _insight_type(filter: Dict) -> INSIGHT_TYPE:
     if filter.get("insight") == "SESSIONS":
         return "TRENDS"
     return filter.get("insight", "TRENDS")
 
 
 def filter_to_query(filter: Dict) -> InsightQueryNode:
+    filter = copy.deepcopy(filter)  # duplicate to prevent accidental filter alterations
+
     Query = insight_to_query_type[_insight_type(filter)]
 
     data = {

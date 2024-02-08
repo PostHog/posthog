@@ -975,6 +975,9 @@
               OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" = 2
+         AND NOT ("posthog_dashboard"."deleted"
+                  AND "posthog_dashboardtile"."deleted"
+                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
@@ -1206,6 +1209,33 @@
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.31
+  '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" IN (1,
+                                          2,
+                                          3,
+                                          4,
+                                          5 /* ... */)) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.32
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -7425,6 +7455,9 @@
               OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" = 2
+         AND NOT ("posthog_dashboard"."deleted"
+                  AND "posthog_dashboardtile"."deleted"
+                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
@@ -10111,6 +10144,9 @@
               OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" = 2
+         AND NOT ("posthog_dashboard"."deleted"
+                  AND "posthog_dashboardtile"."deleted"
+                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/

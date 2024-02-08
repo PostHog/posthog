@@ -25,7 +25,7 @@ export function TaxonomicStringPopoverOneCategory(): JSX.Element {
             groupType={TaxonomicFilterGroupType.PersonProperties}
             value={value}
             onChange={setValue}
-            renderValue={(v) => <PropertyKeyInfo value={v} />}
+            renderValue={(v) => <PropertyKeyInfo value={v} type={TaxonomicFilterGroupType.PersonProperties} />}
         />
     )
 }
