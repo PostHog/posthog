@@ -2,8 +2,8 @@ from typing import List
 
 from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
-
 
 
 class FunnelUnordered(FunnelBase):
@@ -54,21 +54,51 @@ class FunnelUnordered(FunnelBase):
             group_by=[ast.Field(chain=["prop"])] if len(breakdown_exprs) > 0 else None,
         )
 
-    # def get_step_counts_query(self):
-    #     max_steps = len(self._filter.entities)
+    def get_step_counts_query(self):
+        max_steps = self.context.max_steps
+        breakdown_exprs = self._get_breakdown_expr()
+        inner_timestamps, outer_timestamps = self._get_timestamp_selects()
+        person_and_group_properties = self._get_person_and_group_properties()
 
-    #     union_query = self.get_step_counts_without_aggregation_query()
-    #     breakdown_clause = self._get_breakdown_prop()
-    #     inner_timestamps, outer_timestamps = self._get_timestamp_selects()
+        group_by_columns: List[ast.Expr] = [
+            ast.Field(chain=["aggregation_target"]),
+            ast.Field(chain=["steps"]),
+            *breakdown_exprs,
+        ]
 
-    #     return f"""
-    #         SELECT aggregation_target, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} {self._get_person_and_group_properties(aggregate=True)} FROM (
-    #             SELECT aggregation_target, steps, max(steps) over (PARTITION BY aggregation_target {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} {self._get_person_and_group_properties()} FROM (
-    #                     {union_query}
-    #             )
-    #         ) GROUP BY aggregation_target, steps {breakdown_clause}
-    #         HAVING steps = max_steps
-    #     """
+        outer_select: List[ast.Expr] = [
+            *group_by_columns,
+            *self._get_step_time_avgs(max_steps, inner_query=True),
+            *self._get_step_time_median(max_steps, inner_query=True),
+            *outer_timestamps,
+            *person_and_group_properties,
+        ]
+
+        max_steps_expr = parse_expr(
+            f"max(steps) over (PARTITION BY aggregation_target {self._get_breakdown_prop()}) as max_steps"
+        )
+
+        inner_select: List[ast.Expr] = [
+            *group_by_columns,
+            max_steps_expr,
+            *self._get_step_time_names(max_steps),
+            *inner_timestamps,
+            *person_and_group_properties,
+        ]
+
+        return ast.SelectQuery(
+            select=outer_select,
+            select_from=ast.JoinExpr(
+                table=ast.SelectQuery(
+                    select=inner_select,
+                    select_from=ast.JoinExpr(table=self.get_step_counts_without_aggregation_query()),
+                )
+            ),
+            group_by=group_by_columns,
+            having=ast.CompareOperation(
+                left=ast.Field(chain=["steps"]), right=ast.Field(chain=["max_steps"]), op=ast.CompareOperationOp.Eq
+            ),
+        )
 
     # def get_step_counts_without_aggregation_query(self):
     #     max_steps = len(self._filter.entities)
