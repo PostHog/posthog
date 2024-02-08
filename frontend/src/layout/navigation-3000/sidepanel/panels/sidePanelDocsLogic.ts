@@ -162,7 +162,6 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
                     return
                 }
                 if (event.data.type === 'docs-menu') {
-                    console.log('Setting menu options', event.data.menu)
                     actions.setMenuOptions(event.data.menu)
                     return
                 }
