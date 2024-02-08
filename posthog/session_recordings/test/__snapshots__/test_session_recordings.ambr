@@ -627,8 +627,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -1492,8 +1492,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -1866,8 +1866,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -2287,8 +2287,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -2674,8 +2674,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -3114,8 +3114,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -3333,8 +3333,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -3686,8 +3686,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -4052,8 +4052,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -4420,8 +4420,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
@@ -4779,8 +4779,8 @@
   '''
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."person_id",
          "posthog_persondistinctid"."version",
          "posthog_person"."id",
          "posthog_person"."created_at",
