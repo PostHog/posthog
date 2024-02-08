@@ -373,7 +373,7 @@ class TestExports(APIBaseTest):
                     if 400 <= response.status_code < 600:
                         raise requests.exceptions.HTTPError(response=response)
 
-                response.raise_for_status = raise_for_status
+                response.raise_for_status = raise_for_status  # type: ignore[attr-defined]
                 return response
 
             patched_request.side_effect = requests_side_effect
@@ -459,7 +459,7 @@ class TestExportMixin(APIBaseTest):
                         if 400 <= response.status_code < 600:
                             raise requests.exceptions.HTTPError(response=response)
 
-                    response.raise_for_status = raise_for_status
+                    response.raise_for_status = raise_for_status  # type: ignore[attr-defined]
                     return response
 
                 patched_request.side_effect = requests_side_effect
