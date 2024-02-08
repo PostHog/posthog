@@ -37,9 +37,6 @@ EXPORT_TIMER = Histogram(
 
 # export_asset is used in chords/groups and so must not ignore its results
 @shared_task(
-    autoretry_for=(Exception,),
-    max_retries=5,
-    retry_backoff=True,
     acks_late=True,
     ignore_result=False,
     time_limit=settings.ASSET_GENERATION_MAX_TIMEOUT_SECONDS,
