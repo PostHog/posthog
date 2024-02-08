@@ -1,7 +1,17 @@
 import copy
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, TypedDict, cast
+from typing import (
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    TypedDict,
+    Union,
+    cast,
+)
 
 import dateutil.parser
 import posthoganalytics
@@ -46,7 +56,11 @@ OVERAGE_BUFFER = {
 }
 
 
-def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key) -> None:
+def replace_limited_team_tokens(
+    resource: QuotaResource,
+    tokens: Mapping[str, int],
+    cache_key: Union[QUOTA_OVERAGE_RETENTION_CACHE_KEY, QUOTA_LIMIT_DATA_RETENTION_FLAG],
+) -> None:
     pipe = get_client().pipeline()
     pipe.delete(f"{cache_key}{resource.value}")
     if tokens:
@@ -54,20 +68,29 @@ def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, in
     pipe.execute()
 
 
-def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], cache_key) -> None:
+def add_limited_team_tokens(
+    resource: QuotaResource,
+    tokens: Mapping[str, int],
+    cache_key: Union[QUOTA_OVERAGE_RETENTION_CACHE_KEY, QUOTA_LIMIT_DATA_RETENTION_FLAG],
+) -> None:
     redis_client = get_client()
     redis_client.zadd(f"{cache_key}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
 
 def remove_limited_team_tokens(
-    resource: QuotaResource, tokens: List[str], cache_key: str = QUOTA_LIMITER_CACHE_KEY
+    resource: QuotaResource,
+    tokens: List[str],
+    cache_key: Union[QUOTA_OVERAGE_RETENTION_CACHE_KEY, QUOTA_LIMIT_DATA_RETENTION_FLAG],
 ) -> None:
     redis_client = get_client()
     redis_client.zrem(f"{cache_key}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_team_attributes(resource: QuotaResource, cache_key: str = QUOTA_LIMITER_CACHE_KEY) -> List[str]:
+def list_limited_team_attributes(
+    resource: QuotaResource,
+    cache_key: Union[QUOTA_OVERAGE_RETENTION_CACHE_KEY, QUOTA_LIMIT_DATA_RETENTION_FLAG],
+) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{cache_key}{resource.value}", min=now.timestamp(), max="+inf")
@@ -179,7 +202,7 @@ def sync_org_quota_limits(organization: Organization):
                     resource, {x: data_retained_until for x in team_attributes}, QUOTA_OVERAGE_RETENTION_CACHE_KEY
                 )
                 continue
-        remove_limited_team_tokens(resource, team_attributes)
+        remove_limited_team_tokens(resource, team_attributes, QUOTA_LIMITER_CACHE_KEY)
         remove_limited_team_tokens(resource, team_attributes, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
 
 
@@ -325,7 +348,9 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Tuple[Dict[str, Dict
     previously_data_retained_teams: Dict[str, Dict[str, int]] = {key.value: {} for key in QuotaResource}
 
     for field in quota_limited_orgs:
-        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(QuotaResource(field))
+        previously_quota_limited_team_tokens[field] = list_limited_team_attributes(
+            QuotaResource(field), QUOTA_LIMITER_CACHE_KEY
+        )
         previously_data_retained_teams[field] = list_limited_team_attributes(
             QuotaResource(field), QUOTA_OVERAGE_RETENTION_CACHE_KEY
         )

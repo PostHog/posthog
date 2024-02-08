@@ -432,8 +432,8 @@ class TestQuotaLimiting(BaseTest):
             }
 
             sync_org_quota_limits(self.organization)
-            assert list_limited_team_attributes(QuotaResource.EVENTS) == ["1234"]
-            assert list_limited_team_attributes(QuotaResource.ROWS_SYNCED) == ["1337"]
+            assert list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_LIMITER_CACHE_KEY) == ["1234"]
+            assert list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_LIMITER_CACHE_KEY) == ["1337"]
 
             self.organization.usage["events"]["usage"] = 120
             self.organization.usage["rows_synced"]["usage"] = 120
@@ -448,13 +448,17 @@ class TestQuotaLimiting(BaseTest):
             assert sorted(
                 list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
             ) == sorted([self.team.api_token, other_team.api_token])
-            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS)) == sorted(["1234"])
+            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_LIMITER_CACHE_KEY)) == sorted(
+                ["1234"]
+            )
 
             # rows_synced uses teams, not tokens
             assert sorted(
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
             ) == sorted([str(self.team.pk), str(other_team.pk)])
-            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED)) == sorted(["1337"])
+            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_LIMITER_CACHE_KEY)) == sorted(
+                ["1337"]
+            )
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
@@ -465,11 +469,15 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": {"limit": 100, "usage": 36},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
-            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS)) == sorted(["1234"])
+            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_LIMITER_CACHE_KEY)) == sorted(
+                ["1234"]
+            )
             assert sorted(
                 list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
             ) == sorted([])
-            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED)) == sorted(["1337"])
+            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_LIMITER_CACHE_KEY)) == sorted(
+                ["1337"]
+            )
             assert sorted(
                 list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
             ) == sorted([])
