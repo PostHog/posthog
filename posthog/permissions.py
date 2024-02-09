@@ -61,7 +61,7 @@ class CanCreateOrg(BasePermission):
         return get_can_create_org(request.user)
 
 
-class SingleTenancyOrAdmin(BasePermission, type(BasePermission)):
+class SingleTenancyOrAdmin(BasePermission):
     """
     Allows access to only staff users on cloud.
     """
