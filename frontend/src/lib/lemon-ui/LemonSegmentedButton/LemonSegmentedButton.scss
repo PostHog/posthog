@@ -58,12 +58,6 @@
             border-bottom-right-radius: var(--radius) !important;
         }
 
-        // &:not(:last-child) {
-        //     .LemonButton__chrome {
-        //         border-right: none;
-        //     }
-        // }
-
         &:not(:first-child) {
             .LemonButton__chrome {
                 margin-left: -1px;
@@ -75,10 +69,6 @@
             .LemonButton {
                 --lemon-button-icon-opacity: 1;
                 --lemon-button-profile-picture-opacity: 1;
-            }
-
-            .LemonButton__chrome::after {
-                background-color: var(--bg-light);
             }
         }
 
