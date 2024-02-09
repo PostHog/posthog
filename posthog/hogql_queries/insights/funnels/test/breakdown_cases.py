@@ -944,7 +944,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "sign up", "order": 0}],
+                "events": [{"id": "sign up", "order": 0}, {"id": "other event", "order": 0}],
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -988,14 +988,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             self._assert_funnel_breakdown_result_is_correct(
-                results[0], [FunnelStepResult(name="sign up", breakdown=["0"], count=1)]
+                results[0],
+                [
+                    FunnelStepResult(name="sign up", breakdown=["0"], count=1),
+                    FunnelStepResult(name="other event", breakdown=["0"], count=0),
+                ],
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "0"), [people["person1"].uuid])
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[1],
-                [FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"])],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),
+                    FunnelStepResult(name="other event", breakdown=["Chrome"], count=0),
+                ],
             )
 
             self.assertCountEqual(
@@ -1005,14 +1012,20 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[2],
-                [FunnelStepResult(name="sign up", count=1, breakdown=["Mac"])],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Mac"]),
+                    FunnelStepResult(name="other event", breakdown=["Mac"], count=0),
+                ],
             )
 
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Mac"), [people["person1"].uuid])
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[3],
-                [FunnelStepResult(name="sign up", count=1, breakdown=["Safari"])],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),
+                    FunnelStepResult(name="other event", breakdown=["Safari"], count=0),
+                ],
             )
 
             self.assertCountEqual(
