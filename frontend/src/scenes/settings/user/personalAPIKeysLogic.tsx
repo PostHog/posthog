@@ -25,40 +25,50 @@ export const API_KEY_SCOPE_PRESETS = [
 
 export type APIScope = {
     key: string
-    actions: string[]
+    disabledActions?: ('read' | 'write')[]
     description?: string
+    warnings?: { [key: string]: JSX.Element }
 }
 
 export const APIScopes: APIScope[] = [
-    { key: 'action', actions: ['read', 'write'] },
-    { key: 'activity_log', actions: ['read', 'write'] },
-    { key: 'annotation', actions: ['read', 'write'] },
-    { key: 'batch_export', actions: ['read', 'write'] },
-    { key: 'cohort', actions: ['read', 'write'] },
-    { key: 'dashboard', actions: ['read', 'write'] },
-    { key: 'dashboard_template', actions: ['read', 'write'] },
-    { key: 'early_access_feature', actions: ['read', 'write'] },
-    { key: 'event_definition', actions: ['read', 'write'] },
-    { key: 'experiment', actions: ['read', 'write'] },
-    { key: 'export', actions: ['read', 'write'] },
-    { key: 'feature_flag', actions: ['read', 'write'] },
-    { key: 'group', actions: ['read', 'write'] },
-    { key: 'insight', actions: ['read', 'write'] },
-    { key: 'query', actions: ['read'] },
-    { key: 'notebook', actions: ['read', 'write'] },
-    { key: 'organization', actions: ['read', 'write'] },
-    { key: 'organization_member', actions: ['read', 'write'] },
-    { key: 'person', actions: ['read', 'write'] },
-    { key: 'plugin', actions: ['read', 'write'] },
-    { key: 'project', actions: ['read', 'write'] },
-    { key: 'property_definition', actions: ['read', 'write'] },
-    { key: 'scheduled_change', actions: ['read', 'write'] },
-    { key: 'session_recording', actions: ['read', 'write'] },
-    { key: 'session_recording_playlist', actions: ['read', 'write'] },
-    { key: 'sharing_configuration', actions: ['read', 'write'] },
-    { key: 'subscription', actions: ['read', 'write'] },
-    { key: 'survey', actions: ['read', 'write'] },
-    { key: 'user', actions: ['read', 'write'] },
+    { key: 'action' },
+    { key: 'activity_log' },
+    { key: 'annotation' },
+    { key: 'batch_export' },
+    { key: 'cohort' },
+    { key: 'dashboard' },
+    { key: 'dashboard_template' },
+    { key: 'early_access_feature' },
+    { key: 'event_definition' },
+    { key: 'experiment' },
+    { key: 'export' },
+    { key: 'feature_flag' },
+    { key: 'group' },
+    { key: 'insight' },
+    { key: 'query', disabledActions: ['write'] },
+    { key: 'notebook' },
+    {
+        key: 'organization_member',
+        warnings: {
+            write: (
+                <>
+                    <b>Warning:</b> This scope can be used to add or remove users from your organization which
+                    effectively allows it to give access to many other scopes via the added user.
+                </>
+            ),
+        },
+    },
+    { key: 'person' },
+    { key: 'plugin' },
+    { key: 'project' },
+    { key: 'property_definition' },
+    { key: 'scheduled_change' },
+    { key: 'session_recording' },
+    { key: 'session_recording_playlist' },
+    { key: 'sharing_configuration' },
+    { key: 'subscription' },
+    { key: 'survey' },
+    { key: 'user' },
 ]
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([

@@ -16,7 +16,7 @@ import { Field } from 'lib/forms/Field'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
-import { useEffect } from 'react'
+import { Fragment, useEffect } from 'react'
 
 import { PersonalAPIKeyType } from '~/types'
 
@@ -97,24 +97,41 @@ function EditKeyModal(): JSX.Element {
                                     </LemonBanner>
                                 ) : (
                                     <div>
-                                        {APIScopes.map(({ key, actions }) => (
-                                            <div key={key} className="flex items-center justify-between gap-2 min-h-8">
-                                                <div>
-                                                    <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
+                                        {APIScopes.map(({ key, disabledActions, warnings }) => (
+                                            <Fragment key={key}>
+                                                <div className="flex items-center justify-between gap-2 min-h-8">
+                                                    <div>
+                                                        <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
+                                                    </div>
+                                                    <LemonSegmentedButton
+                                                        onChange={(value) => setScopeRadioValue(key, value)}
+                                                        value={formScopeRadioValues[key] ?? 'none'}
+                                                        options={[
+                                                            { label: 'No access', value: 'none' },
+                                                            {
+                                                                label: 'Read',
+                                                                value: 'read',
+                                                                disabledReason: disabledActions?.includes('read')
+                                                                    ? 'Does not apply to this resource'
+                                                                    : undefined,
+                                                            },
+                                                            {
+                                                                label: 'Write',
+                                                                value: 'write',
+                                                                disabledReason: disabledActions?.includes('write')
+                                                                    ? 'Does not apply to this resource'
+                                                                    : undefined,
+                                                            },
+                                                        ]}
+                                                        size="xsmall"
+                                                    />
                                                 </div>
-                                                <LemonSegmentedButton
-                                                    onChange={(value) => setScopeRadioValue(key, value)}
-                                                    value={formScopeRadioValues[key] ?? 'none'}
-                                                    options={[
-                                                        { label: 'No access', value: 'none' },
-                                                        ...actions.map((action) => ({
-                                                            label: capitalizeFirstLetter(action),
-                                                            value: action,
-                                                        })),
-                                                    ]}
-                                                    size="xsmall"
-                                                />
-                                            </div>
+                                                {warnings?.[formScopeRadioValues[key]] && (
+                                                    <div className="text-xs italic">
+                                                        {warnings[formScopeRadioValues[key]]}
+                                                    </div>
+                                                )}
+                                            </Fragment>
                                         ))}
                                     </div>
                                 )}
