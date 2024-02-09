@@ -18,6 +18,12 @@
         --lemon-table-background-color: var(--bg-light);
     }
 
+    .WebAnalyticsDashboard &,
+    .WebAnalyticsModal & {
+        // Special override for scenes where the surroundings provide a border
+        border: none;
+    }
+
     .posthog-3000 & {
         --row-base-height: auto;
 

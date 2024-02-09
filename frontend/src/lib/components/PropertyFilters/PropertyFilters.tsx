@@ -28,6 +28,7 @@ interface PropertyFiltersProps {
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
+    buttonText?: string
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
@@ -51,6 +52,7 @@ export function PropertyFilters({
     logicalRowDivider = false,
     propertyGroupType = null,
     addText = null,
+    buttonText = 'Add filter',
     hasRowOperator = true,
     sendAllKeyUpdates = false,
     allowNew = true,
@@ -91,7 +93,7 @@ export function PropertyFilters({
                                     pageKey={pageKey}
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
-                                    label="Add filter"
+                                    label={buttonText}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     filterComponent={(onComplete) => (

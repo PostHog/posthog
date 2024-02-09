@@ -71,6 +71,8 @@ interface BaseTile {
 export interface QueryTile extends BaseTile {
     title?: string
     query: QuerySchema
+    showIntervalSelect?: boolean
+    showPathCleaningControls?: boolean
     insightProps: InsightLogicProps
     canOpenModal: boolean
     canOpenInsight?: boolean
@@ -85,6 +87,7 @@ export interface TabsTile extends BaseTile {
         linkText: string
         query: QuerySchema
         showIntervalSelect?: boolean
+        showPathCleaningControls?: boolean
         insightProps: InsightLogicProps
         canOpenModal?: boolean
         canOpenInsight?: boolean
@@ -100,6 +103,7 @@ export interface WebDashboardModalQuery {
     query: QuerySchema
     insightProps: InsightLogicProps
     showIntervalSelect?: boolean
+    showPathCleaningControls?: boolean
     canOpenInsight?: boolean
 }
 
@@ -196,6 +200,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
+        setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setStateFromUrl: (state: {
             filters: WebAnalyticsPropertyFilters
             dateFrom: string | null
@@ -206,6 +211,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             deviceTab: string | null
             pathTab: string | null
             geographyTab: string | null
+            isPathCleaningEnabled: boolean | null
         }) => ({
             state,
         }),
@@ -308,6 +314,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
             },
         ],
+        isPathCleaningEnabled: [
+            false as boolean,
+            {
+                setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
+                setStateFromUrl: (_, { state }) => state.isPathCleaningEnabled || false,
+            },
+        ],
         _modalTileAndTab: [
             null as { tileId: TileId; tabId?: string } | null,
             {
@@ -367,6 +380,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.pathTab,
                 s.geographyTab,
                 s.dateFilter,
+                s.isPathCleaningEnabled,
                 () => values.statusCheck,
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
@@ -379,6 +393,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 pathTab,
                 geographyTab,
                 { dateFrom, dateTo, interval },
+                isPathCleaningEnabled: boolean,
                 statusCheck,
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
@@ -552,12 +567,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
                                         includeBounceRate: true,
                                         sampling,
+                                        doPathCleaning: isPathCleaningEnabled,
                                         limit: 10,
                                     },
                                     embedded: false,
                                 },
                                 insightProps: createInsightProps(TileId.PATHS, PathTab.PATH),
                                 canOpenModal: true,
+                                showPathCleaningControls: true,
                             },
                             {
                                 id: PathTab.INITIAL_PATH,
@@ -573,12 +590,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
                                         sampling,
+                                        doPathCleaning: isPathCleaningEnabled,
                                         limit: 10,
                                     },
                                     embedded: false,
                                 },
                                 insightProps: createInsightProps(TileId.PATHS, PathTab.INITIAL_PATH),
                                 canOpenModal: true,
+                                showPathCleaningControls: true,
                             },
                         ],
                     },
@@ -990,6 +1009,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabId,
                         title: tab.title,
                         showIntervalSelect: tab.showIntervalSelect,
+                        showPathCleaningControls: tab.showPathCleaningControls,
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, tabId, true),
                             loadPriority: 0,
@@ -1004,6 +1024,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return {
                         tileId,
                         title: tile.title,
+                        showIntervalSelect: tile.showIntervalSelect,
+                        showPathCleaningControls: tile.showPathCleaningControls,
                         insightProps: {
                             dashboardItemId: getDashboardItemId(tileId, undefined, true),
                             loadPriority: 0,
@@ -1188,6 +1210,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 pathTab,
                 geographyTab,
                 graphsTab,
+                isPathCleaningEnabled,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -1214,6 +1237,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (geographyTab) {
                 urlParams.set('geography_tab', geographyTab)
             }
+            if (isPathCleaningEnabled) {
+                urlParams.set('path_cleaning', isPathCleaningEnabled.toString())
+            }
             return `/web?${urlParams.toString()}`
         }
 
@@ -1233,7 +1259,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     urlToAction(({ actions }) => ({
         '/web': (
             _,
-            { filters, date_from, date_to, interval, device_tab, source_tab, graphs_tab, path_tab, geography_tab }
+            {
+                filters,
+                date_from,
+                date_to,
+                interval,
+                device_tab,
+                source_tab,
+                graphs_tab,
+                path_tab,
+                geography_tab,
+                path_cleaning,
+            }
         ) => {
             const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : initialWebAnalyticsFilter
 
@@ -1247,6 +1284,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 graphsTab: graphs_tab || null,
                 pathTab: path_tab || null,
                 geographyTab: geography_tab || null,
+                isPathCleaningEnabled: [true, 'true', 1, '1'].includes(path_cleaning),
             })
         },
     })),
