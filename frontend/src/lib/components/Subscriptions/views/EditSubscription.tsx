@@ -105,12 +105,8 @@ export function EditSubscription({
             className="LemonModal__layout"
         >
             <LemonModal.Header>
-                <div className="flex items-center">
-                    <LemonButton onClick={onCancel} size="small">
-                        <IconChevronLeft fontSize="1rem" />
-                        Back
-                    </LemonButton>
-                    <LemonDivider vertical />
+                <div className="flex items-center gap-2">
+                    <LemonButton icon={<IconChevronLeft />} onClick={onCancel} size="xsmall" />
 
                     <h3>{id === 'new' ? 'New' : 'Edit '} Subscription</h3>
                 </div>
