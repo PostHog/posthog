@@ -140,7 +140,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.request.method == "POST":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
-            # because they require an existing org, unneded anyways because permissions are organization-based
+            # because they require an existing org, unneeded anyway because permissions are organization-based
             return [
                 permission()
                 for permission in [
@@ -199,10 +199,15 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         page = int(request.query_params.get("page", "1"))
 
         organization = self.get_object()
+        user_permissions = UserPermissions(cast(User, self.request.user))
+        teams_visible_for_user = [
+            t.id for t in organization.teams.filter(id__in=user_permissions.team_ids_visible_for_user)
+        ]
 
         activity_page = load_organization_activity(
             scope="Team",
             organization_id=organization.pk,
+            team_ids=teams_visible_for_user,
             limit=limit,
             page=page,
         )

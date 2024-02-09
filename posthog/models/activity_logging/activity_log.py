@@ -413,12 +413,16 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
 def load_organization_activity(
     scope: ActivityScope,
     organization_id: UUIDT,
+    # not all teams in an org are visible to a user, so we need to pass in the team_ids that are
+    # visible to the user, this method does not validate them, so it's up to the caller to ensure
+    # they are valid
+    team_ids: List[int],
     limit: int = 10,
     page: int = 1,
 ) -> ActivityPage:
     activity_query = (
         ActivityLog.objects.select_related("user")
-        .filter(organization_id=organization_id, scope=scope)
+        .filter(organization_id=organization_id, scope=scope, team_id__in=team_ids)
         .order_by("-created_at")
     )
 
