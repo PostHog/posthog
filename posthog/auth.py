@@ -223,7 +223,7 @@ def authenticate_secondarily(endpoint):
     def wrapper(request: HttpRequest):
         if not request.user.is_authenticated:
             try:
-                auth_result = PersonalAPIKeyAuthentication.authenticate(request)
+                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
                 if isinstance(auth_result, tuple) and auth_result[0].__class__.__name__ == "User":
                     request.user = auth_result[0]
                 else:
