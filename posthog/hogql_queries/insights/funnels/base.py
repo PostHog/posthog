@@ -503,14 +503,17 @@ class FunnelBase(ABC):
 
         for cohort in self.breakdown_cohorts:
             query = parse_select(
-                f"select distinct_id, {cohort.pk} as value from person_distinct_ids where person_id in (select person_id from cohort_people where cohort_id = {cohort.pk})"
+                f"select id as cohort_person_id, {cohort.pk} as value from persons where id in cohort {cohort.pk}"
             )
             cohort_queries.append(query)
 
         if isinstance(breakdown, list) and "all" in breakdown:
-            pass  # TODO: implement all cohort
-        #     all_query, all_params = _format_all_query(team, filter)
-        #     cohort_queries.append(all_query)
+            all_query = FunnelEventQuery(context=self.context).to_query()
+            all_query.select = [
+                ast.Alias(alias="cohort_person_id", expr=ast.Field(chain=["person_id"])),
+                ast.Alias(alias="value", expr=ast.Constant(value=ALL_USERS_COHORT_ID)),
+            ]
+            cohort_queries.append(all_query)
 
         return ast.JoinExpr(
             join_type="INNER JOIN",
@@ -518,8 +521,8 @@ class FunnelBase(ABC):
             alias="cohort_join",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
-                    left=ast.Field(chain=[FunnelEventQuery.EVENT_TABLE_ALIAS, "distinct_id"]),
-                    right=ast.Field(chain=["cohort_join", "distinct_id"]),
+                    left=ast.Field(chain=[FunnelEventQuery.EVENT_TABLE_ALIAS, "person_id"]),
+                    right=ast.Field(chain=["cohort_join", "cohort_person_id"]),
                     op=ast.CompareOperationOp.Eq,
                 )
             ),
