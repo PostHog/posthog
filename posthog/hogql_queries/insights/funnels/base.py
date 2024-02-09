@@ -255,7 +255,10 @@ class FunnelBase(ABC):
             properties_column = f"group{breakdownFilter.breakdown_group_type_index}_properties"
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql":
-            return breakdown
+            return ast.Alias(
+                alias="value",
+                expr=parse_expr(str(breakdown)),
+            )
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
