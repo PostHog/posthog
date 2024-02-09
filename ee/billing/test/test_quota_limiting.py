@@ -29,9 +29,12 @@ class TestQuotaLimiting(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
-        self.redis_client.delete("QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEYevents")
-        self.redis_client.delete("QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEYrecordings")
-        self.redis_client.delete("QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEYrows_synced")
+        self.redis_client.delete("@posthog/quota-overage-retention/events")
+        self.redis_client.delete("@posthog/quota-overage-retention/recordings")
+        self.redis_client.delete("@posthog/quota-overage-retention/rows_synced")
+        self.redis_client.delete("@posthog/quota-limits/events")
+        self.redis_client.delete("@posthog/quota-limits/recordings")
+        self.redis_client.delete("@posthog/quota-limits/rows_synced")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
