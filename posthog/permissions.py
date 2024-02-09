@@ -289,14 +289,8 @@ class APIScopePermission(BasePermission):
                 if scope.endswith(":read"):
                     valid_scopes.append(scope.replace(":read", ":write"))
 
-            if not valid_scopes:
-                # NOTE: This will happen if an @action does not specify a scope
-                raise ImproperlyConfigured(
-                    f"Valid scopes could not be properly determined. Please ensure the action has `required_scopes` and that it is specific e.g. insights:read"
-                )
-
             if not any(scope in requester_scopes for scope in valid_scopes):
-                raise PermissionDenied(f"API key missing required scope: {valid_scopes[0]}")
+                raise PermissionDenied(f"API key missing required scope '{required_scope}'")
 
         return True
 
@@ -321,9 +315,8 @@ class APIScopePermission(BasePermission):
             return [f"{base_scope}:read"]
 
         # If we get here this typically means an action was called without a required scope
-        raise ImproperlyConfigured(
-            f"Required scopes could not be properly determined. Please ensure the action has `required_scopes` and that it is specific e.g. insights:read"
-        )
+        # It is essentially "not_supported"
+        raise PermissionDenied(f"This action does not support Personal API Key access")
 
     def get_base_scope(self, request, view) -> APIScopeObjectOrNotSupported:
         if not getattr(view, "base_scope", None):

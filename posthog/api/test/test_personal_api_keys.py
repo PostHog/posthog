@@ -168,65 +168,62 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
 
     def test_no_key(self):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
-        self.assertEqual(response.status_code, 401)
-        self.assertEqual(
-            response.json(),
-            {
-                "attr": None,
-                "code": "not_authenticated",
-                "detail": "Authentication credentials were not provided.",
-                "type": "authentication_error",
-            },
-        )
+        assert response.status_code == 401
+        assert response.json() == {
+            "attr": None,
+            "code": "not_authenticated",
+            "detail": "Authentication credentials were not provided.",
+            "type": "authentication_error",
+        }
 
     def test_header_resilient(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
             HTTP_AUTHORIZATION=f"Bearer  {self.value}  ",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_header_alternative_iteration_count(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
             HTTP_AUTHORIZATION=f"Bearer {self.value_390000}",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_header_hardcoded(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
             HTTP_AUTHORIZATION=f"Bearer {self.value_hardcoded}",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_query_string(self):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?personal_api_key={self.value}")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_body(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
             {"personal_api_key": self.value},
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_user_not_active(self):
         self.user.is_active = False
         self.user.save()
         response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {self.value}")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_user_endpoint(self):
         response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {self.value}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_does_not_interfere_with_temporary_token_auth(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/dashboards/",
             HTTP_AUTHORIZATION=f"Bearer {self.value}",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         impersonated_access_token = encode_jwt(
             {"id": self.user.id},
@@ -238,4 +235,62 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/",
             HTTP_AUTHORIZATION=f"Bearer {impersonated_access_token}",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
+
+
+# NOTE: These tests use feature flags as an example of a scope, but the actual feature flag functionality is not relevant
+# It is however a good example of a range of cases
+class TestPersonalAPIKeysWithScopeAPIAuthentication(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    value: str
+    key: PersonalAPIKey
+
+    def setUp(self):
+        self.value = generate_random_token_personal()
+        self.key = PersonalAPIKey.objects.create(
+            label="Test", user=self.user, secure_value=hash_key_value(self.value), scopes="feature_flag:read"
+        )
+        return super().setUp()
+
+    def _do_request(self, url: str):
+        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.value}")
+
+    def test_forbids_scoped_access_for_unsupported_endpoint(self):
+        response = self._do_request("/api/users/@me/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This action does not support Personal API Key access"
+
+    def test_allows_derived_scope_for_read(self):
+        # TODO: Investifate why f"/api/projects/{self.team.id}" returns 200...
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_denies_derived_scope_for_write(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={},
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
+
+    def test_allows_action_with_required_scopes(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_errors_for_action_without_required_scopes(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/evaluation_reasons")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This action does not support Personal API Key access"
+
+    def test_forbids_action_with_other_scope(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'activity_log:read'"
+
+    def test_denies_action_with_other_scope_with_updated_scope(self):
+        self.key.scopes = "feature_flag:write,activity_log:read"
+        self.key.save()
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
+        assert response.status_code == status.HTTP_200_OK

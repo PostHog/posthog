@@ -358,7 +358,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
         activity_page = load_activity(scope="Notebook", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], url_path="activity", detail=True)
+    @action(methods=["GET"], url_path="activity", detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: Request, **kwargs):
         notebook = self.get_object()
         limit = int(request.query_params.get("limit", "10"))
