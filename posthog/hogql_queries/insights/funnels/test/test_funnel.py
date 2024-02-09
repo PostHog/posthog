@@ -61,7 +61,8 @@ def _create_action(**kwargs):
 
 
 class TestFunnelConversionTime(
-    ClickhouseTestMixin, funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors)
+    ClickhouseTestMixin,
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
 ):
     maxDiff = None
     pass
