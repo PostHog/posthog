@@ -111,14 +111,17 @@ def generate_recording_embeddings(session_id: str, team: Team):
     current_url_index = processed_sessions.column_index("$current_url")
     elements_chain_index = processed_sessions.column_index("elements_chain")
 
-    input = str(session_metadata) + "\n"
-    input = "\n".join(
-        compact_result(
-            event_name=result[processed_sessions_index] or "",
-            current_url=result[current_url_index] or "",
-            elements_chain=result[elements_chain_index] or "",
+    input = (
+        str(session_metadata)
+        + "\n"
+        + "\n".join(
+            compact_result(
+                event_name=result[processed_sessions_index] or "",
+                current_url=result[current_url_index] or "",
+                elements_chain=result[elements_chain_index] or "",
+            )
+            for result in processed_sessions.results
         )
-        for result in processed_sessions.results
     )
 
     embeddings = (
