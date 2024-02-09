@@ -1,10 +1,14 @@
+import itertools
 from uuid import uuid4
+from django.db import IntegrityError
+
+import pytest
 
 from posthog.client import sync_execute
 from posthog.models import Person, PersonDistinctId
 from posthog.models.event.util import create_event
 from posthog.models.person.util import DELETED_PERSON_UUID_PLACEHOLDER, delete_person
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 
 def _create_event(**kwargs):
@@ -52,3 +56,27 @@ class TestPerson(BaseTest):
             {"team_id": self.team.pk, "distinct_id": pdi.distinct_id},
         )
         self.assertEqual(ch_distinct_ids, [(str(DELETED_PERSON_UUID_PLACEHOLDER), pdi.version + 1, 1)])
+
+
+class TestPersonTransaction(NonAtomicBaseTest):
+    def test_distinct_id_reuse(self) -> None:
+        person = Person.objects.create(team=self.team)
+        pdi = person.add_distinct_id("x")
+        version_sequence = itertools.count(pdi.version + 1)
+
+        # assignment of an already used distinct ID within the same team should fail
+        other_person = Person.objects.create(team=self.team)
+        with pytest.raises(IntegrityError):
+            other_person.add_distinct_id("x")
+
+        # deleting a person should release the distinct ID for reuse and bump the version
+        delete_person(person)
+        pdi.refresh_from_db()
+        assert pdi.person is None
+        assert pdi.version == next(version_sequence)
+
+        # assignment of a released distinct ID within the same team is allowed,
+        # the "new" instance is actually the same one that was previously used
+        other_pdi = other_person.add_distinct_id("x")
+        assert other_pdi == pdi
+        assert other_pdi.version == next(version_sequence)

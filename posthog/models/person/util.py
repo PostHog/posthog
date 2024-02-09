@@ -63,7 +63,7 @@ if TEST:
         create_person_distinct_id(
             instance.team.pk,
             instance.distinct_id,
-            str(instance.person.uuid),
+            str(instance.person.uuid if instance.person is not None else DELETED_PERSON_UUID_PLACEHOLDER),
             version=instance.version or 0,
             sync=True,
         )
@@ -82,7 +82,7 @@ if TEST:
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         _delete_ch_distinct_id(
             instance.team.pk,
-            instance.person.uuid,
+            instance.person.uuid if instance.person is not None else DELETED_PERSON_UUID_PLACEHOLDER,
             instance.distinct_id,
             instance.version or 0,
             sync=True,

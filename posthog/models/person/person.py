@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from typing import Any, List, Optional
 
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import F, Q
+from django.db.models.signals import post_save
 
 from posthog.models.utils import UUIDT, WARN_ON_CASCADE
 
@@ -38,8 +41,36 @@ class Person(models.Model):
         ]
 
     # :DEPRECATED: This should happen through the plugin server
-    def add_distinct_id(self, distinct_id: str) -> None:
-        PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
+    def add_distinct_id(self, distinct_id: str) -> PersonDistinctId:
+        instances = PersonDistinctId.objects.raw(
+            """
+            INSERT INTO posthog_persondistinctid AS pdi
+                (team_id, distinct_id, person_id, version)
+                VALUES (%s, %s, %s, 0)
+            ON CONFLICT (team_id, distinct_id)
+                DO UPDATE SET
+                    person_id = excluded.person_id,
+                    version = COALESCE(pdi.version, 0)::numeric + 1  -- TODO: why ::numeric and not ::bigint?
+                WHERE pdi.person_id IS NULL
+            RETURNING *
+            """,
+            [self.team_id, distinct_id, self.id],
+        )
+        if len(instances) == 0:
+            raise IntegrityError(f"failed to insert row for distinct_id: {distinct_id!r}")
+        elif len(instances) == 1:
+            (instance,) = instances
+            post_save.send(
+                sender=type(instance),
+                instance=instance,
+                created=True,
+                raw=True,
+                using=instance._state.db,
+                update_fields=None,
+            )
+            return instance
+        else:
+            raise ValueError(f"unexpected number of rows returned by insert query: {instances!r}")
 
     # :DEPRECATED: This should happen through the plugin server
     def _add_distinct_ids(self, distinct_ids: List[str]) -> None:
