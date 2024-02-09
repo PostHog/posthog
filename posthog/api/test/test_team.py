@@ -2,7 +2,7 @@ import json
 import uuid
 from typing import List, cast, Dict, Optional
 from unittest import mock
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, call, patch, ANY
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
@@ -14,7 +14,7 @@ from temporalio.service import RPCError
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
-from posthog.models import EarlyAccessFeature
+from posthog.models import EarlyAccessFeature, ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
@@ -265,27 +265,37 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.delete(f"/api/projects/{team.id}")
         assert response.status_code == 204
 
-        self._assert_organization_activity_log(
-            [
-                {
-                    "activity": "deleted",
-                    "created_at": "2022-02-08T00:00:00Z",
-                    "detail": {
-                        "changes": None,
-                        "name": "Default Project",
-                        "short_id": None,
-                        "trigger": None,
-                        "type": None,
-                    },
-                    "item_id": str(team.pk),
-                    "scope": "Team",
-                    "user": {
-                        "email": "user1@posthog.com",
-                        "first_name": "",
-                    },
+        # activity log is queried in the context of the team
+        # and the team was deleted, so we can't (for now) view a deleted team activity via the API
+        # even though the activity log is recorded
+
+        deleted_team_activity_response = self.client.get(f"/api/projects/{team.id}/activity")
+        assert deleted_team_activity_response.status_code == status.HTTP_404_NOT_FOUND
+
+        # we can't query by API but can prove the log was recorded
+        activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).all()]
+        assert activity == [
+            {
+                "_state": ANY,
+                "activity": "deleted",
+                "created_at": ANY,
+                "detail": {
+                    "changes": None,
+                    "name": "Default Project",
+                    "short_id": None,
+                    "trigger": None,
+                    "type": None,
                 },
-            ]
-        )
+                "id": ANY,
+                "is_system": False,
+                "organization_id": ANY,
+                "team_id": team.pk,
+                "item_id": str(team.pk),
+                "scope": "Team",
+                "user_id": self.user.pk,
+                "was_impersonated": False,
+            },
+        ]
 
     @patch("posthog.api.team.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
