@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('posthog', '0388_add_schema_to_batch_exports'),
+        ("posthog", "0388_add_schema_to_batch_exports"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='personalapikey',
-            name='scopes',
+            model_name="personalapikey",
+            name="scopes",
             field=models.CharField(blank=True, max_length=1000, null=True),
         ),
     ]

@@ -36,7 +36,6 @@ import {
     IconToggle,
     IconToolbar,
     IconTrends,
-    IconUnlock,
     IconUserPaths,
 } from '@posthog/icons'
 import { Parser } from 'expr-eval'
@@ -63,7 +62,6 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { InsightType } from '~/types'
 
-import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
 import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
@@ -139,8 +137,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
     connect({
         actions: [
-            personalAPIKeysLogic,
-            ['createKey'],
             router,
             ['push'],
             userLogic,
@@ -757,33 +753,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 },
             }
 
-            const createPersonalApiKey: Command = {
-                key: 'create-personal-api-key',
-                scope: GLOBAL_COMMAND_SCOPE,
-                resolver: {
-                    icon: IconUnlock,
-                    display: 'Create Personal API Key',
-                    executor: () => ({
-                        instruction: 'Give your key a label',
-                        icon: IconKeyboard,
-                        scope: 'Creating Personal API Key',
-                        resolver: (argument) => {
-                            if (argument?.length) {
-                                return {
-                                    icon: IconUnlock,
-                                    display: `Create Key "${argument}"`,
-                                    executor: () => {
-                                        personalAPIKeysLogic.actions.createKey(argument)
-                                        push(urls.settings('user'), {}, 'personal-api-keys')
-                                    },
-                                }
-                            }
-                            return null
-                        },
-                    }),
-                },
-            }
-
             const createDashboard: Command = {
                 key: 'create-dashboard',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -961,7 +930,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             actions.registerCommand(openUrls)
             actions.registerCommand(debugClickhouseQueries)
             actions.registerCommand(calculator)
-            actions.registerCommand(createPersonalApiKey)
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
             actions.registerCommand(debugCopySessionRecordingURL)
