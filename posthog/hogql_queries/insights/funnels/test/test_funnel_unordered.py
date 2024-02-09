@@ -10,6 +10,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 # from posthog.models.action import Action
 # from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
+from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels.funnel_unordered_persons import (
     ClickhouseFunnelUnorderedActors,
 )
@@ -1507,6 +1508,12 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user",
             properties={"is_saved": True},
             team=self.team,
+        )
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="is_saved",
+            defaults={"property_type": "Boolean"},
         )
 
         filters = {
