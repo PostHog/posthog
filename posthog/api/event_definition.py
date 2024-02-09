@@ -63,8 +63,8 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
 
 
 class EventDefinitionViewSet(
-    TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
+    TaggedItemViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,

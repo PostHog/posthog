@@ -41,11 +41,11 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
 
 class IntegrationViewSet(
+    TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
     mixins.DestroyModelMixin,
-    TeamAndOrgViewSetMixin,
     viewsets.GenericViewSet,
 ):
     base_scope = "not_supported"

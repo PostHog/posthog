@@ -402,8 +402,8 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 
 class DashboardsViewSet(
-    TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
+    TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):

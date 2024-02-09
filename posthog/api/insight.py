@@ -561,8 +561,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
 
 class InsightViewSet(
-    TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
+    TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):

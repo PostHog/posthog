@@ -38,7 +38,7 @@ class QueryThrottle(TeamRateThrottle):
     rate = "120/hour"
 
 
-class QueryViewSet(PydanticModelMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     base_scope = "query"
     # Special case for query - these are all essentially read actions

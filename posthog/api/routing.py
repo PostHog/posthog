@@ -32,6 +32,8 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 
 
 # NOTE: Previously known as the StructuredViewSetMixin
+# IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
+# that typing works as expected
 class TeamAndOrgViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
