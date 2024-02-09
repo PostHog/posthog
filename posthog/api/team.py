@@ -298,6 +298,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     Projects for the current organization.
     """
 
+    base_scope = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
     permission_classes = [IsAuthenticated, PremiumMultiProjectPermissions]

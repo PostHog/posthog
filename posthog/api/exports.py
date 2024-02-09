@@ -146,6 +146,7 @@ class ExportedAssetViewSet(
     mixins.CreateModelMixin,
     viewsets.GenericViewSet,
 ):
+    base_scope = "export"
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
 

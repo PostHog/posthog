@@ -108,6 +108,8 @@ class TaggedItemSerializer(serializers.Serializer):
 
 
 class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+    base_scope = "not_supported"
+    include_in_docs = False
     serializer_class = TaggedItemSerializer
     queryset = Tag.objects.none()
 

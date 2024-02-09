@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Literal
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.db import models
 from django.utils import timezone
@@ -59,36 +60,40 @@ class PersonalAPIKey(models.Model):
 # Not every model needs a scope - it should more be for top-level things
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
+APIScopeObject = Literal[
+    "action",
+    "activity_log",
+    "annotation",
+    "batch_export",
+    "cohort",
+    "dashboard",
+    "dashboard_template",
+    "early_access_feature",
+    "event_definition",
+    "experiment",
+    "export",
+    "feature_flag",
+    "group",
+    "insight",
+    "query",  # Covers query and events endpoints
+    "notebook",
+    "organization",
+    "organization_member",
+    "person",
+    "plugin",
+    "project",  # Alias for team - TODO: Should we just call this team?
+    "property_definition",
+    "session_recording",
+    "session_recording_playlist",
+    "sharing_configuration",
+    "subscription",
+    "survey",
+    "user",
+    "data_warehouse_table",
+    "scheduled_change",
+]
 
-class APIScopeObjectOrNotSupported(Enum):
-    NOT_SUPPORTED = "not_supported"
-
-    ACTION = "action"
-    ACTIVITY_LOG = "activity_log"
-    ANNOTATION = "annotation"
-    BATCH_EXPORT = "batch_export"
-    COHORT = "cohort"
-    DASHBOARD = "dashboard"
-    EARLY_ACCESS_FEATURE = "early_access_feature"
-    EVENT_DEFINITION = "event_definition"
-    EXPERIMENT = "experiment"
-    EXPORT = "export"
-    FEATURE_FLAG = "feature_flag"
-    GROUP = "group"
-    INSIGHT = "insight"
-    QUERY = "query"
-    NOTEBOOK = "notebook"
-    ORGANIZATION = "organization"
-    ORGANIZATION_MEMBER = "organization_member"
-    PERSON = "person"
-    PLUGIN = "plugin"
-    PROPERTY_DEFINITION = "property_definition"
-    SESSION_RECORDING = "session_recording"
-    SESSION_RECORDING_PLAYLIST = "session_recording_playlist"
-    SHARING_CONFIGURATION = "sharing_configuration"
-    SUBSCRIPTION = "subscription"
-    SURVEY = "survey"
-    TEAM = "team"
-    USER = "user"
-    DATA_WAREHOUSE_TABLE = "data_warehouse_table"
-    SCHEDULED_CHANGE = "scheduled_change"
+APIScopeObjectOrNotSupported = Literal[
+    APIScopeObject,
+    "not_supported",
+]

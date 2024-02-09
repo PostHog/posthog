@@ -179,6 +179,7 @@ def list_recordings_response(
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
 class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    base_scope = "session_recording"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this

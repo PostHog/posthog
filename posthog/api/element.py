@@ -34,6 +34,7 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    base_scope = "not_supported"
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()

@@ -85,6 +85,7 @@ class OrganizationMemberViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
+    base_scope = "organization"
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions]
     queryset = (

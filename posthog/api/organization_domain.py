@@ -71,6 +71,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 
 
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
+    base_scope = "organization"
     serializer_class = OrganizationDomainSerializer
     permission_classes = [OrganizationAdminWritePermissions]
     queryset = OrganizationDomain.objects.all()

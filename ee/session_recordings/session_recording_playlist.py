@@ -163,6 +163,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
 
 class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    base_scope = "session_recording_playlist"
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]

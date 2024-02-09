@@ -285,6 +285,7 @@ class CohortSerializer(serializers.ModelSerializer):
 class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
+    base_scope = "cohort"
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

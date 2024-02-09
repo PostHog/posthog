@@ -21,7 +21,6 @@ from posthog.event_usage import report_user_action
 from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.queries.trends.trends_actors import TrendsActors
 
 from .forbid_destroy_model import ForbidDestroyModel
@@ -174,7 +173,7 @@ class ActionViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    base_scope = APIScopeObjectOrNotSupported.ACTION
+    base_scope = "action"
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer

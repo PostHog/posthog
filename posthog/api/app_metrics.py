@@ -22,6 +22,7 @@ from posthog.queries.app_metrics.serializers import (
 
 
 class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    base_scope = "plugin"
     queryset = PluginConfig.objects.all()
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -80,6 +81,8 @@ class HistoricalExportsAppMetricsViewSet(
     mixins.RetrieveModelMixin,
     viewsets.ViewSet,
 ):
+    base_scope = "plugin"
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return response.Response(
             {

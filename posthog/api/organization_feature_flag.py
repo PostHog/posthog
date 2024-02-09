@@ -17,12 +17,12 @@ from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
 
 
-# TODO: Does this still work?
 class OrganizationFeatureFlagView(
     TeamAndOrgViewSetMixin,
     viewsets.ViewSet,
     mixins.RetrieveModelMixin,
 ):
+    base_scope = "not_supported"
     """
     Retrieves all feature flags for a given organization and key.
     """

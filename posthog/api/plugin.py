@@ -297,6 +297,7 @@ class PluginSerializer(serializers.ModelSerializer):
 
 
 class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    base_scope = "plugin"
     queryset = Plugin.objects.all()
     serializer_class = PluginSerializer
     permission_classes = [
@@ -708,6 +709,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
 
 class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    base_scope = "plugin"
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 

@@ -95,6 +95,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     Create, Read, Update and Delete Warehouse Tables.
     """
 
+    base_scope = "not_supported"
+    include_in_docs = False
+
     queryset = DataWarehouseSavedQuery.objects.all()
     serializer_class = DataWarehouseSavedQuerySerializer
     filter_backends = [filters.SearchFilter]

@@ -566,6 +566,7 @@ class InsightViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    base_scope = "insight"
     serializer_class = InsightSerializer
     throttle_classes = [
         ClickHouseBurstRateThrottle,

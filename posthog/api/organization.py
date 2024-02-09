@@ -124,6 +124,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
 
 
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    base_scope = "organization"
     serializer_class = OrganizationSerializer
     permission_classes = [OrganizationPermissionsWithDelete]
     queryset = Organization.objects.none()

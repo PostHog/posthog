@@ -80,10 +80,11 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    base_scope = "sharing_configuration"
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
-    include_in_docs = False
+    include_in_docs = True
 
     def get_serializer_context(
         self,

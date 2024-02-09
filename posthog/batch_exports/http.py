@@ -93,6 +93,7 @@ class RunsCursorPagination(CursorPagination):
 
 
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    base_scope = "batch_export"
     queryset = BatchExportRun.objects.all()
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
@@ -338,6 +339,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
 
 class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    base_scope = "batch_export"
     queryset = BatchExport.objects.all()
     serializer_class = BatchExportSerializer
 
@@ -459,6 +461,7 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
 
 
 class BatchExportLogViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    base_scope = "batch_export"
     serializer_class = BatchExportLogEntrySerializer
 
     def get_queryset(self):
