@@ -41,6 +41,8 @@ class QueryThrottle(TeamRateThrottle):
 class QueryViewSet(PydanticModelMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     base_scope = "query"
+    # Special case for query - these are all essentially read actions
+    base_scope_read_actions = ["retrieve", "list", "draft_sql", "destroy"]
 
     def get_throttles(self):
         if self.action == "draft_sql":
