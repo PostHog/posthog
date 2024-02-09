@@ -177,6 +177,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
             pass
         elif hasattr(callback.cls, "include_in_docs") and callback.cls.include_in_docs:
             path = path.replace("{parent_lookup_team_id}", "{project_id}")
+            path = path.replace("{parent_lookup_", "{")
             result.append((path, path_regex, method, callback))
     return result
 
@@ -184,6 +185,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
 def custom_postprocessing_hook(result, generator, request, public):
     all_tags = []
     paths: Dict[str, Dict] = {}
+
     for path, methods in result["paths"].items():
         paths[path] = {}
         for method, definition in methods.items():
