@@ -83,17 +83,22 @@ def query_events_list(
         request_get_query_dict["before"] = now() + timedelta(seconds=5)
 
     if request_get_query_dict.get("after"):
-        request_get_query_dict["after"] = parse_timestamp(request_get_query_dict["after"], team.timezone_info).strftime(
-            "%Y-%m-%d %H:%M:%S.%f"
-        )
+        request_get_query_dict["after"] = parse_timestamp(request_get_query_dict["after"], team.timezone_info)
 
-    if not unbounded_date_from and order == "DESC":
-        # If this is the first try, only load the current day, regardless of whether "after" is specified to reduce the amount of data we load
-        request_get_query_dict["after"] = datetime.combine(request_get_query_dict["before"], time.min).strftime(
-            "%Y-%m-%d %H:%M:%S.%f"
+    if (
+        not unbounded_date_from
+        and order == "DESC"
+        and (
+            not request_get_query_dict.get("after")
+            or request_get_query_dict["after"].date() != request_get_query_dict["before"].date()
         )
+    ):
+        # If this is the first try, and after is not the same day as before, only load the current day, regardless of whether "after" is specified to reduce the amount of data we load
+        request_get_query_dict["after"] = datetime.combine(request_get_query_dict["before"], time.min)
 
     request_get_query_dict["before"] = request_get_query_dict["before"].strftime("%Y-%m-%d %H:%M:%S.%f")
+    if request_get_query_dict.get("after"):
+        request_get_query_dict["after"] = request_get_query_dict["after"].strftime("%Y-%m-%d %H:%M:%S.%f")
 
     conditions, condition_params = parse_request_params(
         request_get_query_dict,

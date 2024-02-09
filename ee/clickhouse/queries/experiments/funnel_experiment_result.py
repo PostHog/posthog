@@ -173,6 +173,9 @@ class ClickhouseFunnelExperimentResult:
         test_variants: List[Variant],
         probabilities: List[Probability],
     ) -> Tuple[ExperimentSignificanceCode, Probability]:
+        def get_conversion_rate(variant: Variant):
+            return variant.success_count / (variant.success_count + variant.failure_count)
+
         control_sample_size = control_variant.success_count + control_variant.failure_count
 
         for variant in test_variants:
@@ -193,10 +196,13 @@ class ClickhouseFunnelExperimentResult:
 
         best_test_variant = max(
             test_variants,
-            key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count),
+            key=lambda variant: get_conversion_rate(variant),
         )
 
-        expected_loss = calculate_expected_loss(best_test_variant, [control_variant])
+        if get_conversion_rate(best_test_variant) > get_conversion_rate(control_variant):
+            expected_loss = calculate_expected_loss(best_test_variant, [control_variant])
+        else:
+            expected_loss = calculate_expected_loss(control_variant, [best_test_variant])
 
         if expected_loss >= EXPECTED_LOSS_SIGNIFICANCE_LEVEL:
             return ExperimentSignificanceCode.HIGH_LOSS, expected_loss

@@ -5,7 +5,6 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { IconClose } from 'lib/lemon-ui/icons'
-import { KEY_MAPPING } from 'lib/taxonomy'
 import { midEllipsis } from 'lib/utils'
 import React from 'react'
 
@@ -31,12 +30,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         const clickable = onClick !== undefined
         const label =
             children ||
-            formatPropertyLabel(
-                item,
-                cohortsById,
-                KEY_MAPPING,
-                (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?'
-            )
+            formatPropertyLabel(item, cohortsById, (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?')
 
         const ButtonComponent = clickable ? 'button' : 'div'
 

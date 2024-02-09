@@ -4,7 +4,7 @@ import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/com
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
-import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
+import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import {
     isFilterWithDisplay,
@@ -105,7 +105,7 @@ interface RecordingViewedProps {
 function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
-        if (prop.key && isPostHogProp(prop.key)) {
+        if (prop.key && isCoreFilter(prop.key)) {
             output.push(prop.key)
         } else {
             output.push('redacted') // Custom property names are not reported
@@ -533,7 +533,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             let custom_properties_count = 0
             let posthog_properties_count = 0
             for (const prop of Object.keys(person.properties)) {
-                if (keyMappingKeys.includes(prop)) {
+                if (PROPERTY_KEYS.includes(prop)) {
                     posthog_properties_count += 1
                 } else {
                     custom_properties_count += 1
