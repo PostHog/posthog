@@ -35,9 +35,17 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
         showSceneDashboardChoiceModal: () => true,
         closeSceneDashboardChoiceModal: () => true,
         setSceneDashboardChoice: (dashboardId: number) => ({ dashboardId }),
+        setAlternateScene: (alternateScene: string | null) => ({ alternateScene }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        toggleSection: (section: 'dashboard' | 'replay') => ({ section }),
     }),
     reducers({
+        activeSection: [
+            'dashboard' as 'dashboard' | 'replay',
+            {
+                toggleSection: (_, { section }) => section,
+            },
+        ],
         searchTerm: [null as string | null, { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         isOpen: [false, { showSceneDashboardChoiceModal: () => true, closeSceneDashboardChoiceModal: () => false }],
     }),
@@ -75,6 +83,13 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
         ],
     })),
     listeners(({ actions, props }) => ({
+        setAlternateScene: async ({ alternateScene }) => {
+            if (props.scene === Scene.ProjectHomepage) {
+                actions.updateCurrentTeam({ primary_dashboard: undefined })
+                actions.setUserScenePersonalisation(props.scene, null, alternateScene)
+                posthog.capture('replay set as homepage')
+            }
+        },
         setSceneDashboardChoice: async ({ dashboardId }) => {
             // TODO needs to report scene and dashboard
             if (props.scene === Scene.ProjectHomepage) {

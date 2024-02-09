@@ -69,7 +69,7 @@ class UserEmailVerificationThrottle(UserRateThrottle):
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserScenePersonalisation
-        fields = ["scene", "dashboard"]
+        fields = ["scene", "dashboard", "alternate_scene"]
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -254,20 +254,24 @@ class UserSerializer(serializers.ModelSerializer):
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserScenePersonalisation
-        fields = ["scene", "dashboard"]
+        fields = ["scene", "dashboard", "alternate_scene"]
         read_only_fields = ["user", "team"]
 
-    def validate_dashboard(self, value: Dashboard) -> Dashboard:
+    def validate_dashboard(self, value: Dashboard | None) -> Dashboard | None:
         instance = cast(User, self.instance)
 
-        if value.team != instance.current_team:
+        if value and value.team != instance.current_team:
             raise serializers.ValidationError("Dashboard must belong to the user's current team.")
 
         return value
 
     def validate(self, data):
-        if "dashboard" not in data:
-            raise serializers.ValidationError("Dashboard must be provided.")
+        # have to have one of them
+        if "dashboard" not in data and "alternate_scene" not in data:
+            raise serializers.ValidationError("Dashboard or alternate scene must be provided.")
+        # but not both
+        if data.get("dashboard", None) and data.get("alternate_scene", None):
+            raise serializers.ValidationError("Cannot set both dashboard and alternate scene.")
 
         if "scene" not in data:
             raise serializers.ValidationError("Scene must be provided.")
@@ -286,7 +290,10 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
             user=instance,
             team=instance.current_team,
             scene=validated_data["scene"],
-            defaults={"dashboard": validated_data["dashboard"]},
+            defaults={
+                "dashboard": validated_data["dashboard"],
+                "alternate_scene": validated_data.get("alternate_scene"),
+            },
         )
 
 

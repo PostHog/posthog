@@ -222,8 +222,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return value
 
     def validate(self, attrs: Any) -> Any:
-        if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
-            raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
+        if "primary_dashboard" in attrs:
+            if attrs["primary_dashboard"] and attrs["primary_dashboard"].team != self.instance:
+                raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
 
         if "access_control" in attrs:
             # Only organization-wide admins and above should be allowed to switch the project between open and private

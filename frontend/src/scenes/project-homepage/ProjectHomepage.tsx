@@ -17,9 +17,11 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
 import { DashboardPlacement } from '~/types'
@@ -37,6 +39,11 @@ export function ProjectHomepage(): JSX.Element {
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
+
+    const homePageAlternateScene = (user?.scene_personalisation || []).filter(({ scene, alternate_scene }) => {
+        return scene === Scene.ProjectHomepage && !!alternate_scene
+    })?.[0]?.alternate_scene
 
     const headerButtons = (
         <>
@@ -59,45 +66,51 @@ export function ProjectHomepage(): JSX.Element {
         <div className="ProjectHomepage">
             <PageHeader delimited buttons={headerButtons} />
             <AndroidRecordingsPromptBanner context="home" />
-            <div className="ProjectHomepage__lists">
-                <RecentInsights />
-                <RecentPersons />
-                <RecentRecordings />
-            </div>
             {currentTeam?.primary_dashboard ? (
                 <>
-                    <div className="ProjectHomepage__dashboardheader">
-                        <div className="ProjectHomepage__dashboardheader__title">
-                            {!dashboard && <LemonSkeleton className="w-20 h-4" />}
-                            {dashboard?.name && (
-                                <>
-                                    <IconHome className="mr-2 text-2xl opacity-50" />
-                                    <Link
-                                        className="font-semibold text-xl text-default"
-                                        to={urls.dashboard(dashboard.id)}
-                                    >
-                                        {dashboard?.name}
-                                    </Link>
-                                </>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                data-attr="project-home-change-dashboard"
-                                onClick={showSceneDashboardChoiceModal}
-                            >
-                                Change dashboard
-                            </LemonButton>
-                        </div>
+                    <div className="ProjectHomepage__lists">
+                        <RecentInsights />
+                        <RecentPersons />
+                        <RecentRecordings />
                     </div>
-                    <LemonDivider className="mt-3 mb-4" />
-                    <Dashboard
-                        id={currentTeam.primary_dashboard.toString()}
-                        placement={DashboardPlacement.ProjectHomepage}
-                    />
+                    <>
+                        <div className="ProjectHomepage__dashboardheader">
+                            <div className="ProjectHomepage__dashboardheader__title">
+                                {!dashboard && <LemonSkeleton className="w-20 h-4" />}
+                                {dashboard?.name && (
+                                    <>
+                                        <IconHome className="mr-2 text-2xl opacity-50" />
+                                        <Link
+                                            className="font-semibold text-xl text-default"
+                                            to={urls.dashboard(dashboard.id)}
+                                        >
+                                            {dashboard?.name}
+                                        </Link>
+                                    </>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    data-attr="project-home-change-dashboard"
+                                    onClick={showSceneDashboardChoiceModal}
+                                >
+                                    Change dashboard
+                                </LemonButton>
+                            </div>
+                        </div>
+                        <LemonDivider className="mt-3 mb-4" />
+                        <Dashboard
+                            id={currentTeam.primary_dashboard.toString()}
+                            placement={DashboardPlacement.ProjectHomepage}
+                        />
+                    </>
                 </>
+            ) : homePageAlternateScene === 'replay/recent' ? (
+                <div className="SessionRecordingPlaylistHeightWrapper">
+                    <SessionRecordingsPlaylist updateSearchParams />
+                </div>
             ) : (
                 <SceneDashboardChoiceRequired
                     open={() => {

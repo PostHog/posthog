@@ -224,6 +224,7 @@ export interface UserBasicType extends UserBaseType {
 export interface SceneDashboardChoice {
     scene: DashboardCompatibleScenes
     dashboard: number | DashboardBasicType
+    alternate_scene?: string | null
 }
 
 export type UserTheme = 'light' | 'dark' | 'system'
