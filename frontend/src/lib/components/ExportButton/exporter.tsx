@@ -92,11 +92,12 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
 
                     await delay(POLL_DELAY_MS)
 
-                    // Keep polling for pure network errors like network down, but not any HTTP errors
+                    // Keep polling for pure network errors, but not any HTTP errors
+                    // Example: `NetworkError when attempting to fetch resource`
                     try {
                         exportedAsset = await api.exports.get(exportedAsset.id)
                     } catch (e: any) {
-                        if (e.name === 'NetworkError') {
+                        if (e.name === 'NetworkError' || e.message?.message?.startsWith('NetworkError')) {
                             continue
                         }
                         throw e

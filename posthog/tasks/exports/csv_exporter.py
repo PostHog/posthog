@@ -290,7 +290,7 @@ def make_api_call(
 
 def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     if not limit:
-        limit = 500
+        limit = 200  # Too high limit makes e.g. queries with long breakdown values too long and fail
 
     try:
         if exported_asset.export_format != "text/csv":
