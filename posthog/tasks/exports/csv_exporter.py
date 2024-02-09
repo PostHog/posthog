@@ -170,6 +170,16 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             return csv_rows
         else:
             return items
+    elif data.get("result") and isinstance(data.get("result"), dict):
+        result = data["result"]
+
+        if "bins" not in result:
+            return []
+
+        csv_rows = []
+        for key, value in result["bins"]:
+            csv_rows.append({"bin": key, "value": value})
+        return csv_rows
 
     return []
 
@@ -178,7 +188,7 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
     resource = exported_asset.export_context
 
     columns: List[str] = resource.get("columns", [])
@@ -202,14 +212,6 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000) -> None:
 
         while len(all_csv_rows) < CSV_EXPORT_LIMIT:
             response = make_api_call(access_token, body, limit, method, next_url, path)
-
-            if response.status_code != 200:
-                # noinspection PyBroadException
-                try:
-                    response_json = response.json()
-                except Exception:
-                    response_json = "no response json to parse"
-                raise Exception(f"export API call failed with status_code: {response.status_code}. {response_json}")
 
             # Figure out how to handle funnel polling....
             data = response.json()
@@ -247,6 +249,10 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000) -> None:
     if columns:
         render_context["header"] = columns
 
+    # Fallback if empty to produce any CSV at all to distinguish from a failed export
+    if not all_csv_rows:
+        all_csv_rows = [{}]
+
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
 
@@ -266,43 +272,34 @@ def make_api_call(
     path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
-    try:
-        url = add_query_params(
-            request_url,
-            {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
-        )
-        response = requests.request(
-            method=method.lower(),
-            url=url,
-            json=body,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        return response
-    except Exception as ex:
-        logger.error(
-            "csv_exporter.error_making_api_call",
-            exc=ex,
-            exc_info=True,
-            next_url=next_url,
-            path=path,
-            request_url=request_url,
-            limit=limit,
-        )
-        raise ex
+    params: dict[str, str | int] = {
+        get_limit_param_key(request_url): limit,
+        "is_csv_export": "1",
+    }
+    response = requests.request(
+        method=method.lower(),
+        url=request_url,
+        params=params,
+        json=body,
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=60,
+    )
+    response.raise_for_status()
+    return response
 
 
 def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     if not limit:
-        limit = 1000
+        limit = 500
 
     try:
-        if exported_asset.export_format == "text/csv":
-            with EXPORT_TIMER.labels(type="csv").time():
-                _export_to_csv(exported_asset, limit)
-            EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
-        else:
+        if exported_asset.export_format != "text/csv":
             EXPORT_ASSET_UNKNOWN_COUNTER.labels(type="csv").inc()
             raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
+
+        with EXPORT_TIMER.labels(type="csv").time():
+            _export_to_csv(exported_asset, limit)
+        EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
     except Exception as e:
         if exported_asset:
             team_id = str(exported_asset.team.id)
