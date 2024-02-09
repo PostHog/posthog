@@ -208,7 +208,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         <CodeSnippet thing="personal API key">{value}</CodeSnippet>
 
                         <p>
-                            <b>WARNING:</b> For security reasons the key value <b>will only ever be shown once</b>
+                            <b>WARNING:</b> For security reasons the key value <b>will only ever be shown once.</b>
                             <br />
                             Copy it to your destination right away.
                         </p>
