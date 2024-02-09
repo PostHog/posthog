@@ -31,6 +31,12 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
 
+# The placeholder value that is written to the ClickHouse copy of the
+# ``PersonDistinctId`` data set after person deletion has occurred.
+# TODO: It would be nice to replace this with ``None`` (``NULL`` in ClickHouse)
+# in the future for clarity and consistency with the Postgres side.
+DELETED_PERSON_UUID_PLACEHOLDER = UUID(int=0)
+
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
 

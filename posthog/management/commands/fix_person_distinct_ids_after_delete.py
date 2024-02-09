@@ -7,7 +7,7 @@ from django.db import transaction
 
 from posthog.client import sync_execute
 from posthog.models.person import PersonDistinctId
-from posthog.models.person.util import create_person_distinct_id
+from posthog.models.person.util import DELETED_PERSON_UUID_PLACEHOLDER, create_person_distinct_id
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -76,7 +76,11 @@ def update_distinct_id(distinct_id: str, version: int, team_id: int, live_run: b
         create_person_distinct_id(
             team_id=team_id,
             distinct_id=distinct_id,
-            person_id=str(person_distinct_id.person.uuid),
+            person_id=str(
+                person_distinct_id.person.uuid
+                if person_distinct_id.person is not None
+                else DELETED_PERSON_UUID_PLACEHOLDER
+            ),
             version=version,
             is_deleted=False,
             sync=sync,
@@ -90,7 +94,7 @@ def update_distinct_id_in_postgres(
     if person_distinct_id is None:
         logger.info(f"Distinct id {distinct_id} hasn't been re-used yet and can cause problems in the future")
         return None
-    logger.info(f"Updating {distinct_id} to version {version} for person uuid = {person_distinct_id.person.uuid}")
+    logger.info(f"Updating {distinct_id} to version {version} for person = {person_distinct_id.person!r}")
     if live_run:
         person_distinct_id.version = version
         person_distinct_id.save()

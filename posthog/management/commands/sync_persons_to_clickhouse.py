@@ -12,6 +12,7 @@ from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.person import Person, PersonOverride
 from posthog.models.person.util import (
+    DELETED_PERSON_UUID_PLACEHOLDER,
     _delete_ch_distinct_id,
     create_person,
     create_person_distinct_id,
@@ -155,7 +156,11 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
                 create_person_distinct_id(
                     team_id=team_id,
                     distinct_id=person_distinct_id.distinct_id,
-                    person_id=str(person_distinct_id.person.uuid),
+                    person_id=str(
+                        person_distinct_id.person.uuid
+                        if person_distinct_id.person is not None
+                        else DELETED_PERSON_UUID_PLACEHOLDER
+                    ),
                     version=pg_version,
                     is_deleted=False,
                     sync=sync,

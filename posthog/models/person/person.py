@@ -104,6 +104,9 @@ class Person(models.Model):
 
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__}: id={self.id!r} uuid={self.uuid!r}>"
+
 
 class PersonDistinctId(models.Model):
     class Meta:
