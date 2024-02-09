@@ -275,7 +275,7 @@ class APIScopePermission(BasePermission):
         # 2. Check if the required scope is in the requester's scopes
         # - If the scope is :read then either :read or :write is enough
 
-        required_scopes = self.derive_required_scopes(request, view)
+        required_scopes = self.get_required_scopes(request, view)
 
         if "*" in requester_scopes:
             return True
@@ -294,7 +294,7 @@ class APIScopePermission(BasePermission):
 
         return True
 
-    def derive_required_scopes(self, request, view) -> list[str]:
+    def get_required_scopes(self, request, view) -> list[str]:
         # If required_scopes is set on the view method then use that
         # Otherwise use the base_scope and derive the required scope from the action
         if getattr(view, "required_scopes", None):

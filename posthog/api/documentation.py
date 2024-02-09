@@ -37,7 +37,7 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
         for permission in auto_schema.view.get_permissions():
             if isinstance(permission, APIScopePermission):
                 try:
-                    scopes = permission.derive_required_scopes(request, view)
+                    scopes = permission.get_required_scopes(request, view)
                     return [{self.name: scopes}]
                 except (PermissionDenied, ImproperlyConfigured):
                     # TODO: This should never happen - it indicates that we shouldn't be including it in the docs
