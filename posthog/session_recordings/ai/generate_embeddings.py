@@ -2,7 +2,7 @@ from openai import OpenAI
 
 from typing import Dict, Any, List
 
-from prometheus_client import Histogram
+from prometheus_client import Histogram, Counter
 
 from posthog.models import Team
 
@@ -23,6 +23,14 @@ GENERATE_RECORDING_EMBEDDING_TIMING = Histogram(
     "posthog_session_recordings_generate_recording_embedding",
     "Time spent generating recording embeddings for a single session",
 )
+SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS = Counter(
+    "posthog_session_recordings_skipped_when_generating_embeddings",
+    "Number of sessions skipped when generating embeddings",
+)
+SESSION_EMBEDDINGS_GENERATED = Counter(
+    "posthog_session_recordings_embeddings_generated",
+    "Number of session embeddings generated",
+)
 
 logger = get_logger(__name__)
 
@@ -30,11 +38,14 @@ BATCH_FLUSH_SIZE = 10
 
 
 def generate_team_embeddings(team: Team):
-    recordings = fetch_recordings(team=team)
+    offset = 0
+    recordings = fetch_recordings(team=team, offset=offset)
 
     logger.info(f"found {len(recordings)} recordings to process for team {team.pk}")
 
     while len(recordings) > 0:
+        offset += BATCH_FLUSH_SIZE
+
         batched_embeddings = []
         for recording in recordings:
             session_id = recording[0]
@@ -42,19 +53,23 @@ def generate_team_embeddings(team: Team):
             with GENERATE_RECORDING_EMBEDDING_TIMING.time():
                 embeddings = generate_recording_embeddings(session_id=session_id, team=team)
 
-            batched_embeddings.append(
-                {
-                    "session_id": session_id,
-                    "team_id": team.pk,
-                    "embeddings": embeddings,
-                }
-            )
+            if embeddings:
+                SESSION_EMBEDDINGS_GENERATED.inc()
+                batched_embeddings.append(
+                    {
+                        "session_id": session_id,
+                        "team_id": team.pk,
+                        "embeddings": embeddings,
+                    }
+                )
 
-        flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
-        recordings = fetch_recordings(team=team)
+        if len(batched_embeddings) > 0:
+            flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
+
+        recordings = fetch_recordings(team=team, offset=offset)
 
 
-def fetch_recordings(team: Team):
+def fetch_recordings(team: Team, offset: int):
     query = """
             WITH embedding_ids AS
             (
@@ -80,24 +95,27 @@ def fetch_recordings(team: Team):
                 -- will definitely need to do something about this length of time
                 and min_first_timestamp > now() - INTERVAL 7 DAY
             LIMIT %(batch_flush_size)s
+            OFFSET %(offset)s
         """
 
     return sync_execute(
         query,
-        {"team_id": team.pk, "batch_flush_size": BATCH_FLUSH_SIZE},
+        {"team_id": team.pk, "batch_flush_size": BATCH_FLUSH_SIZE, "offset": offset},
     )
 
 
-def flush_embeddings_to_clickhouse(embeddings: Dict[str, Any]) -> None:
+def flush_embeddings_to_clickhouse(embeddings: List[Dict[str, Any]]) -> None:
     sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
 
 
-def generate_recording_embeddings(session_id: str, team: Team) -> List[float]:
+def generate_recording_embeddings(session_id: str, team: Team) -> List[float] | None:
     client = OpenAI()
 
     session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
     if not session_metadata:
-        raise ValueError(f"no session metadata found for session_id {session_id}")
+        logger.error(f"no session metadata found for session_id {session_id}")
+        SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
+        return None
 
     session_events = SessionReplayEvents().get_events(
         session_id=str(session_id),
@@ -109,7 +127,9 @@ def generate_recording_embeddings(session_id: str, team: Team) -> List[float]:
     )
 
     if not session_events or not session_events[0] or not session_events[1]:
-        raise ValueError(f"no events found for session_id {session_id}")
+        logger.error(f"no events found for session_id {session_id}")
+        SESSION_SKIPPED_WHEN_GENERATING_EMBEDDINGS.inc()
+        return None
 
     processed_sessions = collapse_sequence_of_events(
         format_dates(
