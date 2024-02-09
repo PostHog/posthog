@@ -156,7 +156,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                     dataIndex: 'scopes',
                     render: function RenderValue(_, key) {
                         return key.scopes[0] === '*' ? (
-                            <LemonTag type="danger">* (all access)</LemonTag>
+                            <LemonTag type="warning">(all access)</LemonTag>
                         ) : (
                             <span className="flex flex-wrap gap-1">
                                 {key.scopes.slice(0, 4).map((x) => (
