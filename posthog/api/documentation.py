@@ -9,6 +9,7 @@ from drf_spectacular.utils import (
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
+from django.core.exceptions import ImproperlyConfigured
 
 
 from posthog.models.entity import MathType
@@ -37,10 +38,10 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
             if isinstance(permission, APIScopePermission):
                 try:
                     scopes = permission.derive_required_scopes(request, view)
-                except PermissionDenied:
+                    return [{self.name: scopes}]
+                except (PermissionDenied, ImproperlyConfigured):
                     # TODO: This should never happen - it indicates that we shouldn't be including it in the docs
                     pass
-                return [{self.name: group} for group in scopes]
 
     def get_security_definition(self, auto_schema):
         return {"type": "http", "scheme": "bearer"}

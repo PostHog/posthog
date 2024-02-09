@@ -18,6 +18,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
     CREATE_METHODS,
+    APIScopePermission,
     OrganizationAdminWritePermissions,
     extract_organization,
 )
@@ -135,12 +136,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # When listing there is no individual object to check for
         # TODO: Is this really what we want?
         if self.action == "list":
-            return [
-                permission()
-                for permission in [
-                    permissions.IsAuthenticated,
-                ]
-            ]
+            return [permission() for permission in [permissions.IsAuthenticated, APIScopePermission]]
 
         if self.action == "create":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
