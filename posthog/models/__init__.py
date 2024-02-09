@@ -56,7 +56,6 @@ from .plugin import (
     PluginLogEntry,
     PluginSourceFile,
 )
-from .prompt.prompt import Prompt, PromptSequence, UserPromptState
 from .property import Property
 from .property_definition import PropertyDefinition
 from .sharing_configuration import SharingConfiguration
@@ -121,8 +120,6 @@ __all__ = [
     "PluginConfig",
     "PluginLogEntry",
     "PluginSourceFile",
-    "Prompt",
-    "PromptSequence",
     "Property",
     "PropertyDefinition",
     "RetentionFilter",
@@ -140,7 +137,6 @@ __all__ = [
     "User",
     "UserScenePersonalisation",
     "UserManager",
-    "UserPromptState",
     "DataWarehouseTable",
     "ScheduledChange",
 ]
