@@ -3,7 +3,7 @@ from functools import cached_property
 from typing import Any, Dict, List, Optional, Tuple, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
-from posthog.constants import BREAKDOWN_VALUES_LIMIT
+from posthog.constants import BREAKDOWN_VALUES_LIMIT, FunnelOrderType
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
@@ -89,129 +89,27 @@ class FunnelBase(ABC):
 
         # e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
         # """
-
-        # query_date_range = QueryDateRange(filter=filter, team=team, should_round=False)
-        # parsed_date_from, date_from_params = query_date_range.date_from
-        # parsed_date_to, date_to_params = query_date_range.date_to
-
-        # null_person_filter = (
-        #     f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonOnEventsMode.DISABLED else ""
-        # )
-
-        # person_id_joined_alias = "e.person_id"
-
-        # prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        #     team_id=team.pk,
-        #     property_group=outer_properties,
-        #     table_name="e",
-        #     prepend="e_brkdwn",
-        #     person_properties_mode=person_properties_mode,
-        #     allow_denormalized_props=True,
-        #     person_id_joined_alias=person_id_joined_alias,
-        #     hogql_context=filter.hogql_context,
-        # )
-
-        # if use_all_funnel_entities:
-        #     from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
-
-        #     entity_filter, entity_params = FunnelEventQuery(
-        #         filter,
-        #         team,
-        #         person_on_events_mode=team.person_on_events_mode,
-        #     )._get_entity_query()
-        #     entity_format_params = {"entity_query": entity_filter}
-        # else:
-        #     entity_params, entity_format_params = get_entity_filtering_params(
-        #         allowed_entities=[entity],
-        #         team_id=team.pk,
-        #         table_name="e",
-        #         person_id_joined_alias=person_id_joined_alias,
-        #         person_properties_mode=person_properties_mode,
-        #         hogql_context=filter.hogql_context,
-        #     )
-
-        # breakdown_expression, breakdown_params = _to_value_expression(
-        #     filter.breakdown_type,
-        #     filter.breakdown,
-        #     filter.breakdown_group_type_index,
-        #     filter.hogql_context,
-        #     filter.breakdown_normalize_url,
-        #     direct_on_events=person_properties_mode
-        #     in [
-        #         PersonPropertiesMode.DIRECT_ON_EVENTS,
-        #         PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
-        #     ],
-        #     cast_as_float=False,
-        # )
-
-        # sample_clause = "SAMPLE %(sampling_factor)s" if filter.sampling_factor else ""
-        # sampling_params = {"sampling_factor": filter.sampling_factor}
-
-        # elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
-        #     breakdown_expression=breakdown_expression,
-        #     parsed_date_from=parsed_date_from,
-        #     parsed_date_to=parsed_date_to,
-        #     prop_filters=prop_filters,
-        #     aggregate_operation=aggregate_operation,
-        #     person_join_clauses=person_join_clauses,
-        #     groups_join_clauses=groups_join_clause,
-        #     sessions_join_clauses=sessions_join_clause,
-        #     null_person_filter=null_person_filter,
-        #     sample_clause=sample_clause,
-        #     **entity_format_params,
-        # )
-
-        # response = insight_sync_execute(
-        #     elements_query,
-        #     {
-        #         "key": filter.breakdown,
-        #         "limit": filter.breakdown_limit_or_default + 1,
-        #         "team_id": team.pk,
-        #         "offset": filter.offset,
-        #         "timezone": team.timezone,
-        #         **prop_filter_params,
-        #         **entity_params,
-        #         **breakdown_params,
-        #         **person_join_params,
-        #         **groups_join_params,
-        #         **sessions_join_params,
-        #         **extra_params,
-        #         **date_params,
-        #         **sampling_params,
-        #         **filter.hogql_context.values,
-        #     },
-        #     query_type="get_breakdown_prop_values",
-        #     filter=filter,
-        #     team_id=team.pk,
-        # )
-
-        # return [row[0] for row in response[0 : filter.breakdown_limit_or_default]], len(
-        #     response
-        # ) > filter.breakdown_limit_or_default
-
-        # parse_select(
-        #     """
-        #     SELECT
-        #         {breakdown_expression},
-        #         count(*) as count
-        #     FROM events e
-        #         {sample_clause}
-        #     WHERE
-        #         {entity_query}
-        #         {parsed_date_from}
-        #         {parsed_date_to}
-        #         {prop_filters}
-        #         {null_person_filter}
-        #     GROUP BY value
-        #     ORDER BY count DESC, value DESC
-        #     LIMIT %(limit)s OFFSET %(offset)s
-        #     """
-        # )
-
-        breakdownType, breakdownFilter = (
+        team, query, funnelsFilter, breakdownType, breakdownFilter, breakdownAttributionType = (
+            self.context.team,
+            self.context.query,
+            self.context.funnelsFilter,
             self.context.breakdownType,
             self.context.breakdownFilter,
+            self.context.breakdownAttributionType,
         )
+
+        use_all_funnel_entities = (
+            breakdownAttributionType
+            in [
+                BreakdownAttributionType.first_touch,
+                BreakdownAttributionType.last_touch,
+            ]
+            or funnelsFilter.funnelOrderType == FunnelOrderType.UNORDERED
+        )
+        first_entity = query.series[0]
+        target_entity = first_entity
+        if breakdownAttributionType == BreakdownAttributionType.step:
+            target_entity = query.series[funnelsFilter.breakdownAttributionValue]
 
         if breakdownType == "cohort":
             return self.breakdown_cohorts_ids
@@ -221,19 +119,62 @@ class FunnelBase(ABC):
             breakdown_limit_or_default = breakdownFilter.breakdown_limit or BREAKDOWN_VALUES_LIMIT
             offset = 0
 
-            # build query
-            query = FunnelEventQuery(context=self.context).to_query()
-            query.select = [ast.Alias(alias="value", expr=breakdown_expr), parse_expr("count(*) as count")]
-            query.group_by = [ast.Field(chain=["value"])]
-            query.order_by = [
-                ast.OrderExpr(expr=ast.Field(chain=["count"]), order="DESC"),
-                ast.OrderExpr(expr=ast.Field(chain=["value"]), order="DESC"),
+            funnel_event_query = FunnelEventQuery(context=self.context)
+
+            if use_all_funnel_entities:
+                entity_expr = funnel_event_query._entity_expr(skip_entity_filter=False)
+                prop_exprs = funnel_event_query._properties_expr()
+            else:
+                entity_expr = None
+                # entity_params, entity_format_params = get_entity_filtering_params(
+                #     allowed_entities=[target_entity],
+                #     team_id=team.pk,
+                #     table_name="e",
+                #     person_id_joined_alias=person_id_joined_alias,
+                #     person_properties_mode=person_properties_mode,
+                #     hogql_context=filter.hogql_context,
+                # )
+
+                if target_entity.properties:
+                    prop_exprs = [property_to_expr(target_entity.properties, team)]
+                else:
+                    prop_exprs = []
+
+            where_exprs: List[ast.Expr | None] = [
+                # entity filter
+                entity_expr,
+                # prop filter
+                *prop_exprs,
+                # date range filter
+                funnel_event_query._date_range_expr(),
+                # null persons filter
+                parse_expr("notEmpty(e.person_id)"),
             ]
-            query.limit = ast.Constant(value=breakdown_limit_or_default + 1)
-            query.offset = ast.Constant(value=offset)
+
+            # build query
+            values_query = ast.SelectQuery(
+                select=[ast.Alias(alias="value", expr=breakdown_expr), parse_expr("count(*) as count")],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    alias="e",
+                ),
+                where=ast.And(exprs=[expr for expr in where_exprs if expr is not None]),
+                group_by=[ast.Field(chain=["value"])],
+                order_by=[
+                    ast.OrderExpr(expr=ast.Field(chain=["count"]), order="DESC"),
+                    ast.OrderExpr(expr=ast.Field(chain=["value"]), order="DESC"),
+                ],
+                limit=ast.Constant(value=breakdown_limit_or_default + 1),
+                offset=ast.Constant(value=offset),
+            )
+
+            if query.samplingFactor is not None:
+                values_query.select_from.sample = ast.SampleExpr(
+                    sample_value=ast.RatioExpr(left=ast.Constant(value=query.samplingFactor))
+                )
 
             # execute query
-            results = execute_hogql_query(query, self.context.team).results
+            results = execute_hogql_query(values_query, self.context.team).results
             if results is None:
                 raise ValidationError("Apologies, there has been an error computing breakdown values.")
             return [row[0] for row in results[0:breakdown_limit_or_default]]
@@ -857,36 +798,7 @@ class FunnelBase(ABC):
         e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
-        breakdown, breakdownAttributionType = self.context.breakdown, self.context.breakdownAttributionType
-
-        if breakdown:
-            # use_all_funnel_entities = (
-            #     breakdownAttributionType
-            #     in [
-            #         BreakdownAttributionType.first_touch,
-            #         BreakdownAttributionType.last_touch,
-            #     ]
-            #     # TODO: or self._filter.funnel_order_type == FunnelOrderType.UNORDERED
-            #     or True
-            # )
-            # first_entity = self._filter.entities[0]
-
-            # target_entity = first_entity
-            # # if (
-            # #     self._filter.breakdown_attribution_value is not None
-            # #     and breakdownAttributionType == BreakdownAttributionType.STEP
-            # # ):
-            # #     target_entity = self._filter.entities[self._filter.breakdown_attribution_value]
-
-            # values = get_breakdown_prop_values(
-            #     self._filter,
-            #     target_entity,
-            #     "count(*)",
-            #     self._team,
-            #     extra_params={"offset": 0},
-            #     use_all_funnel_entities=use_all_funnel_entities,
-            #     person_properties_mode=get_person_properties_mode(self._team),
-            # )
+        if self.context.breakdown:
             return self.breakdown_values
 
         return None
