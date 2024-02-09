@@ -679,7 +679,7 @@ export class DB {
                 uuid,
                 0,
             ],
-            clean: (result) => {
+            clean: (result: QueryResult<RawPerson>) => {
                 const { rows } = result
                 if (rows.length != 1) {
                     throw new Error() // TODO
@@ -688,7 +688,7 @@ export class DB {
                 return {
                     ...row,
                     created_at: DateTime.fromISO(row.created_at).toUTC(),
-                    version: parseInt(row.version),
+                    version: Number(row.version || 0),
                 } as Person
             },
         }
