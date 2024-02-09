@@ -6,10 +6,14 @@ from drf_spectacular.utils import (
     extend_schema,  # noqa: F401
     extend_schema_field,
 )  # # noqa: F401 for easy import
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import fields, serializers
+from rest_framework.exceptions import PermissionDenied
+
 
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
+from posthog.permissions import APIScopePermission
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -19,6 +23,27 @@ class ValueField(serializers.Field):
 
     def to_internal_value(self, data):
         return data
+
+
+class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
+    target_class = "posthog.auth.PersonalAPIKeyAuthentication"
+    name = "PersonalAPIKeyAuth"
+
+    def get_security_requirement(self, auto_schema):
+        view = auto_schema.view
+        request = view.request
+
+        for permission in auto_schema.view.get_permissions():
+            if isinstance(permission, APIScopePermission):
+                try:
+                    scopes = permission.derive_required_scopes(request, view)
+                except PermissionDenied:
+                    # TODO: This should never happen - it indicates that we shouldn't be including it in the docs
+                    pass
+                return [{self.name: group} for group in scopes]
+
+    def get_security_definition(self, auto_schema):
+        return {"type": "http", "scheme": "bearer"}
 
 
 class PropertyItemSerializer(serializers.Serializer):
