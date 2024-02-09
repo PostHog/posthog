@@ -64,15 +64,23 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert data["label"] == "test-update"
         assert data["scopes"] == ["insight:write"]
 
+    def test_allows_all_scope(self):
+        response = self.client.post("/api/personal_api_keys/", {"label": "test", "scopes": ["*"]})
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["*"]
+
     def test_only_allows_valid_scopes(self):
         response = self.client.post("/api/personal_api_keys/", {"label": "test", "scopes": ["invalid"]})
         assert response.status_code == 400
         assert response.json() == {
             "type": "validation_error",
-            "code": "required",
-            "detail": "This field is required.",
+            "code": "invalid_input",
+            "detail": "Invalid scope: invalid",
             "attr": "scopes",
         }
+
+        response = self.client.post("/api/personal_api_keys/", {"label": "test", "scopes": ["insight:invalid"]})
+        assert response.status_code == 400
 
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey.objects.create(
@@ -109,7 +117,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "label": my_label,
             "last_used_at": None,
             "user_id": self.user.id,
-            "scopes": None,
+            "scopes": ["*"],
             "value": None,
         }
 

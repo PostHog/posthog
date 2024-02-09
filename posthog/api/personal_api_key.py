@@ -3,7 +3,7 @@ from typing import cast
 from rest_framework import response, serializers, viewsets
 
 from posthog.models import PersonalAPIKey, User
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.personal_api_key import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
 
@@ -29,9 +29,20 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
 
-    def validate(self, attrs):
-        # TODO: Properly check that they are valid scopes
-        return attrs
+    def validate_scopes(self, scopes):
+        for scope in scopes.split(","):
+            if scope == "*":
+                continue
+
+            scope_parts = scope.split(":")
+            if (
+                len(scope_parts) != 2
+                or scope_parts[0] not in API_SCOPE_OBJECTS
+                or scope_parts[1] not in API_SCOPE_ACTIONS
+            ):
+                raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+        return scopes
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)

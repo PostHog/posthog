@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Tuple, get_args
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.db import models
 from django.utils import timezone
@@ -92,7 +92,16 @@ APIScopeObject = Literal[
     "user",
 ]
 
+APIScopeActions = Literal[
+    "read",
+    "write",
+]
+
 APIScopeObjectOrNotSupported = Literal[
     APIScopeObject,
     "not_supported",
 ]
+
+
+API_SCOPE_OBJECTS: Tuple[APIScopeObject, ...] = get_args(APIScopeObject)
+API_SCOPE_ACTIONS: Tuple[APIScopeActions, ...] = get_args(APIScopeActions)
