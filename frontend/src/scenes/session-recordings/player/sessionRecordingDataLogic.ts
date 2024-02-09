@@ -3,6 +3,7 @@ import { EventType, eventWithTime } from '@rrweb/types'
 import { captureException } from '@sentry/react'
 import {
     actions,
+    beforeUnmount,
     BreakPointFunction,
     connect,
     defaults,
@@ -148,26 +149,23 @@ export const prepareRecordingSnapshots = (
         .sort((a, b) => a.timestamp - b.timestamp)
 }
 
-const generateRecordingReportDurations = (
-    cache: Record<string, any>,
-    values: Record<string, any>
-): RecordingReportLoadTimes => {
-    // TODO: This any typing is super hard to manage - we should either type it or move it to a selector.
+const generateRecordingReportDurations = (cache: Record<string, any>): RecordingReportLoadTimes => {
     return {
-        metadata: {
-            size: values.segments.length,
-            duration: Math.round(performance.now() - cache.metaStartTime),
-        },
-        snapshots: {
-            size: (values.sessionPlayerSnapshotData?.segments ?? []).length,
-            duration: Math.round(performance.now() - cache.snapshotsStartTime),
-        },
-        events: {
-            size: values.sessionEventsData?.length ?? 0,
-            duration: Math.round(performance.now() - cache.eventsStartTime),
-        },
-        firstPaint: cache.firstPaintDurationRow,
+        metadata: cache.metadataLoadDuration || Math.round(performance.now() - cache.metaStartTime),
+        snapshots: cache.snapshotsLoadDuration || Math.round(performance.now() - cache.snapshotsStartTime),
+        events: cache.eventsLoadDuration || Math.round(performance.now() - cache.eventsStartTime),
+        firstPaint: cache.firstPaintDuration,
     }
+}
+
+const resetTimingsCache = (cache: Record<string, any>): void => {
+    cache.metaStartTime = null
+    cache.metadataLoadDuration = null
+    cache.snapshotsStartTime = null
+    cache.snapshotsLoadDuration = null
+    cache.eventsStartTime = null
+    cache.eventsLoadDuration = null
+    cache.firstPaintDuration = null
 }
 
 export interface SessionRecordingDataLogicProps {
@@ -321,6 +319,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshots: () => {
             actions.loadEvents()
         },
+        loadRecordingMetaSuccess: () => {
+            cache.metadataLoadDuration = performance.now() - cache.metaStartTime
+            actions.reportUsageIfFullyLoaded()
+        },
+        loadRecordingMetaFailure: () => {
+            cache.metadataLoadDuration = performance.now() - cache.metaStartTime
+            actions.reportUsageIfFullyLoaded()
+        },
         loadRecordingSnapshotsSuccess: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
@@ -337,19 +343,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return
             }
 
-            cache.firstPaintDurationRow = {
-                size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
-                duration: Math.round(performance.now() - cache.snapshotsStartTime),
+            if (!cache.firstPaintDuration) {
+                cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
             }
-
-            actions.reportUsageIfFullyLoaded()
 
             const nextSourceToLoad = sources?.find((s) => !s.loaded)
 
             if (nextSourceToLoad) {
                 actions.loadRecordingSnapshots(nextSourceToLoad)
             } else {
+                cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
                 actions.reportViewed()
+                actions.reportUsageIfFullyLoaded()
+
                 // If we have a realtime source, start polling it
                 const realTimeSource = sources?.find((s) => s.source === SnapshotSourceType.realtime)
                 if (realTimeSource) {
@@ -357,26 +363,32 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 }
             }
         },
+        loadRecordingSnapshotsFailure: () => {
+            cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
+            actions.reportUsageIfFullyLoaded()
+        },
         loadEventsSuccess: () => {
+            cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
+            actions.reportUsageIfFullyLoaded()
+        },
+        loadEventsFailure: () => {
+            cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
             actions.reportUsageIfFullyLoaded()
         },
         reportUsageIfFullyLoaded: () => {
             if (values.fullyLoaded) {
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
-                    generateRecordingReportDurations(cache, values),
+                    generateRecordingReportDurations(cache),
                     SessionRecordingUsageType.LOADED,
                     0
                 )
                 // Reset cache now that final usage report has been sent
-                cache.metaStartTime = null
-                cache.snapshotsStartTime = null
-                cache.eventsStartTime = null
-                cache.firstPaintDurationRow = null
+                resetTimingsCache(cache)
             }
         },
         reportViewed: async (_, breakpoint) => {
-            const durations = generateRecordingReportDurations(cache, values)
+            const durations = generateRecordingReportDurations(cache)
             breakpoint()
             // Triggered on first paint
             eventUsageLogic.actions.reportRecording(
@@ -407,10 +419,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     loaders(({ values, props, cache, actions }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
-                cache.metaStartTime = performance.now()
                 if (!props.sessionRecordingId) {
                     return null
                 }
+
+                cache.metaStartTime = performance.now()
+
                 const response = await api.recordings.get(props.sessionRecordingId, {
                     save_view: true,
                 })
@@ -811,5 +825,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return Object.keys(snapshotsByWindowId)
             },
         ],
+    }),
+    beforeUnmount(({ cache }) => {
+        resetTimingsCache(cache)
     }),
 ])

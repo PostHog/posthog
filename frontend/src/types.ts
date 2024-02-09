@@ -3316,16 +3316,11 @@ export interface OrganizationResourcePermissionType {
     created_by: UserBaseType | null
 }
 
-export interface RecordingReportLoadTimeRow {
-    size?: number
-    duration: number
-}
-
 export interface RecordingReportLoadTimes {
-    metadata: RecordingReportLoadTimeRow
-    snapshots: RecordingReportLoadTimeRow
-    events: RecordingReportLoadTimeRow
-    firstPaint: RecordingReportLoadTimeRow
+    metadata: number
+    snapshots: number
+    events: number
+    firstPaint: number
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
