@@ -44,16 +44,10 @@
     }
 
     &--xs {
-        --row-base-height: 2rem;
-
         .LemonTable__content > table > tbody > tr > td {
             padding-top: 0.25rem;
             padding-bottom: 0.25rem;
         }
-    }
-
-    &--small {
-        --row-base-height: 2.5rem;
     }
 
     &--embedded {
