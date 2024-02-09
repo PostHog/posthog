@@ -7,7 +7,9 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonTable,
+    LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -150,25 +152,48 @@ function PersonalAPIKeysTable(): JSX.Element {
                     title: 'Label',
                     dataIndex: 'label',
                     key: 'label',
-                    render: function RenderLabel(label, record) {
+                    render: function RenderLabel(label, key) {
                         return (
-                            <Link subtle className="font-semibold" onClick={() => setEditingKeyId(record.id)}>
+                            <Link subtle className="font-semibold" onClick={() => setEditingKeyId(key.id)}>
                                 {String(label)}
                             </Link>
                         )
                     },
                 },
+                // {
+                //     title: 'Value',
+                //     key: 'value',
+                //     dataIndex: 'value',
+                //     render: function RenderValue(value) {
+                //         return value ? (
+                //             <CopyToClipboardInline description="personal API key value">
+                //                 {String(value)}
+                //             </CopyToClipboardInline>
+                //         ) : (
+                //             <i>secret</i>
+                //         )
+                //     },
+                // },
                 {
-                    title: 'Value',
-                    key: 'value',
-                    dataIndex: 'value',
-                    render: function RenderValue(value) {
-                        return value ? (
-                            <CopyToClipboardInline description="personal API key value">
-                                {String(value)}
-                            </CopyToClipboardInline>
+                    title: 'Scopes',
+                    key: 'scopes',
+                    dataIndex: 'scopes',
+                    render: function RenderValue(_, key) {
+                        return key.scopes[0] === '*' ? (
+                            <LemonTag type="danger">* (all access)</LemonTag>
                         ) : (
-                            <i>secret</i>
+                            <span className="flex flex-wrap gap-1">
+                                {key.scopes.slice(0, 4).map((x) => (
+                                    <>
+                                        <LemonTag key={x}>{x}</LemonTag>
+                                    </>
+                                ))}
+                                {key.scopes.length > 4 && (
+                                    <LemonTag onClick={() => setEditingKeyId(key.id)}>
+                                        +{key.scopes.length - 4} more
+                                    </LemonTag>
+                                )}
+                            </span>
                         )
                     },
                 },
