@@ -27,12 +27,8 @@
             height: 1rem;
             background: var(--bg-light);
             border: 1.5px solid var(--border-bold);
-            border-radius: 0.1875rem; // Intentionally a bit smaller than --radius
+            border-radius: 0.25rem; // Intentionally a bit smaller than --radius
             transition: border 200ms ease, background 200ms ease;
-
-            &.posthog-3000 {
-                border-radius: 0.25rem; // Intentionally a bit smaller than --radius
-            }
 
             path {
                 stroke: var(--bg-light);
