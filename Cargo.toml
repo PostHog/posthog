@@ -10,8 +10,8 @@ members = [
   "hook-janitor",
 ]
 
-[profile.release]
-debug = 2 # https://www.polarsignals.com/docs/rust
+# [profile.release]
+# debug = 2 # https://www.polarsignals.com/docs/rust
 
 [workspace.dependencies]
 anyhow = "1.0"
