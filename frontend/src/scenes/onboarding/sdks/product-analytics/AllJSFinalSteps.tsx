@@ -6,7 +6,7 @@ function JSEventSnippet(): JSX.Element {
     )
 }
 
-export const ProductAnaltyicsAllJSFinalSteps = (): JSX.Element => {
+export const ProductAnalyticsAllJSFinalSteps = (): JSX.Element => {
     return (
         <>
             <h4>Send events</h4>
