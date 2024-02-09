@@ -138,7 +138,7 @@ class FunnelUnordered(FunnelBase):
             formatted_query = ast.SelectQuery(
                 select=[
                     ast.Field(chain=["*"]),
-                    ast.Alias(alias="steps", expr=self.get_sorting_condition(max_steps)),
+                    *self.get_sorting_condition(max_steps),
                     *self._get_exclusion_condition(),
                     *self._get_step_times(max_steps),
                     *self._get_person_and_group_properties(),
@@ -163,39 +163,42 @@ class FunnelUnordered(FunnelBase):
         for i in range(max_steps):
             conversion_times_elements.append(f"latest_{i}")
 
-            exprs.append(parse_expr(f"arraySort([{','.join(conversion_times_elements)}]) as conversion_times"))
+        exprs.append(parse_expr(f"arraySort([{','.join(conversion_times_elements)}]) as conversion_times"))
 
-            for i in range(1, max_steps):
-                exprs.append(
-                    parse_expr(
-                        f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= conversion_times[{i}] + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
-                    )
+        for i in range(1, max_steps):
+            exprs.append(
+                parse_expr(
+                    f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= conversion_times[{i}] + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
                 )
-                # array indices in ClickHouse are 1-based :shrug:
+            )
+            # array indices in ClickHouse are 1-based :shrug:
 
         return exprs
 
-    # def get_sorting_condition(self, max_steps: int):
-    #     conditions = []
+    def get_sorting_condition(self, max_steps: int) -> List[ast.Expr]:
+        windowInterval = self.context.funnelWindowInterval
+        windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
-    #     event_times_elements = []
-    #     for i in range(max_steps):
-    #         event_times_elements.append(f"latest_{i}")
+        conditions = []
 
-    #     conditions.append(f"arraySort([{','.join(event_times_elements)}]) as event_times")
-    #     # replacement of latest_i for whatever query part requires it, just like conversion_times
-    #     basic_conditions: List[str] = []
-    #     for i in range(1, max_steps):
-    #         basic_conditions.append(
-    #             f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, 1, 0)"
-    #         )
+        event_times_elements = []
+        for i in range(max_steps):
+            event_times_elements.append(f"latest_{i}")
 
-    #     conditions.append(f"arraySum([{','.join(basic_conditions)}, 1])")
+        conditions.append(parse_expr(f"arraySort([{','.join(event_times_elements)}]) as event_times"))
+        # replacement of latest_i for whatever query part requires it, just like conversion_times
+        basic_conditions: List[str] = []
+        for i in range(1, max_steps):
+            basic_conditions.append(
+                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}, 1, 0)"
+            )
 
-    #     if basic_conditions:
-    #         return ",".join(conditions)
-    #     else:
-    #         return "1"
+        conditions.append(ast.Alias(alias="steps", expr=parse_expr(f"arraySum([{','.join(basic_conditions)}, 1])")))
+
+        if basic_conditions:
+            return conditions
+        else:
+            return [ast.Alias(alias="steps", expr=ast.Constant(value=1))]
 
     def _get_exclusion_condition(self) -> List[ast.Expr]:
         funnelsFilter = self.context.funnelsFilter
