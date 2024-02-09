@@ -67,6 +67,8 @@ class PromptSequenceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     Create, read, update and delete prompt sequences state for a person.
     """
 
+    include_in_docs = False
+    base_scope = "not_supported"
     derive_current_team_from_user_only = True
 
     @action(methods=["PATCH"], detail=False)
