@@ -18,7 +18,6 @@ type PayGateSupportedFeatures =
     | AvailableFeature.DASHBOARD_COLLABORATION
     | AvailableFeature.ROLE_BASED_ACCESS
     | AvailableFeature.CORRELATION_ANALYSIS
-    | AvailableFeature.PATHS_ADVANCED
     | AvailableFeature.SURVEYS_STYLING
     | AvailableFeature.SURVEYS_TEXT_HTML
     | AvailableFeature.DATA_PIPELINES
@@ -68,12 +67,6 @@ const FEATURE_SUMMARIES: Record<
             'Correlation Analysis reveals which events and properties go hand in hand with conversion or drop-off.',
         umbrella: 'advanced analysis capabilities',
         docsHref: 'https://posthog.com/manual/correlation',
-    },
-    [AvailableFeature.PATHS_ADVANCED]: {
-        description:
-            'Tune path analysis with wildcards, path cleaning rules, or custom end points, and quickly jump from a path to its funnel.',
-        umbrella: 'advanced analysis capabilities',
-        docsHref: 'https://posthog.com/manual/paths',
     },
     [AvailableFeature.SURVEYS_STYLING]: {
         description: 'Customize the look and feel of your surveys with custom colors and positions.',
