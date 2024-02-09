@@ -33,6 +33,7 @@ export const APIScopes: APIScope[] = [
     { key: 'batch_export', actions: ['read', 'write'] },
     { key: 'cohort', actions: ['read', 'write'] },
     { key: 'dashboard', actions: ['read', 'write'] },
+    { key: 'dashboard_template', actions: ['read', 'write'] },
     { key: 'early_access_feature', actions: ['read', 'write'] },
     { key: 'event_definition', actions: ['read', 'write'] },
     { key: 'experiment', actions: ['read', 'write'] },
@@ -46,17 +47,15 @@ export const APIScopes: APIScope[] = [
     { key: 'organization_member', actions: ['read', 'write'] },
     { key: 'person', actions: ['read', 'write'] },
     { key: 'plugin', actions: ['read', 'write'] },
+    { key: 'project', actions: ['read', 'write'] },
     { key: 'property_definition', actions: ['read', 'write'] },
+    { key: 'scheduled_change', actions: ['read', 'write'] },
     { key: 'session_recording', actions: ['read', 'write'] },
     { key: 'session_recording_playlist', actions: ['read', 'write'] },
     { key: 'sharing_configuration', actions: ['read', 'write'] },
     { key: 'subscription', actions: ['read', 'write'] },
     { key: 'survey', actions: ['read', 'write'] },
-    { key: 'team', actions: ['read', 'write'] },
-    // { key: 'uploaded_media', actions: ['read', 'write'] },
     { key: 'user', actions: ['read', 'write'] },
-    { key: 'data_warehouse_table', actions: ['read', 'write'] },
-    { key: 'scheduled_change', actions: ['read', 'write'] },
 ]
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([

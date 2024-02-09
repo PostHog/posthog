@@ -60,6 +60,7 @@ class PersonalAPIKey(models.Model):
 # Not every model needs a scope - it should more be for top-level things
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
+# WARNING: Make sure to keep in sync with the frontend!
 APIScopeObject = Literal[
     "action",
     "activity_log",
@@ -83,14 +84,13 @@ APIScopeObject = Literal[
     "plugin",
     "project",  # Alias for team - TODO: Should we just call this team?
     "property_definition",
+    "scheduled_change",
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
     "subscription",
     "survey",
     "user",
-    "data_warehouse_table",
-    "scheduled_change",
 ]
 
 APIScopeObjectOrNotSupported = Literal[
