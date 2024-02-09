@@ -277,6 +277,8 @@ class APIScopePermission(BasePermission):
 
         required_scopes = self.derive_required_scopes(request, view, base_scope)
 
+        # TODO: Check for * scope
+
         # TODO: Abstract this into a method that we can reliably test
         for required_scope in required_scopes:
             valid_scopes = [required_scope]
