@@ -1,10 +1,19 @@
-import { LemonDialog, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonDialog,
+    LemonInput,
+    LemonLabel,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonTable,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect } from 'react'
 
@@ -14,9 +23,9 @@ import { CopyToClipboardInline } from '../../../lib/components/CopyToClipboard'
 import { API_KEY_SCOPE_PRESETS, APIScopes, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
-    const { editingKeyId, isEditingKeySubmitting, editingKeyChanged, formScopeRadioValues } =
+    const { editingKeyId, isEditingKeySubmitting, editingKeyChanged, formScopeRadioValues, allAccessSelected } =
         useValues(personalAPIKeysLogic)
-    const { setEditingKeyId, setScopeRadioValue, submitEditingKey } = useActions(personalAPIKeysLogic)
+    const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes } = useActions(personalAPIKeysLogic)
 
     const isNew = editingKeyId === 'new'
 
@@ -82,27 +91,41 @@ function EditKeyModal(): JSX.Element {
                                         />
                                     </Field>
                                 </div>
-                                <div>
-                                    {APIScopes.map(({ key, actions }) => (
-                                        <div key={key} className="flex items-center justify-between gap-2 min-h-8">
-                                            <div>
-                                                <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
+
+                                {allAccessSelected ? (
+                                    <LemonBanner
+                                        type="warning"
+                                        action={{
+                                            children: 'Reset',
+                                            onClick: () => resetScopes(),
+                                        }}
+                                    >
+                                        <b>This API key has full access to all supported endpoints!</b> We highly
+                                        recommend scoping this to only what it needs.
+                                    </LemonBanner>
+                                ) : (
+                                    <div>
+                                        {APIScopes.map(({ key, actions }) => (
+                                            <div key={key} className="flex items-center justify-between gap-2 min-h-8">
+                                                <div>
+                                                    <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>
+                                                </div>
+                                                <LemonSegmentedButton
+                                                    onChange={(value) => setScopeRadioValue(key, value)}
+                                                    value={formScopeRadioValues[key] ?? 'none'}
+                                                    options={[
+                                                        { label: 'No access', value: 'none' },
+                                                        ...actions.map((action) => ({
+                                                            label: capitalizeFirstLetter(action),
+                                                            value: action,
+                                                        })),
+                                                    ]}
+                                                    size="xsmall"
+                                                />
                                             </div>
-                                            <LemonRadio
-                                                horizontal
-                                                options={[
-                                                    { label: 'No access', value: 'none' },
-                                                    ...actions.map((action) => ({
-                                                        label: capitalizeFirstLetter(action),
-                                                        value: action,
-                                                    })),
-                                                ]}
-                                                value={formScopeRadioValues[key] ?? 'none'}
-                                                onChange={(value) => setScopeRadioValue(key, value)}
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
+                                        ))}
+                                    </div>
+                                )}
                             </>
                         )}
                     </Field>

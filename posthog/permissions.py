@@ -275,9 +275,6 @@ class APIScopePermission(BasePermission):
         # 2. Check if the required scope is in the requester's scopes
         # - If the scope is :read then either :read or :write is enough
 
-        if base_scope == "not_supported":
-            raise PermissionDenied(f"This action does not support Personal API Key access")
-
         required_scopes = self.derive_required_scopes(request, view, base_scope)
 
         # TODO: Abstract this into a method that we can reliably test
@@ -305,6 +302,9 @@ class APIScopePermission(BasePermission):
         # Otherwise use the base_scope and derive the required scope from the action
         if getattr(view, "required_scopes", None):
             return view.required_scopes
+
+        if base_scope == "not_supported":
+            raise PermissionDenied(f"This action does not support Personal API Key access")
 
         if view.action in self.write_actions:
             return [f"{base_scope}:write"]

@@ -9,7 +9,7 @@ from posthog.models.utils import generate_random_token_personal
 
 class StringListField(serializers.Field):
     def to_representation(self, value):
-        return value.split(",")
+        return value.split(",") if value else None
 
     def to_internal_value(self, data):
         return ",".join(data)
@@ -29,12 +29,14 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
 
-    def get_scopes(self, obj: PersonalAPIKey) -> list[str]:
-        return obj.scopes.split(",") if obj.scopes else []
-
     def validate(self, attrs):
         # TODO: Properly check that they are valid scopes
         return attrs
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret["scopes"] = ret["scopes"] or ["*"]
+        return ret
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user

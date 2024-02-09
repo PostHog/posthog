@@ -18,6 +18,7 @@ export const API_KEY_SCOPE_PRESETS = [
         label: 'Project & user management',
         scopes: ['team:write', 'organization:read', 'organization_member:write'],
     },
+    { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
 
 export type APIScope = {
@@ -67,6 +68,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         updateKey: (data: Partial<Pick<PersonalAPIKeyType, 'label' | 'scopes'>>) => data,
         deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
+        resetScopes: true,
     }),
 
     reducers({
@@ -132,6 +134,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 return result
             },
         ],
+        allAccessSelected: [
+            (s) => [s.editingKey],
+            (editingKey): boolean => {
+                return editingKey.scopes.includes('*')
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setEditingKeyValue: async ({ name, value }) => {
@@ -156,11 +164,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setEditingKeyId: async ({ id }) => {
             if (id) {
                 const key = values.keys.find((key) => key.id === id)
-                actions.resetEditingKey({
+                const formValues = {
                     label: key?.label ?? '',
                     scopes: key?.scopes ?? [],
-                })
+                    preset: key?.scopes.includes('*') ? 'all_access' : undefined,
+                }
+
+                actions.resetEditingKey(formValues)
             }
+        },
+
+        resetScopes: () => {
+            actions.setEditingKeyValue('scopes', [])
         },
 
         setScopeRadioValue: ({ key, action }) => {
