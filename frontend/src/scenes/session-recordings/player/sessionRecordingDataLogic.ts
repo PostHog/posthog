@@ -328,23 +328,25 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadRecordingSnapshotsSuccess: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
-            if (snapshots && !snapshots.length && sources?.length === 1) {
-                // We got only a single source to load, loaded it successfully, but it had no snapshots.
-                posthog.capture('recording_snapshots_v2_empty_response', {
-                    source: sources[0],
-                })
+            if (snapshots) {
+                if (!snapshots.length && sources?.length === 1) {
+                    // We got only a single source to load, loaded it successfully, but it had no snapshots.
+                    posthog.capture('recording_snapshots_v2_empty_response', {
+                        source: sources[0],
+                    })
 
-                // If we only have a realtime source and its empty, start polling it anyway
-                if (sources[0].source === SnapshotSourceType.realtime) {
-                    actions.startRealTimePolling()
+                    // If we only have a realtime source and its empty, start polling it anyway
+                    if (sources[0].source === SnapshotSourceType.realtime) {
+                        actions.startRealTimePolling()
+                    }
+
+                    return
                 }
 
-                return
-            }
-
-            if (!cache.firstPaintDuration) {
-                cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-                actions.reportViewed()
+                if (!cache.firstPaintDuration) {
+                    cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
+                    actions.reportViewed()
+                }
             }
 
             const nextSourceToLoad = sources?.find((s) => !s.loaded)

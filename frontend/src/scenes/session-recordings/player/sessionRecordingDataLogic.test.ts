@@ -363,13 +363,13 @@ describe('sessionRecordingDataLogic', () => {
                     action.type === logic.actionTypes.loadRecordingSnapshots &&
                     action.payload.source?.source === 'blob',
                 'loadRecordingSnapshotsSuccess',
-                // the response to that triggers loading of the second item which is the realtime source
+                // and then we report having viewed the recording
+                'reportViewed',
+                // the response to the success action triggers loading of the second item which is the realtime source
                 (action) =>
                     action.type === logic.actionTypes.loadRecordingSnapshots &&
                     action.payload.source?.source === 'realtime',
                 'loadRecordingSnapshotsSuccess',
-                // and then we report having viewed the recording
-                'reportViewed',
                 // having loaded any real time data we start polling to check for more
                 'startRealTimePolling',
             ])
