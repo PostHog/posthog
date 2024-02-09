@@ -350,7 +350,7 @@
                         if(and(equals(e.event, 'user signed up'), ifNull(in(e__pdi.person_id,
                                                                               (SELECT cohortpeople.person_id AS person_id
                                                                                FROM cohortpeople
-                                                                               WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 3))
+                                                                               WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 4))
                                                                                GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
                                                                                HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
@@ -871,7 +871,7 @@
                         if(and(equals(e.event, 'user signed up'), ifNull(in(e__pdi.person_id,
                                                                               (SELECT person_static_cohort.person_id AS person_id
                                                                                FROM person_static_cohort
-                                                                               WHERE and(equals(person_static_cohort.team_id, 2), equals(person_static_cohort.cohort_id, 4)))), 0)), 1, 0) AS step_0,
+                                                                               WHERE and(equals(person_static_cohort.team_id, 2), equals(person_static_cohort.cohort_id, 5)))), 0)), 1, 0) AS step_0,
                         if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
                         if(equals(e.event, 'paid'), 1, 0) AS step_1,
                         if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
