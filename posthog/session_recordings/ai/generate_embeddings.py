@@ -14,7 +14,7 @@ from posthog.session_recordings.ai.utils import (
     format_dates,
     collapse_sequence_of_events,
 )
-
+from structlog import get_logger
 from posthog.clickhouse.client import sync_execute
 import datetime
 import pytz
@@ -24,11 +24,15 @@ GENERATE_RECORDING_EMBEDDING_TIMING = Histogram(
     "Time spent generating recording embeddings for a single session",
 )
 
+logger = get_logger(__name__)
+
 BATCH_FLUSH_SIZE = 10
 
 
 def generate_team_embeddings(team: Team):
     recordings = fetch_recordings(team=team)
+
+    logger.info(f"found {len(recordings)} recordings to process for team {team.pk}")
 
     while len(recordings) > 0:
         batched_embeddings = []
@@ -45,6 +49,7 @@ def generate_team_embeddings(team: Team):
                     "embeddings": embeddings,
                 }
             )
+
         flush_embeddings_to_clickhouse(embeddings=batched_embeddings)
         recordings = fetch_recordings(team=team)
 
@@ -60,7 +65,7 @@ def fetch_recordings(team: Team):
                 where
                     team_id = %(team_id)s
                     -- don't load all data for all time
-                    and generated_at > now() - INTERVAL 7 DAY
+                    and generation_timestamp > now() - INTERVAL 7 DAY
             )
             SELECT DISTINCT
                 session_id
@@ -70,7 +75,7 @@ def fetch_recordings(team: Team):
                 session_id NOT IN embedding_ids
                 AND team_id = %(team_id)s
                 -- must be a completed session
-                and min_first_timestamp < now() - INTERVAL 7 DAY
+                and min_first_timestamp < now() - INTERVAL 1 DAY
                 -- let's not load all data for all time
                 -- will definitely need to do something about this length of time
                 and min_first_timestamp > now() - INTERVAL 7 DAY
@@ -102,6 +107,7 @@ def generate_recording_embeddings(session_id: str, team: Team) -> List[float]:
             "$feature_flag_called",
         ],
     )
+
     if not session_events or not session_events[0] or not session_events[1]:
         raise ValueError(f"no events found for session_id {session_id}")
 
