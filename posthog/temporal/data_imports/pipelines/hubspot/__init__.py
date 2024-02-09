@@ -28,7 +28,6 @@ from typing import Literal, Sequence, Iterator, Iterable
 import dlt
 from dlt.common.typing import TDataItems
 from dlt.sources import DltResource
-from posthog.temporal.data_imports.pipelines.helpers import limit_paginated_generator
 
 from .helpers import (
     fetch_data,

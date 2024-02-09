@@ -163,6 +163,8 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         source = stripe_source(
             api_key=stripe_secret_key,
             endpoints=tuple(inputs.schemas),
+            team_id=inputs.team_id,
+            job_id=inputs.run_id,
         )
     elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
         from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token

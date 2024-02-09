@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 def get_funnel_order_class(funnelsFilter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import (
         Funnel,
-        # FunnelStrict,
+        FunnelStrict,
         # FunnelUnordered,
         FunnelBase,
     )
@@ -15,8 +15,7 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter):
         return FunnelBase
         # return FunnelUnordered
     elif funnelsFilter.funnelOrderType == StepOrderValue.strict:
-        return FunnelBase
-        # return FunnelStrict
+        return FunnelStrict
     return Funnel
 
 
