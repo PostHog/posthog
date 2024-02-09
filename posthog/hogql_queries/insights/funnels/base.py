@@ -3,7 +3,7 @@ from functools import cached_property
 from typing import Any, Dict, List, Optional, Tuple, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
-from posthog.constants import BREAKDOWN_VALUES_LIMIT, FunnelOrderType
+from posthog.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
@@ -26,6 +26,7 @@ from posthog.schema import (
     BreakdownType,
     EventsNode,
     FunnelExclusionActionsNode,
+    StepOrderValue,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 from rest_framework.exceptions import ValidationError
@@ -104,11 +105,12 @@ class FunnelBase(ABC):
                 BreakdownAttributionType.first_touch,
                 BreakdownAttributionType.last_touch,
             ]
-            or funnelsFilter.funnelOrderType == FunnelOrderType.UNORDERED
+            or funnelsFilter.funnelOrderType == StepOrderValue.unordered
         )
         first_entity = query.series[0]
         target_entity = first_entity
         if breakdownAttributionType == BreakdownAttributionType.step:
+            assert isinstance(funnelsFilter.breakdownAttributionValue, int)
             target_entity = query.series[funnelsFilter.breakdownAttributionValue]
 
         if breakdownType == "cohort":
@@ -170,6 +172,7 @@ class FunnelBase(ABC):
             )
 
             if query.samplingFactor is not None:
+                assert isinstance(values_query.select_from, ast.JoinExpr)
                 values_query.select_from.sample = ast.SampleExpr(
                     sample_value=ast.RatioExpr(left=ast.Constant(value=query.samplingFactor))
                 )
@@ -427,6 +430,7 @@ class FunnelBase(ABC):
             funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
 
         if not skip_step_filter:
+            assert isinstance(funnel_events_query.where, ast.Expr)
             steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
             funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
 
@@ -445,6 +449,7 @@ class FunnelBase(ABC):
             query = parse_select(
                 f"select id as cohort_person_id, {cohort.pk} as value from persons where id in cohort {cohort.pk}"
             )
+            assert isinstance(query, ast.SelectQuery)
             cohort_queries.append(query)
 
         if isinstance(breakdown, list) and "all" in breakdown:

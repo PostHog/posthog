@@ -79,7 +79,7 @@ class FunnelQueryContext(QueryContext):
             boxed_breakdown: List[Union[str, int]] = box_value(self.breakdownFilter.breakdown)
             self.breakdown = boxed_breakdown
         else:
-            self.breakdown = self.breakdownFilter.breakdown
+            self.breakdown = self.breakdownFilter.breakdown  # type: ignore
 
     @cached_property
     def max_steps(self) -> int:
