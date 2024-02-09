@@ -1,6 +1,6 @@
 from openai import OpenAI
 
-from typing import Dict
+from typing import Dict, Any, List
 
 from prometheus_client import Histogram
 
@@ -59,6 +59,8 @@ def fetch_recordings(team: Team):
                     session_replay_embeddings
                 where
                     team_id = %(team_id)s
+                    -- don't load all data for all time
+                    and generated_at > now() - INTERVAL 7 DAY
             )
             SELECT DISTINCT
                 session_id
@@ -67,6 +69,11 @@ def fetch_recordings(team: Team):
             WHERE
                 session_id NOT IN embedding_ids
                 AND team_id = %(team_id)s
+                -- must be a completed session
+                and min_first_timestamp < now() - INTERVAL 7 DAY
+                -- let's not load all data for all time
+                -- will definitely need to do something about this length of time
+                and min_first_timestamp > now() - INTERVAL 7 DAY
             LIMIT %(batch_flush_size)s
         """
 
@@ -76,11 +83,11 @@ def fetch_recordings(team: Team):
     )
 
 
-def flush_embeddings_to_clickhouse(embeddings):
+def flush_embeddings_to_clickhouse(embeddings: Dict[str, Any]) -> None:
     sync_execute("INSERT INTO session_replay_embeddings (session_id, team_id, embeddings) VALUES", embeddings)
 
 
-def generate_recording_embeddings(session_id: str, team: Team):
+def generate_recording_embeddings(session_id: str, team: Team) -> List[float]:
     client = OpenAI()
 
     session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
