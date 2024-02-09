@@ -325,7 +325,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadRecordingMetaFailure: () => {
             cache.metadataLoadDuration = performance.now() - cache.metaStartTime
-            actions.reportUsageIfFullyLoaded()
         },
         loadRecordingSnapshotsSuccess: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
@@ -365,7 +364,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadRecordingSnapshotsFailure: () => {
             cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-            actions.reportUsageIfFullyLoaded()
         },
         loadEventsSuccess: () => {
             cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
@@ -373,7 +371,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         },
         loadEventsFailure: () => {
             cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
-            actions.reportUsageIfFullyLoaded()
         },
         reportUsageIfFullyLoaded: () => {
             if (values.fullyLoaded) {
