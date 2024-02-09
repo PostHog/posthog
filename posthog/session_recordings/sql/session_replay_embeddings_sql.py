@@ -6,10 +6,18 @@ from posthog.clickhouse.table_engines import (
     MergeTreeEngine,
 )
 
+"""
+We want to use ML to convert session replay data to embeddings, these will let us check similarity between sessions
+and so to cluster sessions. We will store the embeddings in a separate table to the session replay data, so we can
+easily iterate on th schema, and so we don't ever have to join recordings data in Postgres and CH
+
+Expected queries will be to load sets of embeddings, by team and date, and to insert embeddings for a session
+And to allow us to select sessions by similarity
+And to select sessions from session_replay_event which don't have an embedding yet (for processing)
+"""
+
 SESSION_REPLAY_EMBEDDINGS_DATA_TABLE = lambda: "sharded_session_replay_embeddings"
 
-# if updating these column definitions
-# you'll need to update the explicit column definitions in the materialized view creation statement below
 SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
@@ -18,7 +26,6 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     -- part of order by so will aggregate correctly
     team_id Int64,
     embeddings Array(Float32),
-    -- if only so we can partition on disk
     generation_timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
     -- we will insert directly for the first test of this
     -- so no _timestamp or _offset column
