@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import Literal
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.db import models

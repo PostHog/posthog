@@ -48,7 +48,6 @@ from posthog.models.feature_flag import (
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.property import Property
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,

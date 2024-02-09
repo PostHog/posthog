@@ -257,7 +257,7 @@ class APIScopePermission(BasePermission):
     def has_permission(self, request, view):
         # NOTE: We do this first to error out quickly if the view is missing the required attribute
         # Helps devs remember to add it.
-        base_scope = self.get_base_scope(request, view)
+        self.get_base_scope(request, view)
 
         # API Scopes currently only apply to PersonalAPIKeyAuthentication
         if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
