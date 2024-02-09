@@ -36,6 +36,7 @@ import {
     IconToggle,
     IconToolbar,
     IconTrends,
+    IconUnlock,
     IconUserPaths,
 } from '@posthog/icons'
 import { Parser } from 'expr-eval'
@@ -656,6 +657,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
+                        },
+                    },
+                    {
+                        icon: IconUnlock,
+                        display: 'Go to Personal API Keys',
+                        executor: () => {
+                            push(urls.settings('user-api-keys'))
                         },
                     },
                 ],
