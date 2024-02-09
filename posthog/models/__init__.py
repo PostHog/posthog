@@ -67,6 +67,8 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
 
+from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
+
 __all__ = [
     "Action",
     "ActionStep",
@@ -139,4 +141,8 @@ __all__ = [
     "UserManager",
     "DataWarehouseTable",
     "ScheduledChange",
+    # Deprecated models here for backwards compatibility
+    "Prompt",
+    "PromptSequence",
+    "UserPromptState",
 ]
