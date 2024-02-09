@@ -97,6 +97,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setOnIntroPage: (onIntroPage: boolean) => ({ onIntroPage }),
+        setFirstVisit: (firstVisit: boolean) => ({ firstVisit }),
         goToNextStep: true,
         goToPreviousStep: true,
         resetStepKey: true,
@@ -138,6 +139,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setOnIntroPage: (_, { onIntroPage }) => onIntroPage,
             },
         ],
+        firstVisit: [
+            true,
+            {
+                setFirstVisit: (_, { firstVisit }) => firstVisit,
+            },
+        ],
     })),
     selectors({
         breadcrumbs: [
@@ -162,13 +169,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (featureFlags: FeatureFlagsSet, productKey: string | null) => {
                 return productKey ? getProductUri(productKey as ProductKey, featureFlags) : urls.default()
             },
-        ],
-        stepAfterInstall: [
-            (s) => [s.allOnboardingSteps],
-            (allOnboardingSteps: AllOnboardingSteps) =>
-                allOnboardingSteps[
-                    allOnboardingSteps.findIndex((step) => step.props.stepKey === OnboardingStepKey.INSTALL) + 1
-                ]?.props.stepKey,
         ],
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
@@ -357,10 +357,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey(/:intro)': ({ productKey, intro }, { success, upgraded, step }) => {
+        '/onboarding/:productKey(/:intro)': ({ productKey, intro }, { success, upgraded, step, firstVisit }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
+            }
+
+            if (firstVisit) {
+                actions.setFirstVisit(true)
             }
 
             if (intro === 'intro') {

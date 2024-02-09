@@ -1,9 +1,10 @@
-import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { StarHog } from 'lib/components/hedgehogs'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
@@ -28,6 +29,9 @@ export const OnboardingBillingStep = ({
     const plan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
 
+    const [addOnsChecked, setAddOnsChecked] = useState(true)
+    const [showPlanComp, setShowPlanComp] = useState(false)
+
     const ChoosePlanButton = ({
         planKey,
         currentPlan,
@@ -42,9 +46,9 @@ export const OnboardingBillingStep = ({
             <>
                 <LemonButton
                     className="mt-auto"
-                    to={getUpgradeProductLink(product, planKey || '', redirectPath, true)}
+                    to={getUpgradeProductLink(product, planKey || '', redirectPath, addOnsChecked)}
                     type={isFreePlan ? 'secondary' : 'primary'}
-                    status="default"
+                    status={isFreePlan ? 'default' : 'alt'}
                     fullWidth
                     center
                     disableClientSideRouting
@@ -59,21 +63,6 @@ export const OnboardingBillingStep = ({
             </>
         )
     }
-    // const upgradeButtons = product.plans?.map((plan) => {
-    //     return (
-    //             {!plan.current_plan && product.addons?.length > 0 && (
-    //                 <p className="text-center ml-0 mt-2 mb-0">
-    //                     <Link
-    //                         to={`/api/billing-v2/activation?products=${product.type}:${plan.plan_key}&redirect_path=${redirectPath}`}
-    //                         className="text-muted text-xs"
-    //                         disableClientSideRouting
-    //                     >
-    //                         or upgrade without addons
-    //                     </Link>
-    //                 </p>
-    //             )}
-    //     )
-    // })
 
     const formatCompactNumber = (number: number): string => {
         const formatter = Intl.NumberFormat('en', {
@@ -108,7 +97,7 @@ export const OnboardingBillingStep = ({
         >
             {billing?.products && productKey && product ? (
                 <div className="mt-6">
-                    {product.subscribed ? (
+                    {product.subscribed && (
                         <div className="mb-8">
                             <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
                                 <div className="flex gap-x-4">
@@ -122,6 +111,9 @@ export const OnboardingBillingStep = ({
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
+                            <LemonButton className="mt-2" onClick={() => setShowPlanComp(!showPlanComp)}>
+                                {showPlanComp ? 'Hide' : 'See'} Plans
+                            </LemonButton>
                             {currentPlan?.initial_billing_limit && (
                                 <div className="mt-2">
                                     <LemonBanner type="info">
@@ -132,7 +124,9 @@ export const OnboardingBillingStep = ({
                                 </div>
                             )}
                         </div>
-                    ) : (
+                    )}
+
+                    {(!product.subscribed || showPlanComp) && (
                         <>
                             <h3>Pick a Plan</h3>
                             <LemonDivider />
@@ -144,15 +138,25 @@ export const OnboardingBillingStep = ({
                                         feature.key.includes('data_retention')
                                     )
                                     const dataRetentionFormatted = `${dataRetentionFeature?.limit} ${dataRetentionFeature?.unit}`
-                                    const priceTierFree = `First ${formatCompactNumber(plan.tiers?.[0].up_to)} ${
-                                        plan.unit
-                                    }s/mo free`
+                                    const priceTierFree =
+                                        plan.tiers?.[0].up_to &&
+                                        `First ${formatCompactNumber(plan.tiers?.[0].up_to)} ${plan.unit}s/mo free`
                                     const priceTierPaid = `Then ${parseFloat(plan.tiers?.[1]?.unit_amount_usd || '')}/${
                                         plan.unit
                                     }`
                                     return (
                                         <div className="PlanUpgradeCard" key={plan.plan_key}>
-                                            <h3 className="mb-0">{isFreePlan ? 'Free' : 'Paid'}</h3>
+                                            <div className="flex justify-between">
+                                                <h2 className="mb-0">{isFreePlan ? 'Free' : 'Paid'}</h2>
+                                                {!isFreePlan && product.addons.length > 0 && (
+                                                    <LemonSwitch
+                                                        className="float-right"
+                                                        label="With addons"
+                                                        checked={addOnsChecked}
+                                                        onChange={setAddOnsChecked}
+                                                    />
+                                                )}
+                                            </div>
                                             <h4 className="mb-6">
                                                 {isFreePlan
                                                     ? 'No credit card required'

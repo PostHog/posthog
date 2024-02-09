@@ -171,8 +171,8 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
-    onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
+    onboarding: (productKey: string, stepKey?: OnboardingStepKey, firstVisit?: boolean): string =>
+        `/onboarding/${productKey}${firstVisit && '?firstVisit=true'}${stepKey ? '?step=' + stepKey : ''}`,
     onboardingProductIntroduction: (productKey: string): string => '/onboarding/' + productKey + '/intro',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',

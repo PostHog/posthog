@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type, BillingV2FeatureType, ProductKey } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { onboardingLogic } from './onboardingLogic'
 
 export const scene: SceneExport = {
     component: OnboardingProductIntroduction,
@@ -54,7 +54,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
     return (
         <div className="flex gap-x-4 items-center">
             <LemonButton
-                to={urls.onboarding(product.type, OnboardingStepKey.INSTALL)}
+                to={urls.onboarding(product.type, undefined, true)}
                 type="primary"
                 status="alt"
                 data-attr={`${product.type}-onboarding`}
