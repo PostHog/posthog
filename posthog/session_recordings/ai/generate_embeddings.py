@@ -116,9 +116,9 @@ def generate_recording_embeddings(session_id: str, team: Team):
         + "\n"
         + "\n".join(
             compact_result(
-                event_name=result[processed_sessions_index] or "",
-                current_url=result[current_url_index] or "",
-                elements_chain=result[elements_chain_index] or "",
+                event_name=result[processed_sessions_index] if processed_sessions_index is not None else "",
+                current_url=result[current_url_index] if current_url_index is not None else "",
+                elements_chain=result[elements_chain_index] if elements_chain_index is not None else "",
             )
             for result in processed_sessions.results
         )
@@ -136,6 +136,6 @@ def generate_recording_embeddings(session_id: str, team: Team):
     return embeddings
 
 
-def compact_result(event_name: str, current_url: int, elements_chain: Dict[str, str]):
+def compact_result(event_name: str, current_url: int, elements_chain: Dict[str, str] | str) -> str:
     elements_string = elements_chain if isinstance(elements_chain, str) else ", ".join(str(e) for e in elements_chain)
-    return event_name + " " + current_url + " " + elements_string
+    return f"{event_name} {current_url} {elements_string}"
