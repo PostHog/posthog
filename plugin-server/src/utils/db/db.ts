@@ -872,7 +872,7 @@ export class DB {
     }
 
     public async addDistinctIdPooled(person: Person, distinctId: string): Promise<ProducerRecord[]> {
-        const insertResult = await this.postgres.query(
+        const { rows } = await this.postgres.query(
             PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             `
@@ -888,18 +888,23 @@ export class DB {
             `,
             [person.team_id, distinctId, person.id],
             'addDistinctIdPooled'
-        ) // TODO: handle empty result as failed INSERT
+        )
 
-        const { id, version: versionStr, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
-        const version = Number(versionStr || 0)
-        const messages = [
+        if (rows.length === 0) {
+            throw new Error('failed to create or update distinct ID (likely unique constraint error)')
+        } else if (rows.length > 1) {
+            throw new Error('received an unexpected number of rows on distinct ID insertion')
+        }
+
+        const { id, version: versionStr, ...personDistinctIdCreated } = rows[0] as PersonDistinctId
+        return [
             {
                 topic: KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
                         value: JSON.stringify({
                             ...personDistinctIdCreated,
-                            version,
+                            version: Number(versionStr || 0),
                             person_id: person.uuid,
                             is_deleted: 0,
                         }),
@@ -907,8 +912,6 @@ export class DB {
                 ],
             },
         ]
-
-        return messages
     }
 
     public async moveDistinctIds(source: Person, target: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
