@@ -3,8 +3,7 @@ from typing import cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.insights.funnels.funnel_unordered import FunnelUnordered
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
@@ -637,10 +636,8 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 class TestFunnelUnorderedStepsConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(  # type: ignore
-        FunnelUnordered,
+        FunnelOrderType.UNORDERED,
         ClickhouseFunnelUnorderedActors,
-        _create_event,
-        _create_person,
     ),
 ):
     maxDiff = None
@@ -658,6 +655,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def test_basic_unordered_funnel(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [
                 {"id": "user signed up", "order": 0},
                 {"id": "$pageview", "order": 1},
@@ -808,6 +806,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def test_big_multi_step_unordered_funnel(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [
                 {"id": "user signed up", "order": 0},
                 {"id": "$pageview", "order": 1},
@@ -948,6 +947,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def test_basic_unordered_funnel_conversion_times(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [
                 {"id": "user signed up", "order": 0},
                 {"id": "$pageview", "order": 1},
@@ -1065,6 +1065,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def test_single_event_unordered_funnel(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [{"id": "user signed up", "order": 0}],
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 23:59:59",
@@ -1100,12 +1101,13 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_funnel_exclusions_invalid_params(self):
         filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [
                 {"id": "user signed up", "type": "events", "order": 0},
                 {"id": "paid", "type": "events", "order": 1},
                 {"id": "blah", "type": "events", "order": 2},
             ],
-            "insight": INSIGHT_FUNNELS,
             "funnel_window_days": 14,
             "exclusions": [
                 {
@@ -1138,11 +1140,12 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_funnel_exclusions_full_window(self):
         filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [
                 {"id": "user signed up", "type": "events", "order": 0},
                 {"id": "paid", "type": "events", "order": 1},
             ],
-            "insight": INSIGHT_FUNNELS,
             "funnel_window_days": 14,
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-14 00:00:00",
@@ -1224,6 +1227,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
     def test_advanced_funnel_multiple_exclusions_between_steps(self):
         filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [
                 {"id": "user signed up", "type": "events", "order": 0},
                 {"id": "$pageview", "type": "events", "order": 1},
@@ -1233,7 +1238,6 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             ],
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-14 00:00:00",
-            "insight": INSIGHT_FUNNELS,
             "exclusions": [
                 {
                     "id": "x",
@@ -1506,6 +1510,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [
                 {
                     "type": "events",
@@ -1555,6 +1561,8 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
             "events": [
                 {
                     "type": "events",
