@@ -12,7 +12,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
-from posthog.models.activity_logging.activity_log import load_organization_activity
+from posthog.models.activity_logging.activity_log import load_activity_for_organization
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
@@ -197,17 +197,12 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def activity(self, request: Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
-
         organization = self.get_object()
-        user_permissions = UserPermissions(cast(User, self.request.user))
-        teams_visible_for_user = [
-            t.id for t in organization.teams.filter(id__in=user_permissions.team_ids_visible_for_user)
-        ]
 
-        activity_page = load_organization_activity(
+        activity_page = load_activity_for_organization(
             scope="Team",
-            organization_id=organization.pk,
-            team_ids=teams_visible_for_user,
+            organization=organization,
+            user=cast(User, request.user),
             limit=limit,
             page=page,
         )

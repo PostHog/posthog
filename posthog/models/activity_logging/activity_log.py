@@ -9,10 +9,13 @@ from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
+
+from posthog.models import Organization
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
 
@@ -410,19 +413,28 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
     )
 
 
-def load_organization_activity(
+def load_activity_for_organization(
     scope: ActivityScope,
-    organization_id: UUIDT,
-    # not all teams in an org are visible to a user, so we need to pass in the team_ids that are
-    # visible to the user, this method does not validate them, so it's up to the caller to ensure
-    # they are valid
-    team_ids: List[int],
+    organization: Organization,
+    user: User,
     limit: int = 10,
     page: int = 1,
 ) -> ActivityPage:
+    """
+    If you want to see that a team was deleted, for example, you can't do that from the all activity view
+    because the activity view is scoped to the current team.
+    We want a way to see all activity for an org, and it would be easy to implement that and leak information.
+    Not all teams are visible to all users within an org, so this method ensures that only teams visible to the user
+    are included in the activity log.
+    """
+    user_permissions = UserPermissions(user)
+    teams_visible_for_user = [
+        t.id for t in organization.teams.filter(id__in=user_permissions.team_ids_visible_for_user)
+    ]
+
     activity_query = (
         ActivityLog.objects.select_related("user")
-        .filter(organization_id=organization_id, scope=scope, team_id__in=team_ids)
+        .filter(organization_id=organization.pk, scope=scope, team_id__in=teams_visible_for_user)
         .order_by("-created_at")
     )
 
