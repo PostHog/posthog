@@ -31,7 +31,6 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
-    prompt,
     property_definition,
     query,
     search,
