@@ -652,32 +652,23 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: string[]
+        distinctIds: string[] = [],
+        tryFastPath = true
     ): Promise<Person> {
-        distinctIds ||= []
-        const version = 0 // We're creating the person now!
+        let person: Person | undefined // TODO
 
-        const insertResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `WITH inserted_person AS (
-                    INSERT INTO posthog_person (
-                        created_at, properties, properties_last_updated_at,
-                        properties_last_operation, team_id, is_user_id, is_identified, uuid, version
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                    RETURNING *
-                )` +
-                distinctIds
-                    .map(
-                        // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctIdPooled`
-                        (_, index) => `, distinct_id_${index} AS (
-                        INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                        VALUES ($${10 + index}, (SELECT id FROM inserted_person), $5, $9))`
-                    )
-                    .join('') +
-                `SELECT * FROM inserted_person;`,
-            [
+        const kafkaMessages: ProducerRecord[] = []
+
+        const personInsert = {
+            query: `
+                INSERT INTO posthog_person (
+                    created_at, properties, properties_last_updated_at,
+                    properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING *
+            `,
+            parameters: [
                 createdAt.toISO(),
                 sanitizeJsonbValue(properties),
                 sanitizeJsonbValue(propertiesLastUpdatedAt),
@@ -686,45 +677,108 @@ export class DB {
                 isUserId,
                 isIdentified,
                 uuid,
-                version,
-                // The copy and reverse here is to maintain compatability with pre-existing code
-                // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
-                // CTEs above, so we need to reverse the distinctIds to match the old behavior where
-                // we would do a round trip for each INSERT. We shouldn't actually depend on the
-                // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
-                // the same and prove behavior is the same as before.
-                ...distinctIds.slice().reverse(),
+                0,
             ],
-            'insertPerson'
-        )
-        const personCreated = insertResult.rows[0] as RawPerson
-        const person = {
-            ...personCreated,
-            created_at: DateTime.fromISO(personCreated.created_at).toUTC(),
-            version,
-        } as Person
+            clean: (result) => {
+                const { rows } = result
+                if (rows.length != 1) {
+                    throw new Error() // TODO
+                }
+                const [row] = rows
+                return {
+                    ...row,
+                    created_at: DateTime.fromISO(row.created_at).toUTC(),
+                    version: parseInt(row.version),
+                } as Person
+            },
+        }
 
-        const kafkaMessages: ProducerRecord[] = []
-        kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, version))
+        // Try the fast path first if we don't think there's a high likelihood
+        // of needing to update an existing but unclaimed distinct ID. This is
+        // much more efficient as it saves us from needing to make several round
+        // trips while under transaction management.
+        if (tryFastPath) {
+            try {
+                person = personInsert.clean(
+                    await this.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `WITH inserted_person AS (${personInsert.query})` +
+                            distinctIds
+                                .map(
+                                    // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                                    // `addDistinctIdPooled`
+                                    (_, index) => `, distinct_id_${index} AS (
+                                        INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                                        VALUES ($${10 + index}, (SELECT id FROM inserted_person), $5, $9)
+                                    )`
+                                )
+                                .join('') +
+                            `SELECT * FROM inserted_person;`,
+                        [
+                            ...personInsert.parameters,
+                            // The copy and reverse here is to maintain compatability with pre-existing code
+                            // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
+                            // CTEs above, so we need to reverse the distinctIds to match the old behavior where
+                            // we would do a round trip for each INSERT. We shouldn't actually depend on the
+                            // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
+                            // the same and prove behavior is the same as before.
+                            ...distinctIds.slice().reverse(),
+                        ],
+                        'insertPerson'
+                    )
+                )
+            } catch (error) {
+                // If we failed to create any distinct IDs due to a unique
+                // constraint violation (or we skipped the fast path entirely),
+                // we can suppress the error and try again by with the slow
+                // path. (If we failed for any other reason, there's not much
+                // point in trying again.)
+                throw error // TODO: actually discriminate these
+            }
+            for (const distinctId of distinctIds) {
+                kafkaMessages.push({
+                    topic: KAFKA_PERSON_DISTINCT_ID,
+                    messages: [
+                        {
+                            value: JSON.stringify({
+                                person_id: person.uuid,
+                                team_id: teamId,
+                                distinct_id: distinctId,
+                                version: 0,
+                                is_deleted: 0,
+                            }),
+                        },
+                    ],
+                })
+            }
+        }
 
-        for (const distinctId of distinctIds) {
-            kafkaMessages.push({
-                topic: KAFKA_PERSON_DISTINCT_ID,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            person_id: person.uuid,
-                            team_id: teamId,
-                            distinct_id: distinctId,
-                            version,
-                            is_deleted: 0,
-                        }),
-                    },
-                ],
+        // If we don't have a person yet (we skipped the fast path since we
+        // thought it was likely to fail, or we observed a unique constraint
+        // violation on ``posthog_persondistinctid`` firsthand), we can try to
+        // create the person and also claim any distinct IDs that either do not
+        // exist, or do exist but are not associated with a person.
+        if (person === undefined) {
+            await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'createPerson', async (tx) => {
+                person = personInsert.clean(
+                    await this.postgres.query(tx, personInsert.query, personInsert.parameters, 'insertPerson')
+                )
+                for (const distinctId of distinctIds) {
+                    // TODO: this needs to actually use the current transaction
+                    kafkaMessages.push(...(await this.addDistinctIdPooled(person, distinctId)))
+                }
             })
         }
 
-        await this.kafkaProducer.queueMessages(kafkaMessages)
+        if (person === undefined) {
+            throw new Error() // TODO
+        }
+
+        await this.kafkaProducer.queueMessages([
+            generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version),
+            ...kafkaMessages,
+        ])
+
         return person
     }
 
