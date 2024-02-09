@@ -66,7 +66,7 @@ const Tiles = (): JSX.Element => {
 }
 
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
-    const { query, title, layout, insightProps } = tile
+    const { query, title, layout, insightProps, showPathCleaningControls, showIntervalSelect } = tile
 
     const { openModal } = useActions(webAnalyticsLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
@@ -107,7 +107,12 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && <h2 className="m-0 mb-3">{title}</h2>}
-            <WebQuery query={query} insightProps={insightProps} />
+            <WebQuery
+                query={query}
+                insightProps={insightProps}
+                showPathCleaningControls={showPathCleaningControls}
+                showIntervalSelect={showIntervalSelect}
+            />
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
         </div>
     )
@@ -137,6 +142,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                         key={tab.id}
                         query={tab.query}
                         showIntervalSelect={tab.showIntervalSelect}
+                        showPathCleaningControls={tab.showPathCleaningControls}
                         insightProps={tab.insightProps}
                     />
                 ),

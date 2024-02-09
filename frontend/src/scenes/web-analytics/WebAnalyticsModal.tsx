@@ -30,7 +30,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
             fullScreen={false}
             closable={true}
         >
-            <div className="space-y-4">
+            <div className="WebAnalyticsModal space-y-4">
                 <div className="flex flex-row flex-wrap gap-2">
                     <WebPropertyFilters
                         setWebAnalyticsFilters={setWebAnalyticsFilters}
@@ -43,6 +43,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                         query={modal.query}
                         insightProps={modal.insightProps}
                         showIntervalSelect={modal.showIntervalSelect}
+                        showPathCleaningControls={modal.showPathCleaningControls}
                     />
                 </LemonModal.Content>
                 <div className="flex flex-row justify-end">
