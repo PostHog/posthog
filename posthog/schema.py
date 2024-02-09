@@ -29,6 +29,56 @@ class AggregationAxisFormat(str, Enum):
     percentage_scaled = "percentage_scaled"
 
 
+class Kind(str, Enum):
+    Method = "Method"
+    Function = "Function"
+    Constructor = "Constructor"
+    Field = "Field"
+    Variable = "Variable"
+    Class = "Class"
+    Struct = "Struct"
+    Interface = "Interface"
+    Module = "Module"
+    Property = "Property"
+    Event = "Event"
+    Operator = "Operator"
+    Unit = "Unit"
+    Value = "Value"
+    Constant = "Constant"
+    Enum = "Enum"
+    EnumMember = "EnumMember"
+    Keyword = "Keyword"
+    Text = "Text"
+    Color = "Color"
+    File = "File"
+    Reference = "Reference"
+    Customcolor = "Customcolor"
+    Folder = "Folder"
+    TypeParameter = "TypeParameter"
+    User = "User"
+    Issue = "Issue"
+    Snippet = "Snippet"
+
+
+class AutocompleteCompletionItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    documentation: Optional[str] = Field(
+        default=None, description="A human-readable string that represents a doc-comment."
+    )
+    insertText: str = Field(
+        ..., description="A string or snippet that should be inserted in a document when selecting this completion."
+    )
+    kind: Kind = Field(
+        ..., description="The kind of this completion item. Based on the kind an icon is chosen by the editor."
+    )
+    label: str = Field(
+        ...,
+        description="The label of this completion item. By default this is also the text that is inserted when selecting this completion.",
+    )
+
+
 class BaseMathType(str, Enum):
     total = "total"
     dau = "dau"
@@ -223,8 +273,8 @@ class FunnelExclusionLegacy(BaseModel):
         extra="forbid",
     )
     custom_name: Optional[str] = None
-    funnel_from_step: Optional[float] = None
-    funnel_to_step: Optional[float] = None
+    funnel_from_step: float
+    funnel_to_step: float
     id: Optional[Union[str, float]] = None
     index: Optional[float] = None
     name: Optional[str] = None
@@ -236,8 +286,8 @@ class FunnelExclusionSteps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    funnelFromStep: Optional[int] = None
-    funnelToStep: Optional[int] = None
+    funnelFromStep: int
+    funnelToStep: int
 
 
 class FunnelLayout(str, Enum):
@@ -268,6 +318,13 @@ class GoalLine(BaseModel):
     )
     label: str
     value: float
+
+
+class HogQLAutocompleteResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    suggestions: List[AutocompleteCompletionItem]
 
 
 class HogQLNotice(BaseModel):
@@ -432,6 +489,7 @@ class NodeKind(str, Enum):
     PersonsNode = "PersonsNode"
     HogQLQuery = "HogQLQuery"
     HogQLMetadata = "HogQLMetadata"
+    HogQLAutocomplete = "HogQLAutocomplete"
     ActorsQuery = "ActorsQuery"
     SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
@@ -601,6 +659,13 @@ class QueryResponseAlternative8(BaseModel):
     warnings: List[HogQLNotice]
 
 
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    suggestions: List[AutocompleteCompletionItem]
+
+
 class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -637,7 +702,7 @@ class RecordingDurationFilter(BaseModel):
     value: float
 
 
-class Kind(str, Enum):
+class Kind1(str, Enum):
     ActionsNode = "ActionsNode"
     EventsNode = "EventsNode"
 
@@ -648,7 +713,7 @@ class RetentionEntity(BaseModel):
     )
     custom_name: Optional[str] = None
     id: Optional[Union[str, float]] = None
-    kind: Optional[Kind] = None
+    kind: Optional[Kind1] = None
     name: Optional[str] = None
     order: Optional[int] = None
     type: Optional[EntityType] = None
@@ -861,7 +926,7 @@ class Sampling(BaseModel):
     forceSamplingRate: Optional[SamplingRate] = None
 
 
-class Kind1(str, Enum):
+class Kind2(str, Enum):
     unit = "unit"
     duration_s = "duration_s"
     percentage = "percentage"
@@ -874,7 +939,7 @@ class WebOverviewItem(BaseModel):
     changeFromPreviousPct: Optional[float] = None
     isIncreaseBad: Optional[bool] = None
     key: str
-    kind: Kind1
+    kind: Kind2
     previous: Optional[float] = None
     value: Optional[float] = None
 
@@ -1081,7 +1146,7 @@ class FunnelsQueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: List[Dict[str, Any]]
+    results: Union[List[Dict[str, Any]], List[List[Dict[str, Any]]]]
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1281,7 +1346,7 @@ class QueryResponseAlternative7(BaseModel):
     types: Optional[List] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative9(BaseModel):
+class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1294,7 +1359,7 @@ class QueryResponseAlternative9(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
-class QueryResponseAlternative10(BaseModel):
+class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1312,7 +1377,7 @@ class QueryResponseAlternative10(BaseModel):
     types: Optional[List] = None
 
 
-class QueryResponseAlternative11(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1327,7 +1392,7 @@ class QueryResponseAlternative11(BaseModel):
     types: Optional[List] = None
 
 
-class QueryResponseAlternative12(BaseModel):
+class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1482,6 +1547,7 @@ class WebStatsTableQuery(BaseModel):
     )
     breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
     includeBounceRate: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
@@ -1505,12 +1571,22 @@ class WebTopClicksQuery(BaseModel):
 class AnyResponseType(
     RootModel[
         Union[
-            Dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, Union[AnyResponseType1, Any], EventsQueryResponse
+            Dict[str, Any],
+            HogQLQueryResponse,
+            HogQLMetadataResponse,
+            HogQLAutocompleteResponse,
+            Union[AnyResponseType1, Any],
+            EventsQueryResponse,
         ]
     ]
 ):
     root: Union[
-        Dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, Union[AnyResponseType1, Any], EventsQueryResponse
+        Dict[str, Any],
+        HogQLQueryResponse,
+        HogQLMetadataResponse,
+        HogQLAutocompleteResponse,
+        Union[AnyResponseType1, Any],
+        EventsQueryResponse,
     ]
 
 
@@ -1730,8 +1806,8 @@ class FunnelExclusionActionsNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    funnelFromStep: Optional[int] = None
-    funnelToStep: Optional[int] = None
+    funnelFromStep: int
+    funnelToStep: int
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
@@ -1785,8 +1861,8 @@ class FunnelExclusionEventsNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    funnelFromStep: Optional[int] = None
-    funnelToStep: Optional[int] = None
+    funnelFromStep: int
+    funnelToStep: int
     kind: Literal["EventsNode"] = "EventsNode"
     limit: Optional[int] = None
     math: Optional[
@@ -1926,7 +2002,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative13(BaseModel):
+class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1955,6 +2031,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative11,
             QueryResponseAlternative12,
             QueryResponseAlternative13,
+            QueryResponseAlternative14,
             Dict[str, List[DatabaseSchemaQueryResponseField]],
         ]
     ]
@@ -1974,6 +2051,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative11,
         QueryResponseAlternative12,
         QueryResponseAlternative13,
+        QueryResponseAlternative14,
         Dict[str, List[DatabaseSchemaQueryResponseField]],
     ]
 
@@ -2073,15 +2151,15 @@ class FunnelsFilter(BaseModel):
     )
     binCount: Optional[Union[float, str]] = None
     breakdownAttributionType: Optional[BreakdownAttributionType] = None
-    breakdownAttributionValue: Optional[float] = None
+    breakdownAttributionValue: Optional[int] = None
     exclusions: Optional[List[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = None
     funnelAggregateByHogQL: Optional[str] = None
-    funnelFromStep: Optional[float] = None
+    funnelFromStep: Optional[int] = None
     funnelOrderType: Optional[StepOrderValue] = None
     funnelStepReference: Optional[FunnelStepReference] = None
-    funnelToStep: Optional[float] = None
+    funnelToStep: Optional[int] = None
     funnelVizType: Optional[FunnelVizType] = None
-    funnelWindowInterval: Optional[float] = None
+    funnelWindowInterval: Optional[int] = None
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
     hidden_legend_breakdowns: Optional[List[str]] = None
     layout: Optional[FunnelLayout] = None
@@ -2089,6 +2167,18 @@ class FunnelsFilter(BaseModel):
 
 class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
     root: Union[EventsNode, EventsQuery, PersonsNode]
+
+
+class HogQLAutocomplete(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    endPosition: int = Field(..., description="End position of the editor word")
+    filters: Optional[HogQLFilters] = Field(default=None, description="Table to validate the expression against")
+    kind: Literal["HogQLAutocomplete"] = "HogQLAutocomplete"
+    response: Optional[HogQLAutocompleteResponse] = Field(default=None, description="Cached query response")
+    select: str = Field(..., description="Full select query to validate")
+    startPosition: int = Field(..., description="Start position of the editor word")
 
 
 class InsightFilter(
@@ -2594,6 +2684,7 @@ class HogQLMetadata(BaseModel):
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
+            HogQLAutocomplete,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,
@@ -2633,6 +2724,7 @@ class QueryRequest(BaseModel):
         SessionsTimelineQuery,
         HogQLQuery,
         HogQLMetadata,
+        HogQLAutocomplete,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebTopClicksQuery,
@@ -2669,6 +2761,7 @@ class QuerySchemaRoot(
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
+            HogQLAutocomplete,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,
@@ -2698,6 +2791,7 @@ class QuerySchemaRoot(
         SessionsTimelineQuery,
         HogQLQuery,
         HogQLMetadata,
+        HogQLAutocomplete,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebTopClicksQuery,

@@ -17,7 +17,6 @@ from posthog.constants import AvailableFeature
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import (
     PremiumFeaturePermission,
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.utils import str_to_bool
@@ -108,7 +107,6 @@ class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.M
     permission_classes = [
         IsAuthenticated,
         PremiumFeaturePermission,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
     premium_feature = AvailableFeature.SUBSCRIPTIONS

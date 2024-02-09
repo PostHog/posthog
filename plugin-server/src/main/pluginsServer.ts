@@ -277,6 +277,7 @@ export async function startPluginsServer(
                     piscina: piscina,
                     producer: hub.kafkaProducer,
                     kafka: hub.kafka,
+                    serverConfig,
                     partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
                 })
             }
@@ -286,6 +287,7 @@ export async function startPluginsServer(
                     kafka: hub.kafka,
                     producer: hub.kafkaProducer,
                     graphileWorker: graphileWorker,
+                    serverConfig,
                 })
             }
         }

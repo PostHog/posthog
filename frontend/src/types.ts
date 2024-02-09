@@ -901,8 +901,8 @@ export interface ActionFilter extends EntityFilter {
 }
 
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
-    funnel_from_step?: number
-    funnel_to_step?: number
+    funnel_from_step: number
+    funnel_to_step: number
 }
 
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
@@ -2890,17 +2890,12 @@ export interface SelectOptionWithChildren extends SelectOption {
     key: string
 }
 
-export interface KeyMapping {
+export interface CoreFilterDefinition {
     label: string
     description?: string | JSX.Element
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
-}
-
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
 }
 
 export interface TileParams {
@@ -3321,16 +3316,11 @@ export interface OrganizationResourcePermissionType {
     created_by: UserBaseType | null
 }
 
-export interface RecordingReportLoadTimeRow {
-    size?: number
-    duration: number
-}
-
 export interface RecordingReportLoadTimes {
-    metadata: RecordingReportLoadTimeRow
-    snapshots: RecordingReportLoadTimeRow
-    events: RecordingReportLoadTimeRow
-    firstPaint: RecordingReportLoadTimeRow
+    metadata: number
+    snapshots: number
+    events: number
+    firstPaint: number
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>

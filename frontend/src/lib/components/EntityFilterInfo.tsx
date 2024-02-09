@@ -1,14 +1,17 @@
 import clsx from 'clsx'
-import { getKeyMapping } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { ActionFilter, EntityFilter } from '~/types'
+
+import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter
     allowWrap?: boolean
     showSingleName?: boolean
     style?: React.CSSProperties
+    filterGroupType?: TaxonomicFilterGroupType
 }
 
 export function EntityFilterInfo({
@@ -16,6 +19,7 @@ export function EntityFilterInfo({
     allowWrap = false,
     showSingleName = false,
     style,
+    filterGroupType,
 }: EntityFilterInfoProps): JSX.Element {
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
         return (
@@ -26,7 +30,8 @@ export function EntityFilterInfo({
     }
 
     const title = getDisplayNameFromEntityFilter(filter, false)
-    const titleToDisplay = getKeyMapping(title, 'event')?.label?.trim() ?? title ?? undefined
+    const titleToDisplay =
+        (filterGroupType ? getCoreFilterDefinition(title, filterGroupType)?.label?.trim() : null) ?? title ?? undefined
 
     // No custom name
     if (!filter?.custom_name) {

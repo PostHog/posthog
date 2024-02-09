@@ -26,10 +26,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import HogQLException
 from posthog.models.user import User
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -46,7 +43,6 @@ class QueryThrottle(TeamRateThrottle):
 class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
 

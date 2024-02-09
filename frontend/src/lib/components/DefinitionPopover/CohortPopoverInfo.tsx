@@ -20,6 +20,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
 
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 const MAX_CRITERIA_GROUPS = 2
 const MAX_CRITERIA = 2
@@ -114,7 +115,10 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                     <ul>
                                         <li>
                                             <span>
-                                                <PropertyKeyInfo value={group.event_id} />
+                                                <PropertyKeyInfo
+                                                    value={group.event_id}
+                                                    type={TaxonomicFilterGroupType.Events}
+                                                />
                                                 {operatorToHumanName(group.count_operator)} in the last{' '}
                                                 {COHORT_MATCHING_DAYS[group.days as '1' | '7' | '14' | '30']}
                                             </span>
@@ -131,7 +135,10 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                             group.properties.map((property, propIndex) => (
                                                 <li key={propIndex}>
                                                     <span>
-                                                        <PropertyKeyInfo value={property.key} />
+                                                        <PropertyKeyInfo
+                                                            value={property.key}
+                                                            type={TaxonomicFilterGroupType.PersonProperties}
+                                                        />
                                                         {genericOperatorToHumanName(property)}
                                                         <code>{propertyValueToHumanName(property.value)}</code>
                                                     </span>

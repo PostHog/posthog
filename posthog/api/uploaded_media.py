@@ -20,10 +20,7 @@ from statshog.defaults.django import statsd
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
-from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import TeamMemberAccessPermission
 from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
@@ -88,11 +85,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
 class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
-    permission_classes = [
-        IsAuthenticatedOrReadOnly,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticatedOrReadOnly, TeamMemberAccessPermission]
 
     @extend_schema(
         description="""

@@ -7,6 +7,9 @@ import dlt
 from dlt.common import pendulum
 from dlt.sources import DltResource
 from pendulum import DateTime
+from asgiref.sync import sync_to_async
+from posthog.temporal.data_imports.pipelines.helpers import check_limit, aupdate_job_count
+from posthog.warehouse.models import ExternalDataJob
 
 stripe.api_version = "2022-11-15"
 
@@ -20,7 +23,7 @@ def transform_date(date: Union[str, DateTime, int]) -> int:
     return date
 
 
-def stripe_get_data(
+async def stripe_get_data(
     api_key: str,
     resource: str,
     start_date: Optional[Any] = None,
@@ -37,7 +40,7 @@ def stripe_get_data(
 
     _resource = getattr(stripe, resource)
 
-    resource_dict = _resource.list(
+    resource_dict = await sync_to_async(_resource.list)(
         api_key=api_key,
         created={"gte": start_date, "lt": end_date},
         limit=100,
@@ -48,9 +51,11 @@ def stripe_get_data(
     return response
 
 
-def stripe_pagination(
+async def stripe_pagination(
     api_key: str,
     endpoint: str,
+    team_id: int,
+    job_id: str,
     starting_after: Optional[str] = None,
 ):
     """
@@ -66,7 +71,9 @@ def stripe_pagination(
     """
 
     while True:
-        response = stripe_get_data(
+        count = 0
+
+        response = await stripe_get_data(
             api_key,
             endpoint,
             starting_after=starting_after,
@@ -76,13 +83,21 @@ def stripe_pagination(
             starting_after = response["data"][-1]["id"]
         yield response["data"]
 
-        if not response["has_more"]:
+        count, status = await check_limit(
+            team_id=team_id,
+            job_id=job_id,
+            new_count=count + len(response["data"]),
+        )
+
+        if not response["has_more"] or status == ExternalDataJob.Status.CANCELLED:
             break
+
+    await aupdate_job_count(job_id, team_id, count)
 
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str, endpoints: Tuple[str, ...], starting_after: Optional[str] = None
+    api_key: str, endpoints: Tuple[str, ...], team_id, job_id, starting_after: Optional[str] = None
 ) -> Iterable[DltResource]:
     for endpoint in endpoints:
         yield dlt.resource(
@@ -92,5 +107,7 @@ def stripe_source(
         )(
             api_key=api_key,
             endpoint=endpoint,
+            team_id=team_id,
+            job_id=job_id,
             starting_after=starting_after,
         )

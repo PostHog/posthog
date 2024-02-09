@@ -9,6 +9,7 @@ from posthog.hogql_queries.web_analytics.ctes import (
 )
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
+    map_columns,
 )
 from posthog.schema import (
     WebStatsTableQuery,
@@ -169,19 +170,13 @@ ORDER BY
 
         assert results is not None
 
-        def to_data(col_val, col_idx):
-            if col_idx == 0:  # breakdown_value
-                return col_val
-            elif col_idx == 1:  # views
-                return self._unsample(col_val)
-            elif col_idx == 2:  # visitors
-                return self._unsample(col_val)
-            elif col_idx == 3:  # bounce_rate
-                return col_val
-            else:
-                return col_val
-
-        results_mapped = [[to_data(c, i) for (i, c) in enumerate(r)] for r in results]
+        results_mapped = map_columns(
+            results,
+            {
+                1: self._unsample,  # views
+                2: self._unsample,  # visitors
+            },
+        )
 
         return WebStatsTableQueryResponse(
             columns=response.columns,
@@ -195,11 +190,11 @@ ORDER BY
     def counts_breakdown(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
-                return ast.Field(chain=["properties", "$pathname"])
+                return self._apply_path_cleaning(ast.Field(chain=["properties", "$pathname"]))
             case WebStatsBreakdown.InitialChannelType:
                 raise NotImplementedError("Breakdown InitialChannelType not implemented")
             case WebStatsBreakdown.InitialPage:
-                return ast.Field(chain=["person", "properties", "$initial_pathname"])
+                return self._apply_path_cleaning(ast.Field(chain=["person", "properties", "$initial_pathname"]))
             case WebStatsBreakdown.InitialReferringDomain:
                 return ast.Field(chain=["person", "properties", "$initial_referring_domain"])
             case WebStatsBreakdown.InitialUTMSource:
@@ -233,9 +228,15 @@ ORDER BY
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
                 # use initial pathname for bounce rate
-                return ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
+                return self._apply_path_cleaning(
+                    ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
+                )
             case WebStatsBreakdown.InitialChannelType:
                 raise NotImplementedError("Breakdown InitialChannelType not implemented")
+            case WebStatsBreakdown.InitialPage:
+                return self._apply_path_cleaning(
+                    ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
+                )
             case _:
                 return ast.Call(name="any", args=[self.counts_breakdown()])
 
@@ -364,3 +365,19 @@ ORDER BY
             )
 
         return top_sources_query
+
+    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
+        if not self.query.doPathCleaning or not self.team.path_cleaning_filters:
+            return path_expr
+
+        for replacement in self.team.path_cleaning_filter_models():
+            path_expr = ast.Call(
+                name="replaceRegexpAll",
+                args=[
+                    path_expr,
+                    ast.Constant(value=replacement.regex),
+                    ast.Constant(value=replacement.alias),
+                ],
+            )
+
+        return path_expr
