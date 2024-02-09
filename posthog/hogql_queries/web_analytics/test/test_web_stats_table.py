@@ -35,13 +35,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _run_web_stats_table_query(self, date_from, date_to, breakdown_by=WebStatsBreakdown.Page, limit=None):
+    def _run_web_stats_table_query(
+        self, date_from, date_to, breakdown_by=WebStatsBreakdown.Page, limit=None, path_cleaning_filters=None
+    ):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=[],
             breakdownBy=breakdown_by,
             limit=limit,
+            doPathCleaning=bool(path_cleaning_filters),
         )
+        self.team.path_cleaning_filters = path_cleaning_filters or []
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
         return runner.calculate()
 
@@ -141,3 +145,35 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response_2.results,
         )
         self.assertEqual(False, response_2.hasMore)
+
+    def test_path_filters(self):
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", "s1", "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", "s2", "/cleaned/123")]),
+                ("p3", [("2023-12-10", "s3", "/cleaned/456")]),
+                ("p4", [("2023-12-11", "s4", "/not-cleaned")]),
+                ("p5", [("2023-12-11", "s5", "/thing_a")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+        ).results
+
+        self.assertEqual(
+            [
+                ["/cleaned/:id", 2, 2],
+                ["/thing_c", 1, 1],
+                ["/not-cleaned", 1, 1],
+                ["/cleaned/:id/path/:id", 1, 1],
+            ],
+            results,
+        )

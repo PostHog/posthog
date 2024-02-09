@@ -39,8 +39,8 @@ actors_only_math_types = [
     BaseMathType.dau,
     BaseMathType.weekly_active,
     BaseMathType.monthly_active,
-    Literal["unique_group"],
-    Literal["hogql"],
+    "unique_group",
+    "hogql",
 ]
 
 

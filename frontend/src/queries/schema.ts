@@ -1017,6 +1017,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     response?: WebStatsTableQueryResponse
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    doPathCleaning?: boolean
     /** @asType integer */
     limit?: number
 }
