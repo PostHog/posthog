@@ -1,7 +1,10 @@
+import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -64,7 +67,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
         loadKeys: true,
-        createKey: (label: string) => ({ label }),
+        createKeySuccess: (key: PersonalAPIKeyType) => ({ key }),
         updateKey: (data: Partial<Pick<PersonalAPIKeyType, 'label' | 'scopes'>>) => data,
         deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
@@ -112,6 +115,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         : await api.personalApiKeys.update(values.editingKeyId, payload)
 
                 breakpoint()
+
+                if (values.editingKeyId === 'new') {
+                    actions.createKeySuccess(key)
+                }
 
                 lemonToast.success(`Personal API Key saved.`)
 
@@ -187,8 +194,31 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             actions.setEditingKeyValue('scopes', newScopes)
         },
 
-        createKeySuccess: async ({ keys }: { keys: PersonalAPIKeyType[] }) => {
-            keys[0]?.value && (await copyToClipboard(keys[0].value, 'personal API key value'))
+        createKeySuccess: async ({ key }) => {
+            const value = key.value
+
+            if (!value) {
+                return
+            }
+
+            LemonDialog.open({
+                title: 'Personal API Key Created',
+                content: (
+                    <>
+                        <p>Your API key has been created and copied to your clipboard.</p>
+
+                        <CodeSnippet thing="personal API key">{value}</CodeSnippet>
+
+                        <p>
+                            <b>WARNING:</b> For security reasons the key value <b>will only ever be shown once</b>
+                            <br />
+                            Copy it to your destination right away.
+                        </p>
+                    </>
+                ),
+            })
+
+            await copyToClipboard(value, 'personal API key value')
         },
         deleteKeySuccess: () => {
             lemonToast.success(`Personal API key deleted`)

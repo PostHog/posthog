@@ -9,7 +9,6 @@ import {
     LemonTable,
     LemonTag,
     Link,
-    Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -21,7 +20,6 @@ import { useEffect } from 'react'
 
 import { PersonalAPIKeyType } from '~/types'
 
-import { CopyToClipboardInline } from '../../../lib/components/CopyToClipboard'
 import { API_KEY_SCOPE_PRESETS, APIScopes, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
@@ -40,14 +38,6 @@ function EditKeyModal(): JSX.Element {
                 width="40rem"
                 footer={
                     <div>
-                        {isNew ? (
-                            <p className="whitespace-normal -mt-2">
-                                <b>WARNING:</b> For security reasons the key value <b>will only ever be shown once</b>,
-                                immediately after creation.
-                                <br />
-                                Copy it to your destination right away.
-                            </p>
-                        ) : null}
                         <div className="flex flex-1 gap-2 justify-end">
                             <LemonButton type="secondary" onClick={() => setEditingKeyId(null)}>
                                 Cancel
@@ -160,20 +150,6 @@ function PersonalAPIKeysTable(): JSX.Element {
                         )
                     },
                 },
-                // {
-                //     title: 'Value',
-                //     key: 'value',
-                //     dataIndex: 'value',
-                //     render: function RenderValue(value) {
-                //         return value ? (
-                //             <CopyToClipboardInline description="personal API key value">
-                //                 {String(value)}
-                //             </CopyToClipboardInline>
-                //         ) : (
-                //             <i>secret</i>
-                //         )
-                //     },
-                // },
                 {
                     title: 'Scopes',
                     key: 'scopes',
