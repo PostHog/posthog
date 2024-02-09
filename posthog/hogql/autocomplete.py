@@ -1,8 +1,18 @@
-from typing import Callable, List, Optional, cast
-from posthog.hogql.database.database import Database, create_hogql_database
+from copy import copy
+from typing import Callable, Dict, List, Optional, cast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    FloatDatabaseField,
+    IntegerDatabaseField,
     LazyJoin,
     LazyTable,
+    StringDatabaseField,
     StringJSONDatabaseField,
     Table,
     VirtualTable,
@@ -11,7 +21,8 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
-from posthog.hogql.base import AST
+from posthog.hogql.base import AST, CTE, ConstantType
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
@@ -54,18 +65,105 @@ class GetNodeAtPositionTraverser(TraversingVisitor):
         self.selects.pop()
 
 
-def get_table(database: Database, join_expr: ast.JoinExpr) -> None | Table:
+def constant_type_to_database_field(constant_type: ConstantType, name: str) -> DatabaseField:
+    if isinstance(constant_type, ast.BooleanType):
+        return BooleanDatabaseField(name=name)
+    if isinstance(constant_type, ast.IntegerType):
+        return IntegerDatabaseField(name=name)
+    if isinstance(constant_type, ast.FloatType):
+        return FloatDatabaseField(name=name)
+    if isinstance(constant_type, ast.StringType):
+        return StringDatabaseField(name=name)
+    if isinstance(constant_type, ast.DateTimeType):
+        return DateTimeDatabaseField(name=name)
+    if isinstance(constant_type, ast.DateType):
+        return DateDatabaseField(name=name)
+
+    return DatabaseField(name=name)
+
+
+def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dict[str, CTE]]) -> None | Table:
+    assert context.database is not None
+
+    def resolve_fields_on_table(table: Table | None, table_query: ast.SelectQuery) -> Table | None:
+        # Resolve types and only return selected fields
+        if table is None:
+            return None
+
+        try:
+            node = cast(ast.SelectQuery, resolve_types(node=table_query, dialect="hogql", context=context))
+            if node.type is None:
+                return None
+
+            selected_columns = node.type.columns
+            new_fields: Dict[str, FieldOrTable] = {}
+            for name, field in selected_columns.items():
+                if isinstance(field, ast.FieldAliasType):
+                    underlying_field_name = field.alias
+                    if isinstance(field.type, ast.FieldAliasType):
+                        underlying_field_name = field.type.alias
+                    elif isinstance(field.type, ast.ConstantType):
+                        constant_field = constant_type_to_database_field(field.type, name)
+                        new_fields[name] = constant_field
+                        continue
+                    elif isinstance(field, ast.FieldType):
+                        underlying_field_name = field.name
+                    else:
+                        underlying_field_name = name
+                elif isinstance(field, ast.FieldType):
+                    underlying_field_name = field.name
+                else:
+                    underlying_field_name = name
+
+                new_fields[name] = table.fields[underlying_field_name]
+
+            table_name = table.to_printed_hogql()
+
+            # Return a new table with a reduced field set
+            class AnonTable(Table):
+                fields: Dict[str, FieldOrTable] = new_fields
+
+                def to_printed_hogql(self):
+                    # Use the base table name for resolving property definitions later
+                    return table_name
+
+            return AnonTable()
+        except Exception:
+            return None
+
     if isinstance(join_expr.table, ast.Field):
         table_name = str(join_expr.table.chain[0])
-        if database.has_table(table_name):
-            return database.get_table(table_name)
+        if ctes is not None:
+            # Handle CTEs
+            cte = ctes.get(table_name)
+            if cte is not None:
+                if cte.cte_type == "subquery" and isinstance(cte.expr, ast.SelectQuery):
+                    query = cast(ast.SelectQuery, cte.expr)
+                    if query.select_from is not None:
+                        table = get_table(context, query.select_from, ctes)
+                        return resolve_fields_on_table(table, query)
+
+        # Handle a base table
+        if context.database.has_table(table_name):
+            return context.database.get_table(table_name)
+    elif isinstance(join_expr.table, ast.SelectQuery):
+        if join_expr.table.select_from is None:
+            return None
+
+        # Recursively get the base table
+        underlying_table = get_table(context, join_expr.table.select_from, ctes)
+
+        if underlying_table is None:
+            return None
+
+        return resolve_fields_on_table(underlying_table, join_expr.table)
     return None
 
 
 def extend_responses(
     keys: List[str],
     suggestions: List[AutocompleteCompletionItem],
-    kind: Kind = Kind.Field,
+    kind: Kind = Kind.Variable,
     insert_text: Optional[Callable[[str], str]] = None,
 ) -> None:
     suggestions.extend(
@@ -84,19 +182,38 @@ MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
 
 
+# TODO: Support ast.SelectUnionQuery nodes
 def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocompleteResponse:
     response = HogQLAutocompleteResponse(suggestions=[])
 
     database = create_hogql_database(team_id=team.pk, team_arg=team)
+    context = HogQLContext(team_id=team.pk, team=team, database=database)
 
-    for extra_characters in ["", MATCH_ANY_CHARACTER]:
+    original_query_select = copy(query.select)
+    original_end_position = copy(query.endPosition)
+
+    for extra_characters, length_to_add in [
+        ("", 0),
+        (MATCH_ANY_CHARACTER, len(MATCH_ANY_CHARACTER)),
+        (" FROM events", 0),
+        (f"{MATCH_ANY_CHARACTER} FROM events", len(MATCH_ANY_CHARACTER)),
+    ]:
         try:
-            query.select = query.select[: query.endPosition] + extra_characters + query.select[query.endPosition :]
-            query.endPosition = query.endPosition + len(extra_characters)
+            query.select = (
+                original_query_select[:original_end_position]
+                + extra_characters
+                + original_query_select[original_end_position:]
+            )
+            query.endPosition = original_end_position + length_to_add
 
             select_ast = parse_select(query.select)
             if query.filters:
                 select_ast = cast(ast.SelectQuery, replace_filters(select_ast, query.filters, team))
+
+            if isinstance(select_ast, ast.SelectQuery):
+                ctes = select_ast.ctes
+            else:
+                ctes = select_ast.select_queries[0].ctes
 
             find_node = GetNodeAtPositionTraverser(select_ast, query.startPosition, query.endPosition)
             node = find_node.node
@@ -119,7 +236,7 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                 # TODO: add logic for FieldTraverser field types
 
                 # Handle fields
-                table = get_table(database, nearest_select.select_from)
+                table = get_table(context, nearest_select.select_from, ctes)
                 if table is None:
                     continue
 
@@ -134,7 +251,8 @@ def get_hogql_autocomplete(query: HogQLAutocomplete, team: Team) -> HogQLAutocom
                     if table_has_alias and index == 0:
                         continue
 
-                    is_last_part = index >= (chain_len - 2)  # Ignore last chain part
+                    # Ignore last chain part, it's likely an incomplete word or added characters
+                    is_last_part = index >= (chain_len - 2)
 
                     if is_last_part:
                         if last_table.fields.get(str(chain_part)) is None:

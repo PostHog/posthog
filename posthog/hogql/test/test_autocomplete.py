@@ -35,10 +35,22 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._query_response(query=query, start=7, end=7)
         assert len(results.suggestions) != 0
 
+    def test_autocomplete_functions(self):
+        query = "select  from events"
+        results = self._query_response(query=query, start=7, end=7)
+        assert "toDateTime" in [suggestion.label for suggestion in results.suggestions]
+        assert "toDateTime()" in [suggestion.insertText for suggestion in results.suggestions]
+
     def test_autocomplete_persons_suggestions(self):
         query = "select  from persons"
         results = self._query_response(query=query, start=7, end=7)
         assert len(results.suggestions) != 0
+
+    def test_autocomplete_assume_events_table(self):
+        query = "select "
+        results = self._query_response(query=query, start=7, end=7)
+        assert len(results.suggestions) != 0
+        assert "event" in [suggestion.label for suggestion in results.suggestions]
 
     def test_autocomplete_events_properties(self):
         self._create_properties()
@@ -110,3 +122,29 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._query_response(query=query, start=29, end=29)
         assert len(results.suggestions) == 1
         assert results.suggestions[0].label == "some_person_value"
+
+    def test_autocomplete_subquery_cte(self):
+        query = "select e from (select event from events)"
+        results = self._query_response(query=query, start=7, end=8)
+        assert results.suggestions[0].label == "event"
+        assert "properties" not in [suggestion.label for suggestion in results.suggestions]
+
+    def test_autocomplete_with_cte(self):
+        query = "with blah as (select event from events) select e from blah"
+        results = self._query_response(query=query, start=47, end=48)
+        assert results.suggestions[0].label == "event"
+        assert "properties" not in [suggestion.label for suggestion in results.suggestions]
+
+    def test_autocomplete_cte_alias(self):
+        query = "select p from (select event as potato from events)"
+        results = self._query_response(query=query, start=7, end=8)
+        assert results.suggestions[0].label == "potato"
+        assert "event" not in [suggestion.label for suggestion in results.suggestions]
+        assert "properties" not in [suggestion.label for suggestion in results.suggestions]
+
+    def test_autocomplete_cte_constant_type(self):
+        query = "select p from (select 'hello' as potato from events)"
+        results = self._query_response(query=query, start=7, end=8)
+        assert results.suggestions[0].label == "potato"
+        assert "event" not in [suggestion.label for suggestion in results.suggestions]
+        assert "properties" not in [suggestion.label for suggestion in results.suggestions]

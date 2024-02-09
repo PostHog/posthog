@@ -86,7 +86,7 @@ class Database(BaseModel):
     _table_names: ClassVar[List[str]] = [
         "events",
         "groups",
-        "person",
+        "persons",
         "person_distinct_id2",
         "person_overrides",
         "session_replay_events",

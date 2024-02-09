@@ -82,6 +82,16 @@ const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): la
     }
 }
 
+const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string): string => {
+    if (kind === 'Variable') {
+        return `1-${label}`
+    }
+    if (kind === 'Method' || kind === 'Function') {
+        return `2-${label}`
+    }
+    return `3-${label}`
+}
+
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
@@ -226,6 +236,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
                                         const suggestions = completionItems.map<languages.CompletionItem>((item) => {
                                             const kind = convertCompletionItemKind(item.kind)
+                                            const sortText = kindToSortText(item.kind, item.label)
 
                                             return {
                                                 label: item.label,
@@ -238,6 +249,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                                     endColumn: word.endColumn,
                                                 },
                                                 kind,
+                                                sortText,
                                                 command:
                                                     kind === languages.CompletionItemKind.Function
                                                         ? {
