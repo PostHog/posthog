@@ -14,7 +14,6 @@ import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
-import { OnboardingVerificationAndConfigStep } from './OnboardingVerificationAndConfigStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
@@ -87,10 +86,8 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
             />
-            <OnboardingVerificationAndConfigStep
-                listeningForName="event"
-                teamPropertyToVerify="ingested_event"
-                stepKey={OnboardingStepKey.VERIFY_AND_CONFIGURE}
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
                 options={[
                     {
                         title: 'Autocapture frontend interactions',

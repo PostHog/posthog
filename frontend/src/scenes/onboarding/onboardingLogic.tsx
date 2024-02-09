@@ -23,7 +23,6 @@ export enum OnboardingStepKey {
     PLANS = 'plans',
     OTHER_PRODUCTS = 'other_products',
     VERIFY = 'verify',
-    VERIFY_AND_CONFIGURE = 'verify_and_configure',
     PRODUCT_CONFIGURATION = 'configure',
     INVITE_TEAMMATES = 'invite_teammates',
 }

@@ -40,9 +40,8 @@ function OnboardingCompletedButton({
                 onClick={() => {
                     if (getStartedActionOverride) {
                         getStartedActionOverride()
-                    } else {
-                        router.actions.push(onboardingUrl)
                     }
+                    router.actions.push(onboardingUrl)
                 }}
             >
                 Set up again
@@ -65,9 +64,8 @@ function OnboardingNotCompletedButton({
             onClick={() => {
                 if (getStartedActionOverride) {
                     getStartedActionOverride()
-                } else {
-                    router.actions.push(url)
                 }
+                router.actions.push(url)
             }}
         >
             Get started
@@ -120,7 +118,6 @@ export function ProductCard({
                         productKey={product.type as ProductKey}
                         getStartedActionOverride={() => {
                             setIncludeIntro(false)
-                            router.actions.push(urls.onboarding(product.type))
                         }}
                     />
                 ) : (

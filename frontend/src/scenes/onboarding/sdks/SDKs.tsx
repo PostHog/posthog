@@ -1,9 +1,12 @@
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useInterval } from 'lib/hooks/useInterval'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 import React from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { SDKInstructionsMap } from '~/types'
@@ -16,17 +19,24 @@ import { SDKSnippet } from './SDKSnippet'
 export function SDKs({
     sdkInstructionMap,
     stepKey = OnboardingStepKey.INSTALL,
+    listeningForName = 'event',
+    teamPropertyToVerify = 'ingested_event',
 }: {
     usersAction?: string
     sdkInstructionMap: SDKInstructionsMap
     subtitle?: string
     stepKey?: OnboardingStepKey
+    listeningForName?: string
+    teamPropertyToVerify?: string
 }): JSX.Element {
+    const { loadCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
         useActions(sdksLogic)
     const { sourceFilter, sdks, selectedSDK, sourceOptions, showSourceOptionsSelect, showSideBySide, panel } =
         useValues(sdksLogic)
-    const { productKey } = useValues(onboardingLogic)
+    const { productKey, hasNextStep } = useValues(onboardingLogic)
+
     const { width } = useWindowSize()
 
     const minimumSideBySideSize = 768
@@ -39,11 +49,32 @@ export function SDKs({
         width && setShowSideBySide(width > minimumSideBySideSize)
     }, [width])
 
+    useInterval(() => {
+        if (!currentTeam?.[teamPropertyToVerify]) {
+            loadCurrentTeam()
+        }
+    }, 2000)
+
     return (
         <OnboardingStep
             title="Install"
             stepKey={stepKey}
-            continueOverride={!showSideBySide && panel === 'options' ? <></> : undefined}
+            continueOverride={
+                !showSideBySide && panel === 'options' ? (
+                    <></>
+                ) : !currentTeam?.[teamPropertyToVerify] ? (
+                    <LemonButton type="secondary" loading>
+                        Listening for events
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        sideIcon={hasNextStep ? <IconArrowRight /> : null}
+                        type="primary"
+                        status="alt"
+                    >{`${capitalizeFirstLetter(listeningForName)}s received! Continue`}</LemonButton>
+                )
+            }
+            showSkip={!currentTeam?.[teamPropertyToVerify]}
             // backActionOverride={!showSideBySide && panel === 'instructions' ? () => setPanel('options') : undefined}
         >
             <div className="flex gap-x-8 mt-8">
