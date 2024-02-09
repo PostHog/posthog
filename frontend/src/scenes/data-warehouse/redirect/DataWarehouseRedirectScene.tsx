@@ -1,7 +1,7 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { sourceFormLogic } from 'scenes/data-warehouse/external/sourceFormLogic'
+import { sourceFormLogic } from 'scenes/data-warehouse/external/forms/sourceFormLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {

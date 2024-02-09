@@ -1,6 +1,7 @@
 import { RGBColor } from 'd3'
 
-import { FunnelPathType, PathsFilterType } from '~/types'
+import { PathsFilter } from '~/queries/schema'
+import { FunnelPathType } from '~/types'
 
 export interface PathTargetLink {
     average_conversion_time: number
@@ -110,19 +111,16 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
         : name
 }
 
-export const isSelectedPathStartOrEnd = (
-    pathsFilter: Partial<PathsFilterType>,
-    pathItemCard: PathNodeData
-): boolean => {
+export const isSelectedPathStartOrEnd = (pathsFilter: PathsFilter, pathItemCard: PathNodeData): boolean => {
     const cardName = pageUrl(pathItemCard)
     const isPathStart = pathItemCard.targetLinks.length === 0
     const isPathEnd = pathItemCard.sourceLinks.length === 0
-    const { start_point, end_point, funnel_paths, funnel_filter } = pathsFilter
+    const { startPoint, endPoint, funnelPaths, funnelFilter } = pathsFilter
     return (
-        (start_point === cardName && isPathStart) ||
-        (end_point === cardName && isPathEnd) ||
-        (funnel_paths === FunnelPathType.between &&
-            ((cardName === funnel_filter?.events[funnel_filter.funnel_step - 1].name && isPathEnd) ||
-                (cardName === funnel_filter?.events[funnel_filter.funnel_step - 2].name && isPathStart)))
+        (startPoint === cardName && isPathStart) ||
+        (endPoint === cardName && isPathEnd) ||
+        (funnelPaths === FunnelPathType.between &&
+            ((cardName === funnelFilter?.events[funnelFilter.funnel_step - 1].name && isPathEnd) ||
+                (cardName === funnelFilter?.events[funnelFilter.funnel_step - 2].name && isPathStart)))
     )
 }

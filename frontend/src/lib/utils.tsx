@@ -882,7 +882,8 @@ export function dateFilterToText(
     defaultValue: string | null,
     dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
-    dateFormat: string = DATE_FORMAT
+    dateFormat: string = DATE_FORMAT,
+    startOfRange: boolean = false
 ): string | null {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return formatDateRange(dateFrom, dateTo, dateFormat)
@@ -917,18 +918,24 @@ export function dateFilterToText(
     }
 
     if (dateFrom) {
-        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const dateOption: (typeof dateOptionsMap)[keyof typeof dateOptionsMap] = dateOptionsMap[dateFrom.slice(-1)]
         const counter = parseInt(dateFrom.slice(1, -1))
         if (dateOption && counter) {
             let date = null
             switch (dateOption) {
-                case 'quarters':
+                case 'year':
+                    date = dayjs().subtract(counter, 'y')
+                    break
+                case 'hour':
+                    date = dayjs().subtract(counter, 'h')
+                    break
+                case 'quarter':
                     date = dayjs().subtract(counter * 3, 'M')
                     break
-                case 'months':
+                case 'month':
                     date = dayjs().subtract(counter, 'M')
                     break
-                case 'weeks':
+                case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
                     break
                 default:
@@ -937,6 +944,8 @@ export function dateFilterToText(
             }
             if (isDateFormatted) {
                 return formatDateRange(date, dayjs().endOf('d'))
+            } else if (startOfRange) {
+                return formatDate(date, dateFormat)
             } else {
                 return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
             }
@@ -1608,6 +1617,20 @@ export class UnexpectedNeverError extends Error {
     }
 }
 
+export function promiseResolveReject<T>(): {
+    resolve: (value: T) => void
+    reject: (reason?: any) => void
+    promise: Promise<T>
+} {
+    let resolve: (value: T) => void
+    let reject: (reason?: any) => void
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+        resolve = innerResolve
+        reject = innerReject
+    })
+    return { resolve: resolve!, reject: reject!, promise }
+}
+
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
     if (timeUnit === TimeUnitType.Year) {
         return timeValue * 365
@@ -1683,7 +1706,13 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
                     continue
                 }
 
-                toReturn[i + '.' + x] = flatObject[x]
+                let j = i
+                if (i.match(/\d+/)) {
+                    // Pad integer values for better sorting
+                    j = i.padStart(3, '0')
+                }
+
+                toReturn[j + '.' + x] = flatObject[x]
             }
         } else {
             toReturn[i] = ob[i]
@@ -1708,11 +1737,20 @@ export const base64Encode = (str: string): string => {
 }
 
 export const base64Decode = (encodedString: string): string => {
+    const data = base64ToUint8Array(encodedString)
+    return new TextDecoder().decode(data)
+}
+
+export const base64ArrayBuffer = (encodedString: string): ArrayBuffer => {
+    const data = base64ToUint8Array(encodedString)
+    return data.buffer
+}
+
+export const base64ToUint8Array = (encodedString: string): Uint8Array => {
     const binString = atob(encodedString)
     const data = new Uint8Array(binString.length)
     for (let i = 0; i < binString.length; i++) {
         data[i] = binString.charCodeAt(i)
     }
-
-    return new TextDecoder().decode(data)
+    return data
 }

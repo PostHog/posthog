@@ -144,7 +144,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.type)
 
     def visit_field_type(self, node: ast.FieldType):
-        self.visit(node.table_type)
+        pass
 
     def visit_select_query_type(self, node: ast.SelectQueryType):
         for expr in node.tables.values():

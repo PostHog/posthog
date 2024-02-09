@@ -42,7 +42,6 @@ from posthog.models.plugin import (
 from posthog.models.utils import UUIDT, generate_random_token
 from posthog.permissions import (
     OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
@@ -306,7 +305,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = PluginSerializer
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         OrganizationMemberPermissions,
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
@@ -631,7 +629,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return representation
 
     def get_plugin_info(self, plugin_config: PluginConfig):
-        if "view" in self.context and self.context["view"].action == "retrieve":
+        if "view" in self.context and self.context["view"].action != "list":
             return PluginSerializer(instance=plugin_config.plugin).data
         else:
             return None
@@ -720,7 +718,6 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = PluginConfigSerializer
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         OrganizationMemberPermissions,
         TeamMemberAccessPermission,
     ]

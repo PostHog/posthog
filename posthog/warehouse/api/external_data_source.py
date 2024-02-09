@@ -28,7 +28,12 @@ from posthog.temporal.data_imports.pipelines.schemas import (
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_access_token_from_code,
 )
+from posthog.warehouse.models.external_data_schema import get_postgres_schemas
+
 import temporalio
+
+from posthog.cloud_utils import is_cloud
+from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -133,10 +138,23 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_stripe_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.HUBSPOT:
             new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.POSTGRES:
+            try:
+                new_source_model, table_names = self._handle_postgres_source(request, *args, **kwargs)
+            except InternalPostgresError:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST, data={"message": "Cannot use internal Postgres database"}
+                )
+            except Exception:
+                raise
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
-        schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+        if source_type == ExternalDataSource.Type.POSTGRES:
+            schemas = tuple(table_names)
+        else:
+            schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+
         for schema in schemas:
             ExternalDataSchema.objects.create(
                 name=schema,
@@ -200,6 +218,43 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model
 
+    def _handle_postgres_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        host = payload.get("host")
+        port = payload.get("port")
+        database = payload.get("dbname")
+
+        user = payload.get("user")
+        password = payload.get("password")
+        schema = payload.get("schema")
+        table_names = payload.get("schemas")
+
+        if not self._validate_postgres_host(host, self.team_id):
+            raise InternalPostgresError()
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "host": host,
+                "port": port,
+                "database": database,
+                "user": user,
+                "password": password,
+                "schema": schema,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model, table_names
+
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()
         return source_type_exists
@@ -262,3 +317,53 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         instance.status = "Running"
         instance.save()
         return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["GET"], detail=False)
+    def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
+        host = request.query_params.get("host")
+        port = request.query_params.get("port")
+        database = request.query_params.get("dbname")
+
+        user = request.query_params.get("user")
+        password = request.query_params.get("password")
+        schema = request.query_params.get("schema")
+
+        if not host or not port or not database or not user or not password or not schema:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Missing required parameters: host, port, database, user, password, schema"},
+            )
+
+        # Validate internal postgres
+        if not self._validate_postgres_host(host, self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Cannot use internal Postgres database"},
+            )
+
+        try:
+            result = get_postgres_schemas(host, port, database, user, password, schema)
+        except Exception as e:
+            logger.exception("Could not fetch Postgres schemas", exc_info=e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not fetch Postgres schemas. Please check all connection details are valid."},
+            )
+
+        result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
+        return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+
+    def _validate_postgres_host(self, host: str, team_id: int) -> bool:
+        if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):
+            if is_cloud():
+                region = get_instance_region()
+                if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
+                    return True
+                else:
+                    return False
+
+        return True
+
+
+class InternalPostgresError(Exception):
+    pass

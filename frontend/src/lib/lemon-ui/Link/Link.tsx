@@ -1,12 +1,16 @@
 import './Link.scss'
 
 import clsx from 'clsx'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import React from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
@@ -53,10 +57,13 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
-// NOTE: Temporarily disabled - owner @corywatilo
-// const isPostHogComDocs = (url: string): boolean => {
-//     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
-// }
+const isDirectLink = (url: string): boolean => {
+    return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
+}
+
+const isPostHogComDocs = (url: string): boolean => {
+    return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
+}
 
 /**
  * Link
@@ -87,8 +94,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        // NOTE: Temporarily disabled - owner @corywatilo
-        // const { openSidePanel } = useActions(sidePanelStateLogic)
+        const { openSidePanel } = useActions(sidePanelStateLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -103,12 +109,11 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            // NOTE: Temporarily disabled - owner @corywatilo
-            // if (typeof to === 'string' && isPostHogComDocs(to)) {
-            //     event.preventDefault()
-            //     openSidePanel(SidePanelTab.Docs, to)
-            //     return
-            // }
+            if (typeof to === 'string' && isPostHogComDocs(to)) {
+                event.preventDefault()
+                openSidePanel(SidePanelTab.Docs, to)
+                return
+            }
 
             if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
@@ -125,7 +130,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
         const href = to
             ? typeof to === 'string'
-                ? to.includes('://')
+                ? isDirectLink(to)
                     ? to
                     : addProjectIdIfMissing(to)
                 : '#'

@@ -19,7 +19,6 @@ from posthog.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
@@ -36,11 +35,7 @@ class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, v
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     sharing_enabled_actions = ["list"]
 
@@ -78,11 +73,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
 
     def get_queryset(self):
         return (

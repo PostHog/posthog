@@ -23,18 +23,18 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
     const { pathsFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { funnel_paths, funnel_filter, start_point, end_point, path_groupings } = pathsFilter || {}
+    const { funnelPaths, funnelFilter, startPoint, endPoint, pathGroupings } = pathsFilter || {}
 
-    const overrideStartInput = funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(funnel_paths)
-    const overrideEndInput = funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(funnel_paths)
+    const overrideStartInput = funnelPaths && [FunnelPathType.between, FunnelPathType.after].includes(funnelPaths)
+    const overrideEndInput = funnelPaths && [FunnelPathType.between, FunnelPathType.before].includes(funnelPaths)
     const overrideInputs = overrideStartInput || overrideEndInput
 
-    const key = position === 'start' ? 'start_point' : 'end_point'
+    const key = position === 'start' ? 'startPoint' : 'endPoint'
     const onChange = (item: string): void => {
         updateInsightFilter({ [key]: item })
     }
     const onReset = (): void => {
-        updateInsightFilter({ [key]: undefined, funnel_filter: undefined, funnel_paths: undefined })
+        updateInsightFilter({ [key]: undefined, funnelFilter: undefined, funnelPaths: undefined })
     }
 
     function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
@@ -65,18 +65,18 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
     }
 
     function getStartPointLabel(): JSX.Element {
-        if (funnel_paths) {
-            if (funnel_paths === FunnelPathType.after) {
-                return _getStepLabel(funnel_filter, funnel_filter?.funnel_step)
-            } else if (funnel_paths === FunnelPathType.between) {
+        if (funnelPaths) {
+            if (funnelPaths === FunnelPathType.after) {
+                return _getStepLabel(funnelFilter, funnelFilter?.funnel_step)
+            } else if (funnelPaths === FunnelPathType.between) {
                 // funnel_step targets the later of the 2 events when specifying between so the start point index is shifted back 1
-                return _getStepLabel(funnel_filter, funnel_filter?.funnel_step, -1)
+                return _getStepLabel(funnelFilter, funnelFilter?.funnel_step, -1)
             } else {
                 return <span />
             }
         } else {
-            return start_point ? (
-                <span className="label">{start_point}</span>
+            return startPoint ? (
+                <span className="label">{startPoint}</span>
             ) : (
                 <span className="label text-muted">Add start point</span>
             )
@@ -84,15 +84,15 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
     }
 
     function getEndPointLabel(): JSX.Element {
-        if (funnel_paths) {
-            if (funnel_paths === FunnelPathType.before || funnel_paths === FunnelPathType.between) {
-                return _getStepLabel(funnel_filter, funnel_filter?.funnel_step)
+        if (funnelPaths) {
+            if (funnelPaths === FunnelPathType.before || funnelPaths === FunnelPathType.between) {
+                return _getStepLabel(funnelFilter, funnelFilter?.funnel_step)
             } else {
                 return <span />
             }
         } else {
-            return end_point ? (
-                <span className="label">{end_point}</span>
+            return endPoint ? (
+                <span className="label">{endPoint}</span>
             ) : (
                 <span className="label text-muted">Add end point</span>
             )
@@ -103,18 +103,18 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
         start: {
             index: 0,
             getLabel: getStartPointLabel,
-            pathItem: start_point,
-            closeButtonEnabled: start_point || overrideStartInput,
+            pathItem: startPoint,
+            closeButtonEnabled: startPoint || overrideStartInput,
             disabled: overrideEndInput && !overrideStartInput,
-            funnelFilterLink: funnel_filter && overrideStartInput,
+            funnelFilterLink: funnelFilter && overrideStartInput,
         },
         end: {
             index: 1,
             getLabel: getEndPointLabel,
-            pathItem: end_point,
-            closeButtonEnabled: end_point || overrideEndInput,
+            pathItem: endPoint,
+            closeButtonEnabled: endPoint || overrideEndInput,
             disabled: overrideStartInput && !overrideEndInput,
-            funnelFilterLink: funnel_filter && overrideEndInput,
+            funnelFilterLink: funnelFilter && overrideEndInput,
         },
     }[position]
 
@@ -125,7 +125,7 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             onChange={onChange}
             taxonomicGroupTypes={taxonomicGroupTypes}
             disabled={overrideInputs}
-            wildcardOptions={path_groupings?.map((name) => ({ name }))}
+            wildcardOptions={pathGroupings?.map((name) => ({ name }))}
         >
             <LemonButton
                 data-attr={'new-prop-filter-' + positionOptions.index}
@@ -138,7 +138,7 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
                     positionOptions.funnelFilterLink
                         ? () => {
                               router.actions.push(
-                                  combineUrl('/insights', encodeParams(funnel_filter as Record<string, any>, '?')).url
+                                  combineUrl('/insights', encodeParams(funnelFilter as Record<string, any>, '?')).url
                               )
                           }
                         : () => {}

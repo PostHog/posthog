@@ -579,7 +579,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.refreshAllDashboardItems({
                         tiles: [dashboards['5'].tiles[0]],
-                        action: 'refresh_manual',
+                        action: 'refresh',
                     })
                 })
                     .toFinishAllListeners()

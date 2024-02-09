@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
@@ -75,6 +74,8 @@ class QueryDateRange:
                 self._date_range.date_from,
                 self._team.timezone_info,
                 now=self.now_with_timezone,
+                # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
+                always_truncate=True,
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -114,6 +115,38 @@ class QueryDateRange:
     @cached_property
     def interval_name(self) -> Literal["hour", "day", "week", "month"]:
         return self.interval_type.name
+
+    def all_values(self) -> List[str]:
+        start: datetime = self.date_from()
+        end: datetime = self.date_to()
+        interval = self.interval_name
+
+        if interval == "hour":
+            start = start.replace(minute=0, second=0, microsecond=0)
+        elif interval == "day":
+            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif interval == "week":
+            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            week_start_alignment_days = start.isoweekday() % 7
+            if self._team.week_start_day == WeekStartDay.MONDAY:
+                week_start_alignment_days = start.weekday()
+            start -= timedelta(days=week_start_alignment_days)
+        elif interval == "month":
+            start = start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        values: List[str] = []
+        while start <= end:
+            if interval == "hour":
+                values.append(start.strftime("%Y-%m-%d %H:%M:%S"))
+            else:
+                values.append(start.strftime("%Y-%m-%d"))
+            start += relativedelta(
+                days=1 if interval == "day" else 0,
+                weeks=1 if interval == "week" else 0,
+                months=1 if interval == "month" else 0,
+                hours=1 if interval == "hour" else 0,
+            )
+        return values
 
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(
@@ -218,22 +251,6 @@ class QueryDateRange:
             else self.date_from_as_hogql(),
         }
 
-    def to_properties(self, field: Optional[List[str]] = None) -> List[ast.Expr]:
-        if not field:
-            field = ["timestamp"]
-        return [
-            ast.CompareOperation(
-                left=ast.Field(chain=field),
-                op=CompareOperationOp.LtEq,
-                right=self.date_to_as_hogql(),
-            ),
-            ast.CompareOperation(
-                left=ast.Field(chain=field),
-                op=CompareOperationOp.Gt,
-                right=self.date_to_as_hogql(),
-            ),
-        ]
-
 
 class QueryDateRangeWithIntervals(QueryDateRange):
     def __init__(
@@ -272,6 +289,8 @@ class QueryDateRangeWithIntervals(QueryDateRange):
             if self._team.week_start_day == WeekStartDay.MONDAY:
                 week_start_alignment_days = date_from.weekday()
             return date_from - timedelta(days=week_start_alignment_days)
+        elif self._interval == IntervalType.month:
+            return self.date_to().replace(day=1, hour=0, minute=0, second=0, microsecond=0) - delta
         else:
             date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)
             return date_to - delta

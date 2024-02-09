@@ -190,7 +190,7 @@ export function PieChart({
                             const [tooltipRoot, tooltipEl] = ensureTooltip()
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
-                                if (trendsFilter?.show_legend) {
+                                if (trendsFilter?.showLegend) {
                                     highlightSeries(null)
                                 }
                                 tooltipEl.style.opacity = '0'

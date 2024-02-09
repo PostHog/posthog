@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 import posthoganalytics
+import pydantic
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -33,6 +34,7 @@ from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails, PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
+from ...schema import PathCleaningFilter
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -182,6 +184,7 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config: models.JSONField = models.JSONField(null=True, blank=True)
+    session_replay_config: models.JSONField = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -363,6 +366,15 @@ class Team(UUIDClassicModel):
     @property
     def timezone_info(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
+
+    def path_cleaning_filter_models(self) -> list[PathCleaningFilter]:
+        filters = []
+        for f in self.path_cleaning_filters:
+            try:
+                filters.append(PathCleaningFilter.model_validate(f))
+            except pydantic.ValidationError:
+                continue
+        return filters
 
     def __str__(self):
         if self.name:

@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 
 class TestSparkline(BaseTest):
     def test_sparkline(self):
-        response = execute_hogql_query("select sparkline([1,2,3])", self.team)
+        response = execute_hogql_query("select sparkline([1,2,3])", self.team, pretty=False)
         self.assertEqual(
             response.clickhouse,
             f"SELECT tuple(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s, [1, 2, 3]) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",

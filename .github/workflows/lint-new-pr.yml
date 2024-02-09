@@ -16,7 +16,7 @@ jobs:
               run: |
                   FILTERED_BODY=$( \
                       sed -r -e \
-                      '/^(\.\.\.)|(\*)|(#+ )|(- )|(<!--)|(👉)/d' \
+                      '/^(\.\.\.)|(\*)|(#+ )|(<!--)|(👉)/d' \
                       <<< $RAW_BODY \
                   )
                   echo "::debug::Filtered PR body to $FILTERED_BODY"

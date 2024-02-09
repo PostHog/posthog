@@ -14,6 +14,7 @@ import {
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
@@ -87,7 +88,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
         className,
         padded = true,
-        actionable = false,
         middleware,
         sameWidth = false,
         maxContentWidth = false,
@@ -225,7 +225,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                         <div
                             className={clsx(
                                 'Popover',
-                                actionable && 'Popover--actionable',
+                                padded && 'Popover--padded',
                                 maxContentWidth && 'Popover--max-content-width',
                                 !isAttached && 'Popover--top-centered',
                                 showArrow && 'Popover--with-arrow',
@@ -252,7 +252,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             onMouseLeave={onMouseLeaveInside}
                             aria-level={currentPopoverLevel}
                         >
-                            <div className={clsx('Popover__box', !padded && 'p-0')}>
+                            <div className="Popover__box">
                                 {showArrow && isAttached && (
                                     // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
                                     <div
@@ -262,9 +262,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                         style={arrowStyle}
                                     />
                                 )}
-                                <div className="Popover__content" ref={contentRef}>
+                                <ScrollableShadows className="Popover__content" ref={contentRef} direction="vertical">
                                     {overlay}
-                                </div>
+                                </ScrollableShadows>
                             </div>
                         </div>
                     </PopoverOverlayContext.Provider>

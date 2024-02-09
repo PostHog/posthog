@@ -1,16 +1,18 @@
 import './RollingDateRangeFilter.scss'
 
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { dateFilterToText } from 'lib/utils'
 
 import type { rollingDateRangeFilterLogicType } from './rollingDateRangeFilterLogicType'
 
 const dateOptionsMap = {
+    y: 'years',
     q: 'quarters',
     m: 'months',
     w: 'weeks',
     d: 'days',
+    h: 'hours',
 } as const
 
 export type DateOption = (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
@@ -20,6 +22,7 @@ export type RollingDateFilterLogicPropsType = {
     onChange?: (fromDate: string) => void
     dateFrom?: Dayjs | string | null
     max?: number | null
+    pageKey?: string
 }
 
 const counterDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): number => {
@@ -32,7 +35,7 @@ const counterDefault = (selected: boolean | undefined, dateFrom: Dayjs | string 
     return 3
 }
 
-const dateOptionDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): string => {
+const dateOptionDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): DateOption => {
     if (selected && dateFrom && typeof dateFrom === 'string') {
         const dateOption = dateOptionsMap[dateFrom.slice(-1)]
         if (dateOption) {
@@ -44,15 +47,16 @@ const dateOptionDefault = (selected: boolean | undefined, dateFrom: Dayjs | stri
 
 export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'RollingDateRangeFilterLogic']),
+    props({} as RollingDateFilterLogicPropsType),
+    key(({ pageKey }) => pageKey ?? 'unknown'),
     actions({
         increaseCounter: true,
         decreaseCounter: true,
         setCounter: (counter: number | null | undefined) => ({ counter }),
-        setDateOption: (option: string) => ({ option }),
+        setDateOption: (option: DateOption) => ({ option }),
         toggleDateOptionsSelector: true,
         select: true,
     }),
-    props({} as RollingDateFilterLogicPropsType),
     reducers(({ props }) => ({
         counter: [
             counterDefault(props.selected, props.dateFrom) as number | null,
@@ -84,17 +88,23 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
     selectors(() => ({
         value: [
             (s) => [s.counter, s.dateOption],
-            (counter: number | null, dateOption: string) => {
+            (counter, dateOption) => {
                 if (!counter) {
                     return ''
                 }
                 switch (dateOption) {
+                    case 'years':
+                        return `-${counter}y`
                     case 'quarters':
                         return `-${counter}q`
                     case 'months':
                         return `-${counter}m`
                     case 'weeks':
                         return `-${counter}w`
+                    case 'days':
+                        return `-${counter}d`
+                    case 'hours':
+                        return `-${counter}h`
                     default:
                         return `-${counter}d`
                 }
@@ -104,6 +114,20 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
             (s) => [s.value],
             (value: string) => {
                 return dateFilterToText(value, undefined, 'Custom rolling range', [], true)
+            },
+        ],
+        startOfDateRange: [
+            (s) => [s.value],
+            (value: string) => {
+                return dateFilterToText(
+                    value,
+                    undefined,
+                    'N/A',
+                    [],
+                    false,
+                    value.slice(-1) === 'h' ? 'MMMM D, YYYY HH:mm:ss' : 'MMMM D, YYYY',
+                    true
+                )
             },
         ],
     })),

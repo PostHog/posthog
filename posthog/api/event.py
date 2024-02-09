@@ -9,6 +9,7 @@ from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -26,7 +27,6 @@ from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.queries.property_values import get_property_values_for_key
@@ -58,6 +58,30 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
+class UncountedLimitOffsetPagination(LimitOffsetPagination):
+    """
+    the events api works with the default LimitOffsetPagination, but the
+    results don't have a count, so we need to override the pagination class
+    to remove the count from the response schema
+    """
+
+    def get_paginated_response_schema(self, schema):
+        return {
+            "type": "object",
+            "properties": {
+                "next": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "http://api.example.org/accounts/?{offset_param}=400&{limit_param}=100".format(
+                        offset_param=self.offset_query_param, limit_param=self.limit_query_param
+                    ),
+                },
+                "results": schema,
+            },
+        }
+
+
 class EventViewSet(
     StructuredViewSetMixin,
     mixins.RetrieveModelMixin,
@@ -66,12 +90,9 @@ class EventViewSet(
 ):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    pagination_class = UncountedLimitOffsetPagination
 
     def _build_next_url(
         self,
@@ -89,6 +110,13 @@ class EventViewSet(
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
+        description="""
+        This endpoint allows you to list and filter events.
+        It is effectively deprecated and is kept only for backwards compatibility.
+        If you ever ask about it you will be advised to not use it...
+        If you want to ad-hoc list or aggregate events, use the Query endpoint instead.
+        If you want to export all events or many pages of events you should use our CDP/Batch Exports products instead.
+        """,
         parameters=[
             OpenApiParameter(
                 "event",
@@ -129,7 +157,7 @@ class EventViewSet(
                 description="The maximum number of results to return",
             ),
             PropertiesSerializer(required=False),
-        ]
+        ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
@@ -166,7 +194,7 @@ class EventViewSet(
             )
 
             # Retry the query without the 1 day optimization
-            if len(query_result) < limit and not request.GET.get("after"):
+            if len(query_result) < limit:
                 query_result = query_events_list(
                     unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,

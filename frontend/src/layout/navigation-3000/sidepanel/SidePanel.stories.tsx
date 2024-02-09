@@ -45,10 +45,6 @@ export const SidePanelDocs: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Docs} />
 }
 
-export const SidePanelWelcome: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Welcome} />
-}
-
 export const SidePanelSettings: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Settings} />
 }

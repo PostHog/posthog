@@ -132,7 +132,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
             tooltipPlacement={optionTooltipPlacement}
             sameWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
-            actionable
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
             activeItemIndex={items

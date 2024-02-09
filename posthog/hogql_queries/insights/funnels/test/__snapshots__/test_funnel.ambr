@@ -1,0 +1,955 @@
+# serializer version: 1
+# name: TestFOSSFunnel.test_funnel_conversion_window_seconds
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         countIf(ifNull(equals(steps, 3), 0)) AS step_3,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         avg(step_2_average_conversion_time_inner) AS step_2_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time,
+         median(step_2_median_conversion_time_inner) AS step_2_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time,
+                               step_2_conversion_time AS step_2_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  step_2 AS step_2,
+                  latest_2 AS latest_2,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalSecond(15))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalSecond(15))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalSecond(15))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     latest_1 AS latest_1,
+                     step_2 AS step_2,
+                     min(latest_2) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
+              FROM
+                (SELECT aggregation_target AS aggregation_target,
+                        timestamp AS timestamp,
+                        step_0 AS step_0,
+                        latest_0 AS latest_0,
+                        step_1 AS step_1,
+                        latest_1 AS latest_1,
+                        step_2 AS step_2,
+                        if(ifNull(less(latest_2, latest_1), 0), NULL, latest_2) AS latest_2
+                 FROM
+                   (SELECT aggregation_target AS aggregation_target,
+                           timestamp AS timestamp,
+                           step_0 AS step_0,
+                           latest_0 AS latest_0,
+                           step_1 AS step_1,
+                           min(latest_1) OVER (PARTITION BY aggregation_target
+                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1,
+                                              step_2 AS step_2,
+                                              min(latest_2) OVER (PARTITION BY aggregation_target
+                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
+                    FROM
+                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                              e__pdi.person_id AS aggregation_target,
+                              if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                              if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                              if(equals(e.event, 'step three'), 1, 0) AS step_2,
+                              if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
+                       FROM events AS e
+                       INNER JOIN
+                         (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                                 person_distinct_id2.distinct_id AS distinct_id
+                          FROM person_distinct_id2
+                          WHERE equals(person_distinct_id2.team_id, 2)
+                          GROUP BY person_distinct_id2.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                       WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two')))))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                   and isNull(max_steps)))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
+  '''
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 15 SECOND
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 15 SECOND, 3, if(latest_0 <= latest_1
+                                                                          AND latest_1 <= latest_0 + INTERVAL 15 SECOND, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 15 SECOND, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 15 SECOND, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              if(event = 'step one', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = 'step two', 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = 'step three', 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['step one', 'step three', 'step two']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC') )
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-14 23:59:59', 'UTC')
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps)
+  WHERE steps IN [2, 3]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
+  '''
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('stopped_after_signup',
+                        'stopped_after_pay')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'stopped_after_signup', -1, 0)
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2.1
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         countIf(ifNull(equals(steps, 3), 0)) AS step_3,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         avg(step_2_average_conversion_time_inner) AS step_2_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time,
+         median(step_2_median_conversion_time_inner) AS step_2_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time,
+                               step_2_conversion_time AS step_2_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  step_2 AS step_2,
+                  latest_2 AS latest_2,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     latest_1 AS latest_1,
+                     step_2 AS step_2,
+                     min(latest_2) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
+              FROM
+                (SELECT aggregation_target AS aggregation_target,
+                        timestamp AS timestamp,
+                        step_0 AS step_0,
+                        latest_0 AS latest_0,
+                        step_1 AS step_1,
+                        latest_1 AS latest_1,
+                        step_2 AS step_2,
+                        if(ifNull(less(latest_2, latest_1), 0), NULL, latest_2) AS latest_2
+                 FROM
+                   (SELECT aggregation_target AS aggregation_target,
+                           timestamp AS timestamp,
+                           step_0 AS step_0,
+                           latest_0 AS latest_0,
+                           step_1 AS step_1,
+                           min(latest_1) OVER (PARTITION BY aggregation_target
+                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1,
+                                              step_2 AS step_2,
+                                              min(latest_2) OVER (PARTITION BY aggregation_target
+                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
+                    FROM
+                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                              ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id) AS aggregation_target,
+                              if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                              if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)button(\\.|$|;|:)'), match(e.elements_chain, '(text="Pay\\ \\$10")')), 1, 0) AS step_1,
+                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                              if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)a(\\.|$|;|:)'), match(e.elements_chain, '(href="/movie")')), 1, 0) AS step_2,
+                              if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
+                       FROM events AS e
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
+                                 person_overrides.old_person_id AS old_person_id
+                          FROM person_overrides
+                          WHERE equals(person_overrides.team_id, 2)
+                          GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+                       WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2011-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$autocapture', 'user signed up')))))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                   and isNull(max_steps)))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e__pdi.person_id AS aggregation_target,
+                        if(and(equals(e.event, 'user signed up'), ifNull(in(e__pdi.person_id,
+                                                                              (SELECT cohortpeople.person_id AS person_id
+                                                                               FROM cohortpeople
+                                                                               WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 2))
+                                                                               GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                               HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 INNER JOIN
+                   (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                           person_distinct_id2.distinct_id AS distinct_id
+                    FROM person_distinct_id2
+                    WHERE equals(person_distinct_id2.team_id, 2)
+                    GROUP BY person_distinct_id2.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                 WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                   and isNull(max_steps)))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_property_groups
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         countIf(ifNull(equals(steps, 3), 0)) AS step_3,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         avg(step_2_average_conversion_time_inner) AS step_2_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time,
+         median(step_2_median_conversion_time_inner) AS step_2_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) AS step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) AS step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time,
+                               step_2_conversion_time AS step_2_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  step_2 AS step_2,
+                  latest_2 AS latest_2,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     latest_1 AS latest_1,
+                     step_2 AS step_2,
+                     min(latest_2) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
+              FROM
+                (SELECT aggregation_target AS aggregation_target,
+                        timestamp AS timestamp,
+                        step_0 AS step_0,
+                        latest_0 AS latest_0,
+                        step_1 AS step_1,
+                        latest_1 AS latest_1,
+                        step_2 AS step_2,
+                        if(ifNull(less(latest_2, latest_1), 0), NULL, latest_2) AS latest_2
+                 FROM
+                   (SELECT aggregation_target AS aggregation_target,
+                           timestamp AS timestamp,
+                           step_0 AS step_0,
+                           latest_0 AS latest_0,
+                           step_1 AS step_1,
+                           min(latest_1) OVER (PARTITION BY aggregation_target
+                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1,
+                                              step_2 AS step_2,
+                                              min(latest_2) OVER (PARTITION BY aggregation_target
+                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_2
+                    FROM
+                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                              e__pdi.person_id AS aggregation_target,
+                              if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                              if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha.com'), 0)), 1, 0) AS step_1,
+                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                              if(and(equals(e.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'aloha2.com'), 0)), 1, 0) AS step_2,
+                              if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
+                       FROM events AS e
+                       INNER JOIN
+                         (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                                 person_distinct_id2.distinct_id AS distinct_id
+                          FROM person_distinct_id2
+                          WHERE equals(person_distinct_id2.team_id, 2)
+                          GROUP BY person_distinct_id2.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                       INNER JOIN
+                         (SELECT person.id AS id,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'age'), ''), 'null'), '^"|"$', '') AS properties___age
+                          FROM person
+                          WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                                           (SELECT person.id AS id, max(person.version) AS version
+                                                                            FROM person
+                                                                            WHERE equals(person.team_id, 2)
+                                                                            GROUP BY person.id
+                                                                            HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
+                       WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0))))))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                   and isNull(max_steps)))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_property_groups.1
+  '''
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 <= latest_1
+                                                                       AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              if(event = 'user signed up', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = '$pageview'
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = '$pageview'
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['$pageview', 'user signed up']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%')
+                                       AND (has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))
+                                      OR ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%')
+                                          OR (has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))) )
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%')
+                                AND (has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))
+                               OR ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%')
+                                   OR (has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps)
+  WHERE steps IN [1, 2, 3]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_property_groups.2
+  '''
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 <= latest_1
+                                                                       AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              if(event = 'user signed up', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = '$pageview'
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = '$pageview'
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['$pageview', 'user signed up']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%')
+                                       AND (has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))
+                                      OR ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%')
+                                          OR (has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))) )
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%')
+                                AND (has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))
+                               OR ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%')
+                                   OR (has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps)
+  WHERE steps IN [2, 3]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_property_groups.3
+  '''
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+                               step_1_conversion_time,
+                               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 <= latest_1
+                                                                       AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target, timestamp, step_0,
+                                                    latest_0,
+                                                    step_1,
+                                                    latest_1,
+                                                    step_2,
+                                                    min(latest_2) over (PARTITION by aggregation_target
+                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target, timestamp, step_0,
+                                                       latest_0,
+                                                       step_1,
+                                                       latest_1,
+                                                       step_2,
+                                                       if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target, timestamp, step_0,
+                                                          latest_0,
+                                                          step_1,
+                                                          min(latest_1) over (PARTITION by aggregation_target
+                                                                              ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                                                             step_2,
+                                                                             min(latest_2) over (PARTITION by aggregation_target
+                                                                                                 ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              if(event = 'user signed up', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if(event = '$pageview'
+                                 AND (has(['aloha.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if(event = '$pageview'
+                                 AND (has(['aloha2.com'], replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                            AND distinct_id IN
+                              (SELECT distinct_id
+                               FROM events
+                               WHERE team_id = 2
+                                 AND event IN ['$pageview', 'user signed up']
+                                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') )
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%')
+                                       AND (has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))
+                                      OR ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%')
+                                          OR (has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))) )
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%')
+                                AND (has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))
+                               OR ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%')
+                                   OR (has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps)
+  WHERE steps IN [3]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '''
+# ---
+# name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter.1
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                        e__pdi.person_id AS aggregation_target,
+                        if(and(equals(e.event, 'user signed up'), ifNull(in(e__pdi.person_id,
+                                                                              (SELECT person_static_cohort.person_id AS person_id
+                                                                               FROM person_static_cohort
+                                                                               WHERE and(equals(person_static_cohort.team_id, 2), equals(person_static_cohort.cohort_id, 3)))), 0)), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 INNER JOIN
+                   (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                           person_distinct_id2.distinct_id AS distinct_id
+                    FROM person_distinct_id2
+                    WHERE equals(person_distinct_id2.team_id, 2)
+                    GROUP BY person_distinct_id2.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                 WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                   and isNull(max_steps)))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---
+# name: TestFOSSFunnel.test_timezones
+  '''
+  SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+         countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+         avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) AS step_1_median_conversion_time
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            steps AS steps,
+            avg(step_1_conversion_time) AS step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) AS step_1_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               max(steps) OVER (PARTITION BY aggregation_target) AS max_steps,
+                               step_1_conversion_time AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  timestamp AS timestamp,
+                  step_0 AS step_0,
+                  latest_0 AS latest_0,
+                  step_1 AS step_1,
+                  latest_1 AS latest_1,
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     min(latest_1) OVER (PARTITION BY aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1
+              FROM
+                (SELECT toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
+                        e__pdi.person_id AS aggregation_target,
+                        if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                        if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                        if(equals(e.event, 'paid'), 1, 0) AS step_1,
+                        if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1
+                 FROM events AS e
+                 INNER JOIN
+                   (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                           person_distinct_id2.distinct_id AS distinct_id
+                    FROM person_distinct_id2
+                    WHERE equals(person_distinct_id2.team_id, 2)
+                    GROUP BY person_distinct_id2.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                 WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'US/Pacific')), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'US/Pacific'))), in(e.event, tuple('paid', 'user signed up')))))
+           WHERE ifNull(equals(step_0, 1), 0)))
+     GROUP BY aggregation_target,
+              steps
+     HAVING ifNull(equals(steps, max_steps), isNull(steps)
+                   and isNull(max_steps)))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '''
+# ---

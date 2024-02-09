@@ -71,7 +71,6 @@ describe('insightNavLogic', () => {
                             {
                                 event: '$pageview',
                                 kind: 'EventsNode',
-                                math: 'total',
                                 name: '$pageview',
                             },
                         ],
@@ -135,7 +134,7 @@ describe('insightNavLogic', () => {
                             event: '$pageview',
                         },
                     ],
-                    trendsFilter: { show_values_on_series: true },
+                    trendsFilter: { showValuesOnSeries: true },
                 },
             }
             const funnelsQuery: InsightVizNode = {
@@ -155,8 +154,8 @@ describe('insightNavLogic', () => {
                         },
                     ],
                     funnelsFilter: {
-                        funnel_order_type: StepOrderValue.STRICT,
-                        funnel_viz_type: FunnelVizType.Steps,
+                        funnelOrderType: StepOrderValue.STRICT,
+                        funnelVizType: FunnelVizType.Steps,
                     },
                 },
             }
@@ -165,12 +164,12 @@ describe('insightNavLogic', () => {
             //     source: {
             //         kind: NodeKind.RetentionQuery,
             //         retentionFilter: {
-            //             returning_entity: {
+            //             returningEntity: {
             //                 id: 'returning',
             //                 name: 'returning',
             //                 type: 'events',
             //             },
-            //             target_entity: {
+            //             targetEntity: {
             //                 id: 'target',
             //                 name: 'target',
             //                 type: 'events',
@@ -229,7 +228,7 @@ describe('insightNavLogic', () => {
                     builtInsightDataLogic.actions.setQuery(trendsQuery)
                 }).toMatchValues({
                     queryPropertyCache: expect.objectContaining({
-                        commonFilter: { show_values_on_series: true },
+                        commonFilter: { showValuesOnSeries: true },
                     }),
                 })
 
@@ -238,9 +237,9 @@ describe('insightNavLogic', () => {
                 }).toMatchValues({
                     queryPropertyCache: expect.objectContaining({
                         commonFilter: {
-                            show_values_on_series: true,
-                            funnel_order_type: 'strict',
-                            funnel_viz_type: 'steps',
+                            showValuesOnSeries: true,
+                            funnelOrderType: 'strict',
+                            funnelVizType: 'steps',
                         },
                     }),
                 })
@@ -283,7 +282,7 @@ describe('insightNavLogic', () => {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
-                            lifecycleFilter: { show_values_on_series: true },
+                            lifecycleFilter: { showValuesOnSeries: true },
                         },
                     } as Node),
                 ])

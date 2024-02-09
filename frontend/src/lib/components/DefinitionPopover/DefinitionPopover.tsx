@@ -1,7 +1,6 @@
 import './DefinitionPopover.scss'
 
-import { ProfilePicture } from '@posthog/lemon-ui'
-import { Divider, DividerProps } from 'antd'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
@@ -10,10 +9,10 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getKeyMapping } from 'lib/taxonomy'
+import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { KeyMapping, UserBasicType } from '~/types'
+import { CoreFilterDefinition, UserBasicType } from '~/types'
 
 interface DefinitionPopoverProps {
     children: React.ReactNode
@@ -116,7 +115,7 @@ function DescriptionEmpty(): JSX.Element {
 
 function Example({ value }: { value?: string }): JSX.Element {
     const { type } = useValues(definitionPopoverLogic)
-    let data: KeyMapping | null = null
+    let data: CoreFilterDefinition | null = null
 
     if (
         // NB: also update "selectedItemHasPopover" below
@@ -124,11 +123,12 @@ function Example({ value }: { value?: string }): JSX.Element {
         type === TaxonomicFilterGroupType.EventProperties ||
         type === TaxonomicFilterGroupType.EventFeatureFlags ||
         type === TaxonomicFilterGroupType.PersonProperties ||
-        type === TaxonomicFilterGroupType.GroupsPrefix
+        type === TaxonomicFilterGroupType.GroupsPrefix ||
+        type === TaxonomicFilterGroupType.Metadata
     ) {
-        data = getKeyMapping(value, 'event')
+        data = getCoreFilterDefinition(value, type)
     } else if (type === TaxonomicFilterGroupType.Elements) {
-        data = getKeyMapping(value, 'element')
+        data = getCoreFilterDefinition(value, type)
     }
 
     return data?.examples?.[0] ? (
@@ -195,11 +195,12 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
     )
 }
 
-function HorizontalLine({ children, ...props }: DividerProps): JSX.Element {
+function HorizontalLine({ className, label }: { className?: string; label?: string }): JSX.Element {
     return (
-        <Divider className="definition-popover-divider" {...props}>
-            {children}
-        </Divider>
+        <LemonDivider
+            className={clsx('DefinitionPopover items-start my-4', className)}
+            label={label && <span className="DefinitionPopover__label">{label}</span>}
+        />
     )
 }
 

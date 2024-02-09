@@ -36,7 +36,6 @@ export function DashboardTemplateVariables(): JSX.Element {
                                 setVariable(variable.name, filters)
                             }}
                             typeKey={'variable_' + variable.name}
-                            buttonCopy=""
                             hideDeleteBtn={true}
                             hideRename={true}
                             hideDuplicate={true}

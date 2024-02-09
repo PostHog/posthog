@@ -106,7 +106,7 @@ async function runSingleTeamPluginComposeWebhook(
 
             const request = await trackedFetch(webhook.url, {
                 method: webhook.method || 'POST',
-                body: JSON.stringify(webhook.body, undefined, 4),
+                body: webhook.body,
                 headers: webhook.headers || { 'Content-Type': 'application/json' },
                 timeout: hub.EXTERNAL_REQUEST_TIMEOUT_MS,
             })

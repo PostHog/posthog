@@ -1,3 +1,4 @@
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import {
@@ -19,6 +20,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
 
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 const MAX_CRITERIA_GROUPS = 2
 const MAX_CRITERIA = 2
@@ -32,7 +34,9 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
     }
     return cohort.filters?.properties ? (
         <>
-            {(cohort.filters.properties?.values?.length || 0 > 0) && <DefinitionPopover.HorizontalLine />}
+            {(cohort.filters.properties?.values?.length || 0 > 0) && (
+                <LemonDivider className="DefinitionPopover my-2" />
+            )}
             {cohort.filters.properties.values.slice(0, MAX_CRITERIA_GROUPS).map(
                 (cohortGroup, cohortGroupIndex) =>
                     isCohortCriteriaGroup(cohortGroup) && (
@@ -75,21 +79,24 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                             />
                             {cohortGroupIndex <
                                 Math.min(cohort.filters.properties.values.length, MAX_CRITERIA_GROUPS) - 1 && (
-                                <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                    {cohort.filters.properties.type}
-                                </DefinitionPopover.HorizontalLine>
+                                <DefinitionPopover.HorizontalLine
+                                    className="mt-1 mb-3"
+                                    label={cohort.filters.properties.type}
+                                />
                             )}
                             {cohort.filters.properties.values.length > MAX_CRITERIA_GROUPS &&
                                 cohortGroupIndex === MAX_CRITERIA_GROUPS - 1 && (
-                                    <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                        {cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS} more criteria{' '}
-                                        {pluralize(
+                                    <DefinitionPopover.HorizontalLine
+                                        className="mt-1 mb-3"
+                                        label={`${
+                                            cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS
+                                        } more criteria ${pluralize(
                                             cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS,
                                             'group',
                                             'groups',
                                             false
-                                        )}
-                                    </DefinitionPopover.HorizontalLine>
+                                        )}`}
+                                    />
                                 )}
                         </DefinitionPopover.Section>
                     )
@@ -97,7 +104,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
         </>
     ) : (
         <>
-            {(cohort.groups?.length || 0 > 0) && <DefinitionPopover.HorizontalLine />}
+            {(cohort.groups?.length || 0 > 0) && <LemonDivider className="DefinitionPopover my-2" />}
             {cohort.groups &&
                 cohort.groups.map((group, index) => (
                     <DefinitionPopover.Section key={index}>
@@ -108,7 +115,10 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                     <ul>
                                         <li>
                                             <span>
-                                                <PropertyKeyInfo value={group.event_id} />
+                                                <PropertyKeyInfo
+                                                    value={group.event_id}
+                                                    type={TaxonomicFilterGroupType.Events}
+                                                />
                                                 {operatorToHumanName(group.count_operator)} in the last{' '}
                                                 {COHORT_MATCHING_DAYS[group.days as '1' | '7' | '14' | '30']}
                                             </span>
@@ -125,7 +135,10 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                                             group.properties.map((property, propIndex) => (
                                                 <li key={propIndex}>
                                                     <span>
-                                                        <PropertyKeyInfo value={property.key} />
+                                                        <PropertyKeyInfo
+                                                            value={property.key}
+                                                            type={TaxonomicFilterGroupType.PersonProperties}
+                                                        />
                                                         {genericOperatorToHumanName(property)}
                                                         <code>{propertyValueToHumanName(property.value)}</code>
                                                     </span>
@@ -136,9 +149,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                             />
                         )}
                         {cohort.groups && index < cohort.groups.length - 1 && (
-                            <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
-                                OR
-                            </DefinitionPopover.HorizontalLine>
+                            <DefinitionPopover.HorizontalLine className="mt-1 mb-3" label="OR" />
                         )}
                     </DefinitionPopover.Section>
                 ))}

@@ -10,7 +10,7 @@ export function ShowLegendFilter(): JSX.Element | null {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const toggleShowLegend = (): void => {
-        updateInsightFilter({ show_legend: !showLegend })
+        updateInsightFilter({ showLegend: !showLegend })
     }
 
     return (

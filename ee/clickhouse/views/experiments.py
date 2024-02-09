@@ -29,7 +29,6 @@ from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
 from posthog.permissions import (
     PremiumFeaturePermission,
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -215,7 +214,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         ]
 
         filters = {
-            "groups": [{"properties": properties, "rollout_percentage": None}],
+            "groups": [{"properties": properties, "rollout_percentage": 100}],
             "multivariate": {"variants": variants or default_variants},
             "aggregation_group_type_index": aggregation_group_type_index,
         }
@@ -292,7 +291,6 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     permission_classes = [
         IsAuthenticated,
         PremiumFeaturePermission,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
     premium_feature = AvailableFeature.EXPERIMENTATION

@@ -80,7 +80,7 @@ class ClickhouseTrendExperimentResult:
         custom_exposure_filter: Optional[Filter] = None,
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
-        variants = [variant["key"] for variant in feature_flag.variants]
+        self.variants = [variant["key"] for variant in feature_flag.variants]
 
         # our filters assume that the given time ranges are in the project timezone.
         # while start and end date are in UTC.
@@ -104,7 +104,7 @@ class ClickhouseTrendExperimentResult:
                 "properties": [
                     {
                         "key": breakdown_key,
-                        "value": variants,
+                        "value": self.variants,
                         "operator": "exact",
                         "type": "event",
                     }
@@ -158,7 +158,7 @@ class ClickhouseTrendExperimentResult:
                         "properties": [
                             {
                                 "key": breakdown_key,
-                                "value": variants,
+                                "value": self.variants,
                                 "operator": "exact",
                                 "type": "event",
                             }
@@ -187,7 +187,7 @@ class ClickhouseTrendExperimentResult:
                         "properties": [
                             {
                                 "key": "$feature_flag_response",
-                                "value": variants,
+                                "value": self.variants,
                                 "operator": "exact",
                                 "type": "event",
                             },
@@ -209,6 +209,9 @@ class ClickhouseTrendExperimentResult:
     def get_results(self):
         insight_results = self.insight.run(self.query_filter, self.team)
         exposure_results = self.insight.run(self.exposure_filter, self.team)
+
+        validate_event_variants(insight_results, self.variants)
+
         control_variant, test_variants = self.get_variants(insight_results, exposure_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)
@@ -236,6 +239,10 @@ class ClickhouseTrendExperimentResult:
         exposure_counts = {}
         exposure_ratios = {}
 
+        # :TRICKY: With count per user aggregation, our exposure filter is implicit:
+        # (1) We calculate the unique users for this event -> this is the exposure
+        # (2) We calculate the total count of this event -> this is the trend goal metric / arrival rate for probability calculation
+        # TODO: When we support group aggregation per user, change this.
         if uses_math_aggregation_by_user_or_property_value(self.query_filter):
             filtered_exposure_results = [
                 result for result in exposure_results if result["action"]["math"] == UNIQUE_USERS
@@ -433,3 +440,36 @@ def calculate_p_value(control_variant: Variant, test_variants: List[Variant]) ->
         best_test_variant.count,
         best_test_variant.exposure,
     )
+
+
+def validate_event_variants(insight_results, variants):
+    if not insight_results or not insight_results[0]:
+        raise ValidationError("No experiment events have been ingested yet.", code="no-events")
+
+    missing_variants = []
+
+    # Check if "control" is present
+    control_found = False
+    for event in insight_results:
+        event_variant = event.get("breakdown_value")
+        if event_variant == "control":
+            control_found = True
+            break
+    if not control_found:
+        missing_variants.append("control")
+
+    # Check if at least one of the test variants is present
+    test_variants = [variant for variant in variants if variant != "control"]
+    test_variant_found = False
+    for event in insight_results:
+        event_variant = event.get("breakdown_value")
+        if event_variant in test_variants:
+            test_variant_found = True
+            break
+    if not test_variant_found:
+        missing_variants.extend(test_variants)
+
+    if not len(missing_variants) == 0:
+        missing_variants_str = ", ".join(missing_variants)
+        message = f"No experiment events have been ingested yet for the following variants: {missing_variants_str}"
+        raise ValidationError(message, code=f"missing-flag-variants::{missing_variants_str}")

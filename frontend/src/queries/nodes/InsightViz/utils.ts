@@ -85,9 +85,9 @@ export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefin
 
 export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.show_legend
+        return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.show_legend
+        return query.trendsFilter?.showLegend
     } else {
         return undefined
     }
@@ -95,11 +95,11 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 
 export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isLifecycleQuery(query)) {
-        return query.lifecycleFilter?.show_values_on_series
+        return query.lifecycleFilter?.showValuesOnSeries
     } else if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.show_values_on_series
+        return query.stickinessFilter?.showValuesOnSeries
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.show_values_on_series
+        return query.trendsFilter?.showValuesOnSeries
     } else {
         return undefined
     }

@@ -17,7 +17,7 @@ export function PathStepPicker(): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const { step_limit } = pathsFilter || {}
+    const { stepLimit } = pathsFilter || {}
 
     const { user } = useValues(userLogic)
 
@@ -32,8 +32,8 @@ export function PathStepPicker(): JSX.Element {
     return (
         <LemonSelect
             size="small"
-            value={step_limit || DEFAULT_STEP_LIMIT}
-            onChange={(count) => updateInsightFilter({ step_limit: count })}
+            value={stepLimit || DEFAULT_STEP_LIMIT}
+            onChange={(count) => updateInsightFilter({ stepLimit: count })}
             options={options}
         />
     )

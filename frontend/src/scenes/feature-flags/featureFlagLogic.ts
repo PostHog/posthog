@@ -1,12 +1,14 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -73,7 +75,7 @@ const NEW_FLAG: FeatureFlagType = {
     key: '',
     name: '',
     filters: {
-        groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         multivariate: null,
         payloads: {},
     },
@@ -189,6 +191,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['dashboards'],
             organizationLogic,
             ['currentOrganization'],
+            enabledFeaturesLogic,
+            ['featureFlags as enabledFeatures'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -206,7 +210,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         duplicateConditionSet: (index: number) => ({ index }),
         updateConditionSet: (
             index: number,
-            newRolloutPercentage?: number | null,
+            newRolloutPercentage?: number,
             newProperties?: AnyPropertyFilter[],
             newVariant?: string | null
         ) => ({
@@ -239,19 +243,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     forms(({ actions, values }) => ({
         featureFlag: {
             defaults: { ...NEW_FLAG } as FeatureFlagType,
-            errors: ({ key, filters }) => ({
-                key: validateFeatureFlagKey(key),
-                filters: {
-                    multivariate: {
-                        variants: filters?.multivariate?.variants?.map(
-                            ({ key: variantKey }: MultivariateFlagVariant) => ({
-                                key: validateFeatureFlagKey(variantKey),
-                            })
-                        ),
+            errors: ({ key, filters }) => {
+                return {
+                    key: validateFeatureFlagKey(key),
+                    filters: {
+                        multivariate: {
+                            variants: filters?.multivariate?.variants?.map(
+                                ({ key: variantKey }: MultivariateFlagVariant) => ({
+                                    key: validateFeatureFlagKey(variantKey),
+                                })
+                            ),
+                        },
+                        groups: values.propertySelectErrors as DeepPartialMap<
+                            FeatureFlagGroupType,
+                            ValidationErrorType
+                        >[],
                     },
-                    groups: values.propertySelectErrors,
-                },
-            }),
+                }
+            },
             submit: (featureFlag) => {
                 actions.saveFeatureFlag(featureFlag)
             },
@@ -284,7 +293,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     const groups = [
                         ...(state?.filters?.groups || []),
-                        { properties: [], rollout_percentage: 0, variant: null },
+                        { properties: [], rollout_percentage: undefined, variant: null },
                     ]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
@@ -707,6 +716,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
             }
         },
+        submitFeatureFlagFailure: async () => {
+            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
+            setTimeout(
+                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+                1
+            )
+        },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
@@ -875,7 +891,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
-            if (scheduledChange && scheduledChange) {
+            if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.loadScheduledChanges()
                 actions.setFeatureFlag({
@@ -927,17 +943,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         taxonomicGroupTypes: [
-            (s) => [s.featureFlag, s.groupsTaxonomicTypes],
-            (featureFlag, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+            (s) => [s.featureFlag, s.groupsTaxonomicTypes, s.enabledFeatures],
+            (featureFlag, groupsTaxonomicTypes, enabledFeatures): TaxonomicFilterGroupType[] => {
+                const baseGroupTypes = []
+                const additionalGroupTypes = []
+                const newFlagOperatorsEnabled = enabledFeatures[FEATURE_FLAGS.NEW_FEATURE_FLAG_OPERATORS]
                 if (
                     featureFlag &&
                     featureFlag.filters.aggregation_group_type_index != null &&
                     groupsTaxonomicTypes.length > 0
                 ) {
-                    return [groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index]]
+                    baseGroupTypes.push(groupsTaxonomicTypes[featureFlag.filters.aggregation_group_type_index])
+
+                    if (newFlagOperatorsEnabled) {
+                        additionalGroupTypes.push(
+                            `${TaxonomicFilterGroupType.GroupNamesPrefix}_${featureFlag.filters.aggregation_group_type_index}` as unknown as TaxonomicFilterGroupType
+                        )
+                    }
+                } else {
+                    baseGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
+                    baseGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
+
+                    if (newFlagOperatorsEnabled) {
+                        additionalGroupTypes.push(TaxonomicFilterGroupType.Metadata)
+                    }
                 }
 
-                return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+                return [...baseGroupTypes, ...additionalGroupTypes]
             },
         ],
         breadcrumbs: [
@@ -951,26 +983,49 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
+        featureFlagTaxonomicOptions: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
+                    return {}
+                }
+
+                const taxonomicOptions: TaxonomicFilterProps['optionsFromProp'] = {
+                    [TaxonomicFilterGroupType.Metadata]: [
+                        { name: 'distinct_id', propertyFilterType: PropertyFilterType.Person },
+                    ],
+                }
+                return taxonomicOptions
+            },
+        ],
         propertySelectErrors: [
             (s) => [s.featureFlag],
             (featureFlag) => {
-                return featureFlag?.filters?.groups?.map(({ properties }: FeatureFlagGroupType) => ({
-                    properties: properties?.map((property: AnyPropertyFilter) => ({
-                        value:
-                            property.value === null ||
-                            property.value === undefined ||
-                            (Array.isArray(property.value) && property.value.length === 0)
-                                ? "Property filters can't be empty"
-                                : undefined,
-                    })),
-                }))
+                return featureFlag?.filters?.groups?.map(
+                    ({ properties, rollout_percentage }: FeatureFlagGroupType) => ({
+                        properties: properties?.map((property: AnyPropertyFilter) => ({
+                            value:
+                                property.value === null ||
+                                property.value === undefined ||
+                                (Array.isArray(property.value) && property.value.length === 0)
+                                    ? "Property filters can't be empty"
+                                    : undefined,
+                        })),
+                        rollout_percentage:
+                            rollout_percentage === undefined ? 'You need to set a rollout % value' : undefined,
+                    })
+                )
             },
         ],
         computeBlastRadiusPercentage: [
             (s) => [s.affectedUsers, s.totalUsers],
             (affectedUsers, totalUsers) => (rolloutPercentage, index) => {
                 let effectiveRolloutPercentage = rolloutPercentage
-                if (rolloutPercentage === undefined || rolloutPercentage === null) {
+                if (
+                    rolloutPercentage === undefined ||
+                    rolloutPercentage === null ||
+                    (rolloutPercentage && rolloutPercentage > 100)
+                ) {
                     effectiveRolloutPercentage = 100
                 }
 
@@ -989,21 +1044,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
 
                 return effectiveRolloutPercentage * (affectedUsers[index] / effectiveTotalUsers)
-            },
-        ],
-        approximateTotalBlastRadius: [
-            (s) => [s.computeBlastRadiusPercentage, s.featureFlag],
-            (computeBlastRadiusPercentage, featureFlag) => {
-                if (!featureFlag || !featureFlag.filters.groups) {
-                    return 0
-                }
-
-                let total = 0
-                featureFlag.filters.groups.forEach((group, index) => {
-                    total += computeBlastRadiusPercentage(group.rollout_percentage, index)
-                })
-
-                return Math.min(total, 100)
             },
         ],
         filteredDashboards: [

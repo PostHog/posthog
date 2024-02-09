@@ -15,15 +15,15 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
+import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { isSitePopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
-    const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
+    const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
+    const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -102,9 +102,9 @@ export function Navbar(): JSX.Element {
                             ) : null}
 
                             <Popover
-                                overlay={<SitePopoverOverlay />}
-                                visible={isSitePopoverOpen}
-                                onClickOutside={closeSitePopover}
+                                overlay={<AccountPopoverOverlay />}
+                                visible={isAccountPopoverOpen}
+                                onClickOutside={closeAccountPopover}
                                 placement="right-end"
                                 className="min-w-70"
                             >
@@ -113,7 +113,7 @@ export function Navbar(): JSX.Element {
                                     identifier="me"
                                     title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
                                     shortTitle={user?.first_name || user?.email}
-                                    onClick={toggleSitePopover}
+                                    onClick={toggleAccountPopover}
                                 />
                             </Popover>
                         </ul>
@@ -121,6 +121,7 @@ export function Navbar(): JSX.Element {
                 </div>
                 {!mobileLayout && (
                     <Resizer
+                        logicKey="navbar"
                         placement="right"
                         containerRef={containerRef}
                         closeThreshold={100}

@@ -8,6 +8,12 @@ import { ProductKey } from '~/types'
 
 import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 
+/**
+ * A component to introduce new users to a product, and to show something
+ * other than an empty table when there are no items.
+ * Not to be confused with the `OnboardingProductIntroduction` scene,
+ * which is shown when a team has yet to go through onboarding for the product.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,

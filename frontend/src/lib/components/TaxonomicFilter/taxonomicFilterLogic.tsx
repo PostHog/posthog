@@ -11,7 +11,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { KEY_MAPPING } from 'lib/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
@@ -49,7 +49,7 @@ import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
-        if (KEY_MAPPING.event[eventDefinition.name]) {
+        if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventDefinition.name]) {
             return 'PostHog event'
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} event`
@@ -61,7 +61,7 @@ export const propertyTaxonomicGroupProps = (
     verified: boolean = false
 ): Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> => ({
     getPopoverHeader: (propertyDefinition: PropertyDefinition): string => {
-        if (verified || !!KEY_MAPPING.event[propertyDefinition.name]) {
+        if (verified || !!CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[propertyDefinition.name]) {
             return 'PostHog property'
         }
         return 'Property'
@@ -205,6 +205,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Autocapture Element',
+                    },
+                    {
+                        name: 'Metadata',
+                        searchPlaceholder: 'metadata',
+                        type: TaxonomicFilterGroupType.Metadata,
+                        // populate options using `optionsFromProp` depending on context in which
+                        // this taxonomic group type is used
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        ...propertyTaxonomicGroupProps(true),
                     },
                     {
                         name: 'Event properties',

@@ -17,7 +17,7 @@ from posthog.api.geoip import get_geoip_properties
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.mixins import AnalyticsDestroyModelMixin
+from posthog.event_usage import report_user_action
 from posthog.models import InsightCachingState, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -33,7 +33,6 @@ from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
@@ -42,7 +41,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_ip_address, get_week_start_for_country_code
 
 
-class PremiumMultiprojectPermissions(permissions.BasePermission):
+class PremiumMultiProjectPermissions(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
@@ -102,6 +101,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_replay_config",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -146,6 +146,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_replay_config",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -205,6 +206,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
             )
+
+        return value
+
+    def validate_session_replay_config(self, value) -> Dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, Dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        if not all(key in ["record_canvas"] for key in value.keys()):
+            raise exceptions.ValidationError("Must provide a dictionary with only 'record_canvas' key.")
 
         return value
 
@@ -282,25 +295,21 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return updated_team
 
 
-class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+class TeamViewSet(viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
 
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
-    permission_classes = [
-        permissions.IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        PremiumMultiprojectPermissions,
-    ]
+    permission_classes = [permissions.IsAuthenticated, PremiumMultiProjectPermissions]
     lookup_field = "id"
     ordering = "-created_by"
     organization: Optional[Organization] = None
     include_in_docs = True
 
     def get_queryset(self):
-        # This is actually what ensures that a user cannot read/update a project for which they don't have permission
+        # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         return super().get_queryset().filter(id__in=visible_teams_ids)
 
@@ -309,20 +318,26 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
+    def check_permissions(self, request):
+        if self.action and self.action == "create":
+            organization = getattr(self.request.user, "organization", None)
+            if not organization:
+                raise exceptions.ValidationError("You need to belong to an organization.")
+            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+            self.organization = organization
+
+        return super().check_permissions(request)
+
     def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
+
         base_permissions = [permission() for permission in self.permission_classes]
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
-                organization = getattr(self.request.user, "organization", None)
-                if not organization:
-                    raise exceptions.ValidationError("You need to belong to an organization.")
-                # To be used later by OrganizationAdminWritePermissions and TeamSerializer
-                self.organization = organization
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     base_permissions.append(OrganizationAdminWritePermissions())
                 elif "is_demo" in self.request.data:
@@ -356,11 +371,14 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     def perform_destroy(self, team: Team):
         team_id = team.pk
 
+        user = cast(User, self.request.user)
+
         delete_bulky_postgres_data(team_ids=[team_id])
         delete_batch_exports(team_ids=[team_id])
 
         with mute_selected_signals():
             super().perform_destroy(team)
+
         # Once the project is deleted, queue deletion of associated data
         AsyncDeletion.objects.bulk_create(
             [
@@ -368,11 +386,14 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                     deletion_type=DeletionType.Team,
                     team_id=team_id,
                     key=str(team_id),
-                    created_by=cast(User, self.request.user),
+                    created_by=user,
                 )
             ],
             ignore_conflicts=True,
         )
+
+        # TRICKY: We pass in Team here as otherwise the access to "current_team" can fail if it was deleted
+        report_user_action(user, f"team deleted", team=team)
 
     @action(
         methods=["PATCH"],
@@ -380,7 +401,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         # Only ADMIN or higher users are allowed to access this project
         permission_classes=[
             permissions.IsAuthenticated,
-            ProjectMembershipNecessaryPermissions,
             TeamMemberStrictManagementPermission,
         ],
     )
@@ -395,10 +415,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     @action(
         methods=["GET"],
         detail=True,
-        permission_classes=[
-            permissions.IsAuthenticated,
-            ProjectMembershipNecessaryPermissions,
-        ],
+        permission_classes=[permissions.IsAuthenticated],
     )
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()

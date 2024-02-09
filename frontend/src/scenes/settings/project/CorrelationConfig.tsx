@@ -1,7 +1,8 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
+import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconPlus, IconSelectEvents, IconSelectProperties } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
@@ -48,7 +49,8 @@ export function CorrelationConfig(): JSX.Element {
                             <IconSelectProperties className="text-lg" />
                             Excluded person properties
                         </h3>
-                        <PersonPropertySelect
+                        <PropertySelect
+                            taxonomicFilterGroup={TaxonomicFilterGroupType.PersonProperties}
                             onChange={(properties) => handleChange(properties)}
                             selectedProperties={funnelCorrelationConfig.excluded_person_property_names || []}
                             addText="Add exclusion"

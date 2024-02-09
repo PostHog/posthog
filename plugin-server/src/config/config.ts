@@ -101,7 +101,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
-        MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: 5,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
@@ -133,6 +132,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POE_WRITES_EXCLUDE_TEAMS: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
+        RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes

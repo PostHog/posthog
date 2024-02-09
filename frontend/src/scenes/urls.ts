@@ -10,8 +10,8 @@ import {
     DashboardType,
     FilterType,
     InsightShortId,
-    PipelineAppKind,
-    PipelineAppTab,
+    PipelineNodeTab,
+    PipelineStage,
     PipelineTab,
     ReplayTabs,
 } from '~/types'
@@ -67,10 +67,14 @@ export const urls = {
     batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insights: (): string => '/insights',
-    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
+    insightNew: (
+        filters?: AnyPartialFilterType,
+        dashboardId?: DashboardType['id'] | null,
+        query?: string | Record<string, any>
+    ): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
-            ...(query ? { q: query } : {}),
+            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
     insightNewHogQL: (query: string): string =>
         urls.insightNew(
@@ -103,14 +107,14 @@ export const urls = {
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
     // TODO: Default to the landing page, once it's ready
-    pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Destinations}`,
+    pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
-    pipelineApp: (
-        kind: PipelineAppKind | ':kindTab',
+    pipelineNode: (
+        stage: PipelineStage | ':stage',
         id: string | number,
-        appTab?: PipelineAppTab | ':appTab'
+        nodeTab?: PipelineNodeTab | ':nodeTab'
     ): string =>
-        `/pipeline/${!kind.startsWith(':') ? `${kind}s` : kind}/${id}/${appTab ?? PipelineAppTab.Configuration}`,
+        `/pipeline/${!stage.startsWith(':') ? `${stage}s` : stage}/${id}/${nodeTab ?? PipelineNodeTab.Configuration}`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -169,6 +173,7 @@ export const urls = {
     products: (): string => '/products',
     onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
+    onboardingProductIntroduction: (productKey: string): string => '/onboarding/' + productKey + '/intro',
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only
@@ -205,4 +210,5 @@ export const urls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    moveToPostHogCloud: (): string => '/move-to-cloud',
 }

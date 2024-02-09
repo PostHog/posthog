@@ -598,7 +598,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -656,7 +657,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -714,7 +716,8 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         response_data.pop("last_refresh")
         self.assertEqual(
             response_data,
-            {
+            response_data
+            | {
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -829,7 +832,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(
                     response.json(),
-                    self.validation_error_response("Exclusion event can't be the same as funnel step"),
+                    self.validation_error_response(
+                        "Exclusion steps cannot contain an event that's part of funnel steps."
+                    ),
                 )
             else:
                 self.assertEqual(response.status_code, 200)

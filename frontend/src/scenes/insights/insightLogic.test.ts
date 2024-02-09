@@ -248,22 +248,6 @@ describe('insightLogic', () => {
     })
 
     describe('insight legend', () => {
-        it('toggles insight legend', async () => {
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                filters: { show_legend: false },
-            })
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.toggleInsightLegend()
-            })
-                .toDispatchActions(['toggleInsightLegend', 'setFilters'])
-                .toMatchValues({
-                    filters: partial({ show_legend: true }),
-                })
-        })
-
         it('initialize insight with hidden keys', async () => {
             logic = insightLogic({
                 dashboardItemId: undefined,

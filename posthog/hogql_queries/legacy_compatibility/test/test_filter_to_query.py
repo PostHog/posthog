@@ -11,16 +11,17 @@ from posthog.schema import (
     CohortPropertyFilter,
     CountPerActorMathType,
     ElementPropertyFilter,
-    EntityType,
     EventPropertyFilter,
     EventsNode,
     FunnelConversionWindowTimeUnit,
-    FunnelExclusion,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
     FunnelPathType,
     FunnelVizType,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     Key,
+    LifecycleToggle,
     PathCleaningFilter,
     PathType,
     PersonPropertyFilter,
@@ -35,6 +36,7 @@ from posthog.schema import (
     RetentionFilter,
     PathsFilter,
     StickinessFilter,
+    LifecycleFilter,
 )
 from posthog.test.base import BaseTest
 
@@ -927,7 +929,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.kind, "RetentionQuery")
 
     def test_base_paths_query(self):
-        filter = {"insight": "PATHS"}
+        filter = {"insight": "PATHS", "step_limit": 2}
 
         query = filter_to_query(filter)
 
@@ -1286,6 +1288,8 @@ class TestFilterToQuery(BaseTest):
             "formula": "A + B",
             "shown_as": "Volume",
             "display": "ActionsAreaGraph",
+            "show_legend": True,
+            "show_percent_stack_view": True,
         }
 
         query = filter_to_query(filter)
@@ -1301,6 +1305,8 @@ class TestFilterToQuery(BaseTest):
                 formula="A + B",
                 display=ChartDisplayType.ActionsAreaGraph,
                 decimalPlaces=5,
+                showLegend=True,
+                showPercentStackView=True,
             ),
         )
 
@@ -1322,7 +1328,15 @@ class TestFilterToQuery(BaseTest):
                     "name": "$pageview",
                     "funnel_from_step": 1,
                     "funnel_to_step": 2,
-                }
+                },
+                {
+                    "id": 3,
+                    "type": "actions",
+                    "order": 1,
+                    "name": "Some action",
+                    "funnel_from_step": 1,
+                    "funnel_to_step": 2,
+                },
             ],
             "bin_count": 15,  # used in time to convert: number of bins to show in histogram
             "funnel_from_step": 1,  # used in time to convert: initial step index to compute time to convert
@@ -1348,26 +1362,30 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.funnelsFilter,
             FunnelsFilter(
-                funnel_viz_type=FunnelVizType.steps,
-                funnel_from_step=1,
-                funnel_to_step=2,
-                funnel_window_interval_unit=FunnelConversionWindowTimeUnit.hour,
-                funnel_window_interval=13,
-                breakdown_attribution_type=BreakdownAttributionType.step,
-                breakdown_attribution_value=2,
-                funnel_order_type=StepOrderValue.strict,
+                funnelVizType=FunnelVizType.steps,
+                funnelFromStep=1,
+                funnelToStep=2,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.hour,
+                funnelWindowInterval=13,
+                breakdownAttributionType=BreakdownAttributionType.step,
+                breakdownAttributionValue=2,
+                funnelOrderType=StepOrderValue.strict,
                 exclusions=[
-                    FunnelExclusion(
-                        id="$pageview",
-                        type=EntityType.events,
-                        order=0,
+                    FunnelExclusionEventsNode(
+                        event="$pageview",
                         name="$pageview",
-                        funnel_from_step=1,
-                        funnel_to_step=2,
-                    )
+                        funnelFromStep=1,
+                        funnelToStep=2,
+                    ),
+                    FunnelExclusionActionsNode(
+                        id=3,
+                        name="Some action",
+                        funnelFromStep=1,
+                        funnelToStep=2,
+                    ),
                 ],
-                bin_count=15,
-                funnel_aggregate_by_hogql="person_id",
+                binCount=15,
+                funnelAggregateByHogQL="person_id",
                 # funnel_step_reference=FunnelStepReference.previous,
             ),
         )
@@ -1392,17 +1410,17 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.retentionFilter,
             RetentionFilter(
-                retention_type=RetentionType.retention_first_time,
-                total_intervals=12,
+                retentionType=RetentionType.retention_first_time,
+                totalIntervals=12,
                 period=RetentionPeriod.Week,
-                returning_entity={
+                returningEntity={
                     "id": "$pageview",
                     "name": "$pageview",
                     "type": "events",
                     "custom_name": None,
                     "order": None,
                 },
-                target_entity={
+                targetEntity={
                     "id": "$pageview",
                     "name": "$pageview",
                     "type": "events",
@@ -1452,22 +1470,22 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.pathsFilter,
             PathsFilter(
-                include_event_types=[PathType.field_pageview, PathType.hogql],
-                paths_hogql_expression="event",
-                start_point="http://localhost:8000/events",
-                end_point="http://localhost:8000/home",
-                edge_limit=50,
-                min_edge_weight=10,
-                max_edge_weight=20,
-                local_path_cleaning_filters=[
+                includeEventTypes=[PathType.field_pageview, PathType.hogql],
+                pathsHogQLExpression="event",
+                startPoint="http://localhost:8000/events",
+                endPoint="http://localhost:8000/home",
+                edgeLimit=50,
+                minEdgeWeight=10,
+                maxEdgeWeight=20,
+                localPathCleaningFilters=[
                     PathCleaningFilter(alias="merchant", regex="\\/merchant\\/\\d+\\/dashboard$")
                 ],
-                path_replacements=True,
-                exclude_events=["http://localhost:8000/events"],
-                step_limit=5,
-                path_groupings=["/merchant/*/payment"],
-                funnel_paths=FunnelPathType.funnel_path_between_steps,
-                funnel_filter={
+                pathReplacements=True,
+                excludeEvents=["http://localhost:8000/events"],
+                stepLimit=5,
+                pathGroupings=["/merchant/*/payment"],
+                funnelPaths=FunnelPathType.funnel_path_between_steps,
+                funnelFilter={
                     "insight": "FUNNELS",
                     "events": [
                         {
@@ -1488,24 +1506,35 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_stickiness_filter(self):
-        filter = {"insight": "STICKINESS", "compare": True, "shown_as": "Stickiness"}
+        filter = {
+            "insight": "STICKINESS",
+            "compare": True,
+            "show_legend": True,
+            "show_values_on_series": True,
+            "shown_as": "Stickiness",
+        }
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.stickinessFilter,
-            StickinessFilter(compare=True),
+            StickinessFilter(compare=True, showLegend=True, showValuesOnSeries=True),
         )
 
     def test_lifecycle_filter(self):
         filter = {
             "insight": "LIFECYCLE",
             "shown_as": "Lifecycle",
+            "show_values_on_series": True,
+            "toggledLifecycles": ["new", "dormant"],
         }
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.lifecycleFilter,
-            None,
+            LifecycleFilter(
+                showValuesOnSeries=True,
+                toggledLifecycles=[LifecycleToggle.new, LifecycleToggle.dormant],
+            ),
         )

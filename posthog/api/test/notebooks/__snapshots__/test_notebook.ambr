@@ -53,6 +53,7 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -97,31 +98,12 @@
          "posthog_notebook"."last_modified_by_id"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '''
-# ---
-# name: TestNotebooks.test_updates_notebook.11
-  '''
-  SELECT "posthog_notebook"."id",
-         "posthog_notebook"."short_id",
-         "posthog_notebook"."team_id",
-         "posthog_notebook"."title",
-         "posthog_notebook"."content",
-         "posthog_notebook"."text_content",
-         "posthog_notebook"."deleted",
-         "posthog_notebook"."version",
-         "posthog_notebook"."created_at",
-         "posthog_notebook"."created_by_id",
-         "posthog_notebook"."last_modified_at",
-         "posthog_notebook"."last_modified_by_id"
-  FROM "posthog_notebook"
-  WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
   FOR
   UPDATE /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.12
+# name: TestNotebooks.test_updates_notebook.11
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -153,7 +135,7 @@
   LIMIT 21 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.13
+# name: TestNotebooks.test_updates_notebook.12
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -184,7 +166,7 @@
   LIMIT 21 /**/
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.14
+# name: TestNotebooks.test_updates_notebook.13
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -207,6 +189,7 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -235,7 +218,7 @@
   LIMIT 21 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.15
+# name: TestNotebooks.test_updates_notebook.14
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -265,7 +248,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.16
+# name: TestNotebooks.test_updates_notebook.15
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
@@ -276,12 +259,58 @@
   LIMIT 1 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.17
+# name: TestNotebooks.test_updates_notebook.16
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_activitylog"
   WHERE ("posthog_activitylog"."scope" = 'Notebook'
          AND "posthog_activitylog"."team_id" = 2) /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
+  '''
+# ---
+# name: TestNotebooks.test_updates_notebook.17
+  '''
+  SELECT "posthog_activitylog"."id",
+         "posthog_activitylog"."team_id",
+         "posthog_activitylog"."organization_id",
+         "posthog_activitylog"."user_id",
+         "posthog_activitylog"."was_impersonated",
+         "posthog_activitylog"."is_system",
+         "posthog_activitylog"."activity",
+         "posthog_activitylog"."item_id",
+         "posthog_activitylog"."scope",
+         "posthog_activitylog"."detail",
+         "posthog_activitylog"."created_at",
+         "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_activitylog"
+  LEFT OUTER JOIN "posthog_user" ON ("posthog_activitylog"."user_id" = "posthog_user"."id")
+  WHERE ("posthog_activitylog"."scope" = 'Notebook'
+         AND "posthog_activitylog"."team_id" = 2)
+  ORDER BY "posthog_activitylog"."created_at" DESC
+  LIMIT 2 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.18
@@ -425,6 +454,7 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -529,6 +559,7 @@
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
          "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -620,59 +651,20 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.9
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."extra_settings",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
+  SELECT "posthog_notebook"."id",
+         "posthog_notebook"."short_id",
+         "posthog_notebook"."team_id",
+         "posthog_notebook"."title",
+         "posthog_notebook"."content",
+         "posthog_notebook"."text_content",
+         "posthog_notebook"."deleted",
+         "posthog_notebook"."version",
+         "posthog_notebook"."created_at",
+         "posthog_notebook"."created_by_id",
+         "posthog_notebook"."last_modified_at",
+         "posthog_notebook"."last_modified_by_id"
+  FROM "posthog_notebook"
+  WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '''
 # ---

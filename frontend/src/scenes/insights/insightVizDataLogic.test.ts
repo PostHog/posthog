@@ -204,7 +204,7 @@ describe('insightVizDataLogic', () => {
             // merges with existing insight filter
             expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateInsightFilter({
-                    show_values_on_series: true,
+                    showValuesOnSeries: true,
                 })
             }).toMatchValues({
                 query: {
@@ -213,7 +213,7 @@ describe('insightVizDataLogic', () => {
                         ...trendsQueryDefault,
                         trendsFilter: {
                             display: 'ActionsAreaGraph',
-                            show_values_on_series: true,
+                            showValuesOnSeries: true,
                         },
                     },
                 },
@@ -221,7 +221,7 @@ describe('insightVizDataLogic', () => {
 
             expect(builtInsightVizDataLogic.values.insightFilter).toEqual({
                 display: 'ActionsAreaGraph',
-                show_values_on_series: true,
+                showValuesOnSeries: true,
             })
         })
 
@@ -376,7 +376,7 @@ describe('insightVizDataLogic', () => {
         })
     })
 
-    describe('areExclusionFiltersValid', () => {
+    describe('validationError', () => {
         it('for standard funnel', async () => {
             const insight: Partial<InsightModel> = {
                 filters: {
@@ -388,7 +388,7 @@ describe('insightVizDataLogic', () => {
             await expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightDataLogic.actions.loadDataSuccess(insight)
             }).toMatchValues({
-                areExclusionFiltersValid: true,
+                validationError: null,
             })
         })
 
@@ -396,7 +396,7 @@ describe('insightVizDataLogic', () => {
             await expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightDataLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
             }).toMatchValues({
-                areExclusionFiltersValid: false,
+                validationError: "Exclusion steps cannot contain an event that's part of funnel steps.",
             })
         })
     })

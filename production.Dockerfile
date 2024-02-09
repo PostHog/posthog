@@ -26,6 +26,7 @@ WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml ./
+COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \

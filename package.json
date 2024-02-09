@@ -74,10 +74,10 @@
         "@medv/finder": "^2.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.4.6",
-        "@posthog/icons": "0.4.17",
+        "@posthog/icons": "0.5.1",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
-        "@rrweb/types": "^2.0.0-alpha.11",
+        "@rrweb/types": "2.0.0-alpha.11",
         "@sentry/react": "7.22.0",
         "@tailwindcss/container-queries": "^0.1.1",
         "@testing-library/dom": ">=7.21.4",
@@ -116,7 +116,7 @@
         "dompurify": "^3.0.6",
         "esbuild": "^0.19.8",
         "esbuild-plugin-less": "^1.3.1",
-        "esbuild-sass-plugin": "^2.16.0",
+        "esbuild-sass-plugin": "^3.0.0",
         "expr-eval": "^2.0.2",
         "express": "^4.17.1",
         "fast-deep-equal": "^3.1.3",
@@ -141,7 +141,7 @@
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
-        "posthog-js": "1.100.0",
+        "posthog-js": "1.105.6",
         "posthog-js-lite": "2.5.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -168,7 +168,7 @@
         "react-virtualized": "^9.22.5",
         "require-from-string": "^2.0.2",
         "resize-observer-polyfill": "^1.5.1",
-        "rrweb": "^2.0.0-alpha.11",
+        "rrweb": "2.0.0-alpha.11",
         "sass": "^1.26.2",
         "tailwindcss": "^3.4.0",
         "use-debounce": "^9.0.3",
@@ -280,6 +280,7 @@
         "postcss-loader": "^4.3.0",
         "process": "^0.11.10",
         "raw-loader": "^4.0.2",
+        "redis": "^4.6.13",
         "safe-stable-stringify": "^2.4.3",
         "sass-loader": "^10.0.1",
         "storybook": "^7.6.4",
@@ -304,6 +305,9 @@
     "pnpm": {
         "overrides": {
             "playwright": "1.32.2"
+        },
+        "patchedDependencies": {
+            "rrweb@2.0.0-alpha.11": "patches/rrweb@2.0.0-alpha.11.patch"
         }
     },
     "lint-staged": {
@@ -313,6 +317,10 @@
             "prettier --write"
         ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
+        "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],

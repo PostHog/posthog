@@ -237,6 +237,10 @@ def get_decide(request: HttpRequest):
                     if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
                         response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
+            if str(team.id) in settings.NEW_CAPTURE_ENDPOINTS_INCLUDED_TEAM_IDS:
+                if random() < settings.NEW_CAPTURE_ENDPOINTS_SAMPLING_RATE:
+                    response["__preview_ingestion_endpoints"] = True
+
             if (
                 settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
                 and str(team.id) not in settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
@@ -257,7 +261,7 @@ def get_decide(request: HttpRequest):
                 if isinstance(linked_flag, Dict):
                     linked_flag = linked_flag.get("key")
 
-                response["sessionRecording"] = {
+                session_recording_response = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
@@ -266,6 +270,19 @@ def get_decide(request: HttpRequest):
                     "linkedFlag": linked_flag,
                     "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 }
+
+                if isinstance(team.session_replay_config, Dict):
+                    record_canvas = team.session_replay_config.get("record_canvas", False)
+                    session_recording_response.update(
+                        {
+                            "recordCanvas": record_canvas,
+                            # hard coded during beta while we decide on sensible values
+                            "canvasFps": 4 if record_canvas else None,
+                            "canvasQuality": "0.6" if record_canvas else None,
+                        }
+                    )
+
+                response["sessionRecording"] = session_recording_response
 
             response["surveys"] = True if team.surveys_opt_in else False
 

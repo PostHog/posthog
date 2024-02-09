@@ -791,6 +791,11 @@ export class DB {
             await this.kafkaProducer.queueMessage(message)
         }
 
+        status.debug(
+            '🧑‍🦰',
+            `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
+        )
+
         return [updatedPerson, kafkaMessages]
     }
 
