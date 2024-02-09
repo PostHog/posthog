@@ -193,9 +193,8 @@ class FunnelUnordered(FunnelBase):
                 f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}, 1, 0)"
             )
 
-        conditions.append(ast.Alias(alias="steps", expr=parse_expr(f"arraySum([{','.join(basic_conditions)}, 1])")))
-
         if basic_conditions:
+            conditions.append(ast.Alias(alias="steps", expr=parse_expr(f"arraySum([{','.join(basic_conditions)}, 1])")))
             return conditions
         else:
             return [ast.Alias(alias="steps", expr=ast.Constant(value=1))]
