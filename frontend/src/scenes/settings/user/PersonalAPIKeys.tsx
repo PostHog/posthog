@@ -144,7 +144,11 @@ function PersonalAPIKeysTable(): JSX.Element {
                     key: 'label',
                     render: function RenderLabel(label, key) {
                         return (
-                            <Link subtle className="font-semibold" onClick={() => setEditingKeyId(key.id)}>
+                            <Link
+                                subtle
+                                className="text-left font-semibold truncate"
+                                onClick={() => setEditingKeyId(key.id)}
+                            >
                                 {String(label)}
                             </Link>
                         )
