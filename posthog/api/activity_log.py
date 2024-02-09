@@ -71,7 +71,6 @@ class ServerTimingsGathered:
         return cls.timings_dict
 
 
-# TODO: Check this still works happily
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     base_scope = "activity_log"
     queryset = ActivityLog.objects.all()
