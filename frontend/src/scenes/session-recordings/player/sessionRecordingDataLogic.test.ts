@@ -117,7 +117,11 @@ describe('sessionRecordingDataLogic', () => {
                 logic.actions.loadRecordingMeta()
                 logic.actions.loadRecordingSnapshots()
             })
-                .toDispatchActions(['loadRecordingMetaSuccess', 'loadRecordingSnapshotsSuccess'])
+                .toDispatchActions([
+                    'loadRecordingMetaSuccess',
+                    'loadRecordingSnapshotsSuccess',
+                    'reportUsageIfFullyLoaded',
+                ])
                 .toFinishAllListeners()
 
             const actual = logic.values.sessionPlayerData
@@ -248,7 +252,7 @@ describe('sessionRecordingDataLogic', () => {
     })
 
     describe('report usage', () => {
-        it('send `recording loaded` event only when entire recording has loaded', async () => {
+        it('sends `recording loaded` event only when entire recording has loaded', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
             })
@@ -260,7 +264,7 @@ describe('sessionRecordingDataLogic', () => {
                 ])
                 .toDispatchActions([eventUsageLogic.actionTypes.reportRecording])
         })
-        it('send `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
+        it('sends `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
             })
@@ -270,6 +274,20 @@ describe('sessionRecordingDataLogic', () => {
                     eventUsageLogic.actionTypes.reportRecording, // viewed
                     eventUsageLogic.actionTypes.reportRecording, // analyzed
                 ])
+        })
+        it('clears the cache after unmounting', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
+            })
+            expect(Object.keys(logic.cache)).toEqual(
+                expect.arrayContaining(['metaStartTime', 'snapshotsStartTime', 'eventsStartTime'])
+            )
+            expect(typeof logic.cache.metaStartTime).toBe('number')
+
+            logic.unmount()
+            expect(logic.cache.metaStartTime).toBeNull()
+            expect(logic.cache.snapshotsStartTime).toBeNull()
+            expect(logic.cache.eventsStartTime).toBeNull()
         })
     })
 

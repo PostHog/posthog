@@ -545,6 +545,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as null | RecordingEventType[],
             {
                 loadEvents: async () => {
+                    if (!cache.eventsStartTime) {
+                        cache.eventsStartTime = performance.now()
+                    }
+
                     const { start, end, person } = values.sessionPlayerData
 
                     if (!person || !start || !end) {
