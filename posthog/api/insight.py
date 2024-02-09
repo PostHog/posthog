@@ -968,7 +968,7 @@ Using the correct cache and enriching the response with dashboard specific confi
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
-        if not request.GET.get("date_from"):
+        if not request.GET.get("date_from") and not request.data.get("date_from"):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
