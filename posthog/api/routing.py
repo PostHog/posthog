@@ -77,7 +77,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @property
     def is_team_view(self):
-        return "team_id" in self.parents_query_dict or self.derive_current_team_from_user_only
+        # NOTE: We check the property first as it avoids any potential DB lookups via the parents_query_dict
+        return self.derive_current_team_from_user_only or "team_id" in self.parents_query_dict
 
     @property
     def team_id(self) -> int:
