@@ -20,7 +20,7 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 
-from ee.billing.quota_limiting import QUOTA_LIMITER_CACHE_KEY
+from ee.billing.quota_limiting import QuotaLimitingRedisCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
@@ -266,8 +266,12 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
     results = []
-    limited_tokens_events = list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_LIMITER_CACHE_KEY)
-    limited_tokens_recordings = list_limited_team_attributes(QuotaResource.RECORDINGS, QUOTA_LIMITER_CACHE_KEY)
+    limited_tokens_events = list_limited_team_attributes(
+        QuotaResource.EVENTS, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY
+    )
+    limited_tokens_recordings = list_limited_team_attributes(
+        QuotaResource.RECORDINGS, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY
+    )
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:

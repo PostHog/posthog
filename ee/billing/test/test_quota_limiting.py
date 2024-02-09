@@ -9,8 +9,7 @@ from freezegun import freeze_time
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
-    QUOTA_LIMITER_CACHE_KEY,
-    QUOTA_OVERAGE_RETENTION_CACHE_KEY,
+    QuotaLimitingRedisCaches,
     QuotaResource,
     determine_org_quota_limit_or_data_retention,
     list_limited_team_attributes,
@@ -30,9 +29,9 @@ class TestQuotaLimiting(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.redis_client = get_client()
-        self.redis_client.delete("QUOTA_OVERAGE_RETENTION_CACHE_KEYevents")
-        self.redis_client.delete("QUOTA_OVERAGE_RETENTION_CACHE_KEYrecordings")
-        self.redis_client.delete("QUOTA_OVERAGE_RETENTION_CACHE_KEYrows_synced")
+        self.redis_client.delete("QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEYevents")
+        self.redis_client.delete("QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEYrecordings")
+        self.redis_client.delete("QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEYrows_synced")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -79,9 +78,9 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["recordings"] == {}
         assert quota_limited_orgs["rows_synced"] == {}
 
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -107,9 +106,9 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["recordings"] == {}
         assert quota_limited_orgs["rows_synced"] == {}
 
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
@@ -137,9 +136,9 @@ class TestQuotaLimiting(BaseTest):
         assert quota_limited_orgs["recordings"] == {}
         assert quota_limited_orgs["rows_synced"] == {}
 
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
 
     def test_billing_rate_limit(self) -> None:
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T22:09:14.252Z"):
@@ -174,9 +173,13 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limited_orgs["recordings"] == {}
             assert quota_limited_orgs["rows_synced"] == {}
 
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+            assert (
+                self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            )
+            assert (
+                self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            )
 
             self.organization.refresh_from_db()
             assert self.organization.usage == {
@@ -201,9 +204,13 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limited_orgs["recordings"] == {}
             assert quota_limited_orgs["rows_synced"] == {}
 
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+            assert (
+                self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            )
+            assert (
+                self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            )
 
             self.organization.refresh_from_db()
             assert self.organization.usage == {
@@ -228,11 +235,15 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limited_orgs["recordings"] == {}
             assert quota_limited_orgs["rows_synced"] == {}
 
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
+            assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert (
+                self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            )
+            assert (
+                self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            )
 
             self.organization.refresh_from_db()
             assert self.organization.usage == {
@@ -257,9 +268,13 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limited_orgs["recordings"] == {}
             assert quota_limited_orgs["rows_synced"] == {}
 
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            assert self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+            assert (
+                self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+            )
+            assert (
+                self.redis_client.zrange(f"{QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY}rows_synced", 0, -1) == []
+            )
 
             self.organization.refresh_from_db()
             assert self.organization.usage == {
@@ -422,8 +437,12 @@ class TestQuotaLimiting(BaseTest):
 
             now = timezone.now().timestamp()
 
-            replace_limited_team_tokens(QuotaResource.EVENTS, {"1234": now + 10000}, QUOTA_LIMITER_CACHE_KEY)
-            replace_limited_team_tokens(QuotaResource.ROWS_SYNCED, {"1337": now + 10000}, QUOTA_LIMITER_CACHE_KEY)
+            replace_limited_team_tokens(
+                QuotaResource.EVENTS, {"1234": now + 10000}, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            replace_limited_team_tokens(
+                QuotaResource.ROWS_SYNCED, {"1337": now + 10000}, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY
+            )
             self.organization.usage = {
                 "events": {"usage": 99, "limit": 100},
                 "recordings": {"usage": 1, "limit": 100},
@@ -432,8 +451,12 @@ class TestQuotaLimiting(BaseTest):
             }
 
             sync_org_quota_limits(self.organization)
-            assert list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_LIMITER_CACHE_KEY) == ["1234"]
-            assert list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_LIMITER_CACHE_KEY) == ["1337"]
+            assert list_limited_team_attributes(
+                QuotaResource.EVENTS, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY
+            ) == ["1234"]
+            assert list_limited_team_attributes(
+                QuotaResource.ROWS_SYNCED, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY
+            ) == ["1337"]
 
             self.organization.usage["events"]["usage"] = 120
             self.organization.usage["rows_synced"]["usage"] = 120
@@ -446,19 +469,25 @@ class TestQuotaLimiting(BaseTest):
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
             assert sorted(
-                list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
+                list_limited_team_attributes(
+                    QuotaResource.EVENTS, QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEY
+                )
             ) == sorted([self.team.api_token, other_team.api_token])
-            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_LIMITER_CACHE_KEY)) == sorted(
-                ["1234"]
-            )
+            assert sorted(
+                list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY)
+            ) == sorted(["1234"])
 
             # rows_synced uses teams, not tokens
             assert sorted(
-                list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
+                list_limited_team_attributes(
+                    QuotaResource.ROWS_SYNCED, QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEY
+                )
             ) == sorted([str(self.team.pk), str(other_team.pk)])
-            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_LIMITER_CACHE_KEY)) == sorted(
-                ["1337"]
-            )
+            assert sorted(
+                list_limited_team_attributes(
+                    QuotaResource.ROWS_SYNCED, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+            ) == sorted(["1337"])
 
             self.organization.usage["events"]["usage"] = 80
             self.organization.usage["rows_synced"]["usage"] = 36
@@ -469,15 +498,21 @@ class TestQuotaLimiting(BaseTest):
                 "rows_synced": {"limit": 100, "usage": 36},
                 "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
             }
-            assert sorted(list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_LIMITER_CACHE_KEY)) == sorted(
-                ["1234"]
-            )
             assert sorted(
-                list_limited_team_attributes(QuotaResource.EVENTS, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
+                list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY)
+            ) == sorted(["1234"])
+            assert sorted(
+                list_limited_team_attributes(
+                    QuotaResource.EVENTS, QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEY
+                )
             ) == sorted([])
-            assert sorted(list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_LIMITER_CACHE_KEY)) == sorted(
-                ["1337"]
-            )
             assert sorted(
-                list_limited_team_attributes(QuotaResource.ROWS_SYNCED, QUOTA_OVERAGE_RETENTION_CACHE_KEY)
+                list_limited_team_attributes(
+                    QuotaResource.ROWS_SYNCED, QuotaLimitingRedisCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+            ) == sorted(["1337"])
+            assert sorted(
+                list_limited_team_attributes(
+                    QuotaResource.ROWS_SYNCED, QuotaLimitingRedisCaches.QUOTA_OVERAGE_RETENTION_CACHE_KEY
+                )
             ) == sorted([])
