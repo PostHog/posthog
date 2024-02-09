@@ -240,7 +240,7 @@ class TestCSVExporter(APIBaseTest):
         mocked_request.assert_called_with(
             method="get",
             url="http://testserver/" + path,
-            params={"breakdown_limit": 500, "is_csv_export": "1"},
+            params={"breakdown_limit": 200, "is_csv_export": "1"},
             timeout=60,
             json=None,
             headers=ANY,
