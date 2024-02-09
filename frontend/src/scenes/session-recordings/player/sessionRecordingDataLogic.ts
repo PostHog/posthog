@@ -320,11 +320,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             actions.loadEvents()
         },
         loadRecordingMetaSuccess: () => {
-            cache.metadataLoadDuration = performance.now() - cache.metaStartTime
+            cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
             actions.reportUsageIfFullyLoaded()
         },
         loadRecordingMetaFailure: () => {
-            cache.metadataLoadDuration = performance.now() - cache.metaStartTime
+            cache.metadataLoadDuration = Math.round(performance.now() - cache.metaStartTime)
         },
         loadRecordingSnapshotsSuccess: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
