@@ -21,7 +21,7 @@ import pytz
 
 GENERATE_RECORDING_EMBEDDING_TIMING = Histogram(
     "posthog_session_recordings_generate_recording_embedding",
-    "Time spent generating recording embeddings for a singl session",
+    "Time spent generating recording embeddings for a single session",
 )
 
 BATCH_FLUSH_SIZE = 10
