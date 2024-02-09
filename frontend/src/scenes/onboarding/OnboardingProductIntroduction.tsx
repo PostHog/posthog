@@ -2,23 +2,19 @@ import { IconCheck, IconMap, IconMessage, IconStack } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
 import { getProductIcon } from 'scenes/products/Products'
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { BillingProductV2Type, BillingV2FeatureType, ProductKey } from '~/types'
 
-import { onboardingLogic } from './onboardingLogic'
-
-export const scene: SceneExport = {
-    component: OnboardingProductIntroduction,
-    logic: onboardingLogic,
-    paramsToProps: ({ params: { productKey } }) => ({ productKey }),
-}
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const Feature = ({ name, description, images }: BillingV2FeatureType): JSX.Element => {
     return images ? (
@@ -45,6 +41,8 @@ export const Subfeature = ({ name, description, icon_key }: BillingV2FeatureType
 }
 
 const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+    const { user } = useValues(userLogic)
+    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
     const cta: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'Start recording my website',
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
@@ -54,12 +52,18 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
     return (
         <div className="flex gap-x-4 items-center">
             <LemonButton
-                to={urls.onboarding(product.type, undefined, true)}
+                to={urls.onboarding(product.type, OnboardingStepKey.INSTALL)}
                 type="primary"
                 status="alt"
                 data-attr={`${product.type}-onboarding`}
                 center
                 className="max-w-max"
+                onClick={() => {
+                    const includeFirstOnboardingProductOnUserProperties = user?.date_joined
+                        ? new Date(user?.date_joined) > new Date('2024-01-10T00:00:00Z')
+                        : false
+                    reportOnboardingProductSelected(product.type, includeFirstOnboardingProductOnUserProperties)
+                }}
             >
                 {cta[product.type] || 'Get started'}
             </LemonButton>
@@ -131,7 +135,7 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     )
 }
 
-export function OnboardingProductIntroduction(): JSX.Element | null {
+export function OnboardingProductIntroduction({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element | null {
     const { product } = useValues(onboardingLogic)
     const websiteSlug: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'session-replay',
@@ -141,110 +145,112 @@ export function OnboardingProductIntroduction(): JSX.Element | null {
         [ProductKey.PRODUCT_ANALYTICS]: 'product-analytics',
     }
 
-    return product ? (
-        <>
-            <div className="unsubscribed-product-landing-page -m-4">
-                <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
-                    <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
-                        <div className="">
-                            <h3 className="text-4xl font-bold">{product.headline}</h3>
-                            <p>{product.description}</p>
-                            <GetStartedButton product={product} />
+    return (
+        <OnboardingStep title="Product Intro" stepKey={stepKey}>
+            {product ? (
+                <div className="unsubscribed-product-landing-page -m-4">
+                    <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
+                        <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
+                            <div className="">
+                                <h3 className="text-4xl font-bold">{product.headline}</h3>
+                                <p>{product.description}</p>
+                                <GetStartedButton product={product} />
+                            </div>
+                            {product.image_url && (
+                                <aside className="text-right my-2 hidden md:block">
+                                    <img src={product.image_url || undefined} className="max-w-96" />
+                                </aside>
+                            )}
                         </div>
-                        {product.image_url && (
-                            <aside className="text-right my-2 hidden md:block">
-                                <img src={product.image_url || undefined} className="max-w-96" />
-                            </aside>
-                        )}
-                    </div>
-                </header>
-                {product.screenshot_url && (
-                    <div className="flex justify-center">
-                        <div className="max-w-6xl mt-8 -mb-12">
-                            <img src={product.screenshot_url || undefined} className="w-full" />
+                    </header>
+                    {product.screenshot_url && (
+                        <div className="flex justify-center">
+                            <div className="max-w-6xl mt-8 -mb-12">
+                                <img src={product.screenshot_url || undefined} className="w-full" />
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                <div className="p-8 py-8 border-t border-border flex justify-center">
-                    <div className="max-w-screen-xl">
-                        <h3 className="mb-6 text-2xl font-bold">Features</h3>
-                        <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
-                            {product.features
-                                .filter((feature) => feature.type == 'primary')
-                                .map((feature, i) => {
-                                    return (
-                                        <React.Fragment key={`${product.type}-feature-${i}`}>
-                                            <Feature {...feature} />
-                                        </React.Fragment>
-                                    )
-                                })}
-                        </ul>
-
-                        <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4">
-                            {product.features
-                                .filter((feature) => feature.type == 'secondary')
-                                .map((subfeature, i) => {
-                                    return (
-                                        <React.Fragment key={`${product.type}-subfeature-${i}`}>
-                                            <Subfeature {...subfeature} />
-                                        </React.Fragment>
-                                    )
-                                })}
-                        </ul>
-                        <div className="mt-12">
-                            <h3 className="mb-4 text-lg font-bold">Get the most out of {product.name}</h3>
-                            <ul className="flex flex-col sm:flex-row gap-x-8 gap-y-2">
-                                <li>
-                                    <Link to={product.docs_url} target="_blank">
-                                        <IconStack className="mr-2 text-xl" />
-                                        <span className="font-bold">Product docs</span>
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        to={`https://posthog.com/tutorials/${websiteSlug[product.type]}`}
-                                        target="_blank"
-                                    >
-                                        <IconMap className="mr-2 text-xl" />
-                                        <span className="font-bold">Tutorials</span>
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        to={`https://posthog.com/questions/topic/${websiteSlug[product.type]}`}
-                                        target="_blank"
-                                    >
-                                        <IconMessage className="mr-2 text-xl" />
-                                        <span className="font-bold">Community</span>
-                                    </Link>
-                                </li>
+                    <div className="p-8 py-8 border-t border-border flex justify-center">
+                        <div className="max-w-screen-xl">
+                            <h3 className="mb-6 text-2xl font-bold">Features</h3>
+                            <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
+                                {product.features
+                                    .filter((feature) => feature.type == 'primary')
+                                    .map((feature, i) => {
+                                        return (
+                                            <React.Fragment key={`${product.type}-feature-${i}`}>
+                                                <Feature {...feature} />
+                                            </React.Fragment>
+                                        )
+                                    })}
                             </ul>
+
+                            <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4">
+                                {product.features
+                                    .filter((feature) => feature.type == 'secondary')
+                                    .map((subfeature, i) => {
+                                        return (
+                                            <React.Fragment key={`${product.type}-subfeature-${i}`}>
+                                                <Subfeature {...subfeature} />
+                                            </React.Fragment>
+                                        )
+                                    })}
+                            </ul>
+                            <div className="mt-12">
+                                <h3 className="mb-4 text-lg font-bold">Get the most out of {product.name}</h3>
+                                <ul className="flex flex-col sm:flex-row gap-x-8 gap-y-2">
+                                    <li>
+                                        <Link to={product.docs_url} target="_blank">
+                                            <IconStack className="mr-2 text-xl" />
+                                            <span className="font-bold">Product docs</span>
+                                        </Link>
+                                    </li>
+                                    <li>
+                                        <Link
+                                            to={`https://posthog.com/tutorials/${websiteSlug[product.type]}`}
+                                            target="_blank"
+                                        >
+                                            <IconMap className="mr-2 text-xl" />
+                                            <span className="font-bold">Tutorials</span>
+                                        </Link>
+                                    </li>
+                                    <li>
+                                        <Link
+                                            to={`https://posthog.com/questions/topic/${websiteSlug[product.type]}`}
+                                            target="_blank"
+                                        >
+                                            <IconMessage className="mr-2 text-xl" />
+                                            <span className="font-bold">Community</span>
+                                        </Link>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="p-8 py-12 border-t border-border">
+                        <div className="max-w-screen-xl m-auto">
+                            <PricingSection product={product} />
+                        </div>
+                    </div>
+                    <div className="mb-12 flex justify-center px-8">
+                        <div className="w-full max-w-screen-xl rounded bg-primary-alt-highlight border border-border p-6 flex justify-between items-center gap-x-12">
+                            <div>
+                                <h3 className="mb-4 text-2xl font-bold">Get started with {product.name}</h3>
+                                <p className="text-sm max-w-2xl">{product.description}</p>
+                                <GetStartedButton product={product} />
+                            </div>
+                            <div className="w-24 hidden sm:block">
+                                <WavingHog className="h-full w-full" />
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div className="p-8 py-12 border-t border-border">
-                    <div className="max-w-screen-xl m-auto">
-                        <PricingSection product={product} />
-                    </div>
+            ) : (
+                <div className="w-full text-center text-3xl mt-12">
+                    <Spinner />
                 </div>
-                <div className="mb-12 flex justify-center px-8">
-                    <div className="w-full max-w-screen-xl rounded bg-primary-alt-highlight border border-border p-6 flex justify-between items-center gap-x-12">
-                        <div>
-                            <h3 className="mb-4 text-2xl font-bold">Get started with {product.name}</h3>
-                            <p className="text-sm max-w-2xl">{product.description}</p>
-                            <GetStartedButton product={product} />
-                        </div>
-                        <div className="w-24 hidden sm:block">
-                            <WavingHog className="h-full w-full" />
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </>
-    ) : (
-        <div className="w-full text-center text-3xl mt-12">
-            <Spinner />
-        </div>
+            )}
+        </OnboardingStep>
     )
 }

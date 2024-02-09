@@ -96,8 +96,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
-        setOnIntroPage: (onIntroPage: boolean) => ({ onIntroPage }),
-        setFirstVisit: (firstVisit: boolean) => ({ firstVisit }),
+        setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         goToNextStep: true,
         goToPreviousStep: true,
         resetStepKey: true,
@@ -133,32 +132,26 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
             },
         ],
-        onIntroPage: [
-            false,
-            {
-                setOnIntroPage: (_, { onIntroPage }) => onIntroPage,
-            },
-        ],
-        firstVisit: [
+        includeIntro: [
             true,
             {
-                setFirstVisit: (_, { firstVisit }) => firstVisit,
+                setIncludeIntro: (_, { includeIntro }) => includeIntro,
             },
         ],
     })),
     selectors({
         breadcrumbs: [
-            (s) => [s.productKey, s.stepKey, s.onIntroPage],
-            (productKey, stepKey, onIntroPage) => {
+            (s) => [s.productKey, s.stepKey],
+            (productKey, stepKey) => {
                 return [
                     {
-                        key: Scene.OnboardingProductIntroduction,
+                        key: Scene.Onboarding,
                         name: productKeyToProductName[productKey ?? ''],
                         path: productKeyToURL[productKey ?? ''],
                     },
                     {
                         key: Scene.Onboarding,
-                        name: onIntroPage ? stepKeyToTitle(OnboardingStepKey.PRODUCT_INTRO) : stepKeyToTitle(stepKey),
+                        name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
                     },
                 ]
@@ -248,13 +241,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 window.location.href = urls.default()
             } else {
                 actions.resetStepKey()
-                const includeFirstOnboardingProductOnUserProperties = values.user?.date_joined
-                    ? new Date(values.user?.date_joined) > new Date('2024-01-10T00:00:00Z')
-                    : false
-                eventUsageLogic.actions.reportOnboardingProductSelected(
-                    product.type,
-                    includeFirstOnboardingProductOnUserProperties
-                )
                 switch (product.type) {
                     case ProductKey.PRODUCT_ANALYTICS:
                         return
@@ -357,24 +343,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey(/:intro)': ({ productKey, intro }, { success, upgraded, step, firstVisit }) => {
+        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
             if (!productKey) {
                 window.location.href = urls.default()
                 return
             }
 
-            if (firstVisit) {
-                actions.setFirstVisit(true)
-            }
-
-            if (intro === 'intro') {
-                // this prevents us from jumping straight back into onboarding if they are trying to see the intro again
-                actions.setAllOnboardingSteps([])
-                actions.setProductKey(productKey)
-                actions.setOnIntroPage(true)
-                return
-            }
-            actions.setOnIntroPage(false)
             if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)
             }

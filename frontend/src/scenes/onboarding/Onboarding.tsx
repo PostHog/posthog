@@ -13,6 +13,7 @@ import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
+import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
 import { OnboardingVerificationAndConfigStep } from './OnboardingVerificationAndConfigStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
@@ -29,10 +30,9 @@ export const scene: SceneExport = {
  * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep, firstVisit } =
+    const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep, product, includeIntro } =
         useValues(onboardingLogic)
-    const { setAllOnboardingSteps, setFirstVisit, setStepKey } = useActions(onboardingLogic)
-    const { product } = useValues(onboardingLogic)
+    const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
@@ -44,10 +44,6 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             return
         }
         setAllOnboardingSteps(allSteps)
-        if (firstVisit) {
-            setStepKey(allSteps[1].props.stepKey)
-            setFirstVisit(false)
-        }
     }, [allSteps])
 
     if (!product || !children) {
@@ -60,6 +56,10 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [...children]
         } else {
             steps = [children as JSX.Element]
+        }
+        if (includeIntro) {
+            const IntroStep = <OnboardingProductIntroduction stepKey={OnboardingStepKey.PRODUCT_INTRO} />
+            steps = [IntroStep, ...steps]
         }
         if (shouldShowBillingStep) {
             const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.PLANS} />
