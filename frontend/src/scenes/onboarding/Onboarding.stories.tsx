@@ -88,21 +88,3 @@ export const _OnboardingOtherProducts = (): JSX.Element => {
     return <App />
 }
 _OnboardingOtherProducts.tags = ['test-skip'] // FIXME: For some reason this is captured correctly the first time, but then is written over a second time with SDKs view
-
-export const _OnboardingProductIntroduction = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/api/billing-v2/': {
-                ...billingJson,
-            },
-        },
-    })
-
-    const { setProduct } = useActions(onboardingLogic)
-
-    useEffect(() => {
-        setProduct(billingJson.products[0])
-        router.actions.push(urls.onboardingProductIntroduction(ProductKey.PRODUCT_ANALYTICS))
-    }, [])
-    return <App />
-}

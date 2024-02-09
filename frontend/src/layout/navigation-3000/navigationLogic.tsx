@@ -343,7 +343,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
                 const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
-                const sectionOne = [
+                const sectionOne: NavbarItem[] = [
                     {
                         identifier: Scene.Dashboards,
                         label: 'Dashboards',
