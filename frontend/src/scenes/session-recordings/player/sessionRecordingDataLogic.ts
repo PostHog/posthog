@@ -344,6 +344,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (!cache.firstPaintDuration) {
                 cache.firstPaintDuration = Math.round(performance.now() - cache.snapshotsStartTime)
+                actions.reportViewed()
             }
 
             const nextSourceToLoad = sources?.find((s) => !s.loaded)
@@ -352,7 +353,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.loadRecordingSnapshots(nextSourceToLoad)
             } else {
                 cache.snapshotsLoadDuration = Math.round(performance.now() - cache.snapshotsStartTime)
-                actions.reportViewed()
                 actions.reportUsageIfFullyLoaded()
 
                 // If we have a realtime source, start polling it
@@ -372,7 +372,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadEventsFailure: () => {
             cache.eventsLoadDuration = Math.round(performance.now() - cache.eventsStartTime)
         },
-        reportUsageIfFullyLoaded: () => {
+        reportUsageIfFullyLoaded: (_, breakpoint) => {
+            breakpoint()
             if (values.fullyLoaded) {
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
