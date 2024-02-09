@@ -71,7 +71,6 @@
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
                 "REPLAY_EVENTS_NEW_CONSUMER_RATIO": "1.0",
-                "AUTO_LOGIN": "True",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev"
             },
             "console": "integratedTerminal",
