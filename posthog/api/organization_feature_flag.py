@@ -17,7 +17,6 @@ from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
 
 
-# TODO: Does this still work?
 class OrganizationFeatureFlagView(
     TeamAndOrgViewSetMixin,
     viewsets.ViewSet,
