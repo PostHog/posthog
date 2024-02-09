@@ -126,6 +126,7 @@ class FunnelBase(ABC):
                 prop_exprs = funnel_event_query._properties_expr()
             else:
                 entity_expr = None
+                # TODO implement for strict and ordered funnels
                 # entity_params, entity_format_params = get_entity_filtering_params(
                 #     allowed_entities=[target_entity],
                 #     team_id=team.pk,
@@ -399,11 +400,6 @@ class FunnelBase(ABC):
         #     extra_event_properties=self._extra_event_properties,
         # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
-        # if skip_step_filter:
-        #     steps_conditions = "1=1"
-        # else:
-        #     steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
-
         all_step_cols: List[ast.Expr] = []
         for index, entity in enumerate(entities_to_use):
             step_cols = self._get_step_col(entity, index, entity_name)
@@ -427,9 +423,9 @@ class FunnelBase(ABC):
                 raise ValidationError("Apologies, there was an error adding cohort breakdowns to the query.")
             funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
 
-        # funnel_events_query = funnel_events_query.format(
-        #     # step_filter="AND ({})".format(steps_conditions),
-        # )
+        if not skip_step_filter:
+            steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
+            funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
 
         if breakdown and breakdownAttributionType != BreakdownAttributionType.all_events:
             # ALL_EVENTS attribution is the old default, which doesn't need the subquery
@@ -512,16 +508,16 @@ class FunnelBase(ABC):
 
         return query
 
-    # def _get_steps_conditions(self, length: int) -> str:
-    #     step_conditions: List[str] = []
+    def _get_steps_conditions(self, length: int) -> ast.Expr:
+        step_conditions: List[ast.Expr] = []
 
-    #     for index in range(length):
-    #         step_conditions.append(f"step_{index} = 1")
+        for index in range(length):
+            step_conditions.append(parse_expr(f"step_{index} = 1"))
 
-    #     for exclusion_id, entity in enumerate(self._filter.exclusions):
-    #         step_conditions.append(f"exclusion_{exclusion_id}_step_{entity.funnel_from_step} = 1")
+        for exclusion_id, entity in enumerate(self.context.funnelsFilter.exclusions or []):
+            step_conditions.append(parse_expr(f"exclusion_{exclusion_id}_step_{entity.funnelFromStep} = 1"))
 
-    #     return " OR ".join(step_conditions)
+        return ast.Or(exprs=step_conditions)
 
     def _get_step_col(
         self,
