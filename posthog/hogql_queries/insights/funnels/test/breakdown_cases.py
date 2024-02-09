@@ -1124,6 +1124,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 name="test_cohort",
                 groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
             )
+            cohort.calculate_people_ch(pending_version=0)
+
             filters = {
                 "events": [
                     {"id": "sign up", "order": 0},
