@@ -764,8 +764,7 @@ export class DB {
                     await this.postgres.query(tx, personInsert.query, personInsert.parameters, 'insertPerson')
                 )
                 for (const distinctId of distinctIds) {
-                    // TODO: this needs to actually use the current transaction
-                    kafkaMessages.push(...(await this.addDistinctIdPooled(person, distinctId)))
+                    kafkaMessages.push(...(await this.addDistinctIdPooled(person, distinctId, tx)))
                 }
             })
         }
@@ -925,9 +924,13 @@ export class DB {
         }
     }
 
-    public async addDistinctIdPooled(person: Person, distinctId: string): Promise<ProducerRecord[]> {
+    public async addDistinctIdPooled(
+        person: Person,
+        distinctId: string,
+        tx?: TransactionClient
+    ): Promise<ProducerRecord[]> {
         const { rows } = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             `
                 INSERT INTO posthog_persondistinctid AS pdi
