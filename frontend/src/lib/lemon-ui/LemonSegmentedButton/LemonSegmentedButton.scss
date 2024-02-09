@@ -18,6 +18,7 @@
     .LemonSegmentedButton__option {
         display: flex;
         flex: 1;
+
         .LemonButton__content {
             white-space: nowrap;
         }
@@ -66,6 +67,7 @@
 
         &.LemonSegmentedButton__option--selected {
             z-index: 2;
+
             .LemonButton {
                 --lemon-button-icon-opacity: 1;
                 --lemon-button-profile-picture-opacity: 1;
