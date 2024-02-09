@@ -2,16 +2,17 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from string import ascii_lowercase
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
-from posthog.constants import INSIGHT_FUNNELS
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models.action.action import Action
 
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
+from posthog.models.person.person import Person
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
-from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.schema import FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -32,7 +33,12 @@ class FunnelStepResult:
     action_id: Optional[str] = None
 
 
-def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
+def funnel_breakdown_test_factory(
+    funnel_order_type: FunnelOrderType,
+    FunnelPerson,
+    _create_action: Callable[..., Action],
+    _create_person: Callable[..., Person],
+):
     class TestFunnelBreakdown(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             filter = Filter(data=filter, team=self.team)
@@ -60,7 +66,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "action_id": None,
                             "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
                         }
-                        if Funnel == ClickhouseFunnelUnordered
+                        if funnel_order_type == FunnelOrderType.UNORDERED
                         else {}
                     ),
                 }
@@ -74,12 +80,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["$browser", "$browser_version"])
         def test_funnel_step_multi_property_breakdown_event(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -225,12 +232,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_with_string_only_breakdown(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -337,12 +345,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -450,12 +459,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_with_other(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -584,12 +594,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_no_type(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -697,12 +708,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(person_properties=["$browser"])
         def test_funnel_step_breakdown_person(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -782,12 +794,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_breakdown_limit(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -829,12 +842,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -884,12 +898,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls_included(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -944,8 +959,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "other event", "order": 0}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "other event", "order": 0}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -1035,11 +1051,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -1140,12 +1157,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             cohort.calculate_people_ch(pending_version=0)
 
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {"id": "play movie", "order": 1},
                     {"id": "buy", "order": 2},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -1236,6 +1254,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             journeys_for(events_by_person, self.team)
 
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {
                         "id": "user signed up",
@@ -1252,7 +1272,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     },
                     {"id": "paid", "type": "events", "order": 1},
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-14",
                 "breakdown": ["$current_url"],
@@ -1312,6 +1331,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             journeys_for(events_by_person, self.team)
 
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "actions": [
                     {
                         "id": user_signed_up_action.id,
@@ -1327,7 +1348,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     }
                 ],
                 "events": [{"id": "paid", "type": "events", "order": 1}],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-14",
                 "breakdown": ["$current_url"],
@@ -1359,8 +1379,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_breakdown_with_first_touch_attribution(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -1510,8 +1531,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_breakdown_with_last_touch_attribution(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -1664,8 +1686,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_breakdown_with_step_attribution(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -1792,8 +1815,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_breakdown_with_step_one_attribution(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -1911,8 +1935,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_multiple_breakdown_with_first_touch_attribution(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2073,8 +2098,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_multiple_breakdown_with_first_touch_attribution_incomplete_funnel(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2216,8 +2242,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2310,8 +2337,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
         def test_funnel_step_non_array_breakdown_with_step_one_attribution_incomplete_funnel(self):
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2407,8 +2435,9 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             # No person querying here, so snapshots are more legible
 
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
+                "events": [{"id": "sign up", "order": 0}, {"id": "buy", "order": 1}],
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2478,6 +2507,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             # No person querying here, so snapshots are more legible
 
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {
@@ -2486,7 +2517,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "order": 1,
                     },
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
@@ -2554,6 +2584,8 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             # No person querying here, so snapshots are more legible
 
             filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_order_type": funnel_order_type,
                 "events": [
                     {"id": "sign up", "order": 0},
                     {
@@ -2562,7 +2594,6 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                         "order": 1,
                     },
                 ],
-                "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
