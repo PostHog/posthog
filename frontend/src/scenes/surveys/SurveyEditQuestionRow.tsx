@@ -12,7 +12,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Survey, SurveyQuestionType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
-import { BaseAppearance, SurveyMultipleChoiceAppearance, SurveyRatingAppearance } from './SurveyAppearance'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { surveyLogic } from './surveyLogic'
 
@@ -112,106 +111,23 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             {
                                 label: SurveyQuestionLabel[SurveyQuestionType.Open],
                                 value: SurveyQuestionType.Open,
-                                tooltip: () => (
-                                    <BaseAppearance
-                                        preview
-                                        onSubmit={() => undefined}
-                                        appearance={{
-                                            ...survey.appearance,
-                                            whiteLabel: true,
-                                        }}
-                                        question={{
-                                            type: SurveyQuestionType.Open,
-                                            question: 'Share your thoughts',
-                                            description: 'Optional form description',
-                                        }}
-                                    />
-                                ),
                             },
                             {
                                 label: 'Link/Notification',
                                 value: SurveyQuestionType.Link,
-                                tooltip: () => (
-                                    <BaseAppearance
-                                        preview
-                                        onSubmit={() => undefined}
-                                        appearance={{
-                                            ...survey.appearance,
-                                            whiteLabel: true,
-                                        }}
-                                        question={{
-                                            type: SurveyQuestionType.Link,
-                                            question: 'Do you want to join our upcoming webinar?',
-                                            buttonText: 'Register',
-                                            link: '',
-                                        }}
-                                    />
-                                ),
                             },
                             {
                                 label: 'Rating',
                                 value: SurveyQuestionType.Rating,
-                                tooltip: () => (
-                                    <SurveyRatingAppearance
-                                        preview
-                                        onSubmit={() => undefined}
-                                        appearance={{ ...survey.appearance, whiteLabel: true }}
-                                        ratingSurveyQuestion={{
-                                            question: 'How satisfied are you with our product?',
-                                            description: 'Optional form description.',
-                                            display: 'number',
-                                            lowerBoundLabel: 'Not great',
-                                            upperBoundLabel: 'Fantastic',
-                                            scale: 5,
-                                            type: SurveyQuestionType.Rating,
-                                        }}
-                                    />
-                                ),
                             },
                             ...[
                                 {
                                     label: 'Single choice select',
                                     value: SurveyQuestionType.SingleChoice,
-                                    tooltip: () => (
-                                        <SurveyMultipleChoiceAppearance
-                                            initialChecked={[0]}
-                                            preview
-                                            onSubmit={() => undefined}
-                                            appearance={{
-                                                ...survey.appearance,
-                                                whiteLabel: true,
-                                            }}
-                                            multipleChoiceQuestion={{
-                                                type: SurveyQuestionType.SingleChoice,
-                                                choices: ['Yes', 'No'],
-                                                question: 'Have you found this tutorial useful?',
-                                            }}
-                                        />
-                                    ),
                                 },
                                 {
                                     label: 'Multiple choice select',
                                     value: SurveyQuestionType.MultipleChoice,
-                                    tooltip: () => (
-                                        <SurveyMultipleChoiceAppearance
-                                            initialChecked={[0, 1]}
-                                            preview
-                                            onSubmit={() => undefined}
-                                            appearance={{
-                                                ...survey.appearance,
-                                                whiteLabel: true,
-                                            }}
-                                            multipleChoiceQuestion={{
-                                                type: SurveyQuestionType.MultipleChoice,
-                                                choices: [
-                                                    'Tutorials',
-                                                    'Customer case studies',
-                                                    'Product announcements',
-                                                ],
-                                                question: 'Which types of content would you like to see more of?',
-                                            }}
-                                        />
-                                    ),
                                 },
                             ],
                         ]}
