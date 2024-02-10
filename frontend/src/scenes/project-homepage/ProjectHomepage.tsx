@@ -46,10 +46,10 @@ export function ProjectHomepage(): JSX.Element {
             <LemonButton
                 type="secondary"
                 size="small"
-                data-attr="project-home-customise-homepage"
+                data-attr="project-home-customize-homepage"
                 onClick={showSceneDashboardChoiceModal}
             >
-                Customise homepage
+                Customize homepage
             </LemonButton>
             <LemonButton
                 data-attr="project-home-invite-team-members"
