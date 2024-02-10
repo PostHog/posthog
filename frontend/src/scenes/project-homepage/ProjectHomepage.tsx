@@ -44,6 +44,14 @@ export function ProjectHomepage(): JSX.Element {
                 <YearInHogButton url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`} />
             )}
             <LemonButton
+                type="secondary"
+                size="small"
+                data-attr="project-home-customise-homepage"
+                onClick={showSceneDashboardChoiceModal}
+            >
+                Customise homepage
+            </LemonButton>
+            <LemonButton
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()
@@ -80,16 +88,6 @@ export function ProjectHomepage(): JSX.Element {
                                     </Link>
                                 </>
                             )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                data-attr="project-home-change-dashboard"
-                                onClick={showSceneDashboardChoiceModal}
-                            >
-                                Change dashboard
-                            </LemonButton>
                         </div>
                     </div>
                     <LemonDivider className="mt-3 mb-4" />
