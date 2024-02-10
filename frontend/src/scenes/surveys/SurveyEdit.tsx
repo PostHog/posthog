@@ -26,7 +26,8 @@ import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, S
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { Customization, SurveyAppearance, WidgetCustomization } from './SurveyAppearance'
+import { Customization, WidgetCustomization } from './SurveyAppearance'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -102,17 +103,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             left: '-1rem',
                                                         }}
                                                     >
-                                                        <SurveyAppearance
-                                                            preview
-                                                            surveyType={survey.type}
-                                                            surveyQuestionItem={survey.questions[0]}
-                                                            appearance={{
-                                                                ...(survey.appearance || defaultSurveyAppearance),
-                                                                ...(survey.questions.length > 1
-                                                                    ? { submitButtonText: 'Next' }
-                                                                    : null),
-                                                            }}
-                                                        />
+                                                        <SurveyAppearancePreview survey={survey} />
                                                     </div>
                                                 </PresentationTypeCard>
                                                 <PresentationTypeCard

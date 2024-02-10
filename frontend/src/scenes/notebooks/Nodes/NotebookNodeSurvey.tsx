@@ -9,13 +9,12 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { StatusTag } from 'scenes/surveys/Surveys'
 import { SurveyResult } from 'scenes/surveys/SurveyView'
-import { SurveyAppearance } from 'scenes/surveys/SurveyAppearance'
 import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
+import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
@@ -77,11 +76,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                                     <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
 
                                     <div className="w-full flex flex-col items-center">
-                                        <SurveyAppearance
-                                            surveyType={survey.type}
-                                            surveyQuestionItem={survey.questions[0]}
-                                            appearance={survey.appearance || defaultSurveyAppearance}
-                                        />
+                                        <SurveyAppearancePreview survey={survey} />
                                     </div>
                                 </div>
                             </>
