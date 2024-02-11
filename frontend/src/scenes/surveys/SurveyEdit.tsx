@@ -26,9 +26,9 @@ import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, S
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { Customization, WidgetCustomization } from './SurveyAppearance'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
+import { Customization, WidgetCustomization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
