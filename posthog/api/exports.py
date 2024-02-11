@@ -1,8 +1,6 @@
 from datetime import timedelta
 from typing import Any, Dict
 
-import celery
-import requests.exceptions
 import structlog
 from django.http import HttpResponse
 from django.utils.timezone import now
@@ -67,24 +65,29 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return data
 
     def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
-        return self._create_asset(self.validated_data, user=None, asset_generation_timeout=0.01, reason=reason)
+        return self._create_asset(self.validated_data, user=None, reason=reason)
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
-        return self._create_asset(validated_data, user=request.user, asset_generation_timeout=10, reason=None)
+        return self._create_asset(validated_data, user=request.user, reason=None)
 
     def _create_asset(
         self,
         validated_data: Dict,
         user: User | None,
-        asset_generation_timeout: float,
         reason: str | None,
     ) -> ExportedAsset:
         if user is not None:
             validated_data["created_by"] = user
 
         instance: ExportedAsset = super().create(validated_data)
-        self.generate_export_sync(instance, timeout=asset_generation_timeout)
+
+        if instance.export_format not in ExportedAsset.SUPPORTED_FORMATS:
+            raise serializers.ValidationError(
+                {"export_format": [f"Export format {instance.export_format} is not supported."]}
+            )
+
+        exporter.export_asset.delay(instance.id)
 
         if user is not None:
             report_user_action(user, "export created", instance.get_analytics_metadata())
@@ -126,24 +129,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 )
                 pass
         return instance
-
-    @staticmethod
-    def generate_export_sync(instance: ExportedAsset, timeout: float = 10) -> None:
-        task = exporter.export_asset.delay(instance.id)
-        try:
-            task.get(timeout=timeout)
-            instance.refresh_from_db()
-        except celery.exceptions.TimeoutError:
-            # If the rendering times out - fine, the frontend will poll instead for the response
-            pass
-        except requests.exceptions.MissingSchema:
-            # regression test see https://github.com/PostHog/posthog/issues/11204
-            pass
-        except NotImplementedError as ex:
-            logger.error("exporters.unsupported_export_type", exception=ex, exc_info=True)
-            raise serializers.ValidationError(
-                {"export_format": ["This type of export is not supported for this resource."]}
-            )
 
 
 class ExportedAssetViewSet(

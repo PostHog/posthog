@@ -239,7 +239,9 @@ class TestCSVExporter(APIBaseTest):
 
         mocked_request.assert_called_with(
             method="get",
-            url="http://testserver/" + path + "&breakdown_limit=1000&is_csv_export=1",
+            url="http://testserver/" + path,
+            params={"breakdown_limit": 200, "is_csv_export": "1"},
+            timeout=60,
             json=None,
             headers=ANY,
         )
@@ -250,10 +252,11 @@ class TestCSVExporter(APIBaseTest):
             exported_asset = self._create_asset()
             mock_response = MagicMock()
             mock_response.status_code = 403
+            mock_response.raise_for_status.side_effect = Exception("HTTP 403 Forbidden")
             mock_response.ok = False
             patched_request.return_value = mock_response
 
-            with pytest.raises(Exception, match="export API call failed with status_code: 403"):
+            with pytest.raises(Exception, match="HTTP 403 Forbidden"):
                 csv_exporter.export_csv(exported_asset)
 
     def test_limiting_query_as_expected(self) -> None:

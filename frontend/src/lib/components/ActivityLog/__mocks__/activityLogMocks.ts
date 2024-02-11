@@ -2,6 +2,131 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { ActivityScope, InsightShortId } from '~/types'
 
+export const teamActivityResponseJson: ActivityLogItem[] = [
+    {
+        user: {
+            first_name: 'sdavasdadadsadas',
+            last_name: '',
+            email: 'paul@posthog.com',
+        },
+        unread: false,
+        is_staff: false,
+        is_system: false,
+        activity: 'updated',
+        item_id: '1',
+        scope: ActivityScope.TEAM,
+        detail: {
+            name: 'Default Project',
+            type: undefined,
+            merge: null,
+            changes: [
+                {
+                    type: ActivityScope.TEAM,
+                    after: 2000,
+                    field: 'session_recording_minimum_duration_milliseconds',
+                    action: 'created',
+                    before: null,
+                },
+            ],
+            trigger: null,
+            short_id: null,
+        },
+        created_at: '2024-02-08T19:23:53.530402Z',
+    },
+    {
+        user: {
+            first_name: 'sdavasdadadsadas',
+            last_name: '',
+            email: 'paul@posthog.com',
+        },
+        unread: false,
+        is_staff: false,
+        is_system: false,
+        activity: 'updated',
+        item_id: '1',
+        scope: ActivityScope.TEAM,
+        detail: {
+            name: 'Default Project',
+            type: undefined,
+            merge: null,
+            changes: [
+                {
+                    type: ActivityScope.TEAM,
+                    after: {
+                        record_canvas: true,
+                    },
+                    field: 'session_replay_config',
+                    action: 'created',
+                    before: null,
+                },
+            ],
+            trigger: null,
+            short_id: null,
+        },
+        created_at: '2024-02-08T19:23:48.099540Z',
+    },
+    {
+        user: {
+            first_name: 'sdavasdadadsadas',
+            last_name: '',
+            email: 'paul@posthog.com',
+        },
+        unread: false,
+        is_staff: false,
+        is_system: false,
+        activity: 'updated',
+        item_id: '1',
+        scope: ActivityScope.TEAM,
+        detail: {
+            name: 'Default Project',
+            type: undefined,
+            merge: null,
+            changes: [
+                {
+                    type: ActivityScope.TEAM,
+                    after: true,
+                    field: 'capture_console_log_opt_in',
+                    action: 'changed',
+                    before: false,
+                },
+            ],
+            trigger: null,
+            short_id: null,
+        },
+        created_at: '2024-02-08T19:23:46.325979Z',
+    },
+    {
+        user: {
+            first_name: 'sdavasdadadsadas',
+            last_name: '',
+            email: 'paul@posthog.com',
+        },
+        unread: false,
+        is_staff: false,
+        is_system: false,
+        activity: 'updated',
+        item_id: '1',
+        scope: ActivityScope.TEAM,
+        detail: {
+            name: 'Default Project',
+            type: undefined,
+            merge: null,
+            changes: [
+                {
+                    type: ActivityScope.TEAM,
+                    after: false,
+                    field: 'capture_console_log_opt_in',
+                    action: 'changed',
+                    before: true,
+                },
+            ],
+            trigger: null,
+            short_id: null,
+        },
+        created_at: '2024-02-08T19:23:44.851511Z',
+    },
+]
+
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
     {
         user: {
