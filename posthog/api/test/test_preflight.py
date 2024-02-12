@@ -287,12 +287,12 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
 
     @pytest.mark.ee
     def test_cloud_preflight_based_on_region(self):
-        with self.settings(REGION="US"):
+        with self.settings(CLOUD_DEPLOYMENT="US"):
             response = self.client.get("/_preflight/")
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["realm"] == "cloud"
             assert response.json()["cloud"] is True
-        with self.settings(REGION=None):
+        with self.settings(CLOUD_DEPLOYMENT=None):
             response = self.client.get("/_preflight/")
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["realm"] == "hosted-clickhouse"
