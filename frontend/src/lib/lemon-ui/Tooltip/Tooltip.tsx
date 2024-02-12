@@ -17,7 +17,6 @@ import {
 } from '@floating-ui/react'
 import clsx from 'clsx'
 import React, { useRef, useState } from 'react'
-import { CSSTransition } from 'react-transition-group'
 
 interface TooltipProps {
     title: string | React.ReactNode | (() => string)
@@ -81,12 +80,13 @@ export function Tooltip({
     return title ? (
         <>
             {clonedChild}
-            <FloatingPortal>
-                <CSSTransition in={open} timeout={50} classNames="Tooltip-" appear mountOnEnter unmountOnExit>
+            {open && (
+                <FloatingPortal>
                     <div
                         ref={refs.setFloating}
                         className={clsx(
                             'bg-tooltip-bg py-1.5 px-2 z-[1070] break-words rounded text-start text-white',
+
                             className
                         )}
                         // eslint-disable-next-line react/forbid-dom-props
@@ -96,8 +96,8 @@ export function Tooltip({
                         {typeof title === 'function' ? title() : title}
                         <FloatingArrow ref={caretRef} context={context} width={8} height={4} fill="var(--tooltip-bg)" />
                     </div>
-                </CSSTransition>
-            </FloatingPortal>
+                </FloatingPortal>
+            )}
         </>
     ) : (
         children
