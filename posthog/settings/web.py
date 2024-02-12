@@ -241,7 +241,6 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "posthog.auth.PersonalAPIKeyAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",

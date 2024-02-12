@@ -311,8 +311,8 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
 
+@override_settings(REGION="US")  # As PostHog Cloud
 class TestPostHogTokenCookieMiddleware(APIBaseTest):
-    initial_cloud_mode = True
     CONFIG_AUTO_LOGIN = False
 
     def test_logged_out_client(self):
