@@ -224,9 +224,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
+    # every interval seconds, we calculate N replay embeddings
+    # the goal is to process _enough_ every 24 hours that
+    # there is a meaningful playlist to test with
     add_periodic_task_with_expiry(
         sender,
-        86400,
+        settings.REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS,
         calculate_replay_embeddings.s(),
         name="calculate replay embeddings",
     )
