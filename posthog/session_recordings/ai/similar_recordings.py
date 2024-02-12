@@ -6,7 +6,7 @@ def generate_team_embeddings(session_recording: SessionRecording, team: Team):
     recording_embeddings = find_recording_embeddings(recording=session_recording, team=team)[0]
 
     if recording_embeddings is None:
-        # TODO: generate embeddings for a recording if not already present
+        # TODO: generate embeddings for a recording
         raise
 
     similar_sessions_ids = compare_recordings(target_embeddings=recording_embeddings)
