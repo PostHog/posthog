@@ -39,7 +39,10 @@ BATCH_FLUSH_SIZE = 10
 MIN_DURATION_INCLUDE_SECONDS = 120
 
 
-def fetch_recordings_without_embeddings(team: Team, offset=0):
+def fetch_recordings_without_embeddings(team: Team | int, offset=0):
+    if isinstance(team, int):
+        team = Team.objects.get(pk=team)
+
     query = """
             WITH embedding_ids AS
             (
