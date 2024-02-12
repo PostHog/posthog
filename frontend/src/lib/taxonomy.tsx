@@ -61,6 +61,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Screen',
             description: 'When a user loads a screen in a mobile app.',
         },
+        $set: {
+            label: 'Set',
+            description: 'Setting person properties.',
+        },
+        $opt_in: {
+            label: 'Opt In',
+            description: 'When a user opts into analytics.',
+        },
         $feature_flag_called: {
             label: 'Feature Flag Called',
             description: (
