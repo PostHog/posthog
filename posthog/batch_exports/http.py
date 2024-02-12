@@ -49,11 +49,7 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.permissions import (
-    OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
-)
+from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -100,11 +96,7 @@ class RunsCursorPagination(CursorPagination):
 
 class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = BatchExportRun.objects.all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
 
@@ -350,11 +342,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = BatchExport.objects.all()
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
@@ -476,11 +464,7 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
 
 
 class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     serializer_class = BatchExportLogEntrySerializer
 
     def get_queryset(self):

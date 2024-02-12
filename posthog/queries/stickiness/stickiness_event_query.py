@@ -18,6 +18,7 @@ class StickinessEventsQuery(EventQuery):
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
         super().__init__(*args, **kwargs)
+        self._should_round_interval = True
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         prop_query, prop_params = self._get_prop_groups(
@@ -57,7 +58,7 @@ class StickinessEventsQuery(EventQuery):
                 ) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
-            {self._get_person_ids_query(relevant_events_conditions=entity_query + date_query)}
+            {self._get_person_ids_query(relevant_events_conditions=f"{entity_query} {date_query}")}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s

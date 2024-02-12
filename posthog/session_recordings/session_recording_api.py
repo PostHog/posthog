@@ -29,7 +29,6 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.person.person import PersonDistinctId
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
@@ -181,11 +180,7 @@ def list_recordings_response(
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this

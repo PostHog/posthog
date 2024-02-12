@@ -130,7 +130,7 @@ export const PlanComparison = ({
                         }
                     }}
                 >
-                    {plan.current_plan ? 'Current plan' : 'Upgrade'}
+                    {plan.current_plan ? 'Current plan' : 'Subscribe'}
                 </LemonButton>
                 {!plan.current_plan && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
@@ -139,7 +139,7 @@ export const PlanComparison = ({
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or upgrade without addons
+                            or subscribe without addons
                         </Link>
                     </p>
                 )}

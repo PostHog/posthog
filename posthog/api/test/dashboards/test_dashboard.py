@@ -874,7 +874,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
         )
 
-        assert duplicate_response["tiles"][0]["insight"]["name"] is None
+        # this test only needs to check that insight name is still None,
+        # but it flaps in CI.
+        # my guess is that the order of the response is not guaranteed
+        assert duplicate_response is not None
+        assert len(duplicate_response.get("tiles", [])) == 2
+
+        insight_tile = next(tile for tile in duplicate_response["tiles"] if "insight" in tile)
+        text_tile = next(tile for tile in duplicate_response["tiles"] if "text" in tile)
+        assert insight_tile["insight"]["name"] is None
+        assert text_tile is not None
 
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)

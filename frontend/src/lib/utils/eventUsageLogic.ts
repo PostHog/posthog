@@ -4,7 +4,7 @@ import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/com
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
-import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
+import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import {
     isFilterWithDisplay,
@@ -105,7 +105,7 @@ interface RecordingViewedProps {
 function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
-        if (prop.key && isPostHogProp(prop.key)) {
+        if (prop.key && isCoreFilter(prop.key)) {
             output.push(prop.key)
         } else {
             output.push('redacted') // Custom property names are not reported
@@ -533,7 +533,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             let custom_properties_count = 0
             let posthog_properties_count = 0
             for (const prop of Object.keys(person.properties)) {
-                if (keyMappingKeys.includes(prop)) {
+                if (PROPERTY_KEYS.includes(prop)) {
                     posthog_properties_count += 1
                 } else {
                     custom_properties_count += 1
@@ -841,16 +841,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
-                snapshots_load_time: durations.snapshots?.duration,
-                metadata_load_time: durations.metadata?.duration,
-                events_load_time: durations.events?.duration,
-                first_paint_load_time: durations.firstPaint?.duration,
+                snapshots_load_time: durations.snapshots,
+                metadata_load_time: durations.metadata,
+                events_load_time: durations.events,
+                first_paint_load_time: durations.firstPaint,
                 duration: eventIndex.getDuration(),
                 start_time: playerData.start?.valueOf() ?? 0,
                 end_time: playerData.end?.valueOf() ?? 0,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
-                load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
+                load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
             }
             posthog.capture(`recording ${type}`, payload)
         },
