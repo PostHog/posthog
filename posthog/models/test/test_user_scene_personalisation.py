@@ -42,6 +42,20 @@ class TestUserScenePersonalisation(BaseTest):
                 user=self.user,
             )
 
+    def test_user_cannot_have_dashboard_and_alternate_scene_preference(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+        )
+
+        with pytest.raises(db.utils.IntegrityError):
+            UserScenePersonalisation.objects.create(
+                scene="Persons",
+                dashboard=dashboard,
+                alternate_scene={"key": "value"},
+                team=self.team,
+                user=self.user,
+            )
+
     def test_user_cannot_user_same_preference_for_multiple_scenes(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
