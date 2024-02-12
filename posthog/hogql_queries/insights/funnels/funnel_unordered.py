@@ -43,7 +43,7 @@ class FunnelUnordered(FunnelBase):
             if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
                 raise ValidationError("Partial Exclusions not allowed in unordered funnels")
 
-        breakdown_exprs = self._get_breakdown_expr()
+        breakdown_exprs = self._get_breakdown_prop_expr()
 
         select: List[ast.Expr] = [
             *self._get_count_columns(max_steps),
@@ -60,7 +60,7 @@ class FunnelUnordered(FunnelBase):
 
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
-        breakdown_exprs = self._get_breakdown_expr()
+        breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties()
 
@@ -115,7 +115,7 @@ class FunnelUnordered(FunnelBase):
                     ast.Field(chain=["aggregation_target"]),
                     ast.Field(chain=["timestamp"]),
                     *self._get_partition_cols(1, max_steps),
-                    *self._get_breakdown_expr(group_remaining=True),
+                    *self._get_breakdown_prop_expr(group_remaining=True),
                     *self._get_person_and_group_properties(),
                 ],
                 select_from=ast.JoinExpr(table=self._get_inner_event_query(entities_to_use, f"events_{i}")),
