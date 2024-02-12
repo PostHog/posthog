@@ -2,8 +2,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -70,27 +70,23 @@ export const FlagsToolbarMenu = (): JSX.Element => {
 
                                 <AnimatedCollapsible collapsed={!hasVariants || !currentValue}>
                                     <div className={clsx('flex flex-col px-2 ml-2', hasOverride && 'overridden')}>
-                                        {feature_flag.filters?.multivariate?.variants.map((variant) => (
-                                            <LemonCheckbox
-                                                key={variant.key}
-                                                fullWidth
-                                                checked={currentValue === variant.key}
-                                                label={`${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`}
-                                                onChange={() => {
-                                                    const newValue = variant.key
-                                                    if (newValue === value && hasOverride) {
-                                                        deleteOverriddenUserFlag(feature_flag.key)
-                                                    } else {
-                                                        setOverriddenUserFlag(feature_flag.key, newValue)
-                                                    }
-                                                }}
-                                                className={clsx(
-                                                    currentValue === variant.key &&
-                                                        'font-bold rounded bg-primary-highlight',
-                                                    'px-2 py-1'
-                                                )}
-                                            />
-                                        ))}
+                                        <LemonRadio
+                                            fullWidth
+                                            value={typeof currentValue === 'string' ? currentValue : undefined}
+                                            options={
+                                                feature_flag.filters?.multivariate?.variants.map((variant) => ({
+                                                    label: `${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`,
+                                                    value: variant.key,
+                                                })) || []
+                                            }
+                                            onChange={(newValue) => {
+                                                if (newValue === value && hasOverride) {
+                                                    deleteOverriddenUserFlag(feature_flag.key)
+                                                } else {
+                                                    setOverriddenUserFlag(feature_flag.key, newValue)
+                                                }
+                                            }}
+                                        />
                                     </div>
                                 </AnimatedCollapsible>
                             </div>
