@@ -6,6 +6,7 @@
     --scene-padding: 1rem;
 
     // handle notched devices and mobile safari's bottom nav bar
+    // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions
     --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
 
     display: flex;
