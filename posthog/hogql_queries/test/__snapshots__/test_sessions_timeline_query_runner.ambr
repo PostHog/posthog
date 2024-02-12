@@ -56,7 +56,8 @@
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
-        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+        GROUP BY session_replay_events.session_id,
+                 session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -120,7 +121,8 @@
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
-        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+        GROUP BY session_replay_events.session_id,
+                 session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -184,7 +186,8 @@
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
-        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+        GROUP BY session_replay_events.session_id,
+                 session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -248,7 +251,8 @@
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
-        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+        GROUP BY session_replay_events.session_id,
+                 session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -312,7 +316,8 @@
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
-        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+        GROUP BY session_replay_events.session_id,
+                 session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -376,7 +381,8 @@
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
-        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+        GROUP BY session_replay_events.session_id,
+                 session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -440,7 +446,8 @@
                session_replay_events.session_id AS session_id
         FROM session_replay_events
         WHERE equals(session_replay_events.team_id, 2)
-        GROUP BY session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
+        GROUP BY session_replay_events.session_id,
+                 session_replay_events.session_id) AS session_replay_events) AS sre ON equals(e.session_id, sre.session_id)
   ORDER BY e.timestamp DESC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
