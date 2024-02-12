@@ -133,11 +133,6 @@ export function Overview(): JSX.Element {
 
     return (
         <div>
-            <h2>Filters</h2>
-            <p>
-                <i>Coming soon.</i>
-            </p>
-
             <h2 className="mt-4">Transformations</h2>
             <div className="grid grid-cols-3 gap-4">
                 {transformationsLoading ? (

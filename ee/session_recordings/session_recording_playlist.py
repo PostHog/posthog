@@ -31,7 +31,6 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.rate_limit import (
@@ -170,11 +169,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        TeamMemberAccessPermission,
-    ]
+    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]

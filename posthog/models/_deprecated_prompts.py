@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 
 
+# DEPRECATED - DO NOT USE
 class Prompt(models.Model):
     step: models.IntegerField = models.IntegerField()
     type: models.CharField = models.CharField(max_length=200)  # tooltip, modal, etc
@@ -18,6 +19,7 @@ class Prompt(models.Model):
     icon: models.CharField = models.CharField(max_length=200)  # sync with iconMap in frontend
 
 
+# DEPRECATED - DO NOT USE
 class PromptSequence(models.Model):
     class Meta:
         constraints = [
@@ -39,6 +41,7 @@ class PromptSequence(models.Model):
     )  # whether to run this sequence automatically for all users
 
 
+# DEPRECATED - DO NOT USE
 class UserPromptState(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["user", "sequence"], name="unique_user_prompt_state")]

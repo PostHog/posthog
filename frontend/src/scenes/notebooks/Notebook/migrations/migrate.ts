@@ -20,7 +20,7 @@ import {
     isLegacyTrendsFilter,
 } from '~/queries/nodes/InsightQuery/utils/legacy'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
-import { NotebookNodeType, NotebookType } from '~/types'
+import { FunnelExclusionLegacy, NotebookNodeType, NotebookType } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
 // It will bust the cache on the localContent in the notebookLogic
@@ -111,7 +111,9 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             } else if (isLegacyFunnelsExclusion(query.funnelsFilter as any)) {
                 query.funnelsFilter = {
                     ...query.funnelsFilter,
-                    exclusions: query.funnelsFilter!.exclusions!.map((entity) => exlusionEntityToNode(entity)),
+                    exclusions: query.funnelsFilter!.exclusions!.map((entity) =>
+                        exlusionEntityToNode(entity as unknown as FunnelExclusionLegacy)
+                    ),
                 }
             }
         }

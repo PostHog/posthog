@@ -975,6 +975,9 @@
               OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" = 2
+         AND NOT ("posthog_dashboard"."deleted"
+                  AND "posthog_dashboardtile"."deleted"
+                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
@@ -1206,33 +1209,6 @@
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.31
-  '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."id" IN (1,
-                                          2,
-                                          3,
-                                          4,
-                                          5 /* ... */)) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.32
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -2701,24 +2677,6 @@
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.56
-  '''
-  SELECT "posthog_sharingconfiguration"."id",
-         "posthog_sharingconfiguration"."team_id",
-         "posthog_sharingconfiguration"."dashboard_id",
-         "posthog_sharingconfiguration"."insight_id",
-         "posthog_sharingconfiguration"."recording_id",
-         "posthog_sharingconfiguration"."created_at",
-         "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
-  FROM "posthog_sharingconfiguration"
-  WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
-                                                          2,
-                                                          3,
-                                                          4,
-                                                          5 /* ... */) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
-  '''
-# ---
-# name: TestDashboard.test_listing_dashboards_is_not_nplus1.57
   '''
   SELECT "posthog_sharingconfiguration"."id",
          "posthog_sharingconfiguration"."team_id",
@@ -7452,6 +7410,9 @@
               OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" = 2
+         AND NOT ("posthog_dashboard"."deleted"
+                  AND "posthog_dashboardtile"."deleted"
+                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
@@ -8379,17 +8340,6 @@
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.314
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.315
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
@@ -10138,6 +10088,9 @@
               OR "posthog_dashboardtile"."insight_id" IS NULL)
          AND "posthog_dashboardtile"."dashboard_id" = 2
          AND "posthog_dashboardtile"."dashboard_id" = 2
+         AND NOT ("posthog_dashboard"."deleted"
+                  AND "posthog_dashboardtile"."deleted"
+                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
@@ -11629,24 +11582,6 @@
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.32
-  '''
-  SELECT "posthog_sharingconfiguration"."id",
-         "posthog_sharingconfiguration"."team_id",
-         "posthog_sharingconfiguration"."dashboard_id",
-         "posthog_sharingconfiguration"."insight_id",
-         "posthog_sharingconfiguration"."recording_id",
-         "posthog_sharingconfiguration"."created_at",
-         "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
-  FROM "posthog_sharingconfiguration"
-  WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
-                                                          2,
-                                                          3,
-                                                          4,
-                                                          5 /* ... */) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard_list.33
   '''
   SELECT "posthog_sharingconfiguration"."id",
          "posthog_sharingconfiguration"."team_id",

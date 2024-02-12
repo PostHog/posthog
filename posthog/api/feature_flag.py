@@ -51,7 +51,6 @@ from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import (
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.queries.base import (
@@ -378,7 +377,6 @@ class FeatureFlagViewSet(
     serializer_class = FeatureFlagSerializer
     permission_classes = [
         IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
         CanEditFeatureFlag,
     ]

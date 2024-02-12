@@ -29,7 +29,6 @@ from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
 from posthog.permissions import (
     PremiumFeaturePermission,
-    ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -291,7 +290,6 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     permission_classes = [
         IsAuthenticated,
         PremiumFeaturePermission,
-        ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
     premium_feature = AvailableFeature.EXPERIMENTATION

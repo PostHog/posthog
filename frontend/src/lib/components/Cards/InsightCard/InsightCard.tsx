@@ -12,10 +12,10 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     FunnelSingleStepState,
-    FunnelValidationError,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
+    InsightValidationError,
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -153,6 +153,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
     placement: DashboardPlacement | 'SavedInsightGrid'
+    /** Priority for loading the insight, lower is earlier. */
+    loadPriority?: number
 }
 
 function VizComponentFallback(): JSX.Element {
@@ -207,7 +209,7 @@ export function FilterBasedCardContent({
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
                 ) : validationError ? (
-                    <FunnelValidationError detail={validationError} />
+                    <InsightValidationError detail={validationError} />
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
@@ -246,6 +248,7 @@ function InsightCardInternal(
         children,
         moreButtons,
         placement,
+        loadPriority,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -254,6 +257,7 @@ function InsightCardInternal(
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
         cachedInsight: insight,
+        loadPriority,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))

@@ -31,7 +31,7 @@ async def validate_schema(
     }
 
     table = DataWarehouseTable(**params)
-    table.columns = await sync_to_async(table.get_columns)(safe_expose_ch_error=False)  # type: ignore
+    table.columns = await sync_to_async(table.get_columns)(safe_expose_ch_error=False)
 
     return {
         "credential": credential,
@@ -107,7 +107,7 @@ async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: l
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
 
         # TODO: this should be async too
-        table_created.columns = await sync_to_async(table_created.get_columns)()  # type: ignore
+        table_created.columns = await sync_to_async(table_created.get_columns)()
         await asave_datawarehousetable(table_created)
 
         # schema could have been deleted by this point

@@ -1,4 +1,7 @@
+import pytest
+
 from posthog.hogql import ast
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.utils import UUIDT
@@ -137,6 +140,11 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
         self.assertEqual(len(runner.calculate().results), 1)
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_persons_query_search_snapshot(self):
+        runner = self._create_runner(ActorsQuery(search="SEARCHSTRING"))
+        assert pretty_print_in_tests(runner.to_hogql(), self.team.pk) == self.snapshot
+
     def test_persons_query_aggregation_select_having(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(ActorsQuery(select=["properties.name", "count()"]))
@@ -227,3 +235,33 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = self._create_runner(query)
             response = runner.calculate()
             self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+
+    def test_persons_query_grouping(self):
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_person(
+            properties={
+                "email": f"jacob0@{random_uuid}.posthog.com",
+                "name": f"Mr Jacob {random_uuid}",
+                "random_uuid": random_uuid,
+                "index": 0,
+            },
+            team=self.team,
+            distinct_ids=[f"id-{random_uuid}-0", f"id-{random_uuid}-1"],
+            is_identified=True,
+        )
+        _create_event(
+            distinct_id=f"id-{random_uuid}-0",
+            event=f"clicky-0",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id=f"id-{random_uuid}-1",
+            event=f"clicky-9",
+            team=self.team,
+        )
+        flush_persons_and_events()
+        runner = self._create_runner(ActorsQuery(search="posthog.com"))
+
+        response = runner.calculate()
+        # Should show a single person despite multiple distinct_ids
+        self.assertEqual(len(response.results), 1)

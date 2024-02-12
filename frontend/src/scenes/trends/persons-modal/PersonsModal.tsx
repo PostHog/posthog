@@ -25,6 +25,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -81,6 +82,8 @@ export function PersonsModal({
         actors,
         actorsResponseLoading,
         actorsResponse,
+        errorObject,
+        validationError,
         insightActorsQueryOptions,
         searchTerm,
         actorLabel,
@@ -193,7 +196,13 @@ export function PersonsModal({
                 </div>
                 <div className="px-6 overflow-hidden flex flex-col">
                     <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
-                        {actors && actors.length > 0 ? (
+                        {errorObject ? (
+                            validationError ? (
+                                <InsightValidationError detail={validationError} />
+                            ) : (
+                                <InsightErrorState />
+                            )
+                        ) : actors && actors.length > 0 ? (
                             <>
                                 {actors.map((actor) => (
                                     <ActorRow
