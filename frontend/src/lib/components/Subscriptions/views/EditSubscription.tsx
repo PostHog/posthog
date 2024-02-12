@@ -1,4 +1,4 @@
-import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
