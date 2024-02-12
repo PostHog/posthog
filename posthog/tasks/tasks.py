@@ -726,6 +726,9 @@ def check_data_import_row_limits() -> None:
 # it can run on the default queue
 @shared_task(ignore_result=True)
 def calculate_replay_embeddings() -> None:
-    from posthog.tasks.replay_summaries import generate_recording_embeddings
+    try:
+        from ee.tasks.replay_summaries import generate_recording_embeddings
 
-    generate_recording_embeddings()
+        generate_recording_embeddings()
+    except ImportError:
+        pass

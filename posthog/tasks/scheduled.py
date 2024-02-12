@@ -224,16 +224,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
-    # every interval seconds, we calculate N replay embeddings
-    # the goal is to process _enough_ every 24 hours that
-    # there is a meaningful playlist to test with
-    add_periodic_task_with_expiry(
-        sender,
-        settings.REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS,
-        calculate_replay_embeddings.s(),
-        name="calculate replay embeddings",
-    )
-
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,
@@ -249,6 +239,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
     if settings.EE_AVAILABLE:
+        # every interval seconds, we calculate N replay embeddings
+        # the goal is to process _enough_ every 24 hours that
+        # there is a meaningful playlist to test with
+        add_periodic_task_with_expiry(
+            sender,
+            settings.REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS,
+            calculate_replay_embeddings.s(),
+            name="calculate replay embeddings",
+        )
+
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),
             clickhouse_send_license_usage.s(),
