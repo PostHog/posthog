@@ -311,8 +311,6 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     Functional API tests using Django REST Framework test suite.
     """
 
-    initial_cloud_mode: Optional[bool] = False
-
     def setUp(self):
         super().setUp()
 
