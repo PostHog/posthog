@@ -30,7 +30,7 @@ export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     popover?: LemonButtonDropdown
 }
 
-export function LemonTag({
+export const LemonTag = ({
     type = 'default',
     children,
     className,
@@ -41,7 +41,7 @@ export function LemonTag({
     onClose,
     popover,
     ...props
-}: LemonTagProps): JSX.Element {
+}: LemonTagProps): JSX.Element => {
     return (
         <div
             className={clsx(

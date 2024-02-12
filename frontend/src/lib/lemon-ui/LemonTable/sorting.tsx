@@ -1,4 +1,5 @@
 import { IconArrowDown, IconArrowUp, IconSort } from 'lib/lemon-ui/icons'
+import { forwardRef } from 'react'
 
 /** Sorting state. */
 export interface Sorting {
@@ -25,11 +26,22 @@ export function getNextSorting(
     }
 }
 
-export function SortingIndicator({ order }: { order: Sorting['order'] | null }): JSX.Element {
+// export function SortingIndicator({ order }: { order: Sorting['order'] | null }): JSX.Element {
+//     return (
+//         <div className="flex items-center text-base ml-2 whitespace-nowrap">
+//             <IconSort />
+//             {order === -1 ? <IconArrowDown /> : order === 1 ? <IconArrowUp /> : null}
+//         </div>
+//     )
+// }
+
+export const SortingIndicator: React.FunctionComponent<
+    { order: Sorting['order'] | null } & React.RefAttributes<HTMLDivElement>
+> = forwardRef(function SortingIndicator({ order }, ref): JSX.Element {
     return (
-        <div className="flex items-center text-base ml-2 whitespace-nowrap">
+        <div ref={ref} className="flex items-center text-base ml-2 whitespace-nowrap">
             <IconSort />
             {order === -1 ? <IconArrowDown /> : order === 1 ? <IconArrowUp /> : null}
         </div>
     )
-}
+})
