@@ -16,11 +16,10 @@ from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.person import MinimalPersonSerializer
-from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
@@ -30,7 +29,6 @@ from posthog.models.person.person import PersonDistinctId
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.permissions import (
     SharingTokenPermission,
-    TeamMemberAccessPermission,
 )
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -179,8 +177,8 @@ def list_recordings_response(
     return response
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
+# NOTE: Could we put the sharing stuff in the shared mixin :thinking:
+class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this

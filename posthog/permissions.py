@@ -137,6 +137,9 @@ class TeamMemberAccessPermission(BasePermission):
             view.team  # noqa: B018
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
+
+        # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
+        # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
 
