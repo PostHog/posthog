@@ -206,27 +206,36 @@ class ClickhouseTrendExperimentResult:
         self.team = team
         self.insight = trend_class()
 
-    def get_results(self):
+    def get_results(self, validate: bool = True):
         insight_results = self.insight.run(self.query_filter, self.team)
         exposure_results = self.insight.run(self.exposure_filter, self.team)
 
-        validate_event_variants(insight_results, self.variants)
+        basic_result_props = {"insight": insight_results, "filters": self.query_filter.to_dict()}
 
-        control_variant, test_variants = self.get_variants(insight_results, exposure_results)
+        try:
+            validate_event_variants(insight_results, self.variants)
 
-        probabilities = self.calculate_results(control_variant, test_variants)
+            control_variant, test_variants = self.get_variants(insight_results, exposure_results)
 
-        mapping = {
-            variant.key: probability for variant, probability in zip([control_variant, *test_variants], probabilities)
-        }
+            probabilities = self.calculate_results(control_variant, test_variants)
 
-        significance_code, p_value = self.are_results_significant(control_variant, test_variants, probabilities)
+            mapping = {
+                variant.key: probability
+                for variant, probability in zip([control_variant, *test_variants], probabilities)
+            }
+
+            significance_code, p_value = self.are_results_significant(control_variant, test_variants, probabilities)
+
+        except ValidationError as err:
+            if validate:
+                raise err
+            else:
+                return basic_result_props
 
         return {
-            "insight": insight_results,
+            **basic_result_props,
             "probability": mapping,
             "significant": significance_code == ExperimentSignificanceCode.SIGNIFICANT,
-            "filters": self.query_filter.to_dict(),
             "significance_code": significance_code,
             "p_value": p_value,
             "variants": [asdict(variant) for variant in [control_variant, *test_variants]],

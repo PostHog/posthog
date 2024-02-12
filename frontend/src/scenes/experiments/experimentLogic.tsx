@@ -614,9 +614,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                     last_refresh: secResults.last_refresh,
                                 }
                             } catch (error) {
-                                return {
-                                    result: {},
-                                }
+                                return {}
                             }
                         })
                     )
@@ -787,12 +785,12 @@ export const experimentLogic = kea<experimentLogicType>([
         conversionRateForVariant: [
             () => [],
             () =>
-                (experimentResults: ExperimentResults['result'] | null, variant: string): string => {
+                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): string => {
                     const errorResult = '--'
-                    if (!experimentResults) {
+                    if (!experimentResults || !experimentResults.insight) {
                         return errorResult
                     }
-                    const variantResults = (experimentResults?.insight as FunnelStep[][]).find(
+                    const variantResults = (experimentResults.insight as FunnelStep[][]).find(
                         (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
                     )
                     if (!variantResults) {
@@ -806,14 +804,17 @@ export const experimentLogic = kea<experimentLogicType>([
         getIndexForVariant: [
             () => [],
             () =>
-                (experimentResults: ExperimentResults['result'] | null, variant: string): number => {
+                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): number | null => {
                     // TODO: Would be nice for every secondary metric to have the same colour for variants
                     const insightType = experimentResults?.filters?.insight
-                    let result: number
+                    let result: number | null = null
                     // Ensures we get the right index from results, so the UI can
                     // display the right colour for the variant
-                    if (!experimentResults) {
-                        result = 0
+                    if (!experimentResults || !experimentResults.insight) {
+                        // TODO: Check ramifications of this
+
+                        return null
+                        // result = 0
                     } else {
                         let index = -1
                         if (insightType === InsightType.FUNNELS) {
@@ -824,13 +825,13 @@ export const experimentLogic = kea<experimentLogicType>([
                                     (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
                                 )
                         } else {
-                            index = (experimentResults?.insight as TrendResult[]).findIndex(
+                            index = (experimentResults.insight as TrendResult[]).findIndex(
                                 (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
                             )
                         }
-                        result = index === -1 ? 0 : index
+                        result = index === -1 ? null : index
                     }
-                    if (insightType === InsightType.FUNNELS) {
+                    if (result !== null && insightType === InsightType.FUNNELS) {
                         result++
                     }
                     return result
@@ -839,12 +840,12 @@ export const experimentLogic = kea<experimentLogicType>([
         countDataForVariant: [
             (s) => [s.experimentMathAggregationForTrends],
             (experimentMathAggregationForTrends) =>
-                (experimentResults: ExperimentResults['result'] | null, variant: string): string => {
+                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): string => {
                     const usingMathAggregationType = experimentMathAggregationForTrends(
                         experimentResults?.filters || {}
                     )
                     const errorResult = '--'
-                    if (!experimentResults) {
+                    if (!experimentResults || !experimentResults.insight) {
                         return errorResult
                     }
                     const variantResults = (experimentResults.insight as TrendResult[]).find(
@@ -889,9 +890,9 @@ export const experimentLogic = kea<experimentLogicType>([
         exposureCountDataForVariant: [
             () => [],
             () =>
-                (experimentResults: ExperimentResults['result'] | null, variant: string): string => {
+                (experimentResults: Partial<ExperimentResults['result']> | null, variant: string): string => {
                     const errorResult = '--'
-                    if (!experimentResults) {
+                    if (!experimentResults || !experimentResults.variants) {
                         return errorResult
                     }
                     const variantResults = (experimentResults.variants as TrendExperimentVariant[]).find(

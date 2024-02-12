@@ -3,7 +3,6 @@ import './Experiment.scss'
 import { LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { getSeriesColor } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
 import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
@@ -17,10 +16,11 @@ import { InsightType } from '~/types'
 
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
 import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
+import { getExperimentInsightColour } from './ExperimentResult'
 import { MetricSelector } from './MetricSelector'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 
-export function SecondaryMetrics({
+export function SecondaryMetricsTable({
     onMetricsChange,
     initialMetrics,
     experimentId,
@@ -59,7 +59,7 @@ export function SecondaryMetrics({
                         className="flex items-center w-fit h-5 px-1 rounded text-white text-xs"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            background: getSeriesColor(getIndexForVariant(experimentResults, item.variant)),
+                            background: getExperimentInsightColour(getIndexForVariant(experimentResults, item.variant)),
                         }}
                     >
                         {capitalizeFirstLetter(item.variant)}

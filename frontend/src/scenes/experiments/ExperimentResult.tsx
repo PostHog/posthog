@@ -17,6 +17,9 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightTyp
 import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
 
+export function getExperimentInsightColour(variantIndex: number | null): string {
+    return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
+}
 interface ExperimentResultProps {
     secondaryMetricId?: number
 }
@@ -37,85 +40,93 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
         experimentMathAggregationForTrends,
     } = useValues(experimentLogic)
 
-    const targetResults = secondaryMetricId ? secondaryMetricResults?.[secondaryMetricId] : experimentResults
+    const isSecondaryMetric = secondaryMetricId !== undefined
+    const targetResults = isSecondaryMetric ? secondaryMetricResults?.[secondaryMetricId] : experimentResults
     const targetResultFilters = targetResults?.filters
     const targetResultsInsightType = targetResultFilters?.insight || InsightType.TRENDS
-    const targetResultsLoading = secondaryMetricId ? secondaryMetricResultsLoading : experimentResultsLoading
+    const targetResultsLoading = isSecondaryMetric ? secondaryMetricResultsLoading : experimentResultsLoading
 
     const experimentResultVariants = experiment?.parameters?.feature_flag_variants || []
 
+    const validMetric = targetResults && targetResults.insight
+
     return (
         <div className="experiment-result">
-            {targetResults ? (
+            {validMetric ? (
                 experimentResultVariants.length > 4 ? (
                     <>
                         <LemonTable
                             showHeader={false}
+                            dataSource={
+                                [
+                                    {
+                                        header: 'Variant',
+                                        ...Object.fromEntries(
+                                            sortedExperimentResultVariants.map((variant, idx) => [
+                                                variant,
+                                                <div
+                                                    key={idx}
+                                                    className="color"
+                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                    style={{
+                                                        color: getExperimentInsightColour(
+                                                            getIndexForVariant(targetResults, variant)
+                                                        ),
+                                                    }}
+                                                >
+                                                    <b>{capitalizeFirstLetter(variant)}</b>
+                                                </div>,
+                                            ])
+                                        ),
+                                    },
+                                    {
+                                        header:
+                                            targetResultsInsightType === InsightType.TRENDS
+                                                ? experimentMathAggregationForTrends(targetResultFilters)
+                                                    ? 'Metric'
+                                                    : 'Count'
+                                                : 'Conversion Rate',
+                                        ...Object.fromEntries(
+                                            sortedExperimentResultVariants.map((variant) => [
+                                                variant,
+                                                targetResultsInsightType === InsightType.TRENDS
+                                                    ? countDataForVariant(targetResults, variant)
+                                                    : `${conversionRateForVariant(targetResults, variant)}%`,
+                                            ])
+                                        ),
+                                    },
+                                    targetResultsInsightType === InsightType.TRENDS
+                                        ? {
+                                              header: 'Exposure',
+                                              ...Object.fromEntries(
+                                                  sortedExperimentResultVariants.map((variant) => [
+                                                      variant,
+                                                      exposureCountDataForVariant(targetResults, variant),
+                                                  ])
+                                              ),
+                                          }
+                                        : {},
+                                    {
+                                        header: 'Probability to be the best',
+                                        ...Object.fromEntries(
+                                            sortedExperimentResultVariants.map((variant) => [
+                                                variant,
+                                                targetResults.probability?.[variant] != undefined
+                                                    ? `${(targetResults.probability[variant] * 100).toFixed(1)}%`
+                                                    : '--',
+                                            ])
+                                        ),
+                                    },
+                                ].filter((row) => Object.keys(row).length > 0) as {
+                                    [key: string]: string | JSX.Element
+                                }[]
+                            }
                             columns={[
                                 { title: 'Header', dataIndex: 'header' },
                                 ...sortedExperimentResultVariants.map((variant) => ({
                                     title: capitalizeFirstLetter(variant),
                                     dataIndex: variant,
                                 })),
-                            ]}
-                            dataSource={[
-                                {
-                                    header: 'Variant',
-                                    ...Object.fromEntries(
-                                        sortedExperimentResultVariants.map((variant, idx) => [
-                                            variant,
-                                            <div
-                                                key={idx}
-                                                className="color"
-                                                // eslint-disable-next-line react/forbid-dom-props
-                                                style={{
-                                                    color: getSeriesColor(getIndexForVariant(targetResults, variant)),
-                                                }}
-                                            >
-                                                <b>{capitalizeFirstLetter(variant)}</b>
-                                            </div>,
-                                        ])
-                                    ),
-                                },
-                                {
-                                    header:
-                                        targetResultsInsightType === InsightType.TRENDS
-                                            ? experimentMathAggregationForTrends(targetResultFilters)
-                                                ? 'Metric'
-                                                : 'Count'
-                                            : 'Conversion Rate',
-                                    ...Object.fromEntries(
-                                        sortedExperimentResultVariants.map((variant) => [
-                                            variant,
-                                            targetResultsInsightType === InsightType.TRENDS
-                                                ? countDataForVariant(targetResults, variant)
-                                                : `${conversionRateForVariant(targetResults, variant)}%`,
-                                        ])
-                                    ),
-                                },
-                                targetResultsInsightType === InsightType.TRENDS
-                                    ? {
-                                          // TODO: Make this work better, right now empty row in middle
-                                          header: 'Exposure',
-                                          ...Object.fromEntries(
-                                              sortedExperimentResultVariants.map((variant) => [
-                                                  variant,
-                                                  exposureCountDataForVariant(targetResults, variant),
-                                              ])
-                                          ),
-                                      }
-                                    : {},
-                                {
-                                    header: 'Probability to be the best',
-                                    ...Object.fromEntries(
-                                        sortedExperimentResultVariants.map((variant) => [
-                                            variant,
-                                            targetResults.probability[variant]
-                                                ? `${(targetResults.probability[variant] * 100).toFixed(1)}%`
-                                                : '--',
-                                        ])
-                                    ),
-                                },
                             ]}
                         />
                     </>
@@ -124,7 +135,9 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                         {
                             //sort by decreasing probability, but omit the ones that are not in the results
                             sortedExperimentResultVariants
-                                .filter((variant) => targetResults.probability.hasOwnProperty(variant))
+                                .filter(
+                                    (variant) => isSecondaryMetric || targetResults.probability?.hasOwnProperty(variant)
+                                )
                                 .map((variant, idx) => (
                                     <div key={idx} className="pr-4">
                                         <div>
@@ -135,11 +148,12 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                                 <div className="flex">
                                                     <b className="pr-1">
                                                         <div className="flex">
-                                                            {'action' in targetResults.insight[0] && (
-                                                                <EntityFilterInfo
-                                                                    filter={targetResults.insight[0].action}
-                                                                />
-                                                            )}
+                                                            {targetResults.insight?.[0] &&
+                                                                'action' in targetResults.insight[0] && (
+                                                                    <EntityFilterInfo
+                                                                        filter={targetResults.insight[0].action}
+                                                                    />
+                                                                )}
                                                             <span className="pl-1">
                                                                 {experimentMathAggregationForTrends(targetResultFilters)
                                                                     ? 'metric'
@@ -172,12 +186,21 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                             </div>
                                         )}
                                         <LemonProgress
-                                            percent={Number((targetResults.probability[variant] * 100).toFixed(1))}
-                                            strokeColor={getSeriesColor(getIndexForVariant(targetResults, variant))}
+                                            percent={Number(
+                                                ((targetResults.probability?.[variant] ?? 0) * 100).toFixed(1)
+                                            )}
+                                            strokeColor={getExperimentInsightColour(
+                                                getIndexForVariant(targetResults, variant)
+                                            )}
                                         />
                                         <div>
                                             Probability that this variant is the best:{' '}
-                                            <b>{(targetResults.probability[variant] * 100).toFixed(1)}%</b>
+                                            <b>
+                                                {targetResults.probability?.[variant] != undefined
+                                                    ? (targetResults.probability?.[variant] * 100).toFixed(1)
+                                                    : '--'}
+                                                %
+                                            </b>
                                         </div>
                                     </div>
                                 ))
@@ -187,14 +210,14 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
             ) : (
                 targetResultsLoading && <LoadingState />
             )}
-            {targetResults ? (
+            {validMetric ? (
                 // :KLUDGE: using `insights-page` for proper styling, should rather adapt styles
                 <div className="mt-4 Insight">
                     <Query
                         query={{
                             kind: NodeKind.InsightVizNode,
-                            source: filtersToQueryNode(transformResultFilters(targetResults.filters)),
-                            showTable: secondaryMetricId !== undefined ? false : true,
+                            source: filtersToQueryNode(transformResultFilters(targetResults.filters ?? {})),
+                            showTable: !isSecondaryMetric,
                             showLastComputation: true,
                             showLastComputationRefresh: false,
                         }}
@@ -203,7 +226,7 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
                                 dashboardItemId: targetResults.fakeInsightId as InsightShortId,
                                 cachedInsight: {
                                     short_id: targetResults.fakeInsightId as InsightShortId,
-                                    filters: transformResultFilters(targetResults.filters),
+                                    filters: transformResultFilters(targetResults.filters ?? {}),
                                     result: targetResults.insight,
                                     disable_baseline: true,
                                     last_refresh: targetResults.last_refresh,
@@ -217,12 +240,14 @@ export function ExperimentResult({ secondaryMetricId }: ExperimentResultProps): 
             ) : (
                 experiment.start_date && (
                     <>
-                        {/* TODO: Customise message for secondary metrics */}
                         <div className="no-experiment-results p-4">
                             {!targetResultsLoading && (
                                 <div className="text-center">
                                     <div className="mb-4">
-                                        <b>There are no results for this experiment yet.</b>
+                                        <b>
+                                            There are no results for this{' '}
+                                            {isSecondaryMetric ? 'secondary metric' : 'experiment'} yet.
+                                        </b>
                                     </div>
                                     {!!experimentResultCalculationError && (
                                         <div className="text-sm mb-2">{experimentResultCalculationError}</div>

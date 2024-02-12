@@ -49,7 +49,8 @@ import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ExperimentInsightCreator } from './MetricSelector'
-import { SecondaryMetrics } from './SecondaryMetrics'
+import { SecondaryMetricsResult } from './SecondaryMetricsResult'
+import { SecondaryMetricsTable } from './SecondaryMetricsTable'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -472,7 +473,7 @@ export function Experiment(): JSX.Element {
                                                     Use secondary metrics to monitor metrics related to your experiment
                                                     goal. You can add up to three secondary metrics.{' '}
                                                 </div>
-                                                <SecondaryMetrics
+                                                <SecondaryMetricsTable
                                                     onMetricsChange={onChange}
                                                     initialMetrics={value}
                                                     experimentId={experiment.id}
@@ -815,7 +816,7 @@ export function Experiment(): JSX.Element {
                                                 </div>
                                             )}
                                             <div>
-                                                <SecondaryMetrics
+                                                <SecondaryMetricsTable
                                                     experimentId={experiment.id}
                                                     onMetricsChange={(metrics) =>
                                                         updateExperimentSecondaryMetrics(metrics)
@@ -839,21 +840,7 @@ export function Experiment(): JSX.Element {
                     </div>
                     <h2 className="font-semibold text-lg m-0 mt-4">Experiment result</h2>
                     <ExperimentResult />
-                    <div className="mt-4">
-                        <h2 className="font-semibold text-lg m-0">Secondary metrics</h2>
-                        <LemonCollapse
-                            className="w-full mt-4"
-                            panels={
-                                experiment.secondary_metrics?.map((metric, index) => {
-                                    return {
-                                        key: `secondary-metric-results-${index}`,
-                                        header: metric.name || `Metric ${index + 1}`,
-                                        content: <ExperimentResult secondaryMetricId={index} />,
-                                    }
-                                }) || []
-                            }
-                        />
-                    </div>
+                    <SecondaryMetricsResult />
                 </div>
             ) : (
                 <LoadingState />
